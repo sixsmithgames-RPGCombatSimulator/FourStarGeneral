@@ -235,7 +235,18 @@ export class CampaignScreen {
 
     const originTile = scenario.tiles.find((t) => t.hex.q === aAx.q && t.hex.r === aAx.r);
     const destTile = scenario.tiles.find((t) => t.hex.q === bAx.q && t.hex.r === bAx.r);
-    const originForces = (originTile?.forces ?? []).map((g) => ({ unitType: g.unitType, count: g.count }));
+    const originFormations = this.campaignState.getCampaignFormationRoster("Player")
+      .filter((formation) => projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey) === originOffsetKey);
+    const originForces = (originTile?.forces ?? []).map((g) => {
+      const names = originFormations
+        .filter((formation) => formation.campaignUnitType === g.unitType)
+        .map((formation) => formation.name);
+      return {
+        unitType: g.unitType,
+        count: g.count,
+        label: names.length > 0 ? names.join(" + ") : this.formatCampaignLabel(g.unitType)
+      };
+    });
     if (!originTile || originForces.length === 0) return;
 
     const originRole = scenario.tilePalette[originTile.tile]?.role ?? null;
@@ -291,8 +302,8 @@ export class CampaignScreen {
         return `
         <div class="redeploy-unit-row" data-unit-row="${idx}">
           <div class="unit-label">
-            <span class="unit-name">${this.escapeHtml(g.unitType.replace(/_/g, " "))}</span>
-            <span class="unit-avail">of ${g.count}</span>
+            <span class="unit-name">${this.escapeHtml(g.label)}</span>
+            <span class="unit-avail">${this.escapeHtml(this.formatCampaignLabel(g.unitType))} · ${g.count} available</span>
           </div>
           <input type="range" min="0" max="${g.count}" value="${selectedCount}" data-move-slider="${idx}" aria-label="${this.escapeHtml(g.unitType)} count" />
           <input type="number" min="0" max="${g.count}" value="${selectedCount}" data-move-index="${idx}" />
@@ -310,17 +321,17 @@ export class CampaignScreen {
     body.innerHTML = `
       <form id="campaignRedeployForm" class="redeploy-modal">
         <div class="redeploy-route">
-          <span class="route-node">${originOffsetKey}${originRole ? ` · ${this.escapeHtml(originRole)}` : ""}</span>
+          <span class="route-node">${originOffsetKey}${originRole ? ` · ${this.escapeHtml(this.formatCampaignLabel(originRole))}` : ""}</span>
           <span class="route-arrow">→</span>
-          <span class="route-node">${destOffsetKey}${destRole ? ` · ${this.escapeHtml(destRole)}` : ""}</span>
+          <span class="route-node">${destOffsetKey}${destRole ? ` · ${this.escapeHtml(this.formatCampaignLabel(destRole))}` : ""}</span>
           <span class="route-distance">${distance} hex · ~${distance * hexKm} km</span>
         </div>
+        <div class="redeploy-issues" id="campaignRedeployIssues"></div>
         <div class="redeploy-section-label">Transport mode</div>
         <div class="redeploy-modes">${modeCards}</div>
         <div class="redeploy-section-label">Units to move</div>
         <div class="redeploy-units">${unitRows}</div>
         <div class="redeploy-summary-panel" id="campaignRedeploySummary"></div>
-        <div class="redeploy-issues" id="campaignRedeployIssues"></div>
         <div class="button-row redeploy-actions">
           <button type="submit" class="primary-button" id="campaignRedeployConfirm">${editingOrder ? "Replace Draft" : "Add Draft"}</button>
           <button type="button" id="campaignRedeployCancel" class="secondary-button">Cancel</button>
@@ -3495,6 +3506,17 @@ export class CampaignScreen {
         : "Use the downloaded JSON for archival or scenario review.",
       tone: warnings.length > 0 ? "warning" : "success"
     });
+  }
+
+  private formatCampaignLabel(value: string): string {
+    return value
+      .replace(/_/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1) : word)
+      .join(" ");
   }
 
   private saveCampaignToFile(): void {

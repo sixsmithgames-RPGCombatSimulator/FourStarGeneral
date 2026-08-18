@@ -36,6 +36,8 @@ export interface BattleTemplateEntry {
   /** Mission archetypes this map serves. */
   missionTypes: readonly CampaignMissionType[];
   terrain: TemplateTerrain;
+  /** Strategic campaign scenarios whose geography can reuse this tactical map. */
+  campaignKeys: readonly string[];
   /** Role occupied by the authored Player side before campaign forces replace the roster. */
   playerRole: "attacker" | "defender";
 }
@@ -45,18 +47,18 @@ export interface BattleTemplateEntry {
  * Add entries as new templates are authored; selection degrades gracefully to the fallback.
  */
 export const BATTLE_TEMPLATES: readonly BattleTemplateEntry[] = Object.freeze([
-  { key: "fortified_monte_cassino", scenario: monteCassinoScenario, missionTypes: ["fortifiedAssault"], terrain: "inland", playerRole: "attacker" },
-  { key: "fortified_omaha_coast", scenario: omahaBeachScenario, missionTypes: ["fortifiedAssault", "portAssault"], terrain: "coastal", playerRole: "attacker" },
-  { key: "fortified_citadel_ridge", scenario: citadelRidgeScenario, missionTypes: ["fortifiedAssault", "lineAssault"], terrain: "inland", playerRole: "attacker" },
-  { key: "line_el_alamein", scenario: elAlameinScenario, missionTypes: ["lineAssault", "meetingEngagement"], terrain: "inland", playerRole: "attacker" },
-  { key: "line_hurtgen_forest", scenario: hurtgenForestScenario, missionTypes: ["lineAssault"], terrain: "inland", playerRole: "attacker" },
-  { key: "port_gela_landings", scenario: gelaLandingsScenario, missionTypes: ["portAssault"], terrain: "coastal", playerRole: "attacker" },
-  { key: "port_anzio_beachhead", scenario: anzioBeachheadScenario, missionTypes: ["portAssault", "fortifiedAssault"], terrain: "coastal", playerRole: "defender" },
-  { key: "raid_kasserine_pass", scenario: kasserinePassScenario, missionTypes: ["airfieldRaid", "meetingEngagement"], terrain: "inland", playerRole: "defender" },
-  { key: "raid_carentan", scenario: carentanScenario, missionTypes: ["airfieldRaid", "depotRaid"], terrain: "inland", playerRole: "attacker" },
-  { key: "depot_bastogne", scenario: bastogneScenario, missionTypes: ["depotRaid"], terrain: "inland", playerRole: "defender" },
-  { key: "depot_falaise_pocket", scenario: falaisePocketScenario, missionTypes: ["depotRaid", "meetingEngagement"], terrain: "inland", playerRole: "attacker" },
-  { key: "meeting_two_bridges", scenario: twoBridgesScenario, missionTypes: ["meetingEngagement"], terrain: "inland", playerRole: "attacker" }
+  { key: "fortified_monte_cassino", scenario: monteCassinoScenario, missionTypes: ["fortifiedAssault"], terrain: "inland", campaignKeys: [], playerRole: "attacker" },
+  { key: "fortified_omaha_coast", scenario: omahaBeachScenario, missionTypes: ["fortifiedAssault", "portAssault"], terrain: "coastal", campaignKeys: ["central_channel"], playerRole: "attacker" },
+  { key: "fortified_citadel_ridge", scenario: citadelRidgeScenario, missionTypes: ["fortifiedAssault", "lineAssault"], terrain: "inland", campaignKeys: [], playerRole: "attacker" },
+  { key: "line_el_alamein", scenario: elAlameinScenario, missionTypes: ["lineAssault", "meetingEngagement"], terrain: "inland", campaignKeys: [], playerRole: "attacker" },
+  { key: "line_hurtgen_forest", scenario: hurtgenForestScenario, missionTypes: ["fortifiedAssault", "lineAssault"], terrain: "inland", campaignKeys: ["central_channel"], playerRole: "attacker" },
+  { key: "port_gela_landings", scenario: gelaLandingsScenario, missionTypes: ["portAssault"], terrain: "coastal", campaignKeys: [], playerRole: "attacker" },
+  { key: "port_anzio_beachhead", scenario: anzioBeachheadScenario, missionTypes: ["portAssault", "fortifiedAssault"], terrain: "coastal", campaignKeys: [], playerRole: "defender" },
+  { key: "raid_kasserine_pass", scenario: kasserinePassScenario, missionTypes: ["airfieldRaid", "meetingEngagement"], terrain: "inland", campaignKeys: [], playerRole: "defender" },
+  { key: "raid_carentan", scenario: carentanScenario, missionTypes: ["airfieldRaid", "depotRaid"], terrain: "inland", campaignKeys: ["central_channel"], playerRole: "attacker" },
+  { key: "depot_bastogne", scenario: bastogneScenario, missionTypes: ["depotRaid"], terrain: "inland", campaignKeys: ["central_channel"], playerRole: "defender" },
+  { key: "depot_falaise_pocket", scenario: falaisePocketScenario, missionTypes: ["depotRaid", "meetingEngagement"], terrain: "inland", campaignKeys: ["central_channel"], playerRole: "attacker" },
+  { key: "meeting_two_bridges", scenario: twoBridgesScenario, missionTypes: ["meetingEngagement"], terrain: "inland", campaignKeys: ["central_channel"], playerRole: "attacker" }
 ]);
 
 /** Fallback when no template matches the mission type (should not happen with the seed stock). */
@@ -80,13 +82,20 @@ function hashString(value: string): number {
 export function selectBattleTemplate(
   missionType: CampaignMissionType,
   coastal: boolean,
-  engagementId: string
+  engagementId: string,
+  campaignKey?: string
 ): BattleTemplateEntry {
-  const byMission = BATTLE_TEMPLATES.filter((entry) => entry.missionTypes.includes(missionType));
+  const compatible = campaignKey
+    ? BATTLE_TEMPLATES.filter((entry) => entry.campaignKeys.includes(campaignKey))
+    : BATTLE_TEMPLATES;
+  const byMission = compatible.filter((entry) => entry.missionTypes.includes(missionType));
   const preferredTerrain: TemplateTerrain = coastal ? "coastal" : "inland";
   const byTerrain = byMission.filter((entry) => entry.terrain === preferredTerrain);
   const pool = byTerrain.length > 0 ? byTerrain : byMission;
   if (pool.length === 0) {
+    if (campaignKey) {
+      throw new Error(`[battleTemplates] No ${missionType} template is compatible with campaign '${campaignKey}'`);
+    }
     const fallback = BATTLE_TEMPLATES.find((entry) => entry.key === FALLBACK_TEMPLATE_KEY);
     if (!fallback) {
       throw new Error("[battleTemplates] Fallback template missing from registry");
@@ -95,4 +104,13 @@ export function selectBattleTemplate(
     return fallback;
   }
   return pool[hashString(engagementId) % pool.length];
+}
+
+export function getBattleTemplateByKey(key: string): BattleTemplateEntry | null {
+  return BATTLE_TEMPLATES.find((entry) => entry.key === key) ?? null;
+}
+
+/** True once a campaign has at least one explicitly approved tactical map. */
+export function hasBattleTemplatesForCampaign(campaignKey: string): boolean {
+  return BATTLE_TEMPLATES.some((entry) => entry.campaignKeys.includes(campaignKey));
 }

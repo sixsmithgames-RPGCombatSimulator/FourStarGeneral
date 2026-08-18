@@ -24,6 +24,7 @@ import {
   CAMPAIGN_AIR_UNIT_TYPES,
   CAMPAIGN_NAVAL_UNIT_TYPES
 } from "./campaignForceMapping";
+import { hasBattleTemplatesForCampaign, selectBattleTemplate } from "./battleTemplates";
 
 /** Operational radius (in campaign hexes) from which air wings can support a battle. 1 hex = 10 km. */
 export const AIR_SORTIE_RANGE_HEXES = 15;
@@ -232,13 +233,18 @@ export function buildEngagementContext(
   const attackerEconomy = scenario.economies.find((e) => e.faction === attacker);
   const supplies = attackerEconomy?.supplies ?? 0;
   const rpReserve = Math.max(RP_RESERVE_FLOOR, Math.min(RP_RESERVE_CEILING, Math.floor(supplies / 4)));
+  const missionType = deriveMissionType(scenario, options.battleHexKey);
+  const templateCampaignKey = hasBattleTemplatesForCampaign(scenario.key)
+    ? scenario.key
+    : "central_channel";
+  const templateKey = selectBattleTemplate(missionType, coastal, options.engagementId, templateCampaignKey).key;
 
   return {
     engagementId: options.engagementId,
     battleHexKey: options.battleHexKey,
     attacker,
     defender,
-    missionType: deriveMissionType(scenario, options.battleHexKey),
+    missionType,
     // Full amphibious (cross-water assault) detection is future work; coastal steers templates now.
     amphibious: false,
     coastal,
@@ -257,7 +263,7 @@ export function buildEngagementContext(
     enemyForceValue,
     forceRatio,
     intelligenceBriefing: options.intelligenceBriefing ?? undefined,
-    templateKey: null,
+    templateKey,
     frontKey: options.frontKey ?? null,
     objectiveKey: options.objectiveKey ?? null
   };

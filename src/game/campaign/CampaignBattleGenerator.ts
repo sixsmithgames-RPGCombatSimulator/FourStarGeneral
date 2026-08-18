@@ -20,7 +20,7 @@ import type { CampaignEngagementContext, CampaignMissionType } from "../../core/
 import type { FormationStatus, ScenarioUnit, TacticalCampaignFormationProvenance } from "../../core/types";
 import { findTemplateForUnitKey } from "../adapters";
 import { mapCampaignUnitToAllocationKey, getCampaignUnitRpValue, CAMPAIGN_AIR_UNIT_TYPES, CAMPAIGN_NAVAL_UNIT_TYPES } from "./campaignForceMapping";
-import { selectBattleTemplate } from "./battleTemplates";
+import { getBattleTemplateByKey, hasBattleTemplatesForCampaign, selectBattleTemplate } from "./battleTemplates";
 import { MISSION_TYPE_LABELS } from "./EngagementContextBuilder";
 import { createCampaignFormationBattleSeed } from "./formations/CampaignFormationBattleAdapter";
 import type { CampaignRuntimeState } from "./runtime/campaignRuntimeTypes";
@@ -128,6 +128,35 @@ function relabelInvertedDeploymentZone(
     : `${label}. Enemy attack assembly area for this campaign engagement.`;
 }
 
+function relabelCampaignDeploymentZones(
+  scenario: Record<string, unknown>,
+  playerDefense: boolean,
+  battleHexKey: string
+): void {
+  const zones = Array.isArray(scenario["deploymentZones"])
+    ? scenario["deploymentZones"] as Array<Record<string, unknown>>
+    : [];
+  const factionIndexes = new Map<string, number>();
+  zones.forEach((zone) => {
+    const faction = zone["faction"] === "Bot" ? "Bot" : "Player";
+    const index = (factionIndexes.get(faction) ?? 0) + 1;
+    factionIndexes.set(faction, index);
+    if (faction === "Player") {
+      const role = playerDefense ? "Defense Sector" : "Assault Staging Area";
+      zone["label"] = `Friendly ${role} ${index}`;
+      zone["description"] = playerDefense
+        ? `Campaign formations defending the engagement area at operational hex ${battleHexKey}.`
+        : `Campaign formations assembling to attack from operational hex ${battleHexKey}.`;
+    } else {
+      const role = playerDefense ? "Attack Assembly Area" : "Defense Sector";
+      zone["label"] = `Opposing ${role} ${index}`;
+      zone["description"] = playerDefense
+        ? `Opposing formations assembling to attack the engagement area at operational hex ${battleHexKey}.`
+        : `Opposing formations defending the engagement area at operational hex ${battleHexKey}.`;
+    }
+  });
+}
+
 interface GenerationCacheEntry {
   engagementId: string;
   commitmentIntegrity: string | null;
@@ -193,7 +222,19 @@ export function generateCampaignBattleScenario(
   const effectiveContext = battlePackage?.engagementId === context.engagementId
     ? battlePackage.context
     : context;
-  const template = selectBattleTemplate(effectiveContext.missionType, effectiveContext.coastal, effectiveContext.engagementId);
+  const requestedCampaignKey = battlePackage?.scenarioKey ?? "central_channel";
+  // Legacy and test packages predate theater-tagged maps. Until a campaign receives its own
+  // approved pool, keep those packages on the shipped Western Europe pool instead of reopening
+  // unrestricted global selection. Explicit pools take over automatically when authored.
+  const campaignKey = hasBattleTemplatesForCampaign(requestedCampaignKey)
+    ? requestedCampaignKey
+    : "central_channel";
+  const template = effectiveContext.templateKey
+    ? getBattleTemplateByKey(effectiveContext.templateKey)
+    : selectBattleTemplate(effectiveContext.missionType, effectiveContext.coastal, effectiveContext.engagementId, campaignKey);
+  if (!template || !template.campaignKeys.includes(campaignKey)) {
+    throw new Error(`[CampaignBattleGenerator] Template '${effectiveContext.templateKey ?? "unresolved"}' is not compatible with campaign '${campaignKey}'.`);
+  }
   const scenario = structuredClone(template.scenario) as ScenarioSource & Record<string, unknown>;
   const playerDefense = effectiveContext.attacker === "Bot" && effectiveContext.defender === "Player";
   const invertAuthoredSides = playerDefense && template.playerRole === "attacker";
@@ -203,6 +244,9 @@ export function generateCampaignBattleScenario(
     : `${MISSION_TYPE_LABELS[effectiveContext.missionType]} — Hex ${effectiveContext.battleHexKey}`;
   scenario["campaignTemplateKey"] = template.key;
   scenario["campaignTemplatePlayerRole"] = template.playerRole;
+  scenario["campaignPlayerRole"] = playerDefense ? "defender" : "attacker";
+  scenario["campaignMissionType"] = effectiveContext.missionType;
+  scenario["campaignBattleHexKey"] = effectiveContext.battleHexKey;
   scenario["campaignEngagementId"] = effectiveContext.engagementId;
   scenario["campaignBattlePackageId"] = battlePackage?.packageId ?? null;
   scenario["campaignInfrastructureEffectiveness"] = effectiveContext.infrastructureEffectiveness ?? 1;
@@ -265,6 +309,8 @@ export function generateCampaignBattleScenario(
     player["goal"] = "Hold the defended objectives and prevent an operational breakthrough.";
     player["strategy"] = "Use prepared ground, preserve the core formations, and counterattack only when the enemy attack loses cohesion.";
   }
+
+  relabelCampaignDeploymentZones(scenario, playerDefense, effectiveContext.battleHexKey);
 
   const doctrine = playerDefense
     ? BOT_OFFENSIVE_DOCTRINE[effectiveContext.missionType]

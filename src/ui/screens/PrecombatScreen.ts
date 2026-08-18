@@ -638,10 +638,6 @@ export class PrecombatScreen {
     this.renderMiniMap();
     this.requestMiniMapRender();
     this.renderMissionSummary(missionKey, selectedDifficulty);
-    if (this.isPlayerDefensiveEngagement()) {
-      this.missionTitleElement.textContent = `${MISSION_TYPE_LABELS[this.engagementContext!.missionType]} Defense`;
-      this.missionBriefingElement.textContent = "Enemy forces have opened a tactical attack. Deploy the exact campaign formations caught in the battle, hold the defended objectives, and preserve the core force.";
-    }
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();
     this.appendAlliedForcesObjective();
@@ -2029,8 +2025,17 @@ export class PrecombatScreen {
    * Populates the mission briefing panel with objectives, timeline, and logistical expectations.
    */
   private renderMissionSummary(missionKey: MissionKey, selectedDifficulty: BotDifficulty): void {
-    const title = getMissionTitle(missionKey);
-    const briefing = getMissionBriefing(missionKey);
+    const campaignContext = missionKey === "campaign" ? this.engagementContext : null;
+    const campaignPlayerDefense = Boolean(campaignContext?.attacker === "Bot" && campaignContext.defender === "Player");
+    const engagementLabel = campaignContext ? MISSION_TYPE_LABELS[campaignContext.missionType] : null;
+    const title = campaignContext
+      ? `${engagementLabel}${campaignPlayerDefense ? " Defense" : ""} — Hex ${campaignContext.battleHexKey}`
+      : getMissionTitle(missionKey);
+    const briefing = campaignContext
+      ? campaignPlayerDefense
+        ? `Opposing forces have opened a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Hold the marked tactical ground or break the attacking ground force before the defensive window closes.`
+        : `Friendly forces are opening a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Secure the marked tactical ground or break the opposing ground force before the tactical window closes.`
+      : getMissionBriefing(missionKey);
     const summary = getMissionSummaryPackage(missionKey, selectedDifficulty);
     const missionRules = createMissionRulesController(missionKey, this.miniMapScenario, selectedDifficulty);
     const missionRuleObjectives = missionRules.getStatus().objectives;
@@ -2041,7 +2046,14 @@ export class PrecombatScreen {
       ? this.miniMapScenario.turnLimit
       : null;
     const authoredTurnLimit = getMissionTurnLimit(missionKey, selectedDifficulty);
-    const effectiveTurnLimit = authoredTurnLimit > 0 ? authoredTurnLimit : scenarioTurnLimit;
+    const effectiveTurnLimit = campaignContext
+      ? scenarioTurnLimit
+      : authoredTurnLimit > 0 ? authoredTurnLimit : scenarioTurnLimit;
+    const doctrine = campaignContext
+      ? campaignPlayerDefense
+        ? "Hold coherent defensive ground, preserve the committed formations, and counterattack only when the opposing attack loses cohesion."
+        : "Concentrate the committed formations, secure the tactical objective network, and preserve a viable force for the campaign that follows."
+      : summary.doctrine;
 
     this.missionTitleElement.textContent = title;
     this.missionBriefingElement.textContent = briefing;
@@ -2065,14 +2077,14 @@ export class PrecombatScreen {
     this.baselineSupplyListElement.innerHTML = visibleMissionAssets
       .map((item) => `<li><strong>${item.label}</strong><span>${item.amount}</span></li>`)
       .join("");
-    this.doctrineNotesElement.textContent = summary.doctrine;
+    this.doctrineNotesElement.textContent = doctrine;
 
     const missionInfo = {
       missionKey,
       title,
       briefing,
       objectives,
-      doctrine: summary.doctrine,
+      doctrine,
       turnLimit: effectiveTurnLimit,
       baselineSupplies: summary.supplies
     };

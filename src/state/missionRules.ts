@@ -1839,6 +1839,129 @@ function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDif
   } satisfies MissionRulesController;
 }
 
+function createCampaignBattleController(scenario: ScenarioData): MissionRulesController {
+  const metadata = scenario as unknown as Record<string, unknown>;
+  const playerRole = metadata["campaignPlayerRole"] === "defender" ? "defender" : "attacker";
+  const battleHexKey = typeof metadata["campaignBattleHexKey"] === "string"
+    ? metadata["campaignBattleHexKey"]
+    : "the contested sector";
+  const objectiveHexes = (scenario.objectives ?? []).map((objective) => ({
+    hex: objective.hex,
+    key: makeKey(objective.hex)
+  }));
+  let currentOutcome: MissionOutcome = { state: "inProgress" };
+  let currentTurn = 0;
+
+  const buildOccupancy = (): ReadonlyMap<string, TurnFaction> => {
+    const occupancy = new Map<string, TurnFaction>();
+    scenario.sides.Bot.units.forEach((unit) => occupancy.set(makeKey(unit.hex), "Bot"));
+    scenario.sides.Ally?.units.forEach((unit) => occupancy.set(makeKey(unit.hex), "Ally"));
+    scenario.sides.Player.units.forEach((unit) => occupancy.set(makeKey(unit.hex), "Player"));
+    return occupancy;
+  };
+
+  const countFriendlyObjectives = (occupancy: ReadonlyMap<string, TurnFaction>): number => objectiveHexes
+    .filter((objective) => isFriendlyOccupant(occupancy.get(objective.key))).length;
+
+  const buildMarkers = (occupancy: ReadonlyMap<string, TurnFaction>): readonly ObjectiveMarkerProgress[] => objectiveHexes
+    .map((objective, index) => {
+      const occupant = occupancy.get(objective.key);
+      const status = isFriendlyOccupant(occupant) ? "player" : occupant === "Bot" ? "enemy" : "unoccupied";
+      return {
+        hex: objective.hex,
+        status,
+        tooltip: `Tactical objective ${index + 1} — ${status === "player" ? "friendly-held" : status === "enemy" ? "opposing-held" : "unoccupied"}.`
+      } satisfies ObjectiveMarkerProgress;
+    });
+
+  const buildStatus = (
+    turn: number,
+    occupancy: ReadonlyMap<string, TurnFaction>,
+    playerUnits: readonly ScenarioUnit[],
+    botUnits: readonly ScenarioUnit[]
+  ): MissionStatus => {
+    const friendlyHeld = countFriendlyObjectives(occupancy);
+    const objectiveTotal = objectiveHexes.length;
+    const botForce = getGroundForceScore(botUnits);
+    const primaryState: ObjectiveState = currentOutcome.state === "playerVictory"
+      ? "completed"
+      : currentOutcome.state === "playerDefeat" ? "failed" : "inProgress";
+    const forceState: ObjectiveState = botForce <= 0
+      ? "completed"
+      : currentOutcome.state === "playerDefeat" ? "failed" : "inProgress";
+    const turnLimit = scenario.turnLimit ?? null;
+    const timeDetail = turnLimit === null ? "No fixed tactical deadline." : `${Math.max(0, turnLimit - turn)} turns remain.`;
+    return {
+      turn,
+      objectives: [
+        {
+          id: "campaign_control_engagement_area",
+          label: playerRole === "defender" ? "Hold the engagement area" : "Secure the engagement area",
+          tier: "primary",
+          state: primaryState,
+          detail: objectiveTotal > 0
+            ? `Friendly control: ${friendlyHeld}/${objectiveTotal} tactical objectives at ${battleHexKey}. ${timeDetail}`
+            : `Maintain an effective ground force at ${battleHexKey}. ${timeDetail}`
+        },
+        {
+          id: "campaign_break_opposing_force",
+          label: "Break the opposing ground force",
+          tier: "secondary",
+          state: forceState,
+          detail: botForce <= 0 ? "No effective opposing ground force remains." : "Opposing ground formations remain combat-effective."
+        }
+      ],
+      outcome: currentOutcome,
+      markers: buildMarkers(occupancy)
+    } satisfies MissionStatus;
+  };
+
+  const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
+    currentTurn = snapshot.turnSummary.turnNumber;
+    if (currentOutcome.state === "inProgress") {
+      const playerForce = getGroundForceScore([...(snapshot.allyUnits ?? []), ...snapshot.playerUnits]);
+      const botForce = getGroundForceScore(snapshot.botUnits);
+      const friendlyHeld = countFriendlyObjectives(snapshot.occupancy);
+      const turnLimit = snapshot.scenario.turnLimit ?? scenario.turnLimit ?? null;
+      if (playerForce <= 0) {
+        currentOutcome = { state: "playerDefeat", reason: "No effective friendly ground formations remain in the engagement." };
+      } else if (botForce <= 0) {
+        currentOutcome = { state: "playerVictory", reason: "The opposing ground force is no longer combat-effective." };
+      } else if (playerRole === "attacker" && objectiveHexes.length > 0 && friendlyHeld === objectiveHexes.length) {
+        currentOutcome = { state: "playerVictory", reason: "Friendly forces secured every tactical objective in the engagement area." };
+      } else if (turnLimit !== null && currentTurn >= turnLimit) {
+        if (playerRole === "defender" && (objectiveHexes.length === 0 || friendlyHeld > 0)) {
+          currentOutcome = { state: "playerVictory", reason: "Friendly forces held the engagement area through the defensive window." };
+        } else {
+          currentOutcome = { state: "playerDefeat", reason: "The tactical window closed before the engagement objective was secured." };
+        }
+      }
+    }
+    return buildStatus(currentTurn, snapshot.occupancy, snapshot.playerUnits, snapshot.botUnits);
+  };
+
+  return {
+    onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus {
+      return deriveStatus(snapshot);
+    },
+    getStatus(): MissionStatus {
+      return buildStatus(currentTurn, buildOccupancy(), scenario.sides.Player.units, scenario.sides.Bot.units);
+    },
+    serializeState(): SerializedMissionRulesState {
+      return { version: 1, kind: "campaignBattle", data: { outcome: currentOutcome, turn: currentTurn } };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      const data = readMissionRuleState(snapshot, "campaignBattle");
+      const outcome = data["outcome"] as MissionOutcome | undefined;
+      if (!outcome || !["inProgress", "playerVictory", "playerDefeat"].includes(outcome.state)) {
+        throw new Error("Campaign battle mission-rule snapshot has an invalid outcome.");
+      }
+      currentOutcome = structuredClone(outcome);
+      currentTurn = Number.isInteger(data["turn"]) && Number(data["turn"]) >= 0 ? Number(data["turn"]) : 0;
+    }
+  } satisfies MissionRulesController;
+}
+
 export function createMissionRulesController(missionKey: string, scenario: ScenarioData, difficulty: BotDifficulty = "Normal"): MissionRulesController {
   if (missionKey === "patrol") {
     return createTownDefenseController(scenario);
@@ -1858,6 +1981,9 @@ export function createMissionRulesController(missionKey: string, scenario: Scena
   }
   if (missionKey === "assault_citadel_ridge") {
     return createCitadelRidgeController(scenario, difficulty);
+  }
+  if (missionKey === "campaign") {
+    return createCampaignBattleController(scenario);
   }
 
   return {

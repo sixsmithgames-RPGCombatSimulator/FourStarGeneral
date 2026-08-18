@@ -899,11 +899,11 @@
 
 .campaign-order-composer__stages {
   display: grid;
-  grid-template-columns: repeat(7, minmax(84px, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.3rem;
   margin: 0;
   padding: 0 0 0.15rem;
-  overflow-x: auto;
+  overflow-x: hidden;
   list-style: none;
 }
 
@@ -918,6 +918,13 @@
   border-radius: var(--campaign-radius-small, 4px);
   color: var(--campaign-color-text-muted, rgba(216, 208, 183, 0.7));
   font-size: 0.58rem;
+  min-width: 0;
+}
+
+.campaign-order-composer__stages li > strong { min-width: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  .campaign-order-composer__stages { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 .campaign-order-composer__stages li > span {

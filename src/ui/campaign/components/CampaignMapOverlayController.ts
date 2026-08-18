@@ -281,7 +281,7 @@ export class CampaignMapOverlayController {
     if (this.coverageFilter) this.coverageFilter.hidden = effective.id !== "intelligence";
     if (this.listToggle) {
       const count = this.getListEntries(effective.id).length;
-      this.listToggle.textContent = `Map list ${count}`;
+      this.listToggle.textContent = `Map list (${count} hexes)`;
       this.listToggle.setAttribute("aria-label", `${effective.label} map list, ${count} item${count === 1 ? "" : "s"}`);
       if (requested.status === "featureGated") this.listToggle.textContent = `${requested.shortLabel} unavailable`;
     }

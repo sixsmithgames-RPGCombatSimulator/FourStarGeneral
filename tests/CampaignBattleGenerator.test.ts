@@ -3,6 +3,8 @@ import { registerTest } from "./harness.js";
 import type { CampaignEngagementContext } from "../src/core/campaignTypes";
 import { generateCampaignBattleScenario } from "../src/game/campaign/CampaignBattleGenerator";
 import { BATTLE_TEMPLATES, selectBattleTemplate } from "../src/game/campaign/battleTemplates";
+import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
+import { createMissionRulesController } from "../src/state/missionRules";
 
 function buildContext(overrides: Partial<CampaignEngagementContext> = {}): CampaignEngagementContext {
   return {
@@ -42,6 +44,10 @@ registerTest("CAMPAIGN_BATTLE_TEMPLATE_SELECTION", async ({ Given, When, Then })
       if (!BATTLE_TEMPLATES.some((entry) => entry.missionTypes.includes(missionType))) {
         throw new Error(`No template covers mission type ${missionType}`);
       }
+      const compatible = selectBattleTemplate(missionType, false, `central_${missionType}`, "central_channel");
+      if (!compatible.campaignKeys.includes("central_channel")) {
+        throw new Error(`${missionType} selected a template outside the Western Europe campaign.`);
+      }
     }
   });
 
@@ -77,11 +83,22 @@ registerTest("CAMPAIGN_BATTLE_BOT_ROSTER_GENERATION", async ({ Given, When, Then
     const raw = scenario as unknown as {
       name: string;
       campaignTemplateKey?: string;
+      campaignPlayerRole?: string;
+      campaignMissionType?: string;
+      campaignBattleHexKey?: string;
+      deploymentZones: Array<{ label: string; description?: string }>;
       size: { cols: number; rows: number };
       sides: { Bot: { units: Array<{ hex: [number, number]; entrench: number; experience: number }>; resources: number; goal: string } };
     };
     if (!raw.name.startsWith("Fortified Assault")) throw new Error(`Scenario not renamed: ${raw.name}`);
     if (!raw.campaignTemplateKey) throw new Error("Template key not recorded on generated scenario");
+    if (raw.campaignPlayerRole !== "attacker" || raw.campaignMissionType !== "fortifiedAssault" || raw.campaignBattleHexKey !== "5,5") {
+      throw new Error("Generated campaign battle lost its frozen engagement identity metadata.");
+    }
+    const zoneCopy = raw.deploymentZones.map((zone) => `${zone.label} ${zone.description ?? ""}`).join(" ");
+    if (/Eighth Army|minefield|Tebessa|Argentan|Bastogne|Carentan/i.test(zoneCopy)) {
+      throw new Error(`Generated deployment copy leaked its authored template identity: ${zoneCopy}`);
+    }
 
     const units = raw.sides.Bot.units;
     if (units.length !== 8) throw new Error(`Expected 8 ground units, got ${units.length}`);
@@ -205,10 +222,10 @@ registerTest("CAMPAIGN_BATTLE_PLAYER_DEFENSE_PRESERVES_AUTHORED_DEFENSIVE_GEOMET
     if (raw.campaignTemplateKey !== "depot_bastogne" || raw.campaignTemplatePlayerRole !== "defender") {
       throw new Error("Generated defense did not retain its authored defensive-orientation metadata.");
     }
-    if (!playerLabels.includes("Bastogne Core") || playerLabels.some((label) => label.includes("Encirclement"))) {
+    if (!playerLabels.every((label) => label.startsWith("Friendly Defense Sector"))) {
       throw new Error(`Player received the wrong defensive zones: ${playerLabels.join(", ")}.`);
     }
-    if (!botLabels.includes("North Encirclement") || !botLabels.includes("East Encirclement")) {
+    if (!botLabels.every((label) => label.startsWith("Opposing Attack Assembly Area"))) {
       throw new Error(`Bot lost the authored attack approaches: ${botLabels.join(", ")}.`);
     }
     if (raw.objectives.some((objective) => objective.owner !== "Player")) {
@@ -254,11 +271,59 @@ registerTest("CAMPAIGN_BATTLE_INVERTED_DEFENSE_USES_PLAYER_FACING_ZONE_COPY", as
     }).deploymentZones;
     const playerCopy = zones.filter((zone) => zone.faction === "Player").map((zone) => `${zone.label} ${zone.description}`).join(" ");
     const botCopy = zones.filter((zone) => zone.faction === "Bot").map((zone) => `${zone.label} ${zone.description}`).join(" ");
-    if (!playerCopy.includes("Friendly defensive deployment area") || /\b(German|Axis)\b/i.test(playerCopy)) {
+    if (!playerCopy.includes("Friendly Defense Sector") || /\b(German|Axis)\b/i.test(playerCopy)) {
       throw new Error(`Player defensive zone copy remained factionally stale: ${playerCopy}.`);
     }
-    if (!botCopy.includes("Enemy attack assembly area") || /\b(Allied|American|British|Eighth Army|U\.S\.)\b/i.test(botCopy)) {
+    if (!botCopy.includes("Opposing Attack Assembly Area") || /\b(Allied|American|British|Eighth Army|U\.S\.)\b/i.test(botCopy)) {
       throw new Error(`Bot attack-zone copy remained factionally stale: ${botCopy}.`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_RULES", async ({ Given, When, Then }) => {
+  let generated: ReturnType<typeof generateCampaignBattleScenario> | null = null;
+
+  await Given("a Western Europe meeting engagement whose old hash pool included desert templates", async () => {
+    for (let index = 0; index < 100; index += 1) {
+      const selected = selectBattleTemplate("meetingEngagement", false, `western_meeting_${index}`, "central_channel");
+      if (!selected.campaignKeys.includes("central_channel") || /el_alamein|kasserine/.test(selected.key)) {
+        throw new Error(`Western Europe selected incompatible template ${selected.key}.`);
+      }
+    }
+  });
+
+  await When("the engagement freezes a compatible template and enters campaign mission rules", async () => {
+    generated = generateCampaignBattleScenario(buildContext({
+      engagementId: "eng_frozen_western_meeting",
+      missionType: "meetingEngagement",
+      templateKey: "meeting_two_bridges"
+    }));
+  });
+
+  await Then("the same template, engagement-specific objectives, and a real terminal result survive", async () => {
+    if (!generated) throw new Error("Campaign battle was not generated.");
+    const raw = generated as unknown as { campaignTemplateKey: string; deploymentZones: Array<{ label: string; description: string }> };
+    if (raw.campaignTemplateKey !== "meeting_two_bridges") {
+      throw new Error(`Frozen template drifted to ${raw.campaignTemplateKey}.`);
+    }
+    const normalized = normalizeScenarioSource(generated as unknown as RawScenarioInput, { turnLimit: 12 });
+    const controller = createMissionRulesController("campaign", normalized);
+    const initial = controller.getStatus();
+    if (initial.objectives.length !== 2 || initial.objectives[0]?.label !== "Secure the engagement area") {
+      throw new Error("Campaign tactical rules did not expose engagement-specific objectives.");
+    }
+    const occupancy = new Map<string, "Player">();
+    normalized.objectives?.forEach((objective) => occupancy.set(`${objective.hex.q},${objective.hex.r}`, "Player"));
+    const terminal = controller.onTurnAdvanced({
+      turnSummary: { turnNumber: 1 } as never,
+      scenario: normalized,
+      occupancy,
+      playerUnits: normalized.sides.Player.units,
+      botUnits: [],
+      allyUnits: normalized.sides.Ally?.units
+    });
+    if (terminal.outcome.state !== "playerVictory" || terminal.objectives[0]?.state !== "completed") {
+      throw new Error("Campaign tactical rules remained non-terminal after the opposing force was defeated.");
     }
   });
 });

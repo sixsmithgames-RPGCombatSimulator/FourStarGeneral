@@ -19,7 +19,7 @@ import {
  */
 function buildFixtureScenario(): CampaignScenarioData {
   return {
-    key: "ctx_test",
+    key: "central_channel",
     title: "Context Builder Fixture",
     description: "",
     dimensions: { cols: 40, rows: 40 },
@@ -118,6 +118,9 @@ registerTest("ENGAGEMENT_CONTEXT_AVAILABILITY_AND_CAPS", async ({ Given, When, T
 
     if (!Number.isFinite(context.forceRatio) || context.forceRatio <= 0) {
       throw new Error(`forceRatio should be finite and positive, got ${context.forceRatio}`);
+    }
+    if (!context.templateKey || !context.templateKey.match(/omaha|hurtgen/)) {
+      throw new Error(`Western Europe engagement did not freeze a compatible fortified template: ${context.templateKey}`);
     }
   });
 });
