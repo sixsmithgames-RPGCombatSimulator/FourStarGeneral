@@ -209,7 +209,7 @@ function initializeApplication(): void {
   if (bootStatus) {
     bootStatus.dataset.ready = "true";
     bootStatus.setAttribute("aria-label", "Command systems ready");
-    window.requestAnimationFrame(() => bootStatus.remove());
+    bootStatus.remove();
   }
 
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
