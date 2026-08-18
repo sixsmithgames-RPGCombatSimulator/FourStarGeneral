@@ -2808,6 +2808,12 @@ export class CampaignState {
         "The redeployment destination is not part of the current operational map.",
         "Choose a visible map hex that belongs to the current theater."
       );
+    } else if (runtimeDestination.controller !== "Neutral" && runtimeDestination.controller !== "Player") {
+      addIssue(
+        "ORDER_TARGET_INVALID",
+        "Redeployment cannot enter a location under opposing control.",
+        "Stage on friendly or neutral ground, then launch a tactical engagement from a Player-initiative front."
+      );
     }
 
     const active = selections.filter((s) => s.count > 0);

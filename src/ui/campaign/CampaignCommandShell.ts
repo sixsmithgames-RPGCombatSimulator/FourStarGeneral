@@ -711,6 +711,11 @@ export class CampaignCommandShell {
       }
     });
     this.root.querySelector("[data-close-campaign-workspace]")?.addEventListener("click", () => this.setWorkspaceExpanded(false));
+    this.root.querySelector("#campaignHeadquartersWorkspaceIntro")?.addEventListener("click", (event) => {
+      const proxy = (event.target as Element).closest<HTMLButtonElement>("[data-campaign-session-proxy]");
+      const targetId = proxy?.dataset.campaignSessionProxy;
+      if (targetId) this.root.querySelector<HTMLButtonElement>(`#${targetId}`)?.click();
+    });
     this.root.querySelector("#campaignOutcomeReview")?.addEventListener("click", () => {
       const panel = this.root.querySelector<HTMLElement>("#campaignOutcomePanel");
       this.dismissedOutcomeKey = panel?.dataset.outcomeKey ?? null;

@@ -463,6 +463,7 @@ export class CampaignScreen {
       layer.setAttribute("aria-hidden", "true");
       clearPreview();
       this.commandCommitFeedback = { feedback: `Redeployment draft ${editingOrder ? "replaced" : "added"}; exact holds are visible in the tray.`, feedbackTone: "success" };
+      this.renderCommandShell();
       this.setCampaignStatusMessage({
         title: result.order.validation.valid ? `Redeployment draft ${editingOrder ? "replaced" : "ready"}.` : "Redeployment draft has a conflict.",
         detail: result.order.validation.issues[0]?.message ?? `Movement draft ${editingOrder ? "replaced" : "added"} from ${originOffsetKey} to ${destOffsetKey}.`,
@@ -1214,6 +1215,7 @@ export class CampaignScreen {
       }
       hide();
       this.commandCommitFeedback = { feedback: `Production draft ${editingOrder ? "replaced" : "added"}; the next-delivery slot is held without spending stocks.`, feedbackTone: "success" };
+      this.renderCommandShell();
       this.setCampaignStatusMessage({
         title: result.order.validation.valid ? `Production draft ${editingOrder ? "replaced" : "ready"}.` : "Production draft has a conflict.",
         detail: result.order.validation.issues[0]?.message ?? `The ${editingOrder ? "revised" : "new"} output mix is waiting in the order tray.`,
@@ -1293,6 +1295,7 @@ export class CampaignScreen {
       }
       hide();
       this.commandCommitFeedback = { feedback: "Reconstruction draft added; stocks, facility slot, and supervising formation are held without spending.", feedbackTone: "success" };
+      this.renderCommandShell();
       this.setCampaignStatusMessage({
         title: result.order.validation.valid ? "Repair draft ready." : "Repair draft has a conflict.",
         detail: result.order.validation.issues[0]?.message ?? "The reconstruction plan is waiting in the order tray.",
@@ -1605,6 +1608,7 @@ export class CampaignScreen {
     const rule = this.campaignState.getIntelOperationRules()[this.intelOperationType];
     const replaced = Boolean(this.editingIntelOrderId);
     this.commandCommitFeedback = { feedback: `${rule.label} draft ${replaced ? "replaced" : "added"}; capacity, assets, and stocks are held without spending.`, feedbackTone: "success" };
+    this.renderCommandShell();
     this.intelFeedback = result.order.validation.valid
       ? `${rule.label} draft ${replaced ? "replaced" : "added"} for ${this.selectedHexKey}; review and commit it in the order tray.`
       : result.order.validation.issues[0]?.message ?? `${rule.label} draft has a conflict.`;

@@ -230,7 +230,11 @@ function validateStaticOrder(runtime: CampaignRuntimeState, order: CampaignOrder
     if (!origin || origin.controller !== order.faction) {
       issues.push(issue("ORDER_SOURCE_INVALID", "The origin is no longer controlled by the issuing faction."));
     }
-    if (!destination) issues.push(issue("ORDER_TARGET_INVALID", "The redeployment destination is no longer available."));
+    if (!destination) {
+      issues.push(issue("ORDER_TARGET_INVALID", "The redeployment destination is no longer available."));
+    } else if (destination.controller !== "Neutral" && destination.controller !== order.faction) {
+      issues.push(issue("ORDER_TARGET_INVALID", "Redeployment cannot enter a location under opposing control."));
+    }
     if (order.payload.selections.length === 0 || order.payload.selections.some((entry) => !Number.isInteger(entry.count) || entry.count <= 0)) {
       issues.push(issue("ORDER_SELECTION_INVALID", "Select at least one valid unit quantity."));
     }

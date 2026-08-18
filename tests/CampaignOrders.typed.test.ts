@@ -284,6 +284,7 @@ registerTest("CAMPAIGN_FCI4_PREVIEW_PRIORITY_REPLACE_AND_CANCEL_PARITY", async (
 registerTest("CAMPAIGN_REDEPLOY_PREVIEW_REJECTS_MISSING_MAP_DESTINATION", async ({ Given, When, Then }) => {
   const state = buildState();
   const missingDestination = "26,24";
+  const hostileDestination = "28,38";
 
   await Given("a selected destination inside the rendered grid but absent from the authoritative theater tiles", async () => {});
   await When("the player previews and attempts to draft a redeployment to that location", async () => {});
@@ -295,6 +296,14 @@ registerTest("CAMPAIGN_REDEPLOY_PREVIEW_REJECTS_MISSING_MAP_DESTINATION", async 
     const draft = state.createRedeployDraft(ORIGIN, missingDestination, [{ unitType: "Infantry_42", count: 8 }], "foot");
     if (draft.ok || state.getCampaignOrders().length !== 0) {
       throw new Error("Missing theater destination reached the authoritative order tray.");
+    }
+    const hostilePreview = state.previewRedeploy(ORIGIN, hostileDestination, [{ unitType: "Infantry_42", count: 8 }], "foot");
+    if (hostilePreview?.ok || !hostilePreview?.diagnostics.some((entry) => entry.code === "ORDER_TARGET_INVALID")) {
+      throw new Error("Opposing-controlled destination was not rejected by the redeployment preview.");
+    }
+    const hostileDraft = state.createRedeployDraft(ORIGIN, hostileDestination, [{ unitType: "Infantry_42", count: 8 }], "foot");
+    if (hostileDraft.ok || state.getCampaignOrders().length !== 0) {
+      throw new Error("Opposing-controlled destination reached the authoritative order tray.");
     }
   });
 });

@@ -101,4 +101,17 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
       <p>Available support is carried into engagement planning; unavailable mission types are not presented as orders.</p>
     `;
   }
+  const headquarters = panel.querySelector<HTMLElement>("#campaignHeadquartersWorkspaceIntro");
+  if (headquarters) {
+    headquarters.innerHTML = `
+      <p>Protect campaign continuity, resume saved operations, and review tactical battle records from one place.</p>
+      <div class="campaign-workspace-actions" aria-label="Headquarters session actions">
+        <button type="button" class="campaign-workspace-primary" data-campaign-session-proxy="campaignSave">Save campaign</button>
+        <button type="button" data-campaign-session-proxy="campaignLoad">Load latest save</button>
+        <button type="button" data-campaign-session-proxy="campaignBattleSaves">Browse battle saves</button>
+        <button type="button" data-campaign-session-proxy="campaignExit">Exit to main menu</button>
+      </div>
+      <p>The theater command bar shows whether the current campaign state is saved.</p>
+    `;
+  }
 }

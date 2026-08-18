@@ -32,7 +32,7 @@ function mountCommandShellFixture(includeDeveloperTemplates = false): HTMLElemen
           <section class="sidebar-section economy-section"><div id="campaignEconomySummary"></div></section>
           <section class="sidebar-section production-section"><div id="campaignProductionSummary"></div><button id="campaignProductionManage"></button></section>
           <section class="sidebar-section map-controls-section"><button id="campaignZoomOut">−</button><button id="campaignResetView">Reset</button><button id="campaignZoomIn">+</button></section>
-          <section class="sidebar-section session-section"><div class="session-controls"><button id="campaignSave" class="session-btn">Save</button><button id="campaignLoad" class="session-btn">Load</button><button id="campaignExit" class="session-btn">Exit</button></div></section>
+          <section class="sidebar-section session-section"><div class="session-controls"><button id="campaignSave" class="session-btn">Save</button><button id="campaignLoad" class="session-btn">Load</button><button id="campaignBattleSaves" class="session-btn">Battles</button><button id="campaignExit" class="session-btn">Exit</button></div></section>
           ${includeDeveloperTemplates ? `
             <template id="campaignDeveloperSessionTemplate"><button id="campaignEditMode">Edit</button></template>
             <template id="campaignDeveloperEditorTemplate"><section id="campaignEditPanel"><button id="campaignExportJSON">Export</button></section></template>
@@ -55,9 +55,11 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
   let openedIntelligence = 0;
   let advancedMode = "";
   let pausePreference = false;
+  let savedFromHeadquarters = 0;
 
   await Given("the shipped campaign controls enter the Campaign 2.0 shell", async () => {
     root = mountCommandShellFixture();
+    root.querySelector("#campaignSave")?.addEventListener("click", () => { savedFromHeadquarters += 1; });
     shell = new CampaignCommandShell(root, {
       onOpenIntelligence: () => { openedIntelligence += 1; },
       onAdvance: (mode) => { advancedMode = mode; },
@@ -133,6 +135,10 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
     }
     root.querySelector<HTMLButtonElement>("#campaignAdvanceSegment")?.click();
     root.querySelector<HTMLButtonElement>("#campaignTimelineToggle")?.click();
+    root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='headquarters']")?.click();
+    root.querySelector<HTMLButtonElement>("[data-campaign-session-proxy='campaignSave']")?.click();
+    root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='intelligence']")?.click();
+    root.querySelector<HTMLButtonElement>("[data-close-campaign-workspace]")?.click();
   });
 
   await Then("semantic regions, roving tabs, text-only projections, and the committed timeline are present", async () => {
@@ -146,6 +152,11 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
       throw new Error("Workspace selection and aria-selected state diverged.");
     }
     if (openedIntelligence !== 1) throw new Error(`Expected one intelligence callback, received ${openedIntelligence}.`);
+    if (savedFromHeadquarters !== 1
+      || !root.textContent?.includes("Protect campaign continuity")
+      || root.querySelector(".session-section")?.getAttribute("data-campaign-shell-hidden") !== "true") {
+      throw new Error("Headquarters did not expose its first-class session actions or retained the empty legacy shell.");
+    }
     if (root.querySelector(".campaign-command-shell")?.getAttribute("data-workspace-expanded") !== "false") {
       throw new Error("Compact workspace close control did not release the map canvas.");
     }

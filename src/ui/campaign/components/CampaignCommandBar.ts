@@ -34,5 +34,6 @@ export function createCampaignCommandBar(root: HTMLElement): HTMLElement {
     const control = root.querySelector<HTMLElement>(selector);
     if (control && session) session.appendChild(control);
   });
+  root.querySelector<HTMLElement>(".session-section")?.setAttribute("data-campaign-shell-hidden", "true");
   return bar;
 }

@@ -35,6 +35,10 @@ interface GeneralFormData {
   commissionedAt: string | null;
 }
 
+export function resolveSelectedOperationDestination(mission: MissionKey | null): "campaign" | "precombat" {
+  return mission === "campaign" ? "campaign" : "precombat";
+}
+
 function deriveSlug(label: string): string {
   return label
     .toLowerCase()
@@ -425,8 +429,15 @@ export class LandingScreen {
       }
     });
 
-    // Enter precombat
-    this.enterPrecombatButton?.addEventListener("click", () => this.transitionToPrecombat());
+    // Enter the currently selected operation. Campaign selections route to the strategic shell;
+    // battle missions route through requisition and deployment.
+    this.enterPrecombatButton?.addEventListener("click", () => {
+      if (resolveSelectedOperationDestination(this.uiState.selectedMission) === "campaign") {
+        this.transitionToCampaign();
+      } else {
+        this.transitionToPrecombat();
+      }
+    });
 
     // Campaign tiles mirror mission buttons, so reuse the same handler for consistent feedback and navigation.
     this.campaignButtons.forEach((button) => {
