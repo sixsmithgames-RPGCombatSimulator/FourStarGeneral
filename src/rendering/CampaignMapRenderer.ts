@@ -841,13 +841,46 @@ export class CampaignMapRenderer {
     return Array.from(merged.values()).sort((a, b) => b.count - a.count);
   }
 
-  /** Draws polylines along the declared fronts using hex centers as control points. */
+  /** Draws derived shared-border segments, with authored center polylines retained as a legacy fallback. */
   private renderFronts(layer: SVGGElement, scenario: CampaignScenarioData): void {
     if (!scenario.fronts || scenario.fronts.length === 0) {
       return;
     }
 
     scenario.fronts.forEach((front) => {
+      const color = front.initiative === "Player" ? "#5bc0ff" : front.initiative === "Bot" ? "#ff6b6b" : "#ffd166";
+      if (front.edges && front.edges.length > 0) {
+        const density = this.getHexDensityScalar();
+        front.edges.forEach((edge, index) => {
+          const friendly = this.getHexCenter(edge.friendlyHexKey);
+          const opposing = this.getHexCenter(edge.opposingHexKey);
+          if (!friendly || !opposing) return;
+          const dx = opposing.cx - friendly.cx;
+          const dy = opposing.cy - friendly.cy;
+          const magnitude = Math.hypot(dx, dy);
+          if (magnitude <= 0) return;
+          const midpointX = (friendly.cx + opposing.cx) / 2;
+          const midpointY = (friendly.cy + opposing.cy) / 2;
+          const halfLength = HEX_RADIUS * density * 0.48;
+          const perpendicularX = (-dy / magnitude) * halfLength;
+          const perpendicularY = (dx / magnitude) * halfLength;
+          const segment = document.createElementNS(SVG_NS, "line");
+          segment.setAttribute("x1", String(midpointX - perpendicularX));
+          segment.setAttribute("y1", String(midpointY - perpendicularY));
+          segment.setAttribute("x2", String(midpointX + perpendicularX));
+          segment.setAttribute("y2", String(midpointY + perpendicularY));
+          segment.setAttribute("stroke", color);
+          segment.setAttribute("stroke-width", "4.5");
+          segment.setAttribute("stroke-linecap", "round");
+          segment.setAttribute("opacity", "0.95");
+          segment.setAttribute("pointer-events", "none");
+          segment.setAttribute("data-front-edge", `${edge.friendlyHexKey}|${edge.opposingHexKey}`);
+          segment.classList.add("campaign-front", `front-${front.key}`, "campaign-front-edge");
+          if (index === 0) segment.setAttribute("aria-label", front.label);
+          layer.appendChild(segment);
+        });
+        return;
+      }
       const points: string[] = [];
       front.hexKeys.forEach((hexKey) => {
         let center = this.getHexCenter(hexKey);
@@ -866,7 +899,6 @@ export class CampaignMapRenderer {
 
       const poly = document.createElementNS(SVG_NS, "polyline");
       poly.setAttribute("points", points.join(" "));
-      const color = front.initiative === "Player" ? "#5bc0ff" : front.initiative === "Bot" ? "#ff6b6b" : "#ffd166";
       poly.setAttribute("stroke", color);
       poly.setAttribute("stroke-width", "3.5");
       poly.setAttribute("fill", "none");

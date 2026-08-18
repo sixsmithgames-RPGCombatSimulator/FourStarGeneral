@@ -78,6 +78,7 @@ export class LandingScreen {
   private exportRosterButton: HTMLButtonElement | null = null;
   private importRosterInput: HTMLInputElement | null = null;
   private enterPrecombatButton: HTMLButtonElement | null = null;
+  private resumeTacticalBattleButton: HTMLButtonElement | null = null;
   private feedback: HTMLElement | null = null;
   private generalRosterList: HTMLElement | null = null;
   private generalFormSection: HTMLElement | null = null;
@@ -379,6 +380,7 @@ export class LandingScreen {
     this.exportRosterButton = this.element.querySelector('#exportRosterButton');
     this.importRosterInput = this.element.querySelector('#importRosterInput');
     this.enterPrecombatButton = this.element.querySelector('#enterPrecombat');
+    this.resumeTacticalBattleButton = this.element.querySelector('#resumeTacticalBattle');
     this.feedback = this.element.querySelector('#feedback');
     this.generalRosterList = this.element.querySelector('#generalRosterList');
     this.generalFormSection = this.element.querySelector('#generalFormSection');
@@ -429,6 +431,15 @@ export class LandingScreen {
     // Campaign tiles mirror mission buttons, so reuse the same handler for consistent feedback and navigation.
     this.campaignButtons.forEach((button) => {
       button.addEventListener("click", () => this.handleMissionSelection(button));
+    });
+    this.resumeTacticalBattleButton?.addEventListener("click", () => {
+      if (this.unlockState.isCampaignLocked("campaign")) {
+        this.showFeedback("Campaign battle saves require full-game campaign access.");
+        return;
+      }
+      document.dispatchEvent(new CustomEvent("campaign:battle:saves-open", {
+        detail: { invokerId: this.resumeTacticalBattleButton?.id ?? null }
+      }));
     });
   }
 

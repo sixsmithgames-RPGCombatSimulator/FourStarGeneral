@@ -1,5 +1,9 @@
 # Campaign Map Design Overview
 
+> **Planning update (2026-08-02):** This original scaffolding document remains useful for map/rendering history, but its product scope, 5 km assumption, direct-mutation turn loop, and deferred AI/fog boundaries are superseded by [Campaign 2.0 — first-class game product and engineering plan](../docs/CAMPAIGN_2_0_FIRST_CLASS_GAME_PLAN.md). `scenario.hexScaleKm` is now the planned authority, with legacy content defaulting to the current 10 km constant.
+
+> **Implementation update (2026-08-02):** The live screen now uses the [Campaign 2.0 M1 command shell](./CAMPAIGN_2_0_M1_COMMAND_SHELL.md). Map clicks are selection-only; explicit inspector controls own redeployment planning, and existing scheduled decisions appear in the persistent order timeline.
+
 ## Summary
 The campaign map is a new strategic layer that presents the theater of war at a 5km-per-hex scale. It allows the player to position resources, move forces, and queue battles when opposing forces come into proximity. Visually, the campaign map overlays hex outlines, base/unit sprites, and front-line markers atop a high‑resolution illustration. This document defines the scope, data contracts, rendering approach, turn loop, save/load/exit controls, and integration points required to introduce the campaign layer while preserving existing battle flows.
 

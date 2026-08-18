@@ -56,7 +56,9 @@ export class TutorialOverlay {
         this.lastAnchoredSelector = null;
         this.lastAnchoredTarget = null;
         this.activeMiniTutorial = null;
+        this.activeMiniTutorialStepIndex = 0;
         this.sidebarMiniTutorialListener = null;
+        this.sidebarMiniTutorialInteractionListener = null;
         this.sidebarMiniTutorialStorageKey = "four-star-general.sidebar-mini-tutorials.v1";
     }
     getHighlightTargets(selector) {
@@ -115,6 +117,14 @@ export class TutorialOverlay {
             };
             document.addEventListener(SIDEBAR_MINI_TUTORIAL_EVENT, this.sidebarMiniTutorialListener);
         }
+        if (!this.sidebarMiniTutorialInteractionListener) {
+            this.sidebarMiniTutorialInteractionListener = (event) => {
+                this.handleSidebarMiniTutorialInteraction(event);
+            };
+            // Capture panel actions before dynamic boards (notably Air Support) rerender
+            // and detach the clicked control during their own click handler.
+            document.addEventListener("click", this.sidebarMiniTutorialInteractionListener, true);
+        }
     }
     /**
      * Cleans up the overlay and unsubscribes from state.
@@ -134,6 +144,10 @@ export class TutorialOverlay {
         if (this.sidebarMiniTutorialListener) {
             document.removeEventListener(SIDEBAR_MINI_TUTORIAL_EVENT, this.sidebarMiniTutorialListener);
             this.sidebarMiniTutorialListener = null;
+        }
+        if (this.sidebarMiniTutorialInteractionListener) {
+            document.removeEventListener("click", this.sidebarMiniTutorialInteractionListener, true);
+            this.sidebarMiniTutorialInteractionListener = null;
         }
         this.removeOverlayElements();
     }
@@ -171,6 +185,7 @@ export class TutorialOverlay {
       </div>
       <div class="tutorial-panel-footer">
         <button type="button" class="tutorial-action-btn primary-button">Continue</button>
+        <p class="tutorial-action-hint" role="status" hidden></p>
       </div>
       <div class="tutorial-arrow hidden"></div>
     `;
@@ -266,37 +281,37 @@ export class TutorialOverlay {
             return;
         }
         this.activeMiniTutorial = tutorial;
-        this.currentStep = {
-            phase: "inactive",
-            title: tutorial.title,
-            content: tutorial.content,
-            highlightSelector: tutorial.highlightSelector,
-            position: tutorial.position,
-            arrowDirection: tutorial.arrowDirection,
-            actionLabel: tutorial.actionLabel
-        };
+        this.activeMiniTutorialStepIndex = 0;
         this.show();
-        this.renderSidebarMiniTutorial(tutorial);
-        this.markSidebarMiniTutorialSeen(tutorial.key);
+        this.renderSidebarMiniTutorialStep();
     }
-    renderSidebarMiniTutorial(tutorial) {
-        if (!this.panelElement || !this.currentStep) {
+    renderSidebarMiniTutorialStep() {
+        const tutorial = this.activeMiniTutorial;
+        const miniStep = tutorial?.steps[this.activeMiniTutorialStepIndex];
+        if (!this.panelElement || !tutorial || !miniStep) {
             return;
+        }
+        const waitsForAvailableAction = Boolean(miniStep.waitForActionSelector
+            && document.querySelector(miniStep.waitForActionSelector));
+        this.currentStep = this.createTutorialStepFromMiniStep(miniStep, waitsForAvailableAction);
+        if (this.container) {
+            this.container.setAttribute("aria-modal", "false");
+            this.container.setAttribute("aria-label", tutorial.label);
         }
         if (this.backdropElement) {
             this.backdropElement.style.background = "rgba(0, 0, 0, 0)";
-            this.backdropElement.style.pointerEvents = "auto";
+            this.backdropElement.style.pointerEvents = "none";
         }
         if (this.container) {
-            this.container.style.pointerEvents = "";
+            this.container.style.pointerEvents = "none";
         }
         if (this.spotlightElement) {
-            this.spotlightElement.style.pointerEvents = "";
+            this.spotlightElement.style.pointerEvents = "none";
         }
-        this.panelElement.style.pointerEvents = "";
+        this.panelElement.style.pointerEvents = "auto";
         const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
         if (stepIndicator) {
-            stepIndicator.textContent = "Command Brief";
+            stepIndicator.textContent = `${tutorial.label} ${this.activeMiniTutorialStepIndex + 1} of ${tutorial.steps.length}`;
         }
         const backBtn = this.panelElement.querySelector(".tutorial-back-btn");
         if (backBtn) {
@@ -310,19 +325,78 @@ export class TutorialOverlay {
         const titleEl = this.panelElement.querySelector(".tutorial-title");
         const descEl = this.panelElement.querySelector(".tutorial-description");
         if (titleEl)
-            titleEl.textContent = tutorial.title;
+            titleEl.textContent = miniStep.title;
         if (descEl)
-            descEl.textContent = tutorial.content;
+            descEl.textContent = miniStep.content;
         const actionBtn = this.panelElement.querySelector(".tutorial-action-btn");
         if (actionBtn) {
-            actionBtn.textContent = tutorial.actionLabel;
+            actionBtn.onclick = () => this.handleAction();
+            actionBtn.hidden = waitsForAvailableAction;
+            actionBtn.textContent = miniStep.actionLabel ?? "Continue";
             actionBtn.disabled = false;
             actionBtn.classList.remove("waiting");
         }
+        const actionHint = this.panelElement.querySelector(".tutorial-action-hint");
+        if (actionHint) {
+            actionHint.hidden = !waitsForAvailableAction;
+            actionHint.textContent = waitsForAvailableAction
+                ? miniStep.actionHint ?? "Use the highlighted control to continue."
+                : "";
+        }
         ensureTutorialState().clearHighlight();
-        this.ensureAnchorTarget(tutorial.highlightSelector);
+        this.ensureAnchorTarget(miniStep.highlightSelector);
         this.positionPanel(this.currentStep);
         this.updateArrow(this.currentStep);
+    }
+    createTutorialStepFromMiniStep(step, waitForAction) {
+        return {
+            phase: "inactive",
+            title: step.title,
+            content: step.content,
+            highlightSelector: step.highlightSelector,
+            highlightFirstMatch: step.highlightFirstMatch,
+            position: step.position,
+            arrowDirection: step.arrowDirection,
+            actionLabel: step.actionLabel,
+            waitForAction
+        };
+    }
+    handleSidebarMiniTutorialInteraction(event) {
+        const tutorial = this.activeMiniTutorial;
+        const miniStep = tutorial?.steps[this.activeMiniTutorialStepIndex];
+        const target = event.target;
+        if (!tutorial || !(target instanceof Element)) {
+            return;
+        }
+        if (target.closest("#battlePopupClose, #warRoomClose")) {
+            this.markSidebarMiniTutorialSeen(tutorial.key);
+            this.dismissSidebarMiniTutorial();
+            return;
+        }
+        if (!miniStep?.waitForActionSelector) {
+            return;
+        }
+        if (!target.closest(miniStep.waitForActionSelector)) {
+            return;
+        }
+        window.setTimeout(() => {
+            if (this.activeMiniTutorial === tutorial) {
+                this.advanceSidebarMiniTutorial();
+            }
+        }, 0);
+    }
+    advanceSidebarMiniTutorial() {
+        const tutorial = this.activeMiniTutorial;
+        if (!tutorial) {
+            return;
+        }
+        if (this.activeMiniTutorialStepIndex < tutorial.steps.length - 1) {
+            this.activeMiniTutorialStepIndex += 1;
+            this.renderSidebarMiniTutorialStep();
+            return;
+        }
+        this.markSidebarMiniTutorialSeen(tutorial.key);
+        this.dismissSidebarMiniTutorial();
     }
     /**
      * Renders the current tutorial step.
@@ -331,6 +405,10 @@ export class TutorialOverlay {
         if (!this.panelElement)
             return;
         this.activeMiniTutorial = null;
+        if (this.container) {
+            this.container.setAttribute("aria-modal", "true");
+            this.container.setAttribute("aria-label", step.title);
+        }
         const tutorialState = ensureTutorialState();
         if (this.backdropElement) {
             this.backdropElement.style.background = step.highlightSelector ? "rgba(0, 0, 0, 0)" : "";
@@ -339,7 +417,7 @@ export class TutorialOverlay {
         const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
         if (stepIndicator) {
             const stepNumber = getTutorialStepNumber(step.phase);
-            stepIndicator.textContent = stepNumber ? `Step ${stepNumber}` : "Step";
+            stepIndicator.textContent = step.indicatorLabel ?? (stepNumber ? `Step ${stepNumber}` : "Step");
         }
         // Back is opt-in because action and battle state cannot be safely rewound.
         const backBtn = this.panelElement.querySelector(".tutorial-back-btn");
@@ -348,7 +426,7 @@ export class TutorialOverlay {
         }
         const skipBtn = this.panelElement.querySelector(".tutorial-skip-btn");
         if (skipBtn) {
-            skipBtn.style.display = "";
+            skipBtn.style.display = step.phase === "complete" ? "none" : "";
             skipBtn.textContent = "Skip";
         }
         // Update title and description
@@ -362,6 +440,7 @@ export class TutorialOverlay {
         // Update action button
         const actionBtn = this.panelElement.querySelector(".tutorial-action-btn");
         if (actionBtn) {
+            actionBtn.hidden = false;
             actionBtn.onclick = () => this.handleAction();
             actionBtn.textContent = isActionStep
                 ? "To continue, complete the action above"
@@ -370,6 +449,11 @@ export class TutorialOverlay {
             // Disabled wait steps use the button's actual text as the full instruction.
             // Avoid the legacy waiting class because its CSS appends a stale parenthetical hint.
             actionBtn.classList.remove("waiting");
+        }
+        const actionHint = this.panelElement.querySelector(".tutorial-action-hint");
+        if (actionHint) {
+            actionHint.hidden = true;
+            actionHint.textContent = "";
         }
         if (step.waitForAction === true) {
             if (this.container) {
@@ -916,6 +1000,7 @@ export class TutorialOverlay {
             this.container.classList.add("hidden");
         }
         this.activeMiniTutorial = null;
+        this.activeMiniTutorialStepIndex = 0;
         this.hideSpotlight();
         ensureTutorialState().clearHighlight();
     }
@@ -966,6 +1051,7 @@ export class TutorialOverlay {
      */
     handleSkip() {
         if (this.activeMiniTutorial) {
+            this.markSidebarMiniTutorialSeen(this.activeMiniTutorial.key);
             this.dismissSidebarMiniTutorial();
             return;
         }
@@ -995,7 +1081,11 @@ export class TutorialOverlay {
      */
     handleAction() {
         if (this.activeMiniTutorial) {
-            this.dismissSidebarMiniTutorial();
+            const miniStep = this.activeMiniTutorial.steps[this.activeMiniTutorialStepIndex];
+            if (miniStep?.waitForActionSelector && document.querySelector(miniStep.waitForActionSelector)) {
+                return;
+            }
+            this.advanceSidebarMiniTutorial();
             return;
         }
         const tutorialState = ensureTutorialState();

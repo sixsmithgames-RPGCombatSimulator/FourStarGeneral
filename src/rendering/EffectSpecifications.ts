@@ -62,7 +62,7 @@ export interface EffectSpecification {
 /**
  * Raw JSON structure for effect specification.
  */
-interface RawEffectSpec {
+export interface RawEffectSpec {
   type: string;
   displayName: string;
   durationMs: number;
@@ -94,7 +94,7 @@ class EffectSpecificationCatalog {
   /**
    * Load specifications from JSON data.
    */
-  load(rawSpecs: RawEffectSpec[]): void {
+  load(rawSpecs: readonly RawEffectSpec[]): void {
     this.specs.clear();
 
     for (const raw of rawSpecs) {
@@ -175,19 +175,25 @@ class EffectSpecificationCatalog {
 export const effectCatalog = new EffectSpecificationCatalog();
 
 /**
- * Load effect specifications from JSON file.
+ * Load effect specifications from injected data or a JSON file.
  */
-export async function loadEffectSpecifications(jsonPath: string): Promise<void> {
+export async function loadEffectSpecifications(source: string | readonly RawEffectSpec[]): Promise<void> {
+  const sourceLabel = typeof source === "string" ? source : "injected catalog";
   try {
-    const response = await fetch(jsonPath);
+    if (typeof source !== "string") {
+      effectCatalog.load(source);
+      return;
+    }
+
+    const response = await fetch(new URL(source, document.baseURI));
     if (!response.ok) {
       throw new Error(`Failed to load effect specifications: ${response.statusText}`);
     }
 
-    const rawSpecs: RawEffectSpec[] = await response.json();
+    const rawSpecs = await response.json() as RawEffectSpec[];
     effectCatalog.load(rawSpecs);
   } catch (error) {
-    console.error(`[EffectSpecifications] Error loading specs from ${jsonPath}:`, error);
+    console.error(`[EffectSpecifications] Error loading specs from ${sourceLabel}:`, error);
     throw error;
   }
 }

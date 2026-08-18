@@ -29,6 +29,30 @@ export type CampaignTileRole =
   | "fortificationHeavy"
   | "fortificationLight";
 
+export type CampaignInfrastructureDamageState =
+  | "intact"
+  | "damaged"
+  | "breached"
+  | "severelyDamaged"
+  | "destroyed";
+
+/** Mutable operational condition projected for a strategic installation. */
+export interface CampaignInfrastructureState {
+  readonly role: CampaignTileRole;
+  maxIntegrity: number;
+  integrity: number;
+  damageState: CampaignInfrastructureDamageState;
+  effectiveness: number;
+  disabled: boolean;
+  lastDamageSegment: number | null;
+  lastRepairSegment: number | null;
+  lastCapturedSegment: number | null;
+  capturedFrom: CampaignFactionKey | null;
+  capturedBy: CampaignFactionKey | null;
+  captureDisruptionUntilSegment: number | null;
+  activeRepairOrderId: string | null;
+}
+
 /**
  * Describes the strategic value of a single campaign tile at 5km scale.
  * Tactical terrain is intentionally omitted; instead we capture control, capacity, and sprite metadata.
@@ -51,6 +75,10 @@ export interface CampaignTileDefinition {
   spriteKey?: string;
   /** Supply throughput contributed by this location each campaign turn. */
   supplyValue?: number;
+  /** Optional authored structural ceiling; role-specific defaults apply when omitted. */
+  infrastructureMaxIntegrity?: number;
+  /** Optional authored structural points restored per three-hour repair segment. */
+  infrastructureRepairRate?: number;
   /** Air wing capacity exposed to the sortie planner. */
   airSortieCapacity?: number;
   /** Naval task force slots reachable from this tile. */
@@ -82,6 +110,8 @@ export interface CampaignTileInstance {
   forces?: CampaignForceGroup[];
   /** Day number when the current controller took (or last confirmed) control. Used for auto-front rules. */
   controlSinceDay?: number;
+  /** Runtime infrastructure projection. Authored scenarios may also seed pre-existing damage. */
+  infrastructure?: CampaignInfrastructureState;
 }
 
 /**
@@ -92,6 +122,14 @@ export interface CampaignFrontLine {
   label: string;
   /** Ordered list of hex keys ("col,row") describing the border path so we can render directional polylines. */
   hexKeys: string[];
+  /**
+   * Exact derived control-adjacency edges. Each pair uses offset keys and must join adjacent tiles
+   * controlled by opposing non-neutral factions. Legacy authored fronts may omit this field.
+   */
+  edges?: Array<{
+    friendlyHexKey: string;
+    opposingHexKey: string;
+  }>;
   /** Faction that initiated or currently holds the initiative on this front. */
   initiative: CampaignFactionKey;
   /**
@@ -100,8 +138,108 @@ export interface CampaignFrontLine {
   modifiers?: string[];
 }
 
+export type CampaignObjectiveCategory = "primary" | "secondary" | "optional" | "failure";
+export type CampaignObjectiveVisibility = "briefed" | "revealedByEvent" | "secretUntilResolved";
+
+/** Data-driven conditions evaluated against authoritative post-control campaign truth. */
+export type CampaignObjectiveCondition =
+  | {
+      kind: "controlHex";
+      /** Defaults to the objective marker hex. */
+      hex?: Axial;
+      /** Defaults to Player. */
+      faction?: CampaignFactionKey;
+      /** Completed campaign segments of uninterrupted control required. */
+      holdSegments?: number;
+      /** Optional operational-capacity requirement for an installation on the hex. */
+      minimumInfrastructureEffectiveness?: number;
+    }
+  | {
+      kind: "formationStrength";
+      formationId: string;
+      comparison: "atLeast" | "atMost";
+      /** Effective personnel/equipment/readiness percentage in the inclusive range 0-100. */
+      percent: number;
+    }
+  | {
+      kind: "formationStatus";
+      formationId: string;
+      statuses: Array<"ready" | "committed" | "inTransit" | "isolated" | "refitting" | "shattered" | "destroyed" | "captured">;
+    }
+  | {
+      kind: "resourceThreshold";
+      /** Defaults to Player. */
+      faction?: CampaignFactionKey;
+      resource: "manpower" | "supplies" | "fuel" | "ammo" | "airPower" | "navalPower" | "intelCoverage";
+      comparison: "atLeast" | "atMost";
+      amount: number;
+    }
+  | {
+      kind: "operationResult";
+      engagementId: string;
+      result: "victory" | "defeat" | "stalemate" | "anyResolved";
+    }
+  | {
+      kind: "surviveUntil";
+      segment: number;
+    }
+  | {
+      kind: "objectiveStatus";
+      objectiveKey: string;
+      status: "completed" | "failed";
+    };
+
+/** Typed effects applied once when an objective completes. */
+export type CampaignObjectiveRewardEffect =
+  | {
+      kind: "resource";
+      /** Defaults to Player. */
+      faction?: CampaignFactionKey;
+      resource: "manpower" | "supplies" | "fuel" | "ammo";
+      amount: number;
+      label?: string;
+    }
+  | {
+      kind: "power";
+      /** Defaults to Player. */
+      faction?: CampaignFactionKey;
+      resource: "airPower" | "navalPower" | "intelCoverage";
+      amount: number;
+      label?: string;
+    }
+  | {
+      kind: "unlock";
+      key: string;
+      label: string;
+    };
+
+/** One authored chapter of the operation. Objectives may activate only while their phase is current. */
+export interface CampaignPhaseDefinition {
+  key: string;
+  label: string;
+  description: string;
+  objectiveKeys: string[];
+}
+
+/** Authored campaign arc and transparent terminal rules. */
+export interface CampaignArcDefinition {
+  phases: CampaignPhaseDefinition[];
+  /** All listed objectives must complete for victory. Defaults to all primary objectives. */
+  victoryObjectiveKeys?: string[];
+  /** Any listed objective failure ends the campaign. Defaults to failed primary/failure objectives. */
+  defeatObjectiveKeys?: string[];
+  /** Optional command-viability defeat rule. */
+  defeatWhenNoPlayerFormations?: boolean;
+  /** Score-percent thresholds for the recorded victory grade. */
+  decisiveVictoryThreshold?: number;
+  standardVictoryThreshold?: number;
+  /** Clearly separates a recorded result from optional sandbox continuation. */
+  allowContinueAfterOutcome?: boolean;
+}
+
 /**
- * Strategic objectives reward the commander with bonuses when completed and may unlock new fronts.
+ * Strategic objectives are first-class campaign rules as well as map markers. Optional fields keep
+ * legacy scenarios loadable; the Campaign 2.0 adapter supplies documented defaults.
  */
 export interface CampaignObjective {
   key: string;
@@ -115,6 +253,22 @@ export interface CampaignObjective {
   rewards: string[];
   /** Optional penalties applied to the opposing faction. */
   penalties?: string[];
+  category?: CampaignObjectiveCategory;
+  visibility?: CampaignObjectiveVisibility;
+  conditions?: CampaignObjectiveCondition[];
+  completionMode?: "all" | "any";
+  /** Absolute campaign deadline. The condition is still evaluated on the deadline boundary. */
+  deadlineSegment?: number;
+  /** Legacy shorthand applied to control conditions that do not declare their own hold duration. */
+  holdSegments?: number;
+  /** Score awarded on completion; failure forfeits these points. */
+  score?: number;
+  /** Objective keys that must complete before this objective can activate. */
+  requiresObjectives?: string[];
+  /** Restricts activation to an authored campaign phase. */
+  phaseKey?: string;
+  /** Typed, mechanically applied rewards. Legacy reward strings remain display-only. */
+  rewardEffects?: CampaignObjectiveRewardEffect[];
 }
 
 /**
@@ -280,6 +434,8 @@ export interface CampaignScenarioData {
   tiles: CampaignTileInstance[];
   fronts: CampaignFrontLine[];
   objectives: CampaignObjective[];
+  /** Optional first-class phase, score, victory, and defeat policy. */
+  campaignArc?: CampaignArcDefinition;
   economies: CampaignFactionEconomy[];
 }
 
@@ -310,6 +466,15 @@ export type CampaignMissionType =
   | "depotRaid"
   | "meetingEngagement";
 
+/** One aggregate campaign force pool entry with optional stable formation identities attached by Campaign 2.0. */
+export interface CampaignEngagementForceGroup {
+  hexKey: string;
+  unitType: string;
+  count: number;
+  /** Stable campaign formations represented by this group, in deterministic selection order. */
+  formationIds?: string[];
+}
+
 /**
  * Structured payload captured when an engagement is queued so precombat and battle generation
  * can honor the strategic situation: mission type, forces in position, enemy pool, and budget.
@@ -326,12 +491,18 @@ export interface CampaignEngagementContext {
   amphibious: boolean;
   /** True when the battle hex borders declared water — steers template terrain selection. */
   coastal: boolean;
+  /** Current battle-hex facility performance, used by tactical generation and briefings. */
+  infrastructureEffectiveness?: number;
+  /** Current battle-hex facility integrity, when the tile contains strategic infrastructure. */
+  infrastructureIntegrity?: number;
+  infrastructureMaxIntegrity?: number;
+  infrastructureDamageState?: CampaignInfrastructureDamageState;
   /** Friendly force groups eligible to commit, with the hex they stage from. */
-  availableForces: Array<{ hexKey: string; unitType: string; count: number }>;
+  availableForces: CampaignEngagementForceGroup[];
   /** Per-allocation-key quantity caps derived from availableForces via the mapping table. */
   allocationCaps: Record<string, number>;
   /** Defender force pool (exact counts internally; UI surfaces banded estimates only). */
-  enemyForces: Array<{ hexKey: string; unitType: string; count: number }>;
+  enemyForces: CampaignEngagementForceGroup[];
   /** Air sorties reachable from in-range friendly airbases. */
   airSorties: number;
   /** Discretionary consumables budget (RP) granted on top of committed-force value. */

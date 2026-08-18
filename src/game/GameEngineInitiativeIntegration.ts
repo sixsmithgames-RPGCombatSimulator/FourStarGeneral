@@ -8,7 +8,11 @@
  * @since Initiative System v1.0
  */
 
-import { GameEngineInitiativeIntegration, type ExtendedBattlePhase } from './GameEngineInitiativeExtensions';
+import {
+  GameEngineInitiativeIntegration,
+  type ExtendedBattlePhase,
+  type SerializedInitiativeIntegrationState
+} from './GameEngineInitiativeExtensions';
 import { InitiativeActionValidator, type ActionValidationContext, type UnitActionType } from './InitiativeActionValidator';
 import { InitiativeBotIntegration } from './bot/InitiativeBotIntegration';
 import { hexDistance, neighbors, type Axial } from '../core/Hex';
@@ -40,6 +44,15 @@ export interface InitiativeBotAttackResult {
     readonly summary?: string;
     readonly attackerStrengthAfter?: number;
   };
+}
+
+/** Complete deterministic continuation state for the initiative orchestration layer. */
+export interface SerializedGameEngineInitiativeState {
+  readonly version: 1;
+  readonly integration: SerializedInitiativeIntegrationState;
+  readonly supportResolutionTurn: number | null;
+  readonly plannerIntegrationUnavailableLogged: boolean;
+  readonly plannerBotIntegrationDisabled: boolean;
 }
 
 /**
@@ -359,6 +372,28 @@ export class GameEngineInitiativeMethods {
    */
   public getCurrentActivation(): UnitActivation | null {
     return this.integration.getCurrentActivation();
+  }
+
+  /** Captures initiative, support-resolution, and planner fallback state for tactical persistence. */
+  public serializeState(): SerializedGameEngineInitiativeState {
+    return {
+      version: 1,
+      integration: this.integration.serializeState(),
+      supportResolutionTurn: this.supportResolutionTurn,
+      plannerIntegrationUnavailableLogged: this.plannerIntegrationUnavailableLogged,
+      plannerBotIntegrationDisabled: this.plannerBotIntegrationDisabled
+    };
+  }
+
+  /** Restores initiative continuation without starting a new turn or consuming the next activation. */
+  public hydrateState(snapshot: SerializedGameEngineInitiativeState): void {
+    if (snapshot.version !== 1) {
+      throw new Error(`Unsupported initiative snapshot version '${String(snapshot.version)}'.`);
+    }
+    this.integration.hydrateState(snapshot.integration);
+    this.supportResolutionTurn = snapshot.supportResolutionTurn;
+    this.plannerIntegrationUnavailableLogged = snapshot.plannerIntegrationUnavailableLogged;
+    this.plannerBotIntegrationDisabled = snapshot.plannerBotIntegrationDisabled;
   }
 
   public setBotActivationListener(listener: ((result: InitiativeBotActivationResult) => void | Promise<void>) | null): void {

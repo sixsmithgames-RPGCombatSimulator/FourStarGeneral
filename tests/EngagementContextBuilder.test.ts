@@ -172,6 +172,15 @@ registerTest("ENGAGEMENT_CONTEXT_MISSION_TYPES_AND_BANDS", async ({ Given, When,
         throw new Error(`describeForceRatio(${ratio}) = ${described.band}/${described.outgunned}, expected ${band}/${outgunned}`);
       }
     }
+
+    const unopposed = buildEngagementContext(scenario, {
+      engagementId: "eng_unopposed",
+      battleHexKey: "39,39",
+      attacker: "Player"
+    });
+    if (!unopposed || !Number.isFinite(unopposed.forceRatio) || unopposed.forceRatio !== Number.MAX_SAFE_INTEGER) {
+      throw new Error(`Unopposed campaign context must remain finite and save-safe, got ${unopposed?.forceRatio}.`);
+    }
   });
 });
 

@@ -12,6 +12,13 @@ import {
   type AirMissionArrival,
   type AirEngagementEvent
 } from "../game/GameEngine";
+import {
+  COMPLETE_BATTLE_SAVE_VERSION,
+  type CompleteSerializedBattleState,
+  type TacticalSaveBoundary
+} from "../game/battle/persistence/BattleSaveTypes";
+import type { SerializedGameEngineInitiativeState } from "../game/GameEngineInitiativeIntegration";
+import type { MissionStatus, SerializedMissionRulesState } from "./missionRules";
 import { findGeneralById, type GeneralRosterEntry } from "../utils/rosterStorage";
 import type { AllocationCategory } from "../data/unitAllocation";
 import { ensureDeploymentState, type DeploymentPoolEntry } from "./DeploymentState";
@@ -64,6 +71,7 @@ export type BattleUpdateReason =
   | "deploymentUpdated"
   | "missionUpdated"
   | "allocationsUpdated"
+  | "snapshotHydrated"
   | "reset"
   | "manual";
 
@@ -144,8 +152,8 @@ export class BattleState {
    * @param config - GameEngine configuration including scenario, unit types, terrain
    */
   initializeEngine(config: GameEngineConfig): void {
-    this.engineConfig = config;
-    this.gameEngine = new GameEngine(config);
+    this.engineConfig = structuredClone(config);
+    this.gameEngine = new GameEngine(structuredClone(config));
     this.rosterSnapshot = this.gameEngine.getRosterSnapshot();
     // Seed supply cache immediately so UI panels can render depot totals before the first turn advance.
     this.refreshSupplySnapshot("Player");
@@ -313,6 +321,7 @@ export class BattleState {
     this.supplySnapshotCache.Player = null;
     this.supplySnapshotCache.Bot = null;
     this.assignedCommanderId = null;
+    this.campaignBridgeState = null;
     this.notifyBattleUpdate("reset");
   }
 
@@ -339,6 +348,65 @@ export class BattleState {
       return null;
     }
     return this.gameEngine.serialize();
+  }
+
+  /**
+   * Captures the complete tactical authority boundary. UI-owned initiative/mission closure state is
+   * supplied explicitly so no hidden singleton or screen field is silently omitted.
+   */
+  serializeComplete(input: {
+    readonly initiative: SerializedGameEngineInitiativeState | null;
+    readonly missionRules: SerializedMissionRulesState;
+    readonly missionStatus: MissionStatus;
+    readonly boundary: TacticalSaveBoundary;
+  }): CompleteSerializedBattleState {
+    if (!this.gameEngine || !this.engineConfig) {
+      throw new Error("Cannot serialize a complete battle before the engine is initialized.");
+    }
+    const engine = this.gameEngine.serialize();
+    if (engine.completeStateVersion !== 1) {
+      throw new Error("GameEngine did not produce a complete tactical snapshot.");
+    }
+    return {
+      version: COMPLETE_BATTLE_SAVE_VERSION,
+      engineConfig: structuredClone(this.engineConfig),
+      engine,
+      initiative: input.initiative ? structuredClone(input.initiative) : null,
+      missionRules: structuredClone(input.missionRules),
+      missionStatus: structuredClone(input.missionStatus),
+      precombatAllocation: this.precombatAllocationSummary
+        ? structuredClone(this.precombatAllocationSummary)
+        : null,
+      precombatMission: this.precombatMissionInfo ? structuredClone(this.precombatMissionInfo) : null,
+      assignedCommanderId: this.assignedCommanderId,
+      campaignBridge: this.campaignBridgeState ? structuredClone(this.campaignBridgeState) : null,
+      boundary: structuredClone(input.boundary)
+    };
+  }
+
+  /** Hydrates engine and battle metadata atomically after the outer campaign binding has been validated. */
+  hydrateComplete(snapshot: CompleteSerializedBattleState): void {
+    if (snapshot.version !== COMPLETE_BATTLE_SAVE_VERSION || snapshot.engine.completeStateVersion !== 1) {
+      throw new Error("Cannot hydrate an incomplete or unsupported tactical snapshot.");
+    }
+    const config = structuredClone(snapshot.engineConfig);
+    const engine = GameEngine.fromSerialized(config, structuredClone(snapshot.engine));
+
+    this.engineConfig = config;
+    this.gameEngine = engine;
+    this.precombatAllocationSummary = snapshot.precombatAllocation
+      ? structuredClone(snapshot.precombatAllocation)
+      : null;
+    this.precombatMissionInfo = snapshot.precombatMission ? structuredClone(snapshot.precombatMission) : null;
+    this.assignedCommanderId = snapshot.assignedCommanderId;
+    this.campaignBridgeState = snapshot.campaignBridge ? structuredClone(snapshot.campaignBridge) : null;
+    this.rosterSnapshot = engine.getRosterSnapshot();
+    this.refreshSupplySnapshot("Player");
+    this.refreshSupplySnapshot("Bot");
+    this.refreshSupplySnapshot("Ally");
+    this.refreshLogisticsSnapshots();
+    ensureDeploymentState().mirrorEngineState(engine);
+    this.notifyBattleUpdate("snapshotHydrated");
   }
 
   /**

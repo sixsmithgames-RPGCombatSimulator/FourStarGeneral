@@ -308,6 +308,7 @@ export function ensureDomEnvironment(): void {
     document: jsdomWindow.document,
     Node: jsdomWindow.Node,
     Event: jsdomWindow.Event,
+    CustomEvent: jsdomWindow.CustomEvent,
     MouseEvent: jsdomWindow.MouseEvent,
     WheelEvent: WheelEventImpl,
     HTMLElement: jsdomWindow.HTMLElement,

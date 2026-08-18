@@ -133,7 +133,7 @@ describe('Tutorial UI Enhancements', () => {
     });
 });
 describe('Tutorial Steps Validation', () => {
-    it('should keep mission_objectives as the final mission-orders phase', () => {
+    it('should keep requisition concise before deployment', () => {
         const phases = [
             'budget_overview',
             'unit_categories',
@@ -141,39 +141,37 @@ describe('Tutorial Steps Validation', () => {
             'select_tanks',
             'select_engineers',
             'select_flak',
-            'select_air_wing',
+            'select_recon',
             'select_howitzer',
             'select_ammo',
             'select_fuel',
-            'review_allocation',
-            'mission_objectives'
+            'review_allocation'
         ];
-        expect(phases).toContain('mission_objectives');
+        expect(phases).toContain('select_howitzer');
+        expect(phases).not.toContain('mission_objectives');
     });
-    it('should include smoke as a command-card brief before direct fire', () => {
+    it('should teach fire, initiative handoff, and smoke through real actions', () => {
         const combatPhases = [
             'initiative_order',
             'active_group_units',
             'movement_intro',
-            'intel_overlay_expand',
-            'spend_activation',
             'enemy_activation',
-            'next_unit',
-            'skip_group',
             'engineer_intro',
+            'intel_overlay_expand',
             'engineer_orders',
             'artillery_support_intro',
             'artillery_intro',
             'post_artillery_enemy_response',
             'select_attack_unit',
-            'smoke_demo',
             'attack_intro',
-            'flak_intro',
+            'spend_activation',
             'round_handoff',
-            'mission_objectives',
+            'select_smoke_unit',
+            'smoke_demo',
             'complete'
         ];
-        expect(combatPhases.indexOf('smoke_demo')).toBeGreaterThan(combatPhases.indexOf('select_attack_unit'));
-        expect(combatPhases.indexOf('attack_intro')).toBeGreaterThan(combatPhases.indexOf('smoke_demo'));
+        expect(combatPhases.indexOf('attack_intro')).toBeGreaterThan(combatPhases.indexOf('select_attack_unit'));
+        expect(combatPhases.indexOf('spend_activation')).toBeGreaterThan(combatPhases.indexOf('attack_intro'));
+        expect(combatPhases.indexOf('smoke_demo')).toBeGreaterThan(combatPhases.indexOf('select_smoke_unit'));
     });
 });

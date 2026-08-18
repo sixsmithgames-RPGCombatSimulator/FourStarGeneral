@@ -17,12 +17,16 @@ import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenari
 import { assertScenarioSourceValid } from "../../data/scenarioValidation";
 import { ensureCampaignState } from "../../state/CampaignState";
 import type { CampaignEngagementContext, CampaignMissionType } from "../../core/campaignTypes";
+import type { FormationStatus, ScenarioUnit, TacticalCampaignFormationProvenance } from "../../core/types";
 import { findTemplateForUnitKey } from "../adapters";
 import { mapCampaignUnitToAllocationKey, getCampaignUnitRpValue, CAMPAIGN_AIR_UNIT_TYPES, CAMPAIGN_NAVAL_UNIT_TYPES } from "./campaignForceMapping";
 import { selectBattleTemplate } from "./battleTemplates";
 import { MISSION_TYPE_LABELS } from "./EngagementContextBuilder";
+import { createCampaignFormationBattleSeed } from "./formations/CampaignFormationBattleAdapter";
+import type { CampaignRuntimeState } from "./runtime/campaignRuntimeTypes";
+import type { CampaignBattlePackage } from "./engagements/CampaignEngagementLedgerTypes";
 
-/** Hard ceiling on generated Bot units so oversized campaign pools cannot flood a tactical map. */
+/** Hard ceiling for unfrozen previews; exact committed packages must represent every locked formation. */
 const MAX_GENERATED_BOT_UNITS = 30;
 
 /** Entrenchment by mission type — fortifications dig in, meeting engagements start exposed. */
@@ -63,6 +67,34 @@ const BOT_DOCTRINE: Readonly<Record<CampaignMissionType, { goal: string; strateg
   }
 });
 
+/** Bot doctrine when the campaign opponent owns the initiative and the Player must defend. */
+const BOT_OFFENSIVE_DOCTRINE: Readonly<Record<CampaignMissionType, { goal: string; strategy: string }>> = Object.freeze({
+  fortifiedAssault: {
+    goal: "Breach the prepared works and seize the defended objective.",
+    strategy: "Concentrate fire on one sector, force a breach, and drive mobile elements through before the defense can recover."
+  },
+  lineAssault: {
+    goal: "Break the Player line and secure the operational route beyond it.",
+    strategy: "Fix the strongest position, probe the flanks, and mass the main effort against the first exposed seam."
+  },
+  portAssault: {
+    goal: "Capture the port facilities and deny their use to the defender.",
+    strategy: "Press the perimeter, isolate the quays, and keep the defenders from organizing a coherent inner line."
+  },
+  airfieldRaid: {
+    goal: "Overrun the airfield and destroy its operational capacity.",
+    strategy: "Advance quickly through the perimeter and contest hangars, fuel storage, and the runway before reserves arrive."
+  },
+  depotRaid: {
+    goal: "Seize or destroy the depot stockpiles.",
+    strategy: "Bypass fixed resistance where possible, reach the stores, and prevent an orderly evacuation."
+  },
+  meetingEngagement: {
+    goal: "Seize the contested ground before the Player defense consolidates.",
+    strategy: "Push reconnaissance forward, occupy key terrain, and exploit local superiority without waiting for a perfect line."
+  }
+});
+
 type RawUnit = {
   type: string;
   hex: [number, number];
@@ -72,10 +104,33 @@ type RawUnit = {
   fuel: number;
   entrench: number;
   facing: string;
+  baseExperience?: number;
+  earnedExperience?: number;
+  formationKey?: string;
+  status?: FormationStatus;
+  unitId?: string;
+  campaignProvenance?: TacticalCampaignFormationProvenance;
 };
+
+function relabelInvertedDeploymentZone(
+  zone: Record<string, unknown>,
+  faction: "Player" | "Bot"
+): void {
+  const replacement = faction === "Player" ? "Friendly" : "Enemy";
+  const replaceFactionTerms = (value: unknown): string => String(value ?? "")
+    .replace(/\b(German|Axis|Allied|American|British|Eighth Army|U\.S\.)\b/gi, replacement)
+    .replace(/\s+/g, " ")
+    .trim();
+  const label = replaceFactionTerms(zone["label"] || "Deployment Area");
+  zone["label"] = label;
+  zone["description"] = faction === "Player"
+    ? `${label}. Friendly defensive deployment area for this campaign engagement.`
+    : `${label}. Enemy attack assembly area for this campaign engagement.`;
+}
 
 interface GenerationCacheEntry {
   engagementId: string;
+  commitmentIntegrity: string | null;
   scenario: ScenarioSource;
 }
 
@@ -95,18 +150,26 @@ export function resolveScenarioForMission(missionKey: string): ScenarioSource {
   if (missionKey !== "campaign") {
     return getScenarioByMissionKey(missionKey);
   }
-  const engagement = ensureCampaignState().getActiveEngagement();
-  const context = engagement?.context;
+  const campaignState = ensureCampaignState();
+  const engagement = campaignState.getActiveEngagement();
+  const battlePackage = campaignState.getActiveCampaignBattlePackage();
+  const context = battlePackage?.context ?? engagement?.context;
   if (!context) {
     return getScenarioByMissionKey(missionKey);
   }
-  if (cache && cache.engagementId === context.engagementId) {
+  const commitmentIntegrity = battlePackage?.integrityHash ?? null;
+  if (cache && cache.engagementId === context.engagementId
+    && cache.commitmentIntegrity === commitmentIntegrity) {
     return cache.scenario;
   }
   try {
-    const generated = generateCampaignBattleScenario(context);
+    const generated = generateCampaignBattleScenario(
+      context,
+      campaignState.getRuntimeSnapshot() ?? undefined,
+      battlePackage ?? undefined
+    );
     assertScenarioSourceValid(generated, "campaign");
-    cache = { engagementId: context.engagementId, scenario: generated };
+    cache = { engagementId: context.engagementId, commitmentIntegrity, scenario: generated };
     return generated;
   } catch (err) {
     console.error("[CampaignBattleGenerator] Generation failed; falling back to default campaign scenario", {
@@ -122,43 +185,128 @@ export function resolveScenarioForMission(missionKey: string): ScenarioSource {
  * Builds the tactical scenario for an engagement: template map + generated Bot order of battle.
  * Exported for tests; production code goes through resolveScenarioForMission.
  */
-export function generateCampaignBattleScenario(context: CampaignEngagementContext): ScenarioSource {
-  const template = selectBattleTemplate(context.missionType, context.coastal, context.engagementId);
+export function generateCampaignBattleScenario(
+  context: CampaignEngagementContext,
+  formationSource?: Pick<CampaignRuntimeState, "campaignId" | "revision" | "currentSegment" | "formations">,
+  battlePackage?: CampaignBattlePackage
+): ScenarioSource {
+  const effectiveContext = battlePackage?.engagementId === context.engagementId
+    ? battlePackage.context
+    : context;
+  const template = selectBattleTemplate(effectiveContext.missionType, effectiveContext.coastal, effectiveContext.engagementId);
   const scenario = structuredClone(template.scenario) as ScenarioSource & Record<string, unknown>;
+  const playerDefense = effectiveContext.attacker === "Bot" && effectiveContext.defender === "Player";
+  const invertAuthoredSides = playerDefense && template.playerRole === "attacker";
 
-  scenario["name"] = `${MISSION_TYPE_LABELS[context.missionType]} — Hex ${context.battleHexKey}`;
+  scenario["name"] = playerDefense
+    ? `${MISSION_TYPE_LABELS[effectiveContext.missionType]} Defense — Hex ${effectiveContext.battleHexKey}`
+    : `${MISSION_TYPE_LABELS[effectiveContext.missionType]} — Hex ${effectiveContext.battleHexKey}`;
   scenario["campaignTemplateKey"] = template.key;
-  scenario["campaignEngagementId"] = context.engagementId;
+  scenario["campaignTemplatePlayerRole"] = template.playerRole;
+  scenario["campaignEngagementId"] = effectiveContext.engagementId;
+  scenario["campaignBattlePackageId"] = battlePackage?.packageId ?? null;
+  scenario["campaignInfrastructureEffectiveness"] = effectiveContext.infrastructureEffectiveness ?? 1;
+  const infrastructureFactor = Math.max(0, Math.min(1, effectiveContext.infrastructureEffectiveness ?? 1));
+  const modifications = Array.isArray(scenario["hexModifications"])
+    ? scenario["hexModifications"] as Array<Record<string, unknown>>
+    : [];
+  modifications.forEach((modification) => {
+    if (modification["type"] !== "fortifications") return;
+    const maxIntegrity = Math.max(1, Number(modification["maxIntegrity"] ?? 100));
+    const integrity = Math.round(maxIntegrity * infrastructureFactor);
+    modification["integrity"] = integrity;
+    modification["maxIntegrity"] = maxIntegrity;
+    modification["damageState"] = integrity <= 0
+      ? "destroyed"
+      : infrastructureFactor < 0.4 ? "severelyDamaged"
+        : infrastructureFactor < 0.7 ? "breached"
+          : infrastructureFactor < 1 ? "damaged" : "intact";
+  });
 
   const sides = scenario["sides"] as Record<string, Record<string, unknown>>;
+  const player = sides?.["Player"];
   const bot = sides?.["Bot"];
-  if (!bot) {
+  if (!player || !bot) {
     // Template without a Bot side would already fail validation; guard for type safety.
     return scenario;
   }
 
-  const doctrine = BOT_DOCTRINE[context.missionType];
+  const authoredPlayerUnits = structuredClone((Array.isArray(player["units"]) ? player["units"] : []) as RawUnit[]);
+  const authoredBotUnits = structuredClone((Array.isArray(bot["units"]) ? bot["units"] : []) as RawUnit[]);
+  if (playerDefense) {
+    // Attack-oriented maps must be inverted. Authored defensive maps (Bastogne, Kasserine,
+    // Anzio) already put Player on the defended ground, so their zones/objectives/HQ stay put.
+    if (invertAuthoredSides) {
+      const deploymentZones = Array.isArray(scenario["deploymentZones"])
+        ? scenario["deploymentZones"] as Array<Record<string, unknown>>
+        : [];
+      deploymentZones.forEach((zone) => {
+        if (zone["faction"] === "Player") {
+          zone["faction"] = "Bot";
+          relabelInvertedDeploymentZone(zone, "Bot");
+        } else if (zone["faction"] === "Bot") {
+          zone["faction"] = "Player";
+          relabelInvertedDeploymentZone(zone, "Player");
+        }
+      });
+      const objectives = Array.isArray(scenario["objectives"])
+        ? scenario["objectives"] as Array<Record<string, unknown>>
+        : [];
+      objectives.forEach((objective) => {
+        if (objective["owner"] === "Player") objective["owner"] = "Bot";
+        else if (objective["owner"] === "Bot") objective["owner"] = "Player";
+      });
+      const playerHq = structuredClone(player["hq"]);
+      player["hq"] = structuredClone(bot["hq"]);
+      bot["hq"] = playerHq;
+    }
+    player["units"] = [];
+    bot["units"] = [];
+    player["goal"] = "Hold the defended objectives and prevent an operational breakthrough.";
+    player["strategy"] = "Use prepared ground, preserve the core formations, and counterattack only when the enemy attack loses cohesion.";
+  }
+
+  const doctrine = playerDefense
+    ? BOT_OFFENSIVE_DOCTRINE[effectiveContext.missionType]
+    : BOT_DOCTRINE[effectiveContext.missionType];
   bot["goal"] = doctrine.goal;
   bot["strategy"] = doctrine.strategy;
 
-  const enemyTotal = context.enemyForces.reduce((sum, group) => sum + group.count, 0);
-  if (enemyTotal <= 0) {
+  const botRole = playerDefense ? "attacker" : "defender";
+  const botForcePool = playerDefense ? effectiveContext.availableForces : effectiveContext.enemyForces;
+  const botTotal = battlePackage
+    ? battlePackage.formationCommitments.filter((entry) => entry.role === botRole && entry.faction === "Bot").length
+    : botForcePool.reduce((sum, group) => sum + group.count, 0);
+  if (botTotal <= 0) {
     // Neutral or unscouted target: keep the template's authored garrison as-is.
+    if (playerDefense) bot["units"] = [];
     return scenario;
   }
 
-  const templateUnits = (Array.isArray(bot["units"]) ? bot["units"] : []) as RawUnit[];
+  const templateUnits = playerDefense
+    ? (invertAuthoredSides ? authoredPlayerUnits : authoredBotUnits)
+    : authoredBotUnits;
   const size = scenario["size"] as { cols: number; rows: number };
-  const generated = buildBotRoster(context, templateUnits, size, collectOccupiedHexes(sides));
+  const generated = buildBotRoster(
+    effectiveContext,
+    templateUnits,
+    size,
+    collectOccupiedHexes(sides),
+    formationSource,
+    battlePackage,
+    botRole
+  );
   if (generated.length > 0) {
     bot["units"] = generated;
     // Resources scale with the pool's fighting value so a starved pocket shoots dry.
-    bot["resources"] = Math.max(300, Math.min(1500, Math.round(context.enemyForceValue * 0.6)));
+    const botForceValue = playerDefense ? effectiveContext.playerForceValue : effectiveContext.enemyForceValue;
+    bot["resources"] = Math.max(300, Math.min(1500, Math.round(botForceValue * 0.6)));
   } else {
-    console.warn("[CampaignBattleGenerator] Enemy pool produced no mappable units; keeping template garrison", {
-      engagementId: context.engagementId,
-      enemyForces: context.enemyForces
+    console.warn("[CampaignBattleGenerator] Bot force pool produced no mappable units; keeping template garrison", {
+      engagementId: effectiveContext.engagementId,
+      botForcePool
     });
+    if (playerDefense) bot["units"] = [];
   }
 
   return scenario;
@@ -190,7 +338,10 @@ function buildBotRoster(
   context: CampaignEngagementContext,
   templateUnits: RawUnit[],
   size: { cols: number; rows: number },
-  occupied: Set<string>
+  occupied: Set<string>,
+  formationSource?: Pick<CampaignRuntimeState, "campaignId" | "revision" | "currentSegment" | "formations">,
+  battlePackage?: CampaignBattlePackage,
+  botRole: "attacker" | "defender" = "defender"
 ): RawUnit[] {
   const anchors = templateUnits
     .filter((unit) => Array.isArray(unit.hex))
@@ -199,16 +350,30 @@ function buildBotRoster(
     return [];
   }
   const defaultFacing = majorityFacing(templateUnits) ?? "SW";
-  const entrench = ENTRENCH_BY_MISSION[context.missionType];
+  const entrench = botRole === "attacker" ? 0 : Math.max(0, Math.round(
+    ENTRENCH_BY_MISSION[context.missionType]
+      * Math.max(0, Math.min(1, context.infrastructureEffectiveness ?? 1))
+  ));
 
   // Expand groups into individual units, strongest types first so they take the anchor line.
-  const expanded: Array<{ campaignType: string }> = [];
-  const sortedGroups = [...context.enemyForces].sort(
-    (a, b) => getCampaignUnitRpValue(b.unitType) - getCampaignUnitRpValue(a.unitType)
-  );
-  for (const group of sortedGroups) {
-    for (let i = 0; i < group.count && expanded.length < MAX_GENERATED_BOT_UNITS; i++) {
-      expanded.push({ campaignType: group.unitType });
+  const expanded: Array<{ campaignType: string; formationId: string | null }> = battlePackage && formationSource
+    ? battlePackage.formationCommitments
+        .filter((entry) => entry.role === botRole && entry.faction === "Bot")
+        .flatMap((entry) => {
+          const formation = formationSource.formations[entry.formationId];
+          return formation ? [{ campaignType: formation.campaignUnitType, formationId: formation.id }] : [];
+        })
+        .sort((a, b) => getCampaignUnitRpValue(b.campaignType) - getCampaignUnitRpValue(a.campaignType))
+    : [];
+  if (!battlePackage) {
+    const botForcePool = botRole === "attacker" ? context.availableForces : context.enemyForces;
+    const sortedGroups = [...botForcePool].sort(
+      (a, b) => getCampaignUnitRpValue(b.unitType) - getCampaignUnitRpValue(a.unitType)
+    );
+    for (const group of sortedGroups) {
+      for (let i = 0; i < group.count && expanded.length < MAX_GENERATED_BOT_UNITS; i++) {
+        expanded.push({ campaignType: group.unitType, formationId: group.formationIds?.[i] ?? null });
+      }
     }
   }
 
@@ -243,7 +408,40 @@ function buildBotRoster(
     }
     occupied.add(`${hex[0]},${hex[1]}`);
 
-    // Elite campaign formations carry a veterancy edge into the tactical layer.
+    const persistentFormation = entry.formationId ? formationSource?.formations[entry.formationId] : null;
+    const persistentSeed = persistentFormation && formationSource
+      ? createCampaignFormationBattleSeed(persistentFormation, {
+          campaignId: formationSource.campaignId,
+          engagementId: context.engagementId,
+          sourceRevision: battlePackage?.sourceRevision ?? formationSource.revision,
+          sourceSegment: battlePackage?.committedSegment ?? formationSource.currentSegment,
+          hex: { q: hex[0], r: hex[1] - Math.floor(hex[0] / 2) },
+          facing: (anchor.facing ?? defaultFacing) as ScenarioUnit["facing"],
+          entrench
+        })
+      : null;
+    if (persistentSeed) {
+      const unit = persistentSeed.unit;
+      roster.push({
+        type: unit.type as string,
+        hex,
+        strength: unit.strength,
+        experience: unit.experience,
+        baseExperience: unit.baseExperience,
+        earnedExperience: unit.earnedExperience,
+        ammo: unit.ammo,
+        fuel: unit.fuel,
+        entrench: unit.entrench,
+        facing: unit.facing,
+        formationKey: unit.formationKey,
+        status: structuredClone(unit.status),
+        unitId: unit.unitId,
+        campaignProvenance: structuredClone(unit.campaignProvenance)
+      });
+      continue;
+    }
+
+    // Legacy contexts without formation records retain the existing type-based veterancy seed.
     const eliteBonus = entry.campaignType.includes("Elite") ? 1 : 0;
     roster.push({
       type: loadout.type as string,
@@ -279,9 +477,9 @@ function majorityFacing(units: RawUnit[]): string | null {
 }
 
 /**
- * Returns the anchor hex if free, otherwise probes expanding square rings (radius 1-3) around it
- * for the first in-bounds unoccupied cell. Offset-grid probing is deliberate: placement just needs
- * to cluster near the authored defense, not be hex-perfect.
+ * Returns the anchor hex if free, otherwise probes expanding square rings across the map for the
+ * first in-bounds unoccupied cell. Offset-grid probing is deliberate: placement just needs to
+ * cluster near the authored line while guaranteeing an exact committed package is representable.
  */
 function findFreeHexNear(
   anchor: [number, number],
@@ -294,7 +492,7 @@ function findFreeHexNear(
   if (isFree(anchor[0], anchor[1])) {
     return [anchor[0], anchor[1]];
   }
-  for (let radius = 1; radius <= 3; radius++) {
+  for (let radius = 1; radius <= Math.max(size.cols, size.rows); radius++) {
     for (let dc = -radius; dc <= radius; dc++) {
       for (let dr = -radius; dr <= radius; dr++) {
         if (Math.max(Math.abs(dc), Math.abs(dr)) !== radius) {

@@ -817,6 +817,7 @@ export function buildCampaignMapView(
   for (const tile of sanitized.tiles) {
     if (tileOwner(sanitized, tile) !== state.faction) {
       tile.forces = [];
+      delete tile.infrastructure;
     }
   }
   for (const definition of Object.values(sanitized.tilePalette)) {

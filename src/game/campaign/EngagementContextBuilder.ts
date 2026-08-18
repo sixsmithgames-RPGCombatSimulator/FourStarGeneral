@@ -170,6 +170,7 @@ export function buildEngagementContext(
     : "Neutral";
 
   const coastal = isCoastal(scenario, coords.q, coords.r);
+  const battleInfrastructure = battleTile?.infrastructure;
 
   // Gather attacker forces: the battle hex (if attacker-held) plus adjacent attacker tiles.
   const stagingKeys = [
@@ -198,7 +199,7 @@ export function buildEngagementContext(
     if (!def || def.role !== "airbase") continue;
     if (tileOwner(scenario, tile) !== attacker) continue;
     if (hexDistance(tile.hex, coords) > AIR_SORTIE_RANGE_HEXES) continue;
-    airSorties += def.airSortieCapacity ?? 0;
+    airSorties += Math.floor((def.airSortieCapacity ?? 0) * (tile.infrastructure?.effectiveness ?? 1));
     const key = axialToOffsetKey(tile.hex.q, tile.hex.r);
     for (const group of tileForces(tile)) {
       if (!CAMPAIGN_AIR_UNIT_TYPES.includes(group.unitType)) continue;
@@ -223,7 +224,9 @@ export function buildEngagementContext(
   const allocationCaps = buildAllocationCaps(availableForces);
   const playerForceValue = sumForcePoolRpValue(availableForces);
   const enemyForceValue = sumForcePoolRpValue(enemyForces);
-  const forceRatio = enemyForceValue > 0 ? playerForceValue / enemyForceValue : Number.POSITIVE_INFINITY;
+  // Campaign runtime, hashes, and save envelopes require finite canonical numbers. Preserve the
+  // semantic "unopposed" upper bound without allowing Infinity into authoritative truth.
+  const forceRatio = enemyForceValue > 0 ? playerForceValue / enemyForceValue : Number.MAX_SAFE_INTEGER;
 
   // Consumables reserve: quarter of supplies, clamped. Keeps desperate offensives able to buy minimal ammo.
   const attackerEconomy = scenario.economies.find((e) => e.faction === attacker);
@@ -239,6 +242,12 @@ export function buildEngagementContext(
     // Full amphibious (cross-water assault) detection is future work; coastal steers templates now.
     amphibious: false,
     coastal,
+    ...(battleInfrastructure ? {
+      infrastructureEffectiveness: battleInfrastructure.effectiveness,
+      infrastructureIntegrity: battleInfrastructure.integrity,
+      infrastructureMaxIntegrity: battleInfrastructure.maxIntegrity,
+      infrastructureDamageState: battleInfrastructure.damageState
+    } : {}),
     availableForces,
     allocationCaps,
     enemyForces,

@@ -1,0 +1,35 @@
+import "./domEnvironment.js";
+import { runAllTests } from "./harness.js";
+
+import "./CampaignMapRenderer.render.test.js";
+import "./CampaignState.observe.test.js";
+import "./CampaignRuntime.foundation.test.js";
+import "./CampaignSave.persistence.test.js";
+import "./CampaignState.runtimeCutover.test.js";
+import "./CampaignIntelligence.system.test.js";
+import "./EngagementContextBuilder.test.js";
+import "./CampaignBattleGenerator.test.js";
+import "./CampaignScreen.status.test.js";
+import "./CampaignCommandShell.test.js";
+import "./CampaignCommandFoundation.test.js";
+import "./CampaignOrders.typed.test.js";
+import "./CampaignSegmentResolver.test.js";
+import "./CampaignAdvanceControls.test.js";
+import "./CampaignFormations.substrate.test.js";
+import "./CampaignEngagementLedger.test.js";
+import "./CampaignBattleResultExtraction.test.js";
+import "./CampaignBattleConsequences.test.js";
+import "./CampaignBattleControl.test.js";
+import "./CampaignInfrastructure.persistence.test.js";
+import "./CampaignObjectives.endState.test.js";
+import "./CampaignAfterActionReport.test.js";
+import "./CampaignAI.assessment.test.js";
+import "./CampaignAI.planning.test.js";
+import "./CampaignAI.engagements.test.js";
+import "./ScreenManager.transition.test.js";
+import "./TacticalSaveCompleteness.test.js";
+import "./TacticalSaveUx.test.js";
+import "./precombatLogisticsMinimum.test.js";
+import "./BattleScreen.campaignHandoff.test.js";
+
+await runAllTests();

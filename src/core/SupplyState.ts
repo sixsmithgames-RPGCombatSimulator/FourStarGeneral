@@ -186,7 +186,12 @@ export function createSupplyState(params: {
   };
 }
 
-export function applyShipment(state: SupplyState, shipment: SupplyShipment, turn: number): void {
+export function applyShipment(
+  state: SupplyState,
+  shipment: SupplyShipment,
+  turn: number,
+  timestamp: string = new Date().toISOString()
+): void {
   const entry = state.inventory[shipment.type];
   entry.current += shipment.amount;
   state.ledger.unshift({
@@ -195,7 +200,7 @@ export function applyShipment(state: SupplyState, shipment: SupplyShipment, turn
     type: shipment.type,
     delta: shipment.amount,
     reason: shipment.source.join(", "),
-    timestamp: new Date().toISOString()
+    timestamp
   });
 }
 
@@ -204,17 +209,18 @@ export function recordConsumption(
   type: SupplyKey,
   amount: number,
   turn: number,
-  reason: string
+  reason: string,
+  identity?: { readonly id: string; readonly timestamp: string }
 ): void {
   const entry = state.inventory[type];
   entry.current = Math.max(0, entry.current - amount);
   state.ledger.unshift({
-    id: `${type}-consumption-${turn}-${Date.now()}`,
+    id: identity?.id ?? `${type}-consumption-${turn}-${Date.now()}`,
     turn,
     type,
     delta: -Math.abs(amount),
     reason,
-    timestamp: new Date().toISOString()
+    timestamp: identity?.timestamp ?? new Date().toISOString()
   });
 }
 
@@ -317,7 +323,12 @@ export function advanceShipments(state: SupplyState, currentTurn: number): Suppl
   return ready;
 }
 
-export function accumulateProduction(state: SupplyState, fromTurn: number, toTurn: number): SupplyShipment[] {
+export function accumulateProduction(
+  state: SupplyState,
+  fromTurn: number,
+  toTurn: number,
+  createId: (type: SupplyKey, turn: number) => string = (type, turn) => `${type}-production-${turn}-${Date.now()}`
+): SupplyShipment[] {
   if (toTurn <= fromTurn) {
     return [];
   }
@@ -333,7 +344,7 @@ export function accumulateProduction(state: SupplyState, fromTurn: number, toTur
       return;
     }
     shipments.push({
-      id: `${key}-production-${toTurn}-${Date.now()}`,
+      id: createId(key, toTurn),
       type: key,
       etaTurn: toTurn,
       amount,

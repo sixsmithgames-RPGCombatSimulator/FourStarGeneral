@@ -1,5 +1,8 @@
 import { registerTest } from "./harness.js";
 import { GameEngine } from "../src/game/GameEngine";
+import { GameEngineInitiativeMethods } from "../src/game/GameEngineInitiativeIntegration";
+import { unitTypesData } from "../src/data/unitSystem/derivedUnitTypes";
+import { summarizeFormationStatus } from "../src/data/unitSystem/damagePackets";
 const plains = {
     moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
     defense: 0,
@@ -47,7 +50,9 @@ const supplyTruckDef = {
 };
 const unitTypes = {
     TestInfantry: infantryDef,
-    Supply_Truck: supplyTruckDef
+    Supply_Truck: supplyTruckDef,
+    Howitzer_105: unitTypesData.Howitzer_105,
+    Bomber: unitTypesData.Bomber
 };
 function side(hq = { q: 0, r: 0 }, units = []) {
     return {
@@ -200,7 +205,7 @@ registerTest("FRESH_UNITS_CAN_STILL_ATTACK_AFTER_CALLING_ARTILLERY", async ({ Th
     }
     await Then("calling artillery leaves a fresh unit's attack available", () => { });
 });
-registerTest("ARTILLERY_QUEUE_CHECKS_MOVEMENT_SPEND_ON_THE_CALLER_UNIT_ID", async ({ Then }) => {
+registerTest("ARTILLERY_QUEUE_ALLOWS_CALLER_AFTER_FULL_MOVEMENT", async ({ Then }) => {
     const observer = {
         type: "TestInfantry",
         hex: { q: 0, r: 0 },
@@ -232,9 +237,121 @@ registerTest("ARTILLERY_QUEUE_CHECKS_MOVEMENT_SPEND_ON_THE_CALLER_UNIT_ID", asyn
     if (!supportAsset) {
         throw new Error("Expected a ready artillery asset for movement-spend validation.");
     }
-    const queued = engine.queueSupportActionFromUnit({ q: 2, r: 0 }, supportAsset.id, enemy.hex);
-    if (queued) {
-        throw new Error("Expected queueSupportActionFromUnit to reject callers that moved beyond half movement.");
+    const queued = engine.queueSupportActionFromUnit({ q: 2, r: 0 }, supportAsset.id, enemy.hex, observer.unitId);
+    if (!queued) {
+        throw new Error("Expected a unit to call artillery after spending its full movement allowance.");
     }
-    await Then("artillery queue gating follows the caller unit action flags instead of a raw hex key", () => { });
+    const budgetAfterQueue = engine.getMovementBudget({ q: 2, r: 0 }, observer.unitId);
+    if (!budgetAfterQueue || budgetAfterQueue.remaining !== 0) {
+        throw new Error(`Expected calling artillery to preserve the fully-spent movement budget, received ${JSON.stringify(budgetAfterQueue)}.`);
+    }
+    await Then("artillery remains callable after moving and does not alter movement spend", () => { });
+});
+registerTest("QUEUED_ARTILLERY_SUPPORT_DAMAGE_USES_STATUS_POOLS", async ({ Then }) => {
+    const observer = {
+        type: "TestInfantry",
+        hex: { q: 0, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 0,
+        entrench: 0,
+        facing: "NE"
+    };
+    const enemy = {
+        type: "Supply_Truck",
+        hex: { q: 3, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 0,
+        fuel: 60,
+        entrench: 0,
+        facing: "SW"
+    };
+    const engine = createEngine([observer], [enemy]);
+    const supportAsset = engine.getSupportSnapshot().ready.find((asset) => asset.type === "artillery");
+    if (!supportAsset) {
+        throw new Error("Expected a ready artillery support asset for status-pool damage validation.");
+    }
+    if (!engine.queueSupportActionFromUnit(observer.hex, supportAsset.id, enemy.hex)) {
+        throw new Error("Expected observer to queue artillery support against the supply truck.");
+    }
+    engine.endTurn();
+    const impact = engine.consumeSupportImpactEvents()[0];
+    if (!impact || impact.damage <= 0 || impact.damage > (supportAsset.strikeDamageCap ?? 24)) {
+        throw new Error(`Expected a capped nonzero support impact event, received ${JSON.stringify(impact)}.`);
+    }
+    const updatedEnemy = engine.botUnits.find((unit) => unit.hex.q === enemy.hex.q && unit.hex.r === enemy.hex.r);
+    if (!updatedEnemy) {
+        throw new Error("Expected the support strike to damage, not remove, the supply truck in this guardrail scenario.");
+    }
+    const statusSummary = summarizeFormationStatus(updatedEnemy.status, updatedEnemy.strength);
+    const derivedLoss = Math.round((100 - statusSummary.readiness) * 100) / 100;
+    const personnelEvents = statusSummary.personnel.casualties;
+    const equipmentEvents = statusSummary.equipment.damaged + statusSummary.equipment.disabled + statusSummary.equipment.destroyed;
+    if (Math.abs(derivedLoss - impact.damage) > 0.01) {
+        throw new Error(`Expected support impact damage to match status-derived readiness loss, event=${impact.damage}, derived=${derivedLoss}.`);
+    }
+    if (personnelEvents + equipmentEvents <= 0) {
+        throw new Error(`Expected support impact to create detailed status effects, received ${JSON.stringify(statusSummary)}.`);
+    }
+    await Then("queued artillery support applies detailed personnel/equipment status damage", () => { });
+});
+registerTest("QUEUED_ARTILLERY_RESOLVES_WHEN_INITIATIVE_REACHES_THE_ARTILLERY_BAND", async ({ Then }) => {
+    const observed = { resolutionCalls: 0, impactNotifications: 0 };
+    const playerUnits = [
+        {
+            type: "Infantry_42",
+            hex: { q: 0, r: 0 },
+            strength: 100,
+            experience: 0,
+            ammo: 6,
+            fuel: 0,
+            entrench: 0,
+            facing: "NE",
+            unitId: "initiative-observer"
+        },
+        {
+            type: "Howitzer_105",
+            hex: { q: 1, r: 0 },
+            strength: 100,
+            experience: 0,
+            ammo: 8,
+            fuel: 20,
+            entrench: 0,
+            facing: "NE",
+            unitId: "initiative-artillery"
+        }
+    ];
+    const fakeEngine = {
+        _turnNumber: 1,
+        _phase: "playerTurn",
+        _activeFaction: "Player",
+        playerUnits,
+        botUnits: [],
+        allyUnits: [],
+        resolveQueuedSupportActionsForInitiative: () => {
+            observed.resolutionCalls += 1;
+            return 1;
+        }
+    };
+    const initiative = new GameEngineInitiativeMethods(fakeEngine);
+    initiative.setSupportImpactListener(() => {
+        observed.impactNotifications += 1;
+    });
+    const firstActivation = initiative.startNextInitiativeTurnPhase();
+    if (firstActivation?.initiative !== 5 || observed.resolutionCalls !== 0) {
+        throw new Error(`Expected support to remain queued during initiative 5, received activation=${JSON.stringify(firstActivation)} calls=${observed.resolutionCalls}.`);
+    }
+    initiative.completeUnitActivation(firstActivation.unitId);
+    const artilleryActivation = initiative.getCurrentActivation();
+    if (artilleryActivation?.initiative !== 2) {
+        throw new Error(`Expected the next activation to enter artillery initiative 2, received ${JSON.stringify(artilleryActivation)}.`);
+    }
+    const finalResolutionCalls = Number(observed.resolutionCalls);
+    const finalImpactNotifications = Number(observed.impactNotifications);
+    if (finalResolutionCalls !== 1 || finalImpactNotifications !== 1) {
+        throw new Error(`Expected one support resolution and impact notification at initiative 2, received calls=${observed.resolutionCalls} notifications=${observed.impactNotifications}.`);
+    }
+    await Then("off-map artillery lands once as the artillery initiative begins", () => { });
 });

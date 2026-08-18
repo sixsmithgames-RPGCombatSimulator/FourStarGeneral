@@ -86,9 +86,12 @@ import {
   enforceLedgerLimit,
   getInventoryTotals,
   recordConsumption,
+  restoreSupplyState,
+  serializeSupplyState,
   type SupplyKey,
   type SupplyState,
-  type SupplyLedgerEntry
+  type SupplyLedgerEntry,
+  type SupplyStateSnapshot
 } from "../core/SupplyState";
 import {
   awardCombatExperience,
@@ -125,6 +128,7 @@ import {
 import { formationList, getFormation, isUnitAllocationKey } from "../data/unitSystem/formations";
 import type { UnitAllocationKey } from "../data/unitSystem/types";
 import { ensureUnlockState } from "../state/UnlockState";
+import type { CampaignBattlePackage } from "./campaign/engagements/CampaignEngagementLedgerTypes";
 
 /**
  * Minimal structure the campaign layer exposes to the tactical engine so transitions between screens stay predictable.
@@ -139,6 +143,8 @@ export interface CampaignBridgeState {
   queuedDecisions: CampaignDecision[];
   /** Tactical battle hooks waiting to be resolved by the combat flow. */
   pendingEngagements: CampaignPendingEngagement[];
+  /** Exact revision-bound commitment package once campaign precombat is locked. */
+  battlePackage?: CampaignBattlePackage | null;
 }
 
 /** Machine-readable error codes surfaced by tryScheduleAirMission for UI handling. */
@@ -189,7 +195,7 @@ export interface MovementBudget {
   readonly remaining: number;
 }
 
-type AircraftAmmoState = { air: number; ground: number; needsRearm: boolean };
+export type AircraftAmmoState = { air: number; ground: number; needsRearm: boolean };
 type ScenarioTileEntry = string | TileInstance;
 
 import {
@@ -286,7 +292,7 @@ export interface BattleRosterSnapshot {
   readonly metrics: BattleRosterMetrics;
 }
 
-interface CasualtyRecord {
+export interface CasualtyRecord {
   readonly unit: ScenarioUnit;
   readonly definition: UnitTypeDefinition;
   readonly unitKey: string | null;
@@ -729,7 +735,7 @@ interface MovementPathPlan {
   summary: MovementPathSummary;
 }
 
-interface SupplyTruckState {
+export interface SupplyTruckState {
   unitId: string;
   ammoCargo: number;
   fuelCargo: number;
@@ -956,7 +962,7 @@ interface AirPhaseFlakState {
   readonly entriesByUnitId: Map<string, AirPhaseFlakLedgerEntry>;
 }
 
-type UnitActionFlags = {
+export type UnitActionFlags = {
   movementPointsUsed: number;
   attacksUsed: number;
   retaliationsUsed: number;
@@ -1131,7 +1137,7 @@ export interface AirEngagementEvent {
 }
 
 /** Captures ongoing refit timers so hydration can restore readiness cycles after sorties. */
-interface SerializedAirMissionRefit {
+export interface SerializedAirMissionRefit {
   readonly missionId: string;
   readonly unitKey: string;
   readonly faction: TurnFaction;
@@ -1211,7 +1217,7 @@ interface AirInterceptionResolution {
 
 type AirCoalition = "allied" | "axis";
 
-interface ResolvedMissionAirPhaseState {
+export interface ResolvedMissionAirPhaseState {
   readonly airToAirEvent: AirEngagementEvent | null;
   readonly flakEvent: AirEngagementEvent | null;
   readonly bomberDestroyedBeforeTarget: boolean;
@@ -1223,7 +1229,7 @@ interface ResolvedMissionAirPhaseState {
   readonly meta: NonNullable<AirMissionOutcomeBase["meta"]>;
 }
 
-interface ResolvedEscortMissionState {
+export interface ResolvedEscortMissionState {
   readonly missionId: string;
   readonly unitKey: string;
   readonly unitType: string;
@@ -1304,12 +1310,15 @@ export interface MoveResolution {
  * memoization).
  */
 export interface SerializedBattleState {
+  /** Presence of this marker proves the tactical completeness gate was used. Legacy snapshots omit it. */
+  completeStateVersion?: 1;
   phase: BattlePhase;
   activeFaction: TurnFaction;
   turnNumber: number;
   baseCamp: BaseCamp | null;
   playerPlacements: ScenarioUnit[];
   botPlacements: ScenarioUnit[];
+  allyPlacements?: ScenarioUnit[];
   reserves: ScenarioUnit[];
   /** Airborne reserves are separate from ground reserves; loaded at the airbase for air transport. */
   airborneReserves?: ScenarioUnit[];
@@ -1332,6 +1341,47 @@ export interface SerializedBattleState {
   supportAssets?: SupportAssetSnapshot[];
   objectiveEntryAwardedKeys?: string[];
   objectiveCaptureAwardedKeys?: string[];
+  /** Exact per-formation action commitments, including stacked units. */
+  actionFlags?: Record<TurnFaction, Array<[string, UnitActionFlags]>>;
+  playerIdleUnitKeys?: string[];
+  aircraftAmmo?: {
+    player: Array<[string, AircraftAmmoState]>;
+    bot: Array<[string, AircraftAmmoState]>;
+  };
+  /** Unit-level supply mirrors used by attrition and route resolution. */
+  supplyUnits?: Record<TurnFaction, SupplyUnitState[]>;
+  /** Faction stockpiles, production, pending shipments, and consumption ledgers. */
+  supplyStates?: Record<TurnFaction, SupplyStateSnapshot>;
+  supplyHistory?: Record<TurnFaction, SupplySnapshot[]>;
+  logisticsCareEvents?: LogisticsCareEntry[];
+  supplyTruckStates?: Record<TurnFaction, Array<[string, SupplyTruckState]>>;
+  convoyServiceHistory?: Record<TurnFaction, Array<[string, number]>>;
+  convoyServiceSequence?: Record<TurnFaction, number>;
+  supplyPriorities?: Array<[string, SupplyPriority]>;
+  airMissionAssignments?: Array<[string, string]>;
+  pendingAirMissionArrivals?: AirMissionArrival[];
+  pendingAirEngagements?: AirEngagementEvent[];
+  resolvedMissionAirPhases?: Array<[string, ResolvedMissionAirPhaseState]>;
+  resolvedEscortMissionStates?: Array<[string, ResolvedEscortMissionState]>;
+  pendingSupportImpactEvents?: SupportImpactEvent[];
+  combatReports?: CombatReportEntry[];
+  casualtyLog?: CasualtyRecord[];
+  queuedAllocations?: PendingReserveRequest[];
+  commanderStats?: CommanderBenefits;
+  pendingBotTurnSummary?: BotTurnSummary | null;
+  transportAirlift?: { turn: number; usedThisTurn: number };
+  /** Mutable scenario objective records, retained even when authored rules later add progress fields. */
+  scenarioObjectives?: ScenarioData["objectives"];
+  counters?: {
+    unitId: number;
+    combatReportId: number;
+    airMissionId: number;
+    battleRequisitionId: number;
+    counterIntelId: number;
+    deterministicEvent: number;
+  };
+  /** Serialized xorshift state used by any rule path that needs ordering variance. */
+  randomState?: number;
 }
 
 export type EnemyContactState = "spotted" | "identified" | "visible";
@@ -3707,7 +3757,10 @@ export class GameEngine implements GameEngineAPI {
     for (let radius = 1; radius <= maxRadius; radius++) {
       const ring = this.getHexRing(center, radius);
       // Shuffle the ring to add some randomness to scattering.
-      const shuffled = ring.sort(() => Math.random() - 0.5);
+      const shuffled = ring
+        .map((hex) => ({ hex, order: this.nextDeterministicRandom() }))
+        .sort((left, right) => left.order - right.order)
+        .map((entry) => entry.hex);
       for (const hex of shuffled) {
         const key = axialKey(hex);
         if (!this.playerPlacements.has(key) && !this.botPlacements.has(key)) {
@@ -4712,9 +4765,12 @@ export class GameEngine implements GameEngineAPI {
   private advanceFactionSupplyState(faction: TurnFaction): void {
     const state = this.supplyStateByFaction[faction];
     const arrivals = advanceShipments(state, this._turnNumber);
-    arrivals.forEach((shipment) => applyShipment(state, shipment, this._turnNumber));
-    const production = accumulateProduction(state, state.lastUpdatedTurn, this._turnNumber);
-    production.forEach((shipment) => applyShipment(state, shipment, this._turnNumber));
+    arrivals.forEach((shipment) => applyShipment(state, shipment, this._turnNumber, this.nextDeterministicTimestamp()));
+    const production = accumulateProduction(state, state.lastUpdatedTurn, this._turnNumber, (type, turn) => {
+      this.nextDeterministicTimestamp();
+      return `${type}-production-${turn}-${this.deterministicEventCounter}`;
+    });
+    production.forEach((shipment) => applyShipment(state, shipment, this._turnNumber, this.nextDeterministicTimestamp()));
     state.lastUpdatedTurn = this._turnNumber;
   }
 
@@ -6160,7 +6216,11 @@ private automateSupplyConvoys(
       return;
     }
     const state = this.supplyStateByFaction[faction];
-    recordConsumption(state, key, amount, this._turnNumber, reason);
+    const timestamp = this.nextDeterministicTimestamp();
+    recordConsumption(state, key, amount, this._turnNumber, reason, {
+      id: `${key}-consumption-${this._turnNumber}-${this.deterministicEventCounter}`,
+      timestamp
+    });
   }
 
   /** Current supply mirror used between turns to track attrition. */
@@ -6235,11 +6295,39 @@ private automateSupplyConvoys(
 
   /** Counter for generating unique unit IDs within this engine session. */
   private unitIdCounter = 0;
+  /** Scenario-stable prefix keeps generated unit IDs deterministic without sacrificing battle-local uniqueness. */
+  private unitIdPrefix = "battle";
+  /** Rule RNG state is persisted so a reload cannot reroll the next transition. */
+  private randomState = 0x6d2b79f5;
+  /** Monotonic logical clock for deterministic event IDs and persisted log timestamps. */
+  private deterministicEventCounter = 0;
 
-  /** Generates a new unique unit ID. Format: "u_<timestamp>_<counter>" for global uniqueness. */
+  /** Generates a battle-local stable unit ID. Campaign provenance IDs remain untouched when supplied. */
   private generateUnitId(): string {
     this.unitIdCounter += 1;
-    return `u_${Date.now()}_${this.unitIdCounter}`;
+    return `u_${this.unitIdPrefix}_${this.unitIdCounter}`;
+  }
+
+  /** Returns the next deterministic fraction in [0, 1) using a persisted xorshift32 stream. */
+  private nextDeterministicRandom(): number {
+    let value = this.randomState >>> 0;
+    value ^= value << 13;
+    value ^= value >>> 17;
+    value ^= value << 5;
+    this.randomState = value >>> 0 || 0x6d2b79f5;
+    return this.randomState / 0x100000000;
+  }
+
+  /** Advances the logical battle clock and returns a stable ISO timestamp. */
+  private nextDeterministicTimestamp(): string {
+    this.deterministicEventCounter += 1;
+    const logicalMilliseconds = (Math.max(0, this._turnNumber) * 1_000_000) + this.deterministicEventCounter;
+    return new Date(Date.UTC(2000, 0, 1) + logicalMilliseconds).toISOString();
+  }
+
+  /** Converts the next logical timestamp to the numeric form expected by the HQ damage ledger. */
+  private nextDeterministicTimestampMs(): number {
+    return Date.parse(this.nextDeterministicTimestamp());
   }
 
   /** Ensures a ScenarioUnit has a stable unitId assigned. Mutates the unit in place if missing. */
@@ -6485,7 +6573,28 @@ private automateSupplyConvoys(
       suppressionScalar
     });
     applyDamagePacketToUnit(defender, packet);
+    if (defender.strength <= 0) {
+      this.recordDestroyedTacticalUnit(defender, defenderDefinition);
+    }
     return packet;
+  }
+
+  /**
+   * Retains the final status pools of a destroyed unit before placement removal.
+   * Campaign result extraction requires this tombstone to distinguish survivors, wounded personnel,
+   * disabled equipment, and permanent losses for an exact committed tactical identity.
+   */
+  private recordDestroyedTacticalUnit(unit: ScenarioUnit, definition: UnitTypeDefinition): void {
+    const unitId = this.ensureUnitId(unit);
+    if (this.casualtyLog.some((entry) => entry.unit.unitId === unitId)) return;
+    this.casualtyLog.push({
+      unit: this.normalizedCombatStatusSnapshot(unit),
+      definition: structuredClone(definition),
+      unitKey: unit.formationKey ?? null,
+      label: unit.campaignProvenance?.formationName ?? String(unit.type),
+      recordedAt: `battle:${this._turnNumber}:casualty:${unitId}`
+    });
+    this.invalidateRosterCache();
   }
 
   /**
@@ -6514,9 +6623,10 @@ private automateSupplyConvoys(
     );
 
     // Record damage in HQ tracking system
+    const damageTimestamp = this.nextDeterministicTimestampMs();
     const damageRecord: DamageRecord = {
-      timestamp: Date.now(),
-      engagementId: `eng-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: damageTimestamp,
+      engagementId: `eng-${this.unitIdPrefix}-${this.deterministicEventCounter}`,
       attackerId: report.attackerId,
       attackerName: report.attackerName,
       hex: defenderHex,
@@ -7046,6 +7156,14 @@ private automateSupplyConvoys(
     this.scenario = config.scenario;
     this.unitTypes = config.unitTypes;
     this.terrain = config.terrain;
+    const identitySource = `${config.scenario.name}|${config.scenario.size.cols}x${config.scenario.size.rows}`;
+    let identityHash = 0x811c9dc5;
+    for (let index = 0; index < identitySource.length; index += 1) {
+      identityHash ^= identitySource.charCodeAt(index);
+      identityHash = Math.imul(identityHash, 0x01000193);
+    }
+    this.randomState = identityHash >>> 0 || 0x6d2b79f5;
+    this.unitIdPrefix = (identityHash >>> 0).toString(36);
     const startingBattleRequisitionPoints = this.resolveBattleRequisitionStartingPoints();
     if (startingBattleRequisitionPoints > 0) {
       this.battleRequisitionPoints = startingBattleRequisitionPoints;
@@ -7368,9 +7486,7 @@ private automateSupplyConvoys(
   getSupplySnapshot(faction: TurnFaction = "Player"): SupplySnapshot {
     const history = this.supplyHistoryByFaction[faction];
     if (history.length === 0) {
-      const snapshot = this.computeSupplySnapshot(faction);
-      this.storeSupplySnapshot(faction, snapshot);
-      return structuredClone(snapshot);
+      return structuredClone(this.computeSupplySnapshot(faction));
     }
     return structuredClone(history[history.length - 1]);
   }
@@ -7604,7 +7720,7 @@ private automateSupplyConvoys(
             etaTurn: this._turnNumber,
             amount,
             source: [entry.airlifted ? `${entry.label} airlift` : entry.label]
-          }, this._turnNumber);
+          }, this._turnNumber, this.nextDeterministicTimestamp());
           suppliesArrived = true;
         });
         return;
@@ -9147,7 +9263,7 @@ private automateSupplyConvoys(
 
     return {
       ...baseSnapshot,
-      generatedAt: new Date().toISOString(),
+      generatedAt: new Date(Date.UTC(2000, 0, 1) + (Math.max(0, this._turnNumber) * 1_000_000)).toISOString(),
       sectors: [...battlefieldSectors.map((sector) => ({ ...sector })), ...baseSectors.map((sector) => ({ ...sector }))],
       intelBriefs: visibleBriefs,
       alerts: [
@@ -9504,6 +9620,7 @@ private automateSupplyConvoys(
   hydrateFromSerialized(state: SerializedBattleState): void {
     this.playerPlacements.clear();
     this.botPlacements.clear();
+    this.allyPlacements.clear();
     this.hexModifications.clear();
     this.reserves.length = 0;
     this.airborneReserves.length = 0;
@@ -9511,6 +9628,8 @@ private automateSupplyConvoys(
     this.airMissionAssignmentsByUnit.clear();
     this.airMissionRefitTimers.clear();
     this.airMissionReports.length = 0;
+    this.aaEngagementsByUnitId.clear();
+    this.aaEngagementLimitsByUnitId.clear();
     this.counterIntelOperations.clear();
     this.intelBriefStates.clear();
     this.playerEnemyContactStates.clear();
@@ -9518,6 +9637,25 @@ private automateSupplyConvoys(
     this.playerPlacementOverflow.clear();
     this.botPlacementOverflow.clear();
     this.allyPlacementOverflow.clear();
+    this.playerActionFlags.clear();
+    this.botActionFlags.clear();
+    this.allyActionFlags.clear();
+    this.playerIdleUnitKeys.clear();
+    this.playerAttackAmmo.clear();
+    this.botAttackAmmo.clear();
+    this.pendingAirMissionArrivals.length = 0;
+    this.pendingAirEngagements.length = 0;
+    this.resolvedMissionAirPhaseByMissionId.clear();
+    this.resolvedEscortMissionStateByMissionId.clear();
+    this.pendingSupportImpactEvents.length = 0;
+    this.combatReports.length = 0;
+    this.casualtyLog.length = 0;
+    this.logisticsCareEvents.length = 0;
+    this.supplyPriorityByUnitId.clear();
+    (Object.keys(this.supplyTruckStateByFaction) as TurnFaction[]).forEach((faction) => {
+      this.supplyTruckStateByFaction[faction].clear();
+      this.convoyServiceHistoryByFaction[faction].clear();
+    });
 
     state.playerPlacements.forEach((unit) => {
       const clone = structuredClone(unit);
@@ -9530,6 +9668,11 @@ private automateSupplyConvoys(
       // Preserve existing unitId from saved state or assign a new one if missing (legacy saves).
       this.normalizeScenarioUnitState(clone);
       this.addUnitToFactionHex("Bot", clone);
+    });
+    (state.allyPlacements ?? []).forEach((unit) => {
+      const clone = structuredClone(unit);
+      this.normalizeScenarioUnitState(clone);
+      this.addUnitToFactionHex("Ally", clone);
     });
     state.reserves.forEach((unit) => {
       const clone = structuredClone(unit);
@@ -9576,9 +9719,31 @@ private automateSupplyConvoys(
       ? { hex: structuredClone(state.baseCamp.hex), key: state.baseCamp.key }
       : null;
 
-    this.playerSupply = createSupplyUnits(this.getAllUnitsForFaction("Player"));
-    this.botSupply = createSupplyUnits(this.getAllUnitsForFaction("Bot"));
+    this.playerSupply = state.supplyUnits
+      ? structuredClone(state.supplyUnits.Player)
+      : createSupplyUnits(this.getAllUnitsForFaction("Player"));
+    this.botSupply = state.supplyUnits
+      ? structuredClone(state.supplyUnits.Bot)
+      : createSupplyUnits(this.getAllUnitsForFaction("Bot"));
+    this.allySupply = state.supplyUnits
+      ? structuredClone(state.supplyUnits.Ally)
+      : createSupplyUnits(this.getAllUnitsForFaction("Ally"));
+    if (state.supplyStates) {
+      const zeroStock = { ammo: 0, fuel: 0, rations: 0, parts: 0 };
+      this.supplyStateByFaction = {
+        Player: restoreSupplyState(structuredClone(state.supplyStates.Player), { baseline: zeroStock }),
+        Bot: restoreSupplyState(structuredClone(state.supplyStates.Bot), { baseline: zeroStock }),
+        Ally: restoreSupplyState(structuredClone(state.supplyStates.Ally), { baseline: zeroStock })
+      };
+    } else {
+      this.rebuildSupplyStates();
+    }
     this.resetSupplyHistory();
+    if (state.supplyHistory) {
+      (Object.keys(state.supplyHistory) as TurnFaction[]).forEach((faction) => {
+        this.supplyHistoryByFaction[faction].push(...structuredClone(state.supplyHistory![faction]));
+      });
+    }
 
     // Restore air mission state if present in the snapshot so live sorties persist across saves.
     if (Array.isArray(state.airMissions)) {
@@ -9689,6 +9854,84 @@ private automateSupplyConvoys(
     (state.objectiveEntryAwardedKeys ?? []).forEach((key) => this.objectiveEntryAwardedKeys.add(key));
     this.objectiveCaptureAwardedKeys.clear();
     (state.objectiveCaptureAwardedKeys ?? []).forEach((key) => this.objectiveCaptureAwardedKeys.add(key));
+
+    if (state.actionFlags) {
+      const actionMaps: Record<TurnFaction, Map<string, UnitActionFlags>> = {
+        Player: this.playerActionFlags,
+        Bot: this.botActionFlags,
+        Ally: this.allyActionFlags
+      };
+      (Object.keys(actionMaps) as TurnFaction[]).forEach((faction) => {
+        state.actionFlags![faction].forEach(([key, flags]) => actionMaps[faction].set(key, structuredClone(flags)));
+      });
+    }
+    if (Array.isArray(state.playerIdleUnitKeys)) {
+      state.playerIdleUnitKeys.forEach((key) => this.playerIdleUnitKeys.add(key));
+    } else {
+      this.rebuildPlayerIdleUnitSet();
+    }
+    (state.aircraftAmmo?.player ?? []).forEach(([key, ammo]) => this.playerAttackAmmo.set(key, structuredClone(ammo)));
+    (state.aircraftAmmo?.bot ?? []).forEach(([key, ammo]) => this.botAttackAmmo.set(key, structuredClone(ammo)));
+    (state.logisticsCareEvents ?? []).forEach((entry) => this.logisticsCareEvents.push(structuredClone(entry)));
+
+    if (state.supplyTruckStates) {
+      (Object.keys(state.supplyTruckStates) as TurnFaction[]).forEach((faction) => {
+        state.supplyTruckStates![faction].forEach(([key, truck]) => {
+          this.supplyTruckStateByFaction[faction].set(key, structuredClone(truck));
+        });
+      });
+    }
+    if (state.convoyServiceHistory) {
+      (Object.keys(state.convoyServiceHistory) as TurnFaction[]).forEach((faction) => {
+        state.convoyServiceHistory![faction].forEach(([key, sequence]) => {
+          this.convoyServiceHistoryByFaction[faction].set(key, sequence);
+        });
+      });
+    }
+    if (state.convoyServiceSequence) {
+      this.convoyServiceSequenceByFaction = structuredClone(state.convoyServiceSequence);
+    }
+    (state.supplyPriorities ?? []).forEach(([unitId, priority]) => this.supplyPriorityByUnitId.set(unitId, priority));
+
+    if (Array.isArray(state.airMissionAssignments)) {
+      this.airMissionAssignmentsByUnit.clear();
+      state.airMissionAssignments.forEach(([unitId, missionId]) => this.airMissionAssignmentsByUnit.set(unitId, missionId));
+    }
+    (state.pendingAirMissionArrivals ?? []).forEach((entry) => this.pendingAirMissionArrivals.push(structuredClone(entry)));
+    (state.pendingAirEngagements ?? []).forEach((entry) => this.pendingAirEngagements.push(structuredClone(entry)));
+    (state.resolvedMissionAirPhases ?? []).forEach(([missionId, phase]) => {
+      this.resolvedMissionAirPhaseByMissionId.set(missionId, structuredClone(phase));
+    });
+    (state.resolvedEscortMissionStates ?? []).forEach(([missionId, escort]) => {
+      this.resolvedEscortMissionStateByMissionId.set(missionId, structuredClone(escort));
+    });
+    (state.pendingSupportImpactEvents ?? []).forEach((entry) => this.pendingSupportImpactEvents.push(structuredClone(entry)));
+    (state.combatReports ?? []).forEach((entry) => this.combatReports.push(structuredClone(entry)));
+    (state.casualtyLog ?? []).forEach((entry) => this.casualtyLog.push(structuredClone(entry)));
+
+    this.queuedAllocations = structuredClone(state.queuedAllocations ?? []);
+    if (state.commanderStats) this.playerCommanderStats = structuredClone(state.commanderStats);
+    this.pendingBotTurnSummary = structuredClone(state.pendingBotTurnSummary ?? null);
+    if (state.transportAirlift) {
+      this.transportAirliftTurn = Math.max(1, Math.round(state.transportAirlift.turn));
+      this.transportAirliftsUsedThisTurn = Math.max(0, Math.round(state.transportAirlift.usedThisTurn));
+    }
+    if (state.scenarioObjectives) {
+      this.scenario.objectives = structuredClone(state.scenarioObjectives);
+    }
+    if (state.counters) {
+      this.unitIdCounter = Math.max(0, Math.round(state.counters.unitId));
+      this.combatReportIdCounter = Math.max(0, Math.round(state.counters.combatReportId));
+      this.airMissionIdCounter = Math.max(0, Math.round(state.counters.airMissionId));
+      this.battleRequisitionIdCounter = Math.max(0, Math.round(state.counters.battleRequisitionId));
+      this.counterIntelIdCounter = Math.max(0, Math.round(state.counters.counterIntelId));
+      this.deterministicEventCounter = Math.max(0, Math.round(state.counters.deterministicEvent));
+    }
+    if (typeof state.randomState === "number" && Number.isInteger(state.randomState)) {
+      this.randomState = state.randomState >>> 0 || 0x6d2b79f5;
+    }
+    this.invalidateRosterCache();
+    this.invalidateSupportSnapshot();
   }
 
   /** Move the unit occupying the given hex into the reserve pool without deleting its stats. */
@@ -11711,12 +11954,14 @@ private automateSupplyConvoys(
   /** Serialize core battle state, excluding transient caches, for persistence or debugging output. */
   serialize(): SerializedBattleState {
     return {
+      completeStateVersion: 1,
       phase: this._phase,
       activeFaction: this._activeFaction,
       turnNumber: this._turnNumber,
       baseCamp: this._baseCamp ? { hex: structuredClone(this._baseCamp.hex), key: this._baseCamp.key } : null,
       playerPlacements: this.getAllUnitsForFaction("Player").map((unit) => this.normalizedCombatStatusSnapshot(unit)),
       botPlacements: this.getAllUnitsForFaction("Bot").map((unit) => this.normalizedCombatStatusSnapshot(unit)),
+      allyPlacements: this.getAllUnitsForFaction("Ally").map((unit) => this.normalizedCombatStatusSnapshot(unit)),
       reserves: this.reserves.map((entry) => this.normalizedCombatStatusSnapshot(entry.unit)),
       // Serialize airborne reserves separately from ground reserves.
       airborneReserves: this.airborneReserves.map((entry) => this.normalizedCombatStatusSnapshot(entry.unit)),
@@ -11769,7 +12014,70 @@ private automateSupplyConvoys(
       battleRequisitionIdCounter: this.battleRequisitionIdCounter,
       supportAssets: this.privateSupportAssets.map((asset) => this.mapSupportAsset(asset)),
       objectiveEntryAwardedKeys: Array.from(this.objectiveEntryAwardedKeys),
-      objectiveCaptureAwardedKeys: Array.from(this.objectiveCaptureAwardedKeys)
+      objectiveCaptureAwardedKeys: Array.from(this.objectiveCaptureAwardedKeys),
+      actionFlags: {
+        Player: Array.from(this.playerActionFlags.entries()).map(([key, value]) => [key, structuredClone(value)]),
+        Bot: Array.from(this.botActionFlags.entries()).map(([key, value]) => [key, structuredClone(value)]),
+        Ally: Array.from(this.allyActionFlags.entries()).map(([key, value]) => [key, structuredClone(value)])
+      },
+      playerIdleUnitKeys: Array.from(this.playerIdleUnitKeys),
+      aircraftAmmo: {
+        player: Array.from(this.playerAttackAmmo.entries()).map(([key, value]) => [key, structuredClone(value)]),
+        bot: Array.from(this.botAttackAmmo.entries()).map(([key, value]) => [key, structuredClone(value)])
+      },
+      supplyUnits: {
+        Player: structuredClone(this.playerSupply),
+        Bot: structuredClone(this.botSupply),
+        Ally: structuredClone(this.allySupply)
+      },
+      supplyStates: {
+        Player: structuredClone(serializeSupplyState(this.supplyStateByFaction.Player)),
+        Bot: structuredClone(serializeSupplyState(this.supplyStateByFaction.Bot)),
+        Ally: structuredClone(serializeSupplyState(this.supplyStateByFaction.Ally))
+      },
+      supplyHistory: {
+        Player: structuredClone(this.supplyHistoryByFaction.Player),
+        Bot: structuredClone(this.supplyHistoryByFaction.Bot),
+        Ally: structuredClone(this.supplyHistoryByFaction.Ally)
+      },
+      logisticsCareEvents: structuredClone(this.logisticsCareEvents),
+      supplyTruckStates: {
+        Player: structuredClone(Array.from(this.supplyTruckStateByFaction.Player.entries())),
+        Bot: structuredClone(Array.from(this.supplyTruckStateByFaction.Bot.entries())),
+        Ally: structuredClone(Array.from(this.supplyTruckStateByFaction.Ally.entries()))
+      },
+      convoyServiceHistory: {
+        Player: Array.from(this.convoyServiceHistoryByFaction.Player.entries()),
+        Bot: Array.from(this.convoyServiceHistoryByFaction.Bot.entries()),
+        Ally: Array.from(this.convoyServiceHistoryByFaction.Ally.entries())
+      },
+      convoyServiceSequence: structuredClone(this.convoyServiceSequenceByFaction),
+      supplyPriorities: Array.from(this.supplyPriorityByUnitId.entries()),
+      airMissionAssignments: Array.from(this.airMissionAssignmentsByUnit.entries()),
+      pendingAirMissionArrivals: structuredClone(this.pendingAirMissionArrivals),
+      pendingAirEngagements: structuredClone(this.pendingAirEngagements),
+      resolvedMissionAirPhases: structuredClone(Array.from(this.resolvedMissionAirPhaseByMissionId.entries())),
+      resolvedEscortMissionStates: structuredClone(Array.from(this.resolvedEscortMissionStateByMissionId.entries())),
+      pendingSupportImpactEvents: structuredClone(this.pendingSupportImpactEvents),
+      combatReports: structuredClone(this.combatReports),
+      casualtyLog: structuredClone(this.casualtyLog),
+      queuedAllocations: structuredClone(this.queuedAllocations),
+      commanderStats: structuredClone(this.playerCommanderStats),
+      pendingBotTurnSummary: structuredClone(this.pendingBotTurnSummary),
+      transportAirlift: {
+        turn: this.transportAirliftTurn,
+        usedThisTurn: this.transportAirliftsUsedThisTurn
+      },
+      scenarioObjectives: structuredClone(this.scenario.objectives),
+      counters: {
+        unitId: this.unitIdCounter,
+        combatReportId: this.combatReportIdCounter,
+        airMissionId: this.airMissionIdCounter,
+        battleRequisitionId: this.battleRequisitionIdCounter,
+        counterIntelId: this.counterIntelIdCounter,
+        deterministicEvent: this.deterministicEventCounter
+      },
+      randomState: this.randomState
     };
   }
 
@@ -16118,7 +16426,7 @@ private automateSupplyConvoys(
       faction,
       turn: this._turnNumber,
       phase: this._phase,
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(Date.UTC(2000, 0, 1) + (Math.max(0, this._turnNumber) * 1_000_000)).toISOString(),
       categories,
       alerts,
       stockpile: {
@@ -16729,7 +17037,7 @@ private automateSupplyConvoys(
     const report: CombatReportEntry = {
       id: `combat_${this._turnNumber}_${this.combatReportIdCounter}`,
       turn: this._turnNumber,
-      timestamp: new Date().toISOString(),
+      timestamp: this.nextDeterministicTimestamp(),
       attacker: {
         faction: engagement.attacker.faction,
         unitType: engagement.attacker.unit.type,
@@ -16829,7 +17137,7 @@ private automateSupplyConvoys(
       id: `airMission_${mission.id}_${this._turnNumber}`,
       missionId: mission.id,
       turnResolved: this._turnNumber,
-      timestamp: new Date().toISOString(),
+      timestamp: this.nextDeterministicTimestamp(),
       faction: mission.faction,
       unitType: mission.unitType,
       unitKey: mission.unitKey,

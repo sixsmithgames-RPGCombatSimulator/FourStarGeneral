@@ -676,7 +676,7 @@ export class GameEngine {
                             unitKey: cap.unitKey,
                             unitType: capLookup.unit.type,
                             label: this.describeAirUnit(capLookup.unit),
-                            strength: capLookup.unit.strength
+                            strength: this.deriveCombatStrength(capLookup.unit)
                         });
                         interceptorParticipants.push({ mission: cap, unit: capLookup.unit });
                     }
@@ -689,7 +689,7 @@ export class GameEngine {
                             unitKey: em.unitKey,
                             unitType: escortLookup.unit.type,
                             label: this.describeAirUnit(escortLookup.unit),
-                            strength: escortLookup.unit.strength
+                            strength: this.deriveCombatStrength(escortLookup.unit)
                         });
                         escortParticipants.push({ mission: em, unit: escortLookup.unit });
                     }
@@ -1323,33 +1323,33 @@ export class GameEngine {
                 unitKey: placeholder?.mission.unitKey ?? "cap-clash",
                 unitType: placeholder?.unitBefore.type ?? "Fighter",
                 label: placeholder ? this.describeAirUnit(placeholder.unitBefore) : "CAP Flight",
-                strength: placeholder?.unitBefore.strength ?? 100
+                strength: placeholder ? this.deriveCombatStrength(placeholder.unitBefore) : 100
             },
             interceptors: alliedCaps.map((delta) => ({
                 faction: delta.mission.faction,
                 unitKey: delta.mission.unitKey,
                 unitType: delta.unitBefore.type,
                 label: this.describeAirUnit(delta.unitBefore),
-                strength: delta.unitBefore.strength
+                strength: this.deriveCombatStrength(delta.unitBefore)
             })),
             escorts: axisCaps.map((delta) => ({
                 faction: delta.mission.faction,
                 unitKey: delta.mission.unitKey,
                 unitType: delta.unitBefore.type,
                 label: this.describeAirUnit(delta.unitBefore),
-                strength: delta.unitBefore.strength
+                strength: this.deriveCombatStrength(delta.unitBefore)
             })),
-            bomberStrengthBefore: placeholder?.unitBefore.strength ?? 100,
-            bomberStrengthAfter: placeholder?.unitAfter.strength ?? 100,
+            bomberStrengthBefore: placeholder ? this.deriveCombatStrength(placeholder.unitBefore) : 100,
+            bomberStrengthAfter: placeholder ? this.deriveCombatStrength(placeholder.unitAfter) : 100,
             bomberDestroyed: false,
             escortExchanges: exchanges,
             bomberPassExchanges: [],
-            interceptorsAfterEscortPhase: alliedCaps.filter((delta) => delta.unitAfter.strength > 0).length,
-            escortsAfterEscortPhase: axisCaps.filter((delta) => delta.unitAfter.strength > 0).length,
-            interceptorStrengthsAfterEscortPhase: alliedCaps.map((delta) => delta.unitAfter.strength),
-            escortStrengthsAfterEscortPhase: axisCaps.map((delta) => delta.unitAfter.strength),
-            interceptorFinalStrengths: alliedCaps.map((delta) => delta.unitAfter.strength),
-            escortFinalStrengths: axisCaps.map((delta) => delta.unitAfter.strength)
+            interceptorsAfterEscortPhase: alliedCaps.filter((delta) => this.deriveCombatStrength(delta.unitAfter) > 0).length,
+            escortsAfterEscortPhase: axisCaps.filter((delta) => this.deriveCombatStrength(delta.unitAfter) > 0).length,
+            interceptorStrengthsAfterEscortPhase: alliedCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
+            escortStrengthsAfterEscortPhase: axisCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
+            interceptorFinalStrengths: alliedCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
+            escortFinalStrengths: axisCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter))
         };
     }
     resolveCapClashFocusHex(alliedCaps, axisCaps, readyStrikeMissions) {
@@ -1464,23 +1464,23 @@ export class GameEngine {
                     unitKey: mission.unitKey,
                     unitType: mission.unitType,
                     label: this.describeAirUnit(bomberBeforeAirPhase),
-                    strength: bomberBeforeAirPhase.strength
+                    strength: this.deriveCombatStrength(bomberBeforeAirPhase)
                 },
                 interceptors: interceptorParticipants.map((entry) => ({
                     faction: entry.mission.faction,
                     unitKey: entry.mission.unitKey,
                     unitType: entry.unit.type,
                     label: this.describeAirUnit(entry.unit),
-                    strength: entry.unit.strength
+                    strength: this.deriveCombatStrength(entry.unit)
                 })),
                 escorts: escortParticipants.map((entry) => ({
                     faction: entry.mission.faction,
                     unitKey: entry.mission.unitKey,
                     unitType: entry.unit.type,
                     label: this.describeAirUnit(entry.unit),
-                    strength: entry.unit.strength
+                    strength: this.deriveCombatStrength(entry.unit)
                 })),
-                bomberStrengthBefore: bomberBeforeAirPhase.strength,
+                bomberStrengthBefore: this.deriveCombatStrength(bomberBeforeAirPhase),
                 bomberStrengthAfter: interception.bomberAfter.strength,
                 bomberDestroyed: interception.bomberDestroyed,
                 interceptorAttrition: interception.interceptorAttrition,
@@ -1600,10 +1600,10 @@ export class GameEngine {
         let currentBomber = structuredClone(bomber);
         const flakEngagements = [];
         for (const flakEntry of flakUnits) {
-            if (currentBomber.strength <= 0) {
+            if (this.deriveCombatStrength(currentBomber) <= 0) {
                 break;
             }
-            const bomberStrengthBeforeBattery = currentBomber.strength;
+            const bomberStrengthBeforeBattery = this.deriveCombatStrength(currentBomber);
             const flakReq = this.buildMissionAttackRequest(opponentFaction, flakEntry.unit, currentBomber, { defenderHex: mission.targetHex });
             if (!flakReq) {
                 continue;
@@ -1616,6 +1616,7 @@ export class GameEngine {
             const damagePacket = this.applyCombatDamageToUnitStatusOnly(flakEntry.unit, flakDef, currentBomber, bomberDefinition, flakResult, flakEntry.unit.hex, mission.targetHex, this.resolveDamageEffectScalar(baseFlakResult, flakResult));
             const damageSummary = this.buildCombatDamageSummary(bomberBeforeDamage, currentBomber, damagePacket);
             const suffered = damageSummary.readinessLoss;
+            const bomberStrengthAfterBattery = this.deriveCombatStrength(currentBomber);
             totalDamage += suffered;
             if (airPhaseFlakState) {
                 this.recordAirPhaseFlakEngagement(airPhaseFlakState, opponentFaction, flakEntry.unit);
@@ -1634,11 +1635,13 @@ export class GameEngine {
                 bomberUnitType: mission.unitType,
                 bomberLabel: this.describeAirUnit(bomber),
                 bomberStrengthBefore: bomberStrengthBeforeBattery,
-                bomberStrengthAfter: currentBomber.strength,
+                bomberStrengthAfter: bomberStrengthAfterBattery,
                 damageToBomber: suffered,
-                bomberDestroyed: currentBomber.strength <= 0
+                bomberDestroyed: bomberStrengthAfterBattery <= 0
             });
         }
+        const bomberStrengthBeforeMission = this.deriveCombatStrength(bomber);
+        const bomberStrengthAfterMission = this.deriveCombatStrength(currentBomber);
         return {
             bomberAfter: currentBomber,
             totalDamage,
@@ -1651,15 +1654,15 @@ export class GameEngine {
                     unitKey: mission.unitKey,
                     unitType: mission.unitType,
                     label: this.describeAirUnit(bomber),
-                    strength: bomber.strength
+                    strength: bomberStrengthBeforeMission
                 },
                 interceptors: flakInterceptorsForEvent,
                 escorts: [],
                 flakDamage: totalDamage,
                 flakEngagements,
-                bomberStrengthBefore: bomber.strength,
-                bomberStrengthAfter: currentBomber.strength,
-                bomberDestroyed: currentBomber.strength <= 0
+                bomberStrengthBefore: bomberStrengthBeforeMission,
+                bomberStrengthAfter: bomberStrengthAfterMission,
+                bomberDestroyed: bomberStrengthAfterMission <= 0
             }
         };
     }
@@ -1865,13 +1868,13 @@ export class GameEngine {
     buildAttackRequestFromDefinitions(faction, attacker, defender, attackerDefinition, defenderDefinition) {
         const attackerState = {
             unit: attackerDefinition,
-            strength: attacker.strength,
+            strength: this.deriveCombatStrength(attacker),
             experience: attacker.experience,
             general: faction === "Player" ? this.playerSide.general : this.botSide.general
         };
         const defenderState = {
             unit: defenderDefinition,
-            strength: defender.strength,
+            strength: this.deriveCombatStrength(defender),
             experience: defender.experience,
             general: faction === "Player" ? this.botSide.general : this.playerSide.general
         };
@@ -1887,6 +1890,7 @@ export class GameEngine {
                 class: defenderDefinition.class,
                 facing: defender.facing,
                 hex: structuredClone(defender.hex),
+                entrenchment: defender.entrench,
                 isRushing: false,
                 isSpottedOnly: false
             },
@@ -2888,6 +2892,28 @@ export class GameEngine {
             }
         });
     }
+    /**
+     * Pre-loads the supply trucks present at battle start (scenario-authored or auto-provisioned via
+     * ensureBaselineSupplyConvoysForSide) with a full cargo of ammo and fuel, so they arrive ready to
+     * resupply the front immediately instead of needing a turn at the HQ depot before delivering anything.
+     * Only called once during engine construction - trucks requisitioned mid-battle intentionally still
+     * start empty and must travel to a supply source, which is the normal convoy gameplay loop.
+     */
+    preloadStartingSupplyConvoyCargo(faction) {
+        this.ensureSupplyTruckStatesForFaction(faction);
+        const stateMap = this.getSupplyTruckStateMap(faction);
+        this.getAllUnitsForFaction(faction).forEach((unit) => {
+            if (!this.isSupplyTruckType(unit.type)) {
+                return;
+            }
+            const unitId = this.ensureUnitId(unit);
+            const state = stateMap.get(unitId);
+            if (state) {
+                state.ammoCargo = supplyBalance.convoy.ammoCapacity;
+                state.fuelCargo = supplyBalance.convoy.fuelCapacity;
+            }
+        });
+    }
     loadSupplyTruckFromDepot(faction, supplyState, truck, truckSupplyState, truckState) {
         const ammoNeed = Math.max(0, supplyBalance.convoy.ammoCapacity - truckState.ammoCargo);
         const ammoLoad = Math.min(ammoNeed, Math.max(0, supplyState.inventory.ammo.current));
@@ -3661,6 +3687,15 @@ export class GameEngine {
         applyReadinessScalarToStatus(status, unit.strength);
         unit.strength = deriveStrengthFromStatus(status, unit.strength);
     }
+    normalizedCombatStatusSnapshot(unit) {
+        const snapshot = structuredClone(unit);
+        snapshot.formationKey = snapshot.formationKey ?? this.inferFormationKeyForUnit(snapshot);
+        synchronizeUnitStatusWithStrength(snapshot, snapshot.formationKey);
+        return snapshot;
+    }
+    deriveCombatStrength(unit) {
+        return this.normalizedCombatStatusSnapshot(unit).strength;
+    }
     resolveDamageEffectScalar(baseResult, scaledResult) {
         if (!Number.isFinite(baseResult.expectedDamage) || baseResult.expectedDamage <= 0) {
             return 1;
@@ -3693,8 +3728,12 @@ export class GameEngine {
         };
     }
     buildCombatDamageSummary(before, after, packet) {
-        const statusBefore = summarizeFormationStatus(before.status, before.strength);
-        const statusAfter = summarizeFormationStatus(after.status, after.strength);
+        const beforeSnapshot = this.normalizedCombatStatusSnapshot(before);
+        const afterSnapshot = this.normalizedCombatStatusSnapshot(after);
+        const strengthBefore = beforeSnapshot.strength;
+        const strengthAfter = afterSnapshot.strength;
+        const statusBefore = summarizeFormationStatus(beforeSnapshot.status, strengthBefore);
+        const statusAfter = summarizeFormationStatus(afterSnapshot.status, strengthAfter);
         const readinessLoss = Math.max(0, Math.round((statusBefore.readiness - statusAfter.readiness) * 100) / 100);
         const normalizedPacket = {
             personnel: { ...packet.personnel },
@@ -3714,11 +3753,17 @@ export class GameEngine {
                     destroyed: { ...packet.componentDamage.destroyed }
                 }
                 : undefined,
-            damageTypesUsed: new Set(packet.damageTypesUsed ?? [])
+            damageTypesUsed: new Set(packet.damageTypesUsed ?? []),
+            statusTransitions: packet.statusTransitions
+                ? {
+                    personnel: packet.statusTransitions.personnel.map((entry) => ({ ...entry })),
+                    equipment: packet.statusTransitions.equipment.map((entry) => ({ ...entry }))
+                }
+                : undefined
         };
         return {
-            strengthBefore: before.strength,
-            strengthAfter: after.strength,
+            strengthBefore,
+            strengthAfter,
             readinessLoss,
             statusBefore,
             statusAfter,
@@ -3729,13 +3774,12 @@ export class GameEngine {
             weaponHits: normalizedPacket.weaponHits,
             componentDamage: normalizedPacket.componentDamage,
             damageTypesUsed: Array.from(normalizedPacket.damageTypesUsed ?? []),
+            statusTransitions: normalizedPacket.statusTransitions,
             summary: describeDamagePacket(normalizedPacket)
         };
     }
     previewCombatDamageToUnit(attacker, attackerDefinition, defender, defenderDefinition, attackResult, attackerHex, defenderHex, effectScalar = 1, suppressionScalar = 1) {
-        const previewDefender = structuredClone(defender);
-        previewDefender.formationKey = previewDefender.formationKey ?? this.inferFormationKeyForUnit(previewDefender);
-        ensureFormationStatus(previewDefender, previewDefender.formationKey);
+        const previewDefender = this.normalizedCombatStatusSnapshot(defender);
         const before = structuredClone(previewDefender);
         const packet = resolveDamagePacket({
             attacker,
@@ -3799,6 +3843,7 @@ export class GameEngine {
             personnel: packet.personnel,
             equipment: packet.equipment,
             componentDamage: packet.componentDamage ?? { damaged: {}, disabled: {}, destroyed: {} },
+            statusTransitions: packet.statusTransitions,
             damageTypes: Array.from(packet.damageTypesUsed ?? []),
             suppression: packet.suppression,
             readinessAfter: defenderStatusSummary.readiness,
@@ -4407,6 +4452,13 @@ export class GameEngine {
                 this.addUnitToFactionHex("Ally", clone);
             });
         }
+        // Bot/ally supply convoys (scenario-authored or auto-provisioned via ensureBaselineSupplyConvoysForSide)
+        // should roll in already loaded, not sitting empty until the automation routes them to their HQ to load.
+        // Convoys requisitioned mid-battle are unaffected and still start empty, matching the normal resupply loop.
+        this.preloadStartingSupplyConvoyCargo("Bot");
+        if (this.allySide) {
+            this.preloadStartingSupplyConvoyCargo("Ally");
+        }
         if ((this.botSide.units?.length ?? 0) > 0 && this.botPlacements.size === 0) {
             // Fail fast so missing enemies are explicit instead of silently disappearing.
             throw new Error(`GameEngine initialization failed: seeded 0 bot placements from ${(this.botSide.units ?? []).length} bot units. Ensure scenario bot units are present and valid.`);
@@ -4612,9 +4664,7 @@ export class GameEngine {
     get botUnits() {
         return this.getAllUnitsForFaction("Bot").map((unit) => structuredClone(unit));
     }
-    /**
-     * Surfaces ally deployments with defensive copies. Ally units are AI-controlled but can be transferred to player control.
-     */
+    /** Surfaces any allied deployments that have not yet transferred to player command. */
     get allyUnits() {
         return this.getAllUnitsForFaction("Ally").map((unit) => structuredClone(unit));
     }
@@ -5403,11 +5453,11 @@ export class GameEngine {
         this.invalidateSupportSnapshot();
         this.invalidateRosterCache();
     }
-    queueSupportActionFromUnit(callerHex, assetId, targetHex) {
+    queueSupportActionFromUnit(callerHex, assetId, targetHex, callerUnitId) {
         if (this._phase !== "playerTurn") {
             return false;
         }
-        const caller = this.lookupUnit(callerHex, "Player");
+        const caller = this.lookupUnit(callerHex, "Player", false, callerUnitId);
         if (!caller || this.isAutomatedPlayerUnit(caller) || !this.getPlayerEnemyContactStateAtHex(targetHex)) {
             return false;
         }
@@ -5420,8 +5470,7 @@ export class GameEngine {
         }
         const callerKey = axialKey(callerHex);
         const flags = this.getUnitActionFlags("Player", caller);
-        const halfMovement = Math.floor(callerDefinition.movement / 2);
-        if (flags.attacksUsed > 0 || flags.movementPointsUsed > halfMovement) {
+        if (flags.attacksUsed > 0) {
             return false;
         }
         const asset = this.getInternalSupportAsset(assetId);
@@ -5542,6 +5591,16 @@ export class GameEngine {
         }));
         this.pendingSupportImpactEvents.length = 0;
         return copy;
+    }
+    /**
+     * Initiative battles do not pass through the legacy player-turn transition before the
+     * artillery band. Expose the same support resolver so initiative sequencing can land
+     * queued fire missions at initiative 2 and let the UI consume their impact events.
+     */
+    resolveQueuedSupportActionsForInitiative() {
+        const impactCountBefore = this.pendingSupportImpactEvents.length;
+        this.resolveQueuedSupportActions();
+        return Math.max(0, this.pendingSupportImpactEvents.length - impactCountBefore);
     }
     /**
      * Register a new sortie for the active faction. Validation is intentionally strict to prevent partial state.
@@ -5807,10 +5866,9 @@ export class GameEngine {
             const strikeDamageCap = this.resolveSupportStrikeDamageCap(asset);
             if (defender) {
                 targetUnitType = defender.type;
-                damage = Math.min(Math.max(0, Math.round(defender.strength)), strikeDamageCap);
-                const updatedDefender = structuredClone(defender);
-                updatedDefender.strength = Math.max(0, defender.strength - damage);
-                this.reconcileUnitStatusToStrength(updatedDefender);
+                const strike = this.resolveSupportStrikeDamage(asset, defender, targetHex, strikeDamageCap);
+                const updatedDefender = strike.unit;
+                damage = strike.damage.readinessLoss;
                 if (updatedDefender.strength <= 0) {
                     destroyed = true;
                     this.botPlacements.delete(targetKey);
@@ -5856,6 +5914,118 @@ export class GameEngine {
             return Math.max(1, Math.round(asset.strikeDamageCap));
         }
         return 22;
+    }
+    resolveSupportStrikeUnitType(asset) {
+        return (asset.type === "air" ? "Bomber" : "Howitzer_105");
+    }
+    buildSupportStrikeAttacker(asset, targetHex) {
+        const type = this.resolveSupportStrikeUnitType(asset);
+        const definition = this.getUnitDefinition(type);
+        const standOffRange = Math.max(3, Math.min(definition.rangeMax || 8, 8));
+        const hex = { q: targetHex.q, r: targetHex.r - standOffRange };
+        const unit = {
+            type,
+            hex,
+            strength: 100,
+            experience: 1,
+            ammo: Math.max(1, definition.ammo),
+            fuel: Math.max(0, definition.fuel),
+            entrench: 0,
+            facing: "SE",
+            unitId: `${asset.id}-fire-mission`
+        };
+        unit.formationKey = this.inferFormationKeyForUnit(unit);
+        return { unit, definition, hex };
+    }
+    buildSupportStrikeAttackResult(attackerDefinition, defenderDefinition, shots, accuracy) {
+        const boundedShots = Math.max(0, shots);
+        const boundedAccuracy = Math.max(0, Math.min(95, accuracy));
+        const expectedHits = boundedShots * (boundedAccuracy / 100);
+        const damagePerHit = expectedHits > 0
+            ? Math.max(attackerDefinition.softAttack, attackerDefinition.hardAttack, 1) / expectedHits
+            : 0;
+        const damageBreakdown = {
+            baseTableValue: damagePerHit,
+            experienceScalar: 1,
+            afterExperience: damagePerHit,
+            commanderScalar: 1,
+            final: damagePerHit
+        };
+        return {
+            accuracy: boundedAccuracy,
+            shots: boundedShots,
+            damagePerHit,
+            expectedHits,
+            layeredHits: {
+                targetAreaEffects: boundedShots,
+                effectiveContacts: expectedHits,
+                nonEffectContacts: 0,
+                softComponentContacts: 0,
+                penetratingContacts: 0,
+                areaEffectContacts: expectedHits
+            },
+            expectedDamage: expectedHits * damagePerHit,
+            expectedSuppression: expectedHits,
+            effectiveAP: attackerDefinition.ap ?? 0,
+            facingArmor: defenderDefinition.armor.top,
+            accuracyBreakdown: {
+                baseRange: boundedAccuracy,
+                commanderScalar: 1,
+                afterCommander: boundedAccuracy,
+                experienceScalar: 1,
+                afterExperience: boundedAccuracy,
+                terrainModifier: 0,
+                terrainMultiplier: 1,
+                afterTerrain: boundedAccuracy,
+                spottedMultiplier: 1,
+                finalPreClamp: boundedAccuracy,
+                final: boundedAccuracy
+            },
+            damageBreakdown,
+            shotBreakdown: {
+                theoreticalProfileShots: boundedShots,
+                formationScalar: 1,
+                strengthScalar: 1,
+                posture: "deployedBattery",
+                postureScalar: 1,
+                movementScalar: 1,
+                suppressionState: "clear",
+                suppressionScalar: 1,
+                finalScalar: 1,
+                final: boundedShots
+            }
+        };
+    }
+    previewSupportStrikeDamage(asset, defender, defenderDefinition, targetHex, effectScalar) {
+        const strikeAttacker = this.buildSupportStrikeAttacker(asset, targetHex);
+        const baseShots = strikeAttacker.definition.weaponModel?.groups.reduce((sum, group) => sum + Math.max(0, group.shots), 0) ?? 0;
+        const shotScalar = asset.type === "air" ? 0.9 : 1;
+        const accuracy = asset.type === "air" ? 42 : 46;
+        const attackResult = this.buildSupportStrikeAttackResult(strikeAttacker.definition, defenderDefinition, baseShots * shotScalar, accuracy);
+        return this.previewCombatDamageToUnit(strikeAttacker.unit, strikeAttacker.definition, defender, defenderDefinition, attackResult, strikeAttacker.hex, targetHex, effectScalar, 1);
+    }
+    resolveSupportStrikeDamage(asset, defender, targetHex, readinessCap) {
+        const defenderDefinition = this.getUnitDefinition(defender.type);
+        const cap = Math.max(0, readinessCap);
+        const full = this.previewSupportStrikeDamage(asset, defender, defenderDefinition, targetHex, 1);
+        if (full.damage.readinessLoss <= cap) {
+            return full;
+        }
+        let low = 0;
+        let high = 1;
+        let best = this.previewSupportStrikeDamage(asset, defender, defenderDefinition, targetHex, 0);
+        for (let i = 0; i < 10; i += 1) {
+            const mid = (low + high) / 2;
+            const candidate = this.previewSupportStrikeDamage(asset, defender, defenderDefinition, targetHex, mid);
+            if (candidate.damage.readinessLoss <= cap) {
+                best = candidate;
+                low = mid;
+            }
+            else {
+                high = mid;
+            }
+        }
+        return best;
     }
     ensureIntelBriefStatesForSnapshot(snapshot) {
         snapshot.intelBriefs.forEach((brief) => {
@@ -6843,9 +7013,10 @@ export class GameEngine {
             totalExpectedSuppression += finalExpectedSuppression;
             const retaliationPreview = this.previewRetaliationForPlayerAttack(attacker, attackerHex, attackerDef, entry.unit, damageProjection.unit, defenderHex, entryDef, effectiveStance, entry.faction);
             totalExpectedRetaliation += retaliationPreview.expectedDamage;
+            const targetUnit = this.normalizedCombatStatusSnapshot(entry.unit);
             targetRichEntries.push({
                 unitId: entry.unitId,
-                unit: structuredClone(entry.unit),
+                unit: targetUnit,
                 expectedDamage: finalExpectedDamage,
                 expectedRetaliation: retaliationPreview.expectedDamage,
                 retaliationPossible: retaliationPreview.possible,
@@ -6879,9 +7050,11 @@ export class GameEngine {
         const finalDamagePerHit = aggregateAttackResult.damagePerHit;
         const finalExpectedDamage = primaryDamageProjection.readinessLoss;
         const finalExpectedSuppression = totalExpectedSuppression;
+        const previewAttacker = this.normalizedCombatStatusSnapshot(attacker);
+        const previewDefender = this.normalizedCombatStatusSnapshot(defender);
         return {
-            attacker: structuredClone(attacker),
-            defender: structuredClone(defender),
+            attacker: previewAttacker,
+            defender: previewDefender,
             result: aggregateAttackResult,
             commander: this.getCommanderBenefits(),
             damageMultiplier,
@@ -6999,7 +7172,8 @@ export class GameEngine {
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined,
             isRetaliation: true,
-            isOnSentry: simultaneousFire
+            isOnSentry: simultaneousFire,
+            defenderIsAssaulting: effectiveStance === "assault"
         });
         if (!retaliationReq) {
             return {
@@ -7387,6 +7561,11 @@ export class GameEngine {
             return [];
         }
         const { unit, definition, moveType, remaining } = context;
+        if (this.isTowableUnit(unit) && this.resolveTowState(unit) !== "towed") {
+            // Emplaced batteries must use Move Out before they can be towed. Keep the
+            // movement overlay consistent with moveUnit(), which enforces the same rule.
+            return [];
+        }
         if (this.isPinnedOrBroken(this.resolveUnitSuppressionState(unit).state)) {
             return [];
         }
@@ -7882,7 +8061,7 @@ export class GameEngine {
                             faction: opponentFaction,
                             unitKey: cap.unitKey,
                             unitType: capLookup.unit.type,
-                            strength: capLookup.unit.strength
+                            strength: this.deriveCombatStrength(capLookup.unit)
                         });
                         interceptorParticipants.push({ mission: cap, unit: capLookup.unit });
                     }
@@ -7894,7 +8073,7 @@ export class GameEngine {
                             faction: "Player",
                             unitKey: escort.unitKey,
                             unitType: escortLookup.unit.type,
-                            strength: escortLookup.unit.strength
+                            strength: this.deriveCombatStrength(escortLookup.unit)
                         });
                         escortParticipants.push({ mission: escort, unit: escortLookup.unit });
                     }
@@ -8128,7 +8307,8 @@ export class GameEngine {
                     allowBomberAirAttack: true,
                     stance: effectiveStance === "assault" ? "assault" : undefined,
                     isRetaliation: true,
-                    isOnSentry: defenderWasOnSentry
+                    isOnSentry: defenderWasOnSentry,
+                    defenderIsAssaulting: effectiveStance === "assault"
                 })
                 : null;
             if (retaliationReq) {
@@ -8244,14 +8424,14 @@ export class GameEngine {
                 unit: attackRequestSource,
                 hex: attackerHex,
                 faction: "Player",
-                strengthBefore: attackRequestSource.strength,
+                strengthBefore: this.deriveCombatStrength(attackRequestSource),
                 strengthAfter: attackerRemainingStrength
             },
             defender: {
                 unit: primaryDefender,
                 hex: defenderHex,
                 faction: primaryDefenderMember.faction,
-                strengthBefore: primaryDefender.strength,
+                strengthBefore: primaryDefenderDamage?.strengthBefore ?? this.deriveCombatStrength(primaryDefender),
                 strengthAfter: primaryDefenderRemainingStrength,
                 destroyed: primaryDefenderDestroyed
             },
@@ -8288,11 +8468,11 @@ export class GameEngine {
             activeFaction: this._activeFaction,
             turnNumber: this._turnNumber,
             baseCamp: this._baseCamp ? { hex: structuredClone(this._baseCamp.hex), key: this._baseCamp.key } : null,
-            playerPlacements: this.getAllUnitsForFaction("Player").map((unit) => structuredClone(unit)),
-            botPlacements: this.getAllUnitsForFaction("Bot").map((unit) => structuredClone(unit)),
-            reserves: this.reserves.map((entry) => structuredClone(entry.unit)),
+            playerPlacements: this.getAllUnitsForFaction("Player").map((unit) => this.normalizedCombatStatusSnapshot(unit)),
+            botPlacements: this.getAllUnitsForFaction("Bot").map((unit) => this.normalizedCombatStatusSnapshot(unit)),
+            reserves: this.reserves.map((entry) => this.normalizedCombatStatusSnapshot(entry.unit)),
             // Serialize airborne reserves separately from ground reserves.
-            airborneReserves: this.airborneReserves.map((entry) => structuredClone(entry.unit)),
+            airborneReserves: this.airborneReserves.map((entry) => this.normalizedCombatStatusSnapshot(entry.unit)),
             airMissions: Array.from(this.scheduledAirMissions.values()).map((mission) => this.serializeAirMission(mission)),
             airMissionRefits: Array.from(this.airMissionRefitTimers.entries()).map(([unitKey, timer]) => ({
                 missionId: timer.missionId,
@@ -8456,32 +8636,75 @@ export class GameEngine {
         this.pendingBotTurnSummary = null;
         return result;
     }
-    /** Transfers an ally unit at the specified hex to player control. Returns true if a unit was transferred. */
+    /**
+     * Transfers the first allied unit at a hex to player control.
+     *
+     * This remains available for compatibility with contact-triggered scenarios. New
+     * missions transfer all allied formations before initiative begins.
+     */
     transferAllyControl(hex) {
-        const allyUnit = this.lookupUnit(hex, "Ally");
+        const allyUnit = this.findUnitInFactionAtHex(hex, "Ally");
         if (!allyUnit) {
             return false;
         }
-        const key = axialKey(hex);
-        const unitId = this.getSquadronId(allyUnit);
-        // Remove from ally placements and supply mirror.
-        this.removeUnitFromFactionHex("Ally", hex, unitId);
-        this.allySupply = this.allySupply.filter((s) => !(axialKey(s.hex) === key && s.unitId === unitId));
-        // Transfer to player placements and supply mirror.
-        const clone = structuredClone(allyUnit);
-        this.normalizeScenarioUnitState(clone);
-        this.addUnitToFactionHex("Player", clone);
-        const [supplyEntry] = createSupplyUnits([clone]);
+        this.transferAlliedUnitToPlayerControl(allyUnit);
+        this.finalizeAlliedControlTransfer();
+        return true;
+    }
+    /**
+     * Transfers every currently deployed allied formation into player command.
+     *
+     * The live placement snapshot is captured before mutation so stacked allied
+     * units are each transferred once even when removing one changes stack order.
+     */
+    transferAllAlliedUnitsToPlayerControl() {
+        const alliedUnits = this.getAllUnitsForFaction("Ally").map((unit) => structuredClone(unit));
+        alliedUnits.forEach((unit) => this.transferAlliedUnitToPlayerControl(unit));
+        if (alliedUnits.length > 0) {
+            this.finalizeAlliedControlTransfer();
+        }
+        return alliedUnits.length;
+    }
+    /**
+     * Migrates one live allied formation and its faction-scoped runtime state.
+     *
+     * @param alliedUnit - Snapshot identifying the allied formation to transfer.
+     */
+    transferAlliedUnitToPlayerControl(alliedUnit) {
+        const unitId = this.getSquadronId(alliedUnit);
+        const key = axialKey(alliedUnit.hex);
+        const removed = this.removeUnitFromFactionHex("Ally", alliedUnit.hex, unitId);
+        if (!removed) {
+            throw new Error(`Allied control transfer failed for unit ${unitId} at ${key}: live placement was not found.`);
+        }
+        this.deleteUnitActionFlags("Ally", removed);
+        this.allySupply = this.allySupply.filter((entry) => entry.unitId !== unitId);
+        const transferred = structuredClone(removed);
+        transferred.controlledBy = "Player";
+        this.normalizeScenarioUnitState(transferred);
+        this.addUnitToFactionHex("Player", transferred);
+        const [supplyEntry] = createSupplyUnits([transferred]);
         if (supplyEntry) {
             this.playerSupply.push(supplyEntry);
         }
-        // Reset action flags/idle state for the new player unit.
-        this.setUnitActionFlags("Player", clone, this.createDefaultActionFlags());
+        const alliedTruckState = this.supplyTruckStateByFaction.Ally.get(unitId);
+        if (alliedTruckState) {
+            this.supplyTruckStateByFaction.Ally.delete(unitId);
+            this.supplyTruckStateByFaction.Player.set(unitId, alliedTruckState);
+        }
+        const alliedServiceHistory = this.convoyServiceHistoryByFaction.Ally.get(unitId);
+        if (alliedServiceHistory !== undefined) {
+            this.convoyServiceHistoryByFaction.Ally.delete(unitId);
+            this.convoyServiceHistoryByFaction.Player.set(unitId, alliedServiceHistory);
+        }
+        this.setUnitActionFlags("Player", transferred, this.createDefaultActionFlags());
         this.updateIdleRegistryFor(key);
-        // Keep mirrors and caches consistent.
+    }
+    /** Refreshes shared caches and faction supply history after an ownership transaction. */
+    finalizeAlliedControlTransfer() {
         this.invalidateRosterCache();
         this.recordSupplySnapshot("Player");
-        return true;
+        this.recordSupplySnapshot("Ally");
     }
     /** Executes the ally turn. Placeholder: allies hold position until dedicated ally AI is implemented. */
     executeAllyTurn() {
@@ -8519,7 +8742,7 @@ export class GameEngine {
         const depotTotals = getInventoryTotals(this.supplyStateByFaction.Player, ["ammo", "fuel", "parts"]);
         const carriedAmmoTotal = this.playerSupply.reduce((sum, entry) => sum + (entry.ammo ?? 0), 0);
         const carriedFuelTotal = this.playerSupply.reduce((sum, entry) => sum + (entry.fuel ?? 0), 0);
-        const maintenanceDemand = placements.reduce((sum, unit) => sum + Math.max(0, 10 - unit.strength), 0);
+        const maintenanceDemand = placements.reduce((sum, unit) => sum + this.calculateRepairNeed(unit), 0);
         const convoyStateMap = this.getSupplyTruckStateMap("Player");
         const convoyCargo = Array.from(convoyStateMap.values()).reduce((totals, convoy) => {
             totals.ammo += convoy.ammoCargo;
@@ -9203,15 +9426,17 @@ export class GameEngine {
         }
         const attackerGeneral = attackerFaction === "Player" ? this.playerSide.general : this.botSide.general;
         const defenderGeneral = defenderFaction === "Player" ? this.playerSide.general : this.botSide.general;
+        const attackerStrength = this.deriveCombatStrength(attacker);
+        const defenderStrength = this.deriveCombatStrength(defender);
         const attackerState = {
             unit: attackerType,
-            strength: attacker.strength,
+            strength: attackerStrength,
             experience: getEffectiveExperience(attacker),
             general: attackerGeneral
         };
         const defenderState = {
             unit: defenderType,
-            strength: defender.strength,
+            strength: defenderStrength,
             experience: getEffectiveExperience(defender),
             general: defenderGeneral
         };
@@ -9249,7 +9474,8 @@ export class GameEngine {
             class: defenderType.class,
             facing: defender.facing,
             hex: defender.hex,
-            isRushing: isDefenderRushing || isAssault, // Attacker loses cover when assaulting
+            entrenchment: defender.entrench,
+            isRushing: isDefenderRushing || options?.defenderIsAssaulting === true,
             isSpottedOnly,
             stance: isAssault ? "assault" : undefined, // Defender also at close range if assaulted
             fortified: defenderFortified,
@@ -9353,11 +9579,13 @@ export class GameEngine {
         return { faction, outOfSupply };
     }
     calculateMedicalNeed(unit) {
-        const summary = summarizeFormationStatus(unit.status, unit.strength);
+        const statusUnit = this.normalizedCombatStatusSnapshot(unit);
+        const summary = summarizeFormationStatus(statusUnit.status, statusUnit.strength);
         return summary.personnel.injured + summary.personnel.wounded * 2 + summary.personnel.severelyWounded * 3;
     }
     calculateRepairNeed(unit) {
-        const summary = summarizeFormationStatus(unit.status, unit.strength);
+        const statusUnit = this.normalizedCombatStatusSnapshot(unit);
+        const summary = summarizeFormationStatus(statusUnit.status, statusUnit.strength);
         return summary.equipment.damaged * 2 + summary.equipment.disabled * 3;
     }
     getCareTargets(faction, type) {
@@ -9689,7 +9917,8 @@ export class GameEngine {
         if (!req) {
             return null;
         }
-        let result = resolveAttack(req);
+        const baseResult = resolveAttack(req);
+        let result = baseResult;
         const atkDef = attacker.definition;
         const defDef = defender.definition;
         const atkIsBomber = this.isBomber(atkDef);
@@ -9701,7 +9930,8 @@ export class GameEngine {
         else if (atkIsAir && !atkIsBomber && defIsAir) {
             result = { ...result, damagePerHit: result.damagePerHit * 4, expectedDamage: result.expectedDamage * 4, expectedSuppression: result.expectedSuppression * 4 };
         }
-        const expectedDamage = Math.max(0, Math.round(result.expectedDamage));
+        const damageProjection = this.previewCombatDamageToUnit(atkUnit, atkDef, defUnit, defDef, result, attackerHex, defenderHex, this.resolveDamageEffectScalar(baseResult, result));
+        const expectedDamage = damageProjection.damage.readinessLoss;
         let expectedRetaliation = 0;
         if (!(atkIsAir && !defIsAir) && !this.isRetaliationBlockedByTowState(defUnit)) {
             const distance = hexDistance(defenderHex, attackerHex);
@@ -9712,10 +9942,12 @@ export class GameEngine {
                     allowBomberAirAttack: true,
                     stance: preferredStance === "assault" ? "assault" : undefined,
                     isRetaliation: true,
-                    isOnSentry: defUnit.onSentry === true
+                    isOnSentry: defUnit.onSentry === true,
+                    defenderIsAssaulting: preferredStance === "assault"
                 });
                 if (revReq) {
-                    let rev = resolveAttack(revReq);
+                    const baseRev = resolveAttack(revReq);
+                    let rev = baseRev;
                     const defIsBomber = this.isBomber(defDef);
                     const defIsAirUnit = defDef.moveType === "air";
                     const atkIsAirUnit = atkDef.moveType === "air";
@@ -9725,7 +9957,8 @@ export class GameEngine {
                     else if (defIsAirUnit && !defIsBomber && atkIsAirUnit) {
                         rev = { ...rev, damagePerHit: rev.damagePerHit * 4, expectedDamage: rev.expectedDamage * 4, expectedSuppression: rev.expectedSuppression * 4 };
                     }
-                    expectedRetaliation = Math.max(0, Math.round(rev.expectedDamage));
+                    const retaliationProjection = this.previewCombatDamageToUnit(defUnit, defDef, atkUnit, atkDef, rev, defenderHex, attackerHex, this.resolveDamageEffectScalar(baseRev, rev));
+                    expectedRetaliation = retaliationProjection.damage.readinessLoss;
                 }
             }
         }
@@ -9936,11 +10169,21 @@ export class GameEngine {
             if (toKey !== fromKey) {
                 console.log(`[Bot AI] Executing move for ${unit.type} from ${fromLabel} to ${toLabel}`);
                 const moved = structuredClone(unit);
-                // Get unit's actual movement points for this turn
                 const unitDef = this.getUnitDefinition(unit.type);
+                const botFlags = this.getUnitActionFlags("Bot", unit);
+                let movementSpent = botFlags.movementPointsUsed;
+                if (this.isTowableUnit(moved) && this.resolveTowState(moved) === "deployed") {
+                    // Enemy batteries follow the same limbering drill as player batteries:
+                    // hooking up is part of the turn and the gun remains unable to fire.
+                    moved.towState = "towed";
+                    moved.onSentry = false;
+                    moved.entrench = 0;
+                    movementSpent += this.resolveTowHookupCost(unitDef, botFlags);
+                }
+                // Get unit's actual movement points for this turn
                 const maxMovement = unitDef.movement ?? 1;
                 const availableFuel = this.resolveFuelBudget(unit, unitDef);
-                let movementSpent = 0;
+                const botMoveType = this.resolveTowState(moved) === "towed" ? "truck" : unitDef.moveType;
                 let fuelSpent = 0;
                 let hexesMoved = 0;
                 for (let i = 1; i < plan.path.length; i += 1) {
@@ -9952,8 +10195,8 @@ export class GameEngine {
                     }
                     // Calculate movement cost for this step
                     const terrain = this.terrainAt(step);
-                    const stepCost = this.resolveMoveCost(unitDef.moveType, terrain, step, current);
-                    const stepFuel = this.resolveMovementFuelStep(unitDef.moveType, step);
+                    const stepCost = this.resolveMoveCost(botMoveType, terrain, step, current);
+                    const stepFuel = this.resolveMovementFuelStep(botMoveType, step);
                     // Units can always move at least 1 hex per turn, even through difficult terrain
                     // After the first hex, check if we have movement points remaining
                     if (hexesMoved > 0 && movementSpent + stepCost > maxMovement) {
@@ -9983,6 +10226,10 @@ export class GameEngine {
                     this.botPlacements.set(finalKey, moved);
                     this.syncBotFuel(current, moved.fuel);
                     this.syncBotEntrench(current, moved.entrench);
+                    this.setUnitActionFlags("Bot", moved, {
+                        ...botFlags,
+                        movementPointsUsed: movementSpent
+                    });
                     occupancy.delete(fromKey);
                     occupancy.add(finalKey);
                     moves.push({
@@ -10214,6 +10461,15 @@ export class GameEngine {
             const unitDefinition = this.getUnitDefinition(unit.type);
             const availableFuel = this.resolveFuelBudget(unit, unitDefinition);
             let fuelSpent = 0;
+            const botFlags = this.getUnitActionFlags("Bot", unit);
+            let movementSpent = botFlags.movementPointsUsed;
+            let movingUnit = structuredClone(unit);
+            if (this.isTowableUnit(movingUnit) && this.resolveTowState(movingUnit) === "deployed") {
+                movingUnit.towState = "towed";
+                movingUnit.onSentry = false;
+                movingUnit.entrench = 0;
+                movementSpent += this.resolveTowHookupCost(unitDefinition, botFlags);
+            }
             for (let index = 1; index < plannedPath.length; index += 1) {
                 const step = plannedPath[index];
                 if (this.isOccupied(step)) {
@@ -10223,16 +10479,26 @@ export class GameEngine {
                 if (Number.isFinite(availableFuel) && fuelSpent + stepFuel > availableFuel + 1e-6) {
                     break;
                 }
+                const stepCost = this.resolveMoveCost(this.resolveTowState(movingUnit) === "towed" ? "truck" : unitDefinition.moveType, this.terrainAt(step), step, current);
+                if (visited.length > 1 && movementSpent + stepCost > this.resolveBaseMovementAllowance(unitDefinition, botFlags, movingUnit)) {
+                    break;
+                }
                 this.botPlacements.delete(axialKey(current));
-                const moved = structuredClone(unit);
+                const moved = structuredClone(movingUnit);
                 moved.facing = this.resolveFacingToward(current, step, moved.facing);
                 moved.hex = structuredClone(step);
                 moved.entrench = 0;
                 current = structuredClone(step);
                 fuelSpent += stepFuel;
+                movementSpent += stepCost;
+                movingUnit = moved;
                 this.botPlacements.set(axialKey(step), moved);
                 this.updateBotSupplyPosition(visited[visited.length - 1], step);
                 this.syncBotEntrench(step, moved.entrench);
+                this.setUnitActionFlags("Bot", moved, {
+                    ...botFlags,
+                    movementPointsUsed: movementSpent
+                });
                 visited.push(structuredClone(step));
                 lastMovedUnit = moved;
                 // If the unit becomes adjacent to its target after this step, resolve the attack and stop moving.
@@ -10852,8 +11118,10 @@ export class GameEngine {
         }
         const attackerDef = this.getUnitDefinition(attacker.type);
         const targetDef = this.getUnitDefinition(target.type);
-        const scaled = this.scaleAirMissionAttackResult(resolveAttack(req), attackerDef, targetDef);
-        return Math.max(0, Math.round(scaled.expectedDamage));
+        const baseResult = resolveAttack(req);
+        const scaled = this.scaleAirMissionAttackResult(baseResult, attackerDef, targetDef);
+        const projection = this.previewCombatDamageToUnit(attacker, attackerDef, target, targetDef, scaled, attacker.hex, target.hex, this.resolveDamageEffectScalar(baseResult, scaled));
+        return projection.damage.readinessLoss;
     }
     /**
      * Estimates expected bomber attrition from player flak/CAP for a prospective strike, while respecting any
@@ -11273,6 +11541,20 @@ export class GameEngine {
     }
     resolveBotAttack(attackingUnit, attackerHex, targetHex, stance = "fireAtWill") {
         this.ensureUnitId(attackingUnit);
+        let botFlags = this.getUnitActionFlags("Bot", attackingUnit);
+        if (this.isTowableUnit(attackingUnit) && this.resolveTowState(attackingUnit) === "towed") {
+            // A limbered battery may deploy and fire only if it has not moved. The bot
+            // has no command-card click, so resolve that legal deployment automatically.
+            if (botFlags.movementPointsUsed > 0) {
+                return null;
+            }
+            const deployed = structuredClone(attackingUnit);
+            deployed.towState = "deployed";
+            deployed.onSentry = false;
+            this.replaceUnitInFactionHex("Bot", deployed);
+            attackingUnit = deployed;
+            botFlags = this.getUnitActionFlags("Bot", attackingUnit);
+        }
         const attackerKey = this.getSquadronId(attackingUnit);
         const defenderEntries = this.getHostileUnitsAtHex(targetHex, "Bot");
         const preferredPrimaryDefender = defenderEntries[0] ?? null;
@@ -11287,7 +11569,7 @@ export class GameEngine {
         const primaryDefenderIsAircraft = this.isAircraft(primaryDefenderDef);
         const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(attackerDef, effectiveStance);
         let attackManeuverCost = 0;
-        const attackerFlags = this.getUnitActionFlags("Bot", attackingUnit);
+        const attackerFlags = botFlags;
         const resolveAircraftRegistryKey = (faction, unit) => {
             const registry = faction === "Player" ? this.playerAttackAmmo : this.botAttackAmmo;
             const unitKey = this.getSquadronId(unit);
@@ -11469,14 +11751,14 @@ export class GameEngine {
                 for (const cap of capMissions) {
                     const capLookup = this.lookupUnitBySquadronId(cap.unitKey, "Player");
                     if (capLookup) {
-                        interceptorsForEvent.push({ faction: "Player", unitKey: cap.unitKey, unitType: capLookup.unit.type, strength: capLookup.unit.strength });
+                        interceptorsForEvent.push({ faction: "Player", unitKey: cap.unitKey, unitType: capLookup.unit.type, strength: this.deriveCombatStrength(capLookup.unit) });
                         interceptorParticipants.push({ mission: cap, unit: capLookup.unit });
                     }
                 }
                 for (const escort of escortMissions) {
                     const escortLookup = this.lookupUnitBySquadronId(escort.unitKey, "Bot");
                     if (escortLookup) {
-                        escortsForEvent.push({ faction: "Bot", unitKey: escort.unitKey, unitType: escortLookup.unit.type, strength: escortLookup.unit.strength });
+                        escortsForEvent.push({ faction: "Bot", unitKey: escort.unitKey, unitType: escortLookup.unit.type, strength: this.deriveCombatStrength(escortLookup.unit) });
                         escortParticipants.push({ mission: escort, unit: escortLookup.unit });
                     }
                 }
@@ -11601,13 +11883,13 @@ export class GameEngine {
             const request = {
                 attacker: {
                     unit: attackerDef,
-                    strength: attackRequestSource.strength,
+                    strength: this.deriveCombatStrength(attackRequestSource),
                     experience: getEffectiveExperience(attackRequestSource),
                     general: this.botSide.general
                 },
                 defender: {
                     unit: defenderDef,
-                    strength: defenderBefore.strength,
+                    strength: this.deriveCombatStrength(defenderBefore),
                     experience: getEffectiveExperience(defenderBefore),
                     general: entry.faction === "Player" ? this.playerSide.general : (this.allySide?.general ?? this.playerSide.general)
                 },
@@ -11621,7 +11903,8 @@ export class GameEngine {
                     class: defenderDef.class,
                     facing: defenderBefore.facing,
                     hex: defenderBefore.hex,
-                    isRushing: effectiveStance === "assault",
+                    entrenchment: defenderBefore.entrench,
+                    isRushing: this.getUnitActionFlags(entry.faction, defenderBefore).isRushing,
                     isSpottedOnly,
                     stance: effectiveStance === "assault" ? "assault" : undefined,
                     fortified: defenderFortified,
@@ -11728,7 +12011,8 @@ export class GameEngine {
                     allowBomberAirAttack: true,
                     stance: effectiveStance === "assault" ? "assault" : undefined,
                     isRetaliation: true,
-                    isOnSentry: defenderWasOnSentry
+                    isOnSentry: defenderWasOnSentry,
+                    defenderIsAssaulting: effectiveStance === "assault"
                 })
                 : null;
             if (retaliationReq) {
@@ -12319,19 +12603,20 @@ export class GameEngine {
         const deploymentState = ensureDeploymentState();
         const updatedAt = new Date().toISOString();
         const frontline = Array.from(this.playerPlacements.values()).map((unit) => {
+            const statusUnit = this.normalizedCombatStatusSnapshot(unit);
             const definition = this.getUnitDefinition(unit.type);
             const unitKey = deploymentState.getUnitKeyForScenarioType(unit.type);
             const label = unitKey ? deploymentState.getLabelForUnitKey(unitKey) : unit.type;
             const sprite = unitKey ? deploymentState.getSpritePath(unitKey) : undefined;
-            const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * unit.strength) / 10));
-            const fuel = this.resolveRosterFuel(unit, definition);
+            const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * statusUnit.strength) / 10));
+            const fuel = this.resolveRosterFuel(statusUnit, definition);
             return {
                 unitId: `${unit.type}_${axialKey(unit.hex)}`,
                 unitKey,
                 label,
                 unitType: unit.type,
                 unitClass: definition.class,
-                strength: unit.strength,
+                strength: statusUnit.strength,
                 experience: unit.experience,
                 ammo: unit.ammo,
                 fuel,
@@ -12342,12 +12627,12 @@ export class GameEngine {
                 attachments: [],
                 tags: [],
                 combatPower,
-                statusSummary: summarizeFormationStatus(unit.status, unit.strength),
-                logisticsRole: this.isMedicalLogisticsUnit(unit)
+                statusSummary: summarizeFormationStatus(statusUnit.status, statusUnit.strength),
+                logisticsRole: this.isMedicalLogisticsUnit(statusUnit)
                     ? "medical"
-                    : this.isMaintenanceLogisticsUnit(unit)
+                    : this.isMaintenanceLogisticsUnit(statusUnit)
                         ? "repair"
-                        : this.isStandardSupplyConvoyUnit(unit)
+                        : this.isStandardSupplyConvoyUnit(statusUnit)
                             ? "supply"
                             : null,
                 sprite
@@ -12378,20 +12663,21 @@ export class GameEngine {
             };
         });
         const reserves = this.reserves.map((reserve, index) => {
+            const statusUnit = this.normalizedCombatStatusSnapshot(reserve.unit);
             const definition = this.getUnitDefinition(reserve.unit.type);
             const unitKey = reserve.allocationKey
                 ?? deploymentState.getUnitKeyForScenarioType(reserve.unit.type);
             const label = unitKey ? deploymentState.getLabelForUnitKey(unitKey) : reserve.unit.type;
             const sprite = reserve.sprite ?? (unitKey ? deploymentState.getSpritePath(unitKey) : undefined);
-            const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * reserve.unit.strength) / 10));
-            const fuel = this.resolveRosterFuel(reserve.unit, definition);
+            const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * statusUnit.strength) / 10));
+            const fuel = this.resolveRosterFuel(statusUnit, definition);
             return {
                 unitId: `reserve_${index}`,
                 unitKey,
                 label,
                 unitType: reserve.unit.type,
                 unitClass: definition.class,
-                strength: reserve.unit.strength,
+                strength: statusUnit.strength,
                 experience: reserve.unit.experience,
                 ammo: reserve.unit.ammo,
                 fuel,
@@ -12402,27 +12688,28 @@ export class GameEngine {
                 attachments: [],
                 tags: ["reserve"],
                 combatPower,
-                statusSummary: summarizeFormationStatus(reserve.unit.status, reserve.unit.strength),
-                logisticsRole: this.isMedicalLogisticsUnit(reserve.unit)
+                statusSummary: summarizeFormationStatus(statusUnit.status, statusUnit.strength),
+                logisticsRole: this.isMedicalLogisticsUnit(statusUnit)
                     ? "medical"
-                    : this.isMaintenanceLogisticsUnit(reserve.unit)
+                    : this.isMaintenanceLogisticsUnit(statusUnit)
                         ? "repair"
-                        : this.isStandardSupplyConvoyUnit(reserve.unit)
+                        : this.isStandardSupplyConvoyUnit(statusUnit)
                             ? "supply"
                             : null,
                 sprite
             };
         });
         const casualties = this.casualtyLog.map((casualty, index) => {
+            const statusUnit = this.normalizedCombatStatusSnapshot(casualty.unit);
             const definition = this.getUnitDefinition(casualty.unit.type);
-            const fuel = this.resolveRosterFuel(casualty.unit, definition);
+            const fuel = this.resolveRosterFuel(statusUnit, definition);
             return {
                 unitId: `casualty_${index}`,
                 unitKey: casualty.unitKey,
                 label: casualty.label,
                 unitType: casualty.unit.type,
                 unitClass: definition.class,
-                strength: casualty.unit.strength,
+                strength: statusUnit.strength,
                 experience: casualty.unit.experience,
                 ammo: casualty.unit.ammo,
                 fuel,
@@ -12433,12 +12720,12 @@ export class GameEngine {
                 attachments: [],
                 tags: ["destroyed"],
                 combatPower: 0,
-                statusSummary: summarizeFormationStatus(casualty.unit.status, casualty.unit.strength),
-                logisticsRole: this.isMedicalLogisticsUnit(casualty.unit)
+                statusSummary: summarizeFormationStatus(statusUnit.status, statusUnit.strength),
+                logisticsRole: this.isMedicalLogisticsUnit(statusUnit)
                     ? "medical"
-                    : this.isMaintenanceLogisticsUnit(casualty.unit)
+                    : this.isMaintenanceLogisticsUnit(statusUnit)
                         ? "repair"
-                        : this.isStandardSupplyConvoyUnit(casualty.unit)
+                        : this.isStandardSupplyConvoyUnit(statusUnit)
                             ? "supply"
                             : null,
                 sprite: undefined
@@ -12693,8 +12980,11 @@ export class GameEngine {
         const smokableClasses = ["tank", "artillery"];
         return smokableClasses.includes(definition.class);
     }
-    resolveSmokePlacementRange(_definition) {
-        return 1;
+    resolveSmokePlacementRange(definition) {
+        // Tanks use their integral smoke systems for close screening. Artillery smoke
+        // is a projectile mission, so use the same maximum range as the gun's normal
+        // indirect fire rather than limiting howitzers to an adjacent hex.
+        return definition.class === "artillery" ? definition.rangeMax : 1;
     }
     /**
      * Resolves whether the selected unit can lay a smoke screen this turn.
@@ -13175,7 +13465,8 @@ export class GameEngine {
     /**
      * Places a smoke screen on the specified edge of a hex.
      * When targetHex is provided the smoke is placed there instead of the unit's own hex;
-     * the target must be the unit's own hex or adjacent. When omitted smoke goes on the unit's hex.
+     * tanks are limited to adjacent hexes while artillery uses its indirect-fire range.
+     * When omitted smoke goes on the unit's own hex.
      * Smoke is a free action (does not spend movement or attacks) but consumes 1 ammo.
      * Each unit may deploy smoke at most once per turn — the smokeUsed flag prevents reuse.
      * The modification expires at the start of the next player turn via expireSmoke().

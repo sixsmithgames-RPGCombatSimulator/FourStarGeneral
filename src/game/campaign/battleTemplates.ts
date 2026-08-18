@@ -36,6 +36,8 @@ export interface BattleTemplateEntry {
   /** Mission archetypes this map serves. */
   missionTypes: readonly CampaignMissionType[];
   terrain: TemplateTerrain;
+  /** Role occupied by the authored Player side before campaign forces replace the roster. */
+  playerRole: "attacker" | "defender";
 }
 
 /**
@@ -43,18 +45,18 @@ export interface BattleTemplateEntry {
  * Add entries as new templates are authored; selection degrades gracefully to the fallback.
  */
 export const BATTLE_TEMPLATES: readonly BattleTemplateEntry[] = Object.freeze([
-  { key: "fortified_monte_cassino", scenario: monteCassinoScenario, missionTypes: ["fortifiedAssault"], terrain: "inland" },
-  { key: "fortified_omaha_coast", scenario: omahaBeachScenario, missionTypes: ["fortifiedAssault", "portAssault"], terrain: "coastal" },
-  { key: "fortified_citadel_ridge", scenario: citadelRidgeScenario, missionTypes: ["fortifiedAssault", "lineAssault"], terrain: "inland" },
-  { key: "line_el_alamein", scenario: elAlameinScenario, missionTypes: ["lineAssault", "meetingEngagement"], terrain: "inland" },
-  { key: "line_hurtgen_forest", scenario: hurtgenForestScenario, missionTypes: ["lineAssault"], terrain: "inland" },
-  { key: "port_gela_landings", scenario: gelaLandingsScenario, missionTypes: ["portAssault"], terrain: "coastal" },
-  { key: "port_anzio_beachhead", scenario: anzioBeachheadScenario, missionTypes: ["portAssault", "fortifiedAssault"], terrain: "coastal" },
-  { key: "raid_kasserine_pass", scenario: kasserinePassScenario, missionTypes: ["airfieldRaid", "meetingEngagement"], terrain: "inland" },
-  { key: "raid_carentan", scenario: carentanScenario, missionTypes: ["airfieldRaid", "depotRaid"], terrain: "inland" },
-  { key: "depot_bastogne", scenario: bastogneScenario, missionTypes: ["depotRaid"], terrain: "inland" },
-  { key: "depot_falaise_pocket", scenario: falaisePocketScenario, missionTypes: ["depotRaid", "meetingEngagement"], terrain: "inland" },
-  { key: "meeting_two_bridges", scenario: twoBridgesScenario, missionTypes: ["meetingEngagement"], terrain: "inland" }
+  { key: "fortified_monte_cassino", scenario: monteCassinoScenario, missionTypes: ["fortifiedAssault"], terrain: "inland", playerRole: "attacker" },
+  { key: "fortified_omaha_coast", scenario: omahaBeachScenario, missionTypes: ["fortifiedAssault", "portAssault"], terrain: "coastal", playerRole: "attacker" },
+  { key: "fortified_citadel_ridge", scenario: citadelRidgeScenario, missionTypes: ["fortifiedAssault", "lineAssault"], terrain: "inland", playerRole: "attacker" },
+  { key: "line_el_alamein", scenario: elAlameinScenario, missionTypes: ["lineAssault", "meetingEngagement"], terrain: "inland", playerRole: "attacker" },
+  { key: "line_hurtgen_forest", scenario: hurtgenForestScenario, missionTypes: ["lineAssault"], terrain: "inland", playerRole: "attacker" },
+  { key: "port_gela_landings", scenario: gelaLandingsScenario, missionTypes: ["portAssault"], terrain: "coastal", playerRole: "attacker" },
+  { key: "port_anzio_beachhead", scenario: anzioBeachheadScenario, missionTypes: ["portAssault", "fortifiedAssault"], terrain: "coastal", playerRole: "defender" },
+  { key: "raid_kasserine_pass", scenario: kasserinePassScenario, missionTypes: ["airfieldRaid", "meetingEngagement"], terrain: "inland", playerRole: "defender" },
+  { key: "raid_carentan", scenario: carentanScenario, missionTypes: ["airfieldRaid", "depotRaid"], terrain: "inland", playerRole: "attacker" },
+  { key: "depot_bastogne", scenario: bastogneScenario, missionTypes: ["depotRaid"], terrain: "inland", playerRole: "defender" },
+  { key: "depot_falaise_pocket", scenario: falaisePocketScenario, missionTypes: ["depotRaid", "meetingEngagement"], terrain: "inland", playerRole: "attacker" },
+  { key: "meeting_two_bridges", scenario: twoBridgesScenario, missionTypes: ["meetingEngagement"], terrain: "inland", playerRole: "attacker" }
 ]);
 
 /** Fallback when no template matches the mission type (should not happen with the seed stock). */

@@ -9,7 +9,7 @@ import { ensureTutorialState } from "../../state/TutorialState";
 import { getNextPhase, getTutorialStep } from "../../data/tutorialSteps";
 import { findGeneralById, updateGeneral, saveRosterToLocalStorage } from "../../utils/rosterStorage";
 import { ensureDeploymentState } from "../../state/DeploymentState";
-import { getScenarioByMissionKey } from "../../data/scenarioRegistry";
+import { resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
 import { normalizeScenarioSource } from "../../data/scenarioNormalizer";
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import { getCombatProfile } from "../../data/combatProfiles";
@@ -20,7 +20,7 @@ import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { createMissionRulesController } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
-import { buildResolvedAirCombatScene } from "../airshow/ResolvedAirCombatSceneBuilder";
+import { buildResolvedAirCombatScene, buildResolvedAirShowFlakBursts } from "../airshow/ResolvedAirCombatSceneBuilder";
 import { buildCoordinatedAirClusterPlaybackPlan } from "../airshow/ClusterAirPlaybackPlanner";
 import { resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs, resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs, resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs, resolveBomberSortieIngressDurationMs as resolveSharedBomberSortieIngressDurationMs, resolveFighterInterceptIngressDurationMs as resolveSharedFighterInterceptIngressDurationMs, resolveFighterSortieEgressDurationMs as resolveSharedFighterSortieEgressDurationMs, resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs, scaleAirShowSequenceMs } from "../airshow/AirShowPlaybackPolicy";
 import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy } from "../airshow/AirShowTimingPolicies";
@@ -97,6 +97,20 @@ export class BattleScreen {
         }
         return damage.damageTypesUsed.map((type) => this.toTitleCase(type)).join(", ");
     }
+    formatStatusTransitions(damage) {
+        const transitions = damage?.statusTransitions;
+        if (!transitions) {
+            return "No status shifts";
+        }
+        const parts = [];
+        transitions.personnel
+            .filter((entry) => entry.count > 0)
+            .forEach((entry) => parts.push(`${entry.count} ${entry.from}->${entry.to}`));
+        transitions.equipment
+            .filter((entry) => entry.count > 0)
+            .forEach((entry) => parts.push(`${entry.count} ${entry.from}->${entry.to}`));
+        return parts.length > 0 ? parts.join(", ") : "No status shifts";
+    }
     renderReadinessProjectionRows(damage) {
         if (!damage) {
             return "";
@@ -131,6 +145,10 @@ export class BattleScreen {
         <div class="damage-projection-row">
           <span>Equipment effects</span>
           <strong>${this.escapeHtml(this.formatEquipmentDelta(damage))}</strong>
+        </div>
+        <div class="damage-projection-row">
+          <span>Status shifts</span>
+          <strong>${this.escapeHtml(this.formatStatusTransitions(damage))}</strong>
         </div>
       </div>
     `;
@@ -352,6 +370,7 @@ export class BattleScreen {
         const targetEquipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
         const targetComponentEffects = this.formatComponentDelta(preview.projectedDamage);
         const targetDamageTypes = this.formatDamageTypes(preview.projectedDamage);
+        const targetStatusTransitions = this.formatStatusTransitions(preview.projectedDamage);
         const lowLethalityNote = expectedHitsValue > 0 && projectedTargetDamage <= 0
             ? "Low-probability volley: suppression is likely, but confirmed losses are unlikely without more hits."
             : null;
@@ -616,6 +635,7 @@ export class BattleScreen {
                 <p><strong>Projected Status Effects:</strong> ${this.escapeHtml(projectedTargetSummary)}</p>
                 <p><strong>Personnel Effects:</strong> ${this.escapeHtml(targetPersonnelEffects)}</p>
                 <p><strong>Equipment Effects:</strong> ${this.escapeHtml(targetEquipmentEffects)}</p>
+                <p><strong>Status Shifts:</strong> ${this.escapeHtml(targetStatusTransitions)}</p>
                 <p><strong>Component Effects:</strong> ${this.escapeHtml(targetComponentEffects)}</p>
                 <p><strong>Damage Types:</strong> ${this.escapeHtml(targetDamageTypes)}</p>
                 ${this.renderWeaponStatusEffects(preview.projectedDamage)}
@@ -1022,7 +1042,13 @@ export class BattleScreen {
             callerUnitId,
             targetHexKeys: new Set(targetHexKeys)
         };
-        // Highlight the in-range hexes using the same zone-highlight infrastructure as artillery.
+        // Smoke targeting replaces movement/attack targeting. Leaving the old tactical
+        // highlights active makes move destinations look clickable and routes those clicks
+        // back through the normal selection flow instead of the smoke flow.
+        this.playerMoveHexes.clear();
+        this.playerAttackHexes.clear();
+        this.hexMapRenderer?.clearTacticalHighlights();
+        // Highlight only the in-range smoke hexes using the same zone-highlight infrastructure as artillery.
         const highlights = new Set(targetHexKeys);
         highlights.add(callerHexKey);
         this.hexMapRenderer?.setZoneHighlights(highlights);
@@ -1105,16 +1131,16 @@ export class BattleScreen {
         const callerAxial = CoordinateSystem.offsetToAxial(callerParsed.col, callerParsed.row);
         const targetAxial = CoordinateSystem.offsetToAxial(targetParsed.col, targetParsed.row);
         const engine = this.battleState.ensureGameEngine();
-        const queued = engine.queueSupportActionFromUnit(callerAxial, targetingState.assetId, targetAxial);
+        const queued = engine.queueSupportActionFromUnit(callerAxial, targetingState.assetId, targetAxial, targetingState.callerUnitId);
         this.cancelArtilleryTargeting(false);
         if (!queued) {
             this.applySelectedHex(targetingState.callerHexKey);
-            this.announceBattleUpdate("Corps Artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
+            this.announceBattleUpdate("Corps Artillery could not be queued. Select an eligible observer and an observed enemy hex.");
             return;
         }
         this.clearSelectedHexAfterAction();
         this.syncQueuedTargetMarkers();
-        const summary = `${targetingState.callerLabel} requested Corps Artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
+        const summary = `${targetingState.callerLabel} requested Corps Artillery on ${targetHexKey}. Impact scheduled for initiative 2 (artillery). Click the red crosshair to cancel and reposition.`;
         this.announceBattleUpdate(summary);
         this.publishActivityEvent({
             category: "player",
@@ -1123,7 +1149,9 @@ export class BattleScreen {
         });
         this.completeTutorialPhase("artillery_intro");
         this.battleState.emitBattleUpdate("manual");
-        this.completeInitiativeActivationAfterPlayerOrder(targetingState.callerUnitId);
+        // Calling in an off-map fire mission is an observation order, not a committed action - like
+        // setting facing, it should not end the caller's initiative activation. The caller remains free
+        // to move and attack normally this turn.
     }
     async triggerSupportImpacts() {
         console.log("[BattleScreen] triggerSupportImpacts called");
@@ -1993,10 +2021,38 @@ export class BattleScreen {
                     .map((modification) => this.normalizeFortificationEdgeFacing(modification.facing))
                     .filter((facing) => facing !== null)
                 : [];
-            this.fortificationFacingPreview.innerHTML = this.buildFortificationFacingPreviewMarkup(fortifiedFacings, pendingBuild?.modificationType ?? "fortifications");
+            const recommendedFacing = pendingBuild?.modificationType === "fortifications"
+                ? this.resolveRecommendedFortificationFacing(pendingBuild.hex)
+                : null;
+            this.fortificationFacingPreview.innerHTML = this.buildFortificationFacingPreviewMarkup(fortifiedFacings, pendingBuild?.modificationType ?? "fortifications", recommendedFacing);
         }
     }
-    buildFortificationFacingPreviewMarkup(fortifiedFacings, modificationType) {
+    resolveRecommendedFortificationFacing(hex) {
+        const enemyUnits = this.battleState.ensureGameEngine().botUnits;
+        if (enemyUnits.length === 0) {
+            return null;
+        }
+        const directions = [
+            { facing: "E", dq: 1, dr: 0 },
+            { facing: "NE", dq: 1, dr: -1 },
+            { facing: "SE", dq: 0, dr: 1 },
+            { facing: "NW", dq: 0, dr: -1 },
+            { facing: "SW", dq: -1, dr: 1 },
+            { facing: "W", dq: -1, dr: 0 }
+        ];
+        let bestFacing = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (const direction of directions) {
+            const neighbor = { q: hex.q + direction.dq, r: hex.r + direction.dr };
+            const nearestEnemyDistance = enemyUnits.reduce((nearest, unit) => Math.min(nearest, hexDistance(neighbor, unit.hex)), Number.POSITIVE_INFINITY);
+            if (nearestEnemyDistance < bestDistance) {
+                bestDistance = nearestEnemyDistance;
+                bestFacing = direction.facing;
+            }
+        }
+        return bestFacing;
+    }
+    buildFortificationFacingPreviewMarkup(fortifiedFacings, modificationType, recommendedFacing = null) {
         const edgePaths = {
             NW: "M 35 67 L 110 24",
             NE: "M 110 24 L 185 67",
@@ -2022,16 +2078,18 @@ export class BattleScreen {
         />
         ${Object.entries(edgePaths).map(([edge, path]) => {
             const isBuilt = fortifiedFacings.includes(edge);
+            const isRecommended = !isBuilt && edge === recommendedFacing;
             return `
           <path
-            class="fortification-facing-preview-edge${isBuilt ? " fortification-facing-preview-edge--built" : ""}"
+            class="fortification-facing-preview-edge${isBuilt ? " fortification-facing-preview-edge--built" : ""}${isRecommended ? " fortification-facing-preview-edge--recommended" : ""}"
             data-fortification-edge="${edge}"
             data-built="${isBuilt ? "true" : "false"}"
+            data-fortification-recommended="${isRecommended ? "true" : "false"}"
             d="${path}"
             tabindex="${isBuilt ? "-1" : "0"}"
             role="button"
             aria-disabled="${isBuilt ? "true" : "false"}"
-            aria-label="${isBuilt ? `${edge} edge already has ${noun} works` : `Build ${noun} works on the ${edge} edge`}"
+            aria-label="${isBuilt ? `${edge} edge already has ${noun} works` : isRecommended ? `Recommended: build ${noun} works on the ${edge} edge facing the nearest enemy` : `Build ${noun} works on the ${edge} edge`}"
           />
         `;
         }).join("")}
@@ -2187,6 +2245,15 @@ export class BattleScreen {
             this.battleState.emitBattleUpdate("manual");
             return;
         }
+        if (modificationType === "fortifications" &&
+            ensureTutorialState().getCurrentPhase() === "engineer_orders") {
+            const recommendedFacing = this.resolveRecommendedFortificationFacing(hex);
+            if (recommendedFacing && facing !== recommendedFacing) {
+                this.announceBattleUpdate(`Build on the marked ${recommendedFacing} edge facing the nearest enemy.`);
+                this.renderFortificationFacingPreview();
+                return;
+            }
+        }
         const fortifiedFacings = new Set(engine
             .getHexModifications(hex)
             .filter((modification) => modification.type === modificationType)
@@ -2251,10 +2318,31 @@ export class BattleScreen {
     }
     resolveNextTutorialPhaseAfterCompletion(phase) {
         const nextPhase = getNextPhase(phase);
-        if (phase === "select_attack_unit" && nextPhase === "smoke_demo") {
-            return this.selectedUnitCanLaySmoke() ? nextPhase : getNextPhase("smoke_demo");
+        if (phase === "enemy_activation" && this.hasReadyTutorialReconActivation()) {
+            // Allied mission-start transfers can add another player patrol to the
+            // initiative-7 band. Teach and resolve that activation before claiming
+            // that the initiative-6 engineers are ready.
+            return "active_group_units";
         }
         return nextPhase;
+    }
+    /**
+     * Reports whether the active player initiative group still contains a ready
+     * recon patrol that the tutorial must hand to the commander.
+     */
+    hasReadyTutorialReconActivation() {
+        if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+            return false;
+        }
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const activeGroup = this.resolveActiveInitiativeGroup(queue);
+        if (!activeGroup || activeGroup.ownerId !== "player") {
+            return false;
+        }
+        return this.resolveSelectablePlayerInitiativeActivations(activeGroup).some((activation) => {
+            const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
+            return Boolean(unit && this.isReconBikeBattleUnit(unit));
+        });
     }
     clearTutorialSelectionOnceForPhase(phase) {
         if (this.tutorialSelectionClearedForPhase === phase) {
@@ -2452,13 +2540,9 @@ export class BattleScreen {
         }
         if (phase === "smoke_demo") {
             if (!this.selectedUnitCanLaySmoke()) {
-                const smokeTarget = this.findTutorialAttackUnitTarget(true);
-                if (smokeTarget?.commandState?.canLaySmoke === true) {
+                const smokeTarget = this.findFirstTutorialUnitTarget((_unit, commandState) => commandState?.isAutomated !== true && commandState?.canLaySmoke === true, true);
+                if (smokeTarget) {
                     this.selectTutorialUnitTarget(smokeTarget, true);
-                }
-                else {
-                    this.completeTutorialPhase("smoke_demo");
-                    return;
                 }
             }
             else if (!this.isBattleIntelOverlayExpanded() && this.selectedHexKey) {
@@ -2469,6 +2553,7 @@ export class BattleScreen {
                 finally {
                     this.tutorialSelectionSyncInProgress = false;
                 }
+                window.setTimeout(() => this.expandBattleIntelOverlayIfCollapsed(), 0);
             }
             this.hexMapRenderer?.setZoneHighlights(this.selectedHexKey ? new Set([this.selectedHexKey]) : new Set());
             this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
@@ -2483,14 +2568,13 @@ export class BattleScreen {
             this.queueTutorialCameraForPhase(phase, activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys(), TUTORIAL_GROUP_CAMERA_ZOOM);
             return;
         }
-        if (phase === "enemy_activation" || phase === "enemy_response" || phase === "post_artillery_enemy_response") {
+        if (phase === "enemy_activation" ||
+            phase === "enemy_response" ||
+            phase === "post_artillery_enemy_response" ||
+            phase === "round_handoff") {
             this.hexMapRenderer?.setZoneHighlights(new Set());
-            const focusHexKeys = phase === "enemy_activation"
-                ? this.getTutorialUnitFocusHexes((unit) => this.isEngineerBattleUnit(unit), true)
-                : phase === "enemy_response"
-                    ? this.getTutorialArtilleryObserverFocusHexes()
-                    : this.getTutorialUnitFocusHexes((unit, commandState) => commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0, false);
-            this.queueTutorialCameraForPhase(phase, focusHexKeys.size > 0 ? focusHexKeys : this.getManualPlayerUnitHexKeys(), TUTORIAL_GROUP_CAMERA_ZOOM);
+            // Preserve the current tactical view while the enemy acts. The next
+            // friendly lesson owns the next camera move, preventing mid-handoff jumps.
             this.monitorTutorialEnemyActivation(phase);
             return;
         }
@@ -2698,6 +2782,13 @@ export class BattleScreen {
         }
         const queue = this.initiativeMethods.getCurrentInitiativeQueue();
         const activeGroup = this.resolveActiveInitiativeGroup(queue);
+        if (phase === "round_handoff" && activeGroup?.ownerId === "player") {
+            const smokeTarget = this.findFirstTutorialUnitTarget((_unit, commandState) => commandState?.isAutomated !== true && commandState?.canLaySmoke === true, true);
+            if (!smokeTarget) {
+                window.setTimeout(() => this.monitorTutorialEnemyActivation(phase), 220);
+                return;
+            }
+        }
         if (!activeGroup || activeGroup.ownerId === "player") {
             this.finishTutorialEnemyActivation(phase);
             return;
@@ -2932,14 +3023,6 @@ export class BattleScreen {
         const isEligible = (unit, commandState) => commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0;
         return this.findFirstTutorialUnitTarget((unit, commandState) => isEligible(unit, commandState) && commandState?.canLaySmoke === true, activeGroupOnly) ?? this.findFirstTutorialUnitTarget(isEligible, activeGroupOnly);
     }
-    getTutorialUnitFocusHexes(predicate, activeGroupOnly = false) {
-        const target = this.findFirstTutorialUnitTarget(predicate, activeGroupOnly);
-        return target ? new Set([target.hexKey]) : new Set();
-    }
-    getTutorialArtilleryObserverFocusHexes() {
-        return this.getTutorialUnitFocusHexes((unit, commandState, hexKey) => commandState?.isAutomated !== true &&
-            this.resolveArtilleryActionState(unit, commandState, hexKey).available, false);
-    }
     selectedUnitHasAttackTargets() {
         if (!this.selectedHexKey) {
             return false;
@@ -3039,12 +3122,12 @@ export class BattleScreen {
             return this.getManualPlayerUnitHexKeys();
         }
         const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-        const activeGroup = this.resolveActiveInitiativeGroup(queue);
-        if (!activeGroup || activeGroup.ownerId !== "player") {
+        const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+        if (!currentBand) {
             return new Set();
         }
         const keys = new Set();
-        activeGroup.activations.forEach((activation) => {
+        currentBand.activations.forEach((activation) => {
             const hexKey = this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId);
             if (hexKey) {
                 keys.add(hexKey);
@@ -4128,18 +4211,39 @@ export class BattleScreen {
             if (!bomberFrom) {
                 return;
             }
-            const flakWindowEnd = event.bomberDestroyed ? 0.84 : 0.92;
-            let nextBurstProgress = 0.68;
             const visibleStrength = event.bomberStrengthBefore ?? event.bomber.strength ?? this.resolveAirSquadronStrength(event.bomber.unitKey, event.bomber.faction, engine);
-            await this.animateAircraftLeg(renderer, bomberFrom, locKey, event.bomber.unitType, this.resolveBomberSortieIngressDurationMs(), (progress, centerX, centerY) => {
-                while (progress >= nextBurstProgress && nextBurstProgress <= flakWindowEnd) {
-                    void renderer.playFlakBurstAt(centerX, centerY, event.interceptors.length, 1.08);
-                    nextBurstProgress += 0.08;
-                }
-            }, event.bomberDestroyed ? 0.84 : 1, visibleStrength, laneOffsetPx, event.bomber.faction, "bomber");
-            if (!event.bomberDestroyed) {
-                await this.playDamagedAircraftReturn(renderer, locKey, bomberFrom, event.bomber.unitType, event.flakDamage ?? 0, event.bomberStrengthAfter ?? event.bomberStrengthBefore ?? event.bomber.strength, laneOffsetPx, 0, event.bomber.faction, this.resolveBomberSortieEgressDurationMs(), "bomber");
-            }
+            const finalStrength = event.bomberDestroyed
+                ? 0
+                : event.bomberStrengthAfter ?? event.bomberStrengthBefore ?? event.bomber.strength ?? visibleStrength;
+            const bomber = {
+                id: event.bomber.unitKey,
+                scenarioType: event.bomber.unitType,
+                faction: event.bomber.faction,
+                originHexKey: bomberFrom,
+                targetHexKey: locKey,
+                strengthBefore: visibleStrength,
+                strengthAfterEscortPhase: visibleStrength,
+                finalStrength,
+                laneOffsetPx,
+                role: "bomber",
+                combatRole: "strike"
+            };
+            await renderer.animateResolvedAirCombatShow({
+                kind: "airToAir",
+                hexKey: locKey,
+                interceptors: [],
+                escorts: [],
+                bombers: [bomber],
+                bomber,
+                bomberTargetHexKey: locKey,
+                playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+                botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot"),
+                strikeAborted: true,
+                flakBursts: buildResolvedAirShowFlakBursts(event, {
+                    bomberUnitKey: event.bomber.unitKey,
+                    targetHexKey: locKey
+                })
+            });
             return;
         }
         const bomberFrom = this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
@@ -4155,8 +4259,6 @@ export class BattleScreen {
         const flakEvent = linkedEvents.find((event) => event.type === "flak") ?? null;
         const airToAirEvent = linkedEvents.find((event) => event.type === "airToAir") ?? null;
         const interceptLocKey = airToAirEvent ? this.toOffsetHexKey(airToAirEvent.location) ?? destKey : destKey;
-        let nextBurstProgress = 0.68;
-        const flakWindowEnd = flakEvent?.bomberDestroyed ? 0.84 : 0.92;
         // Get bomber strength for formation rendering
         const bomberStrength = flakEvent?.bomberStrengthBefore ?? airToAirEvent?.bomber.strength ?? flight.strength;
         const mission = engine.getScheduledAirMissions(flight.faction).find((entry) => entry.id === flight.missionId) ?? null;
@@ -4179,24 +4281,21 @@ export class BattleScreen {
         const escortAnimations = escortFlights.map((escortFlight) => this.playEscortCompanionFlight(escortFlight, destKey, renderer));
         await Promise.all([
             (async () => {
-                const paintFlakOnIngress = (progress, centerX, centerY) => {
-                    if (!flakEvent) {
-                        return;
-                    }
-                    while (progress >= nextBurstProgress && nextBurstProgress <= flakWindowEnd) {
-                        void renderer.playFlakBurstAt(centerX, centerY, flakEvent.interceptors.length, 1.08);
-                        nextBurstProgress += 0.08;
-                    }
-                };
                 if (bomberDestroyedBeforeImpact) {
-                    await this.animateAircraftLeg(renderer, flight.originKey, destKey, flight.unitType, this.resolveBomberSortieIngressDurationMs(), paintFlakOnIngress, flakEvent?.bomberDestroyed ? 0.84 : 1, bomberStrength, flight.laneOffsetPx, flight.faction, "bomber");
+                    await this.playPersistentStrikeSortie(flight, renderer, engine, {
+                        strength: bomberStrength,
+                        returnStrength: 0,
+                        damage: totalAttrition,
+                        flakEvent,
+                        strikeAborted: true
+                    });
                     return;
                 }
                 await this.playPersistentStrikeSortie(flight, renderer, engine, {
                     strength: bomberStrength,
                     returnStrength: remainingStrength,
                     damage: totalAttrition,
-                    onIngressProgress: paintFlakOnIngress
+                    flakEvent
                 });
             })(),
             ...escortAnimations
@@ -4325,39 +4424,43 @@ export class BattleScreen {
     async playPersistentStrikeSortie(flight, renderer, engine, options = {}) {
         const destKey = this.resolvePreparedAirMissionDestKey(flight, engine) ?? flight.destKey;
         const playEffects = options.playEffects ?? true;
-        const strength = options.strength ?? flight.strength;
+        const strength = Math.max(0, options.strength ?? flight.strength ?? 0);
         const returnStrength = options.returnStrength ?? strength;
-        const damage = Math.max(0, options.damage ?? 0);
-        const hasPersistentSortie = typeof renderer.animateAircraftSortie === "function";
-        if (hasPersistentSortie) {
-            const smokeScale = damage >= 36 ? 0.82 : damage >= 18 ? 0.7 : 0.58;
-            const smokeInterval = damage >= 36 ? 0.12 : damage >= 18 ? 0.16 : 0.22;
-            let nextSmokeProgress = 0.1;
-            await renderer.animateAircraftSortie(flight.originKey, destKey, flight.originKey, flight.unitType, {
-                ingressDurationMs: this.resolveBomberSortieIngressDurationMs(),
-                egressDurationMs: this.resolveBomberSortieEgressDurationMs(),
-                strength,
-                laneOffsetPx: flight.laneOffsetPx,
-                faction: flight.faction,
-                role: "bomber",
-                onIngressProgress: options.onIngressProgress,
-                onEgressProgress: damage > 0
-                    ? (progress, centerX, centerY) => {
-                        while (progress >= nextSmokeProgress && nextSmokeProgress < 0.96) {
-                            void renderer.playAirDamageSmokeTrailAt(centerX - 4, centerY + 2, smokeScale);
-                            nextSmokeProgress += smokeInterval;
-                        }
-                    }
-                    : undefined,
-                onTargetPass: async () => {
-                    await this.playResolvedAirStrikeImpact(flight, renderer, engine, playEffects);
-                }
-            });
-            return;
-        }
-        await this.animateAircraftLeg(renderer, flight.originKey, destKey, flight.unitType, this.resolveBomberSortieIngressDurationMs(), options.onIngressProgress, 1, strength, flight.laneOffsetPx, flight.faction, "bomber");
-        await this.playResolvedAirStrikeImpact(flight, renderer, engine, playEffects);
-        await this.playDamagedAircraftReturn(renderer, destKey, flight.originKey, flight.unitType, damage, returnStrength, flight.laneOffsetPx, 0, flight.faction, this.resolveBomberSortieEgressDurationMs(), "bomber");
+        const bomber = {
+            id: flight.unitKey,
+            scenarioType: flight.unitType,
+            faction: flight.faction,
+            originHexKey: flight.originKey,
+            targetHexKey: destKey,
+            strengthBefore: strength,
+            strengthAfterEscortPhase: strength,
+            finalStrength: Math.max(0, returnStrength),
+            laneOffsetPx: flight.laneOffsetPx,
+            role: "bomber",
+            combatRole: "strike"
+        };
+        const scene = {
+            kind: "airToAir",
+            hexKey: destKey,
+            interceptors: [],
+            escorts: [],
+            bombers: [bomber],
+            bomber,
+            bomberTargetHexKey: destKey,
+            playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+            botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot"),
+            strikeAborted: options.strikeAborted ?? false,
+            flakBursts: buildResolvedAirShowFlakBursts(options.flakEvent, {
+                bomberUnitKey: flight.unitKey,
+                targetHexKey: destKey
+            })
+        };
+        await renderer.animateResolvedAirCombatShow(scene, {
+            playImpactEffects: playEffects,
+            onImpact: scene.strikeAborted
+                ? undefined
+                : () => this.playResolvedAirStrikeImpact(flight, renderer, engine, false)
+        });
     }
     async playResolvedAirStrikeImpact(flight, renderer, engine, playEffects = true) {
         const mission = engine.getScheduledAirMissions(flight.faction).find((entry) => entry.id === flight.missionId) ?? null;
@@ -5827,7 +5930,6 @@ export class BattleScreen {
         this.initiativeGroupSessionId = null;
         this.initiativeTurnAdvanceInProgress = false;
         this.initiativeSkippedUnitIds = new Set();
-        this.initiativeEndTurnSkipModeActive = false;
         // DOM element references
         this.battleAnnouncements = null;
         this.battleActivityLogToggleButton = null;
@@ -6510,6 +6612,9 @@ export class BattleScreen {
             this.assertBattleReady(engine);
             const reserves = engine.finalizeDeployment();
             console.log("Deployment finalized. Reserves:", reserves);
+            // Allied ownership must be settled before initiative snapshots the faction
+            // rosters; transferring later would leave opening activations AI-owned.
+            const transferredAlliedUnitCount = engine.transferAllAlliedUnitsToPlayerControl();
             // Initialize initiative system and move to initiative turn phase
             this.initializeInitiativeSystem(engine);
             this.initiativeMethods?.startInitiativeTurnPhase(true); // Enable initiative system
@@ -6540,7 +6645,10 @@ export class BattleScreen {
             // Update UI to show mission has started
             setMissionStartedUI(true);
             const reserveCount = engine.getReserveSnapshot().length;
-            this.announceBattleUpdate(`Battle phase started. ${reserveCount} reserves standing by. Active faction: ${turnSummary.activeFaction}. Phase: ${turnSummary.phase}.`);
+            const alliedCommandSummary = transferredAlliedUnitCount > 0
+                ? ` ${transferredAlliedUnitCount} allied formation${transferredAlliedUnitCount === 1 ? "" : "s"} transferred to your command.`
+                : "";
+            this.announceBattleUpdate(`Battle phase started. ${reserveCount} reserves standing by.${alliedCommandSummary} Active faction: ${turnSummary.activeFaction}. Phase: ${turnSummary.phase}.`);
             this.completeTutorialPhase("begin_battle");
             // Diagnostic logging for click handling
             setTimeout(() => {
@@ -7589,10 +7697,15 @@ export class BattleScreen {
             // Initialize initiative methods
             this.initiativeMethods = new GameEngineInitiativeMethods(engine);
             this.initiativeMethods.setBotActivationListener((event) => this.handleInitiativeBotActivation(event));
+            this.initiativeMethods.setSupportImpactListener(async () => {
+                this.syncQueuedTargetMarkers();
+                await this.triggerSupportImpacts();
+                this.syncQueuedTargetMarkers();
+            });
             this.isInitiativeSystemEnabled = true;
             this.initiativeGroupCursorUnitId = null;
             this.initiativeGroupSessionId = null;
-            this.clearInitiativeSkipState();
+            this.clearInitiativeGroupSkipState();
             this.syncLegacyEndTurnButton();
             this.ensureInitiativeUiSyncLoop();
             // Initialize initiative group highlighting
@@ -7641,7 +7754,7 @@ export class BattleScreen {
         this.clearInitiativeGroupHighlights();
         this.initiativeGroupCursorUnitId = null;
         this.initiativeGroupSessionId = null;
-        this.clearInitiativeSkipState();
+        this.clearInitiativeGroupSkipState();
         this.initiativeMethods?.setBotActivationListener(null);
         this.initiativeMethods = null;
         this.isInitiativeSystemEnabled = false;
@@ -7713,6 +7826,9 @@ export class BattleScreen {
                 onEndTurn: () => {
                     void this.handleTutorialAwareEndTurn();
                 },
+                onNextGroup: () => {
+                    void this.handleTutorialAwareNextGroup();
+                },
                 onNextActivation: () => this.handleNextActivation(),
                 onCompleteActivation: (unitId) => this.handleCompleteActivation(unitId),
                 onProceedToNext: () => {
@@ -7721,7 +7837,7 @@ export class BattleScreen {
                 onSkipGroup: () => this.handleSkipGroup()
             }, {
                 showSkipTurn: true,
-                showEndTurn: true,
+                showAdvanceButton: true,
                 showProceedButton: false,
                 showCurrentUnitInfo: true,
                 showGroupInfo: true,
@@ -7742,7 +7858,6 @@ export class BattleScreen {
             console.warn('Initiative methods not available');
             return false;
         }
-        const endTurnSkipAll = options?.endTurnSkipAll === true;
         const bypassConfirmation = options?.bypassConfirmation === true;
         try {
             const queue = this.initiativeMethods.getCurrentInitiativeQueue();
@@ -7770,17 +7885,11 @@ export class BattleScreen {
                     engine.enterSentry(currentUnit.hex, currentUnit.unitId ?? undefined);
                 }
             }
-            if (endTurnSkipAll) {
-                const skippedPlayerActivationCount = this.skipRemainingPlayerInitiativeTurnActivations(queue);
-                this.initiativeEndTurnSkipModeActive = skippedPlayerActivationCount > 0;
-            }
-            else {
-                this.initiativeEndTurnSkipModeActive = false;
-            }
+            // Initiative groups may be interleaved with enemy activations. Tag only
+            // this group's remaining members so later player groups stay available.
+            this.markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentUnitId);
             this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
-            if (endTurnSkipAll && this.initiativeEndTurnSkipModeActive) {
-                this.flushSkippedInitiativeActivations();
-            }
+            this.flushSkippedInitiativeActivations();
             this.focusCurrentInitiativeActivation();
             this.highlightCurrentInitiativeGroup();
             return true;
@@ -7816,7 +7925,7 @@ export class BattleScreen {
                 this.initiativeSkippedUnitIds.add(activation.unitId);
             });
             this.initiativeGroupCursorUnitId = null;
-            this.showElegantInitiativeMessage("Group ordered to hold. Commit Orders to pass initiative.");
+            this.showElegantInitiativeMessage("Group ordered to hold. Initiative is advancing to the next group.");
             this.highlightCurrentInitiativeGroup();
         }
         catch (error) {
@@ -7827,9 +7936,9 @@ export class BattleScreen {
         }
     }
     /**
-     * Handle end turn action for initiative system
+     * Handle the adaptive next-group action while preserving tutorial handoffs.
      */
-    async handleTutorialAwareEndTurn() {
+    async handleTutorialAwareNextGroup() {
         const tutorialState = ensureTutorialState();
         if (tutorialState.isTutorialActive() &&
             tutorialState.getCurrentPhase() === "spend_activation") {
@@ -7839,6 +7948,12 @@ export class BattleScreen {
             }
             return;
         }
+        await this.handleProceedToNext();
+    }
+    /**
+     * Handle the final end-turn action after all initiative groups are complete.
+     */
+    async handleTutorialAwareEndTurn() {
         await this.handleInitiativeEndTurn();
     }
     /**
@@ -7850,58 +7965,23 @@ export class BattleScreen {
             return;
         }
         try {
-            let currentActivation = this.initiativeMethods.getCurrentActivation();
-            if (currentActivation?.ownerId === "player") {
-                const proceeded = await this.handleProceedToNext({ endTurnSkipAll: true });
-                if (!proceeded) {
-                    return;
-                }
-            }
-            if (this.initiativeEndTurnSkipModeActive) {
-                this.flushSkippedInitiativeActivations();
-            }
             const refreshedQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-            currentActivation = this.initiativeMethods.getCurrentActivation();
+            const currentActivation = this.initiativeMethods.getCurrentActivation();
             const hasPendingActivations = this.hasPendingInitiativeActivations(refreshedQueue);
-            if (currentActivation?.ownerId === "player") {
-                if (this.initiativeEndTurnSkipModeActive) {
-                    this.initiativeSkippedUnitIds.add(currentActivation.unitId);
-                    this.flushSkippedInitiativeActivations();
-                    currentActivation = this.initiativeMethods.getCurrentActivation();
-                    if (currentActivation?.ownerId === "player") {
-                        this.showElegantInitiativeMessage("Remaining formations are being set to sentry. Enemy activations are resolving.");
-                    }
-                    return;
-                }
-                this.showElegantInitiativeMessage("Complete this activation or press End Turn again to confirm the handoff.");
-                return;
-            }
             if (!currentActivation && hasPendingActivations) {
                 const recovered = this.recoverInitiativeQueueStall(refreshedQueue);
                 if (!recovered) {
-                    this.showElegantInitiativeMessage("Initiative sequencing is catching up. Please try End Turn again.");
+                    this.showElegantInitiativeMessage("Initiative sequencing is catching up. Complete the remaining group before ending the turn.");
                 }
                 return;
             }
-            if (!hasPendingActivations) {
-                await this.advanceInitiativeRound();
+            if (currentActivation || hasPendingActivations) {
+                this.showElegantInitiativeMessage(currentActivation?.ownerId === "player"
+                    ? "This initiative group is still active. Select Next Group before ending the turn."
+                    : "Enemy initiative is resolving. End Turn becomes available when every group is complete.");
                 return;
             }
-            if (this.initiativeEndTurnSkipModeActive) {
-                this.publishActivityEvent({
-                    category: "enemy",
-                    type: "log",
-                    summary: "Enemy activations are resolving. Stand by for movement and fire reports."
-                });
-                this.showElegantInitiativeMessage("Remaining formations set to sentry. Enemy activations are resolving.");
-                return;
-            }
-            this.publishActivityEvent({
-                category: "enemy",
-                type: "log",
-                summary: "Enemy activations are resolving. Stand by for movement and fire reports."
-            });
-            this.showElegantInitiativeMessage("Enemy activations are resolving. Wait for the current movement/combat sequence.");
+            await this.advanceInitiativeRound();
         }
         catch (error) {
             console.error('Failed to end turn:', error);
@@ -7909,26 +7989,6 @@ export class BattleScreen {
         finally {
             this.syncInitiativeTurnControlsState();
         }
-    }
-    skipRemainingPlayerInitiativeTurnActivations(queueOverride) {
-        const queue = queueOverride ?? this.initiativeMethods?.getCurrentInitiativeQueue();
-        if (!queue || !Array.isArray(queue.activations)) {
-            return 0;
-        }
-        const engine = this.battleState.ensureGameEngine();
-        let skippedCount = 0;
-        queue.activations.forEach((activation) => {
-            if (activation.ownerId !== "player" || activation.isActivated) {
-                return;
-            }
-            this.initiativeSkippedUnitIds.add(activation.unitId);
-            skippedCount += 1;
-            const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
-            if (unit && !unit.onSentry && !this.hasUnitCommittedOrders(unit)) {
-                engine.enterSentry(unit.hex, unit.unitId ?? undefined);
-            }
-        });
-        return skippedCount;
     }
     hasPendingInitiativeActivations(queue) {
         return Boolean(queue?.activations?.some((entry) => !entry.isActivated));
@@ -7980,7 +8040,7 @@ export class BattleScreen {
             }
             this.initiativeGroupCursorUnitId = null;
             this.initiativeGroupSessionId = null;
-            this.clearInitiativeSkipState();
+            this.clearInitiativeGroupSkipState();
             this.initiativeMethods.startNextInitiativeTurnPhase();
             this.focusCurrentInitiativeActivation();
             this.highlightCurrentInitiativeGroup();
@@ -8088,7 +8148,7 @@ export class BattleScreen {
                 this.initiativeGroupSessionId = null;
                 this.initiativeGroupCursorUnitId = null;
                 if (!this.hasPendingInitiativeActivations(currentQueue)) {
-                    this.clearInitiativeSkipState();
+                    this.clearInitiativeGroupSkipState();
                 }
                 this.clearInitiativeGroupHighlights();
                 return;
@@ -8122,11 +8182,11 @@ export class BattleScreen {
         }
         try {
             const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-            const activeGroup = this.resolveActiveInitiativeGroup(queue);
-            if (!activeGroup || activeGroup.ownerId !== "player") {
+            const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+            if (!currentBand) {
                 return false;
             }
-            return activeGroup.activations.some((activation) => activation.unitId === unitId);
+            return currentBand.activations.some((activation) => activation.unitId === unitId);
         }
         catch (error) {
             console.error('Failed to check unit initiative group:', error);
@@ -8167,9 +8227,9 @@ export class BattleScreen {
                 ? this.resolveReadableInitiativeUnitEntry(currentActivationUnit)
                 : "the active formation";
             const message = unitInitiative === activeInitiative && currentActivation?.ownerId === "player" && currentActivation.unitId !== unitId
-                ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or press End Turn to hand off the next activation.`
+                ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or select Next Group to pass initiative.`
                 : unitInitiative === null
-                    ? `${unitReference} cannot act in the current initiative band. Active initiative is ${activeInitiative}. Press End Turn to continue.`
+                    ? `${unitReference} cannot act in the current initiative band. Active initiative is ${activeInitiative}. Select Next Group to continue.`
                     : `${unitReference} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
             this.showElegantInitiativeMessage(message);
         }
@@ -8199,7 +8259,7 @@ export class BattleScreen {
         const currentUnit = pendingUnits.find((unit) => unit.unitId === currentUnitId) ?? null;
         const currentLabel = currentUnit ? this.resolveReadableUnitLabel(currentUnit) : "This formation";
         const leadCopy = currentUnitIsPending
-            ? `${this.escapeHtml(currentLabel)} still has actions available. Ending now will place it on sentry and advance initiative.`
+            ? `${this.escapeHtml(currentLabel)} still has actions available. Advancing now will place it on sentry and pass initiative.`
             : "Other formations in this initiative band still have actions available.";
         const items = pendingUnits
             .slice(0, 8)
@@ -8228,7 +8288,7 @@ export class BattleScreen {
           <ul class="initiative-proceed-modal__list">${items}${overflowItem}</ul>
           <footer class="initiative-proceed-modal__actions">
             <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--secondary" data-action="cancel">Keep Commanding</button>
-            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">End Turn Anyway</button>
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">Next Group Anyway</button>
           </footer>
         </section>
       `;
@@ -8304,6 +8364,24 @@ export class BattleScreen {
             activations: groupedActivations
         };
     }
+    /**
+     * Returns every player formation in the initiative band currently receiving
+     * player orders. Completed formations remain selectable here so the player
+     * can inspect them or issue any still-legal auxiliary order; the active
+     * group above deliberately remains limited to unfinished activations for
+     * initiative advancement and Next Formation.
+     */
+    resolveCurrentPlayerInitiativeBand(currentQueue) {
+        const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+        if (!activeGroup || activeGroup.ownerId !== "player") {
+            return null;
+        }
+        return {
+            initiative: activeGroup.initiative,
+            ownerId: "player",
+            activations: currentQueue.activations.filter((activation) => activation.ownerId === "player" && activation.initiative === activeGroup.initiative)
+        };
+    }
     syncInitiativeGroupSession(activeGroup) {
         const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
         const turn = typeof queue?.currentTurn === "number" ? queue.currentTurn : 0;
@@ -8315,9 +8393,7 @@ export class BattleScreen {
         }
         this.initiativeGroupSessionId = nextSessionId;
         this.initiativeGroupCursorUnitId = null;
-        if (!this.initiativeEndTurnSkipModeActive) {
-            this.initiativeSkippedUnitIds.clear();
-        }
+        this.initiativeSkippedUnitIds.clear();
     }
     resolveUncommittedPlayerInitiativeUnits(activeGroup) {
         if (activeGroup.ownerId !== "player") {
@@ -8377,6 +8453,46 @@ export class BattleScreen {
         if (!nextActivation) {
             nextActivation = selectableActivations[0] ?? null;
         }
+        if (!nextActivation) {
+            return false;
+        }
+        this.initiativeGroupCursorUnitId = nextActivation.unitId;
+        this.focusInitiativeUnit(nextActivation.unitId);
+        return true;
+    }
+    /**
+     * Returns the formations a commander may browse with Next Formation. Pending
+     * activations appear first, but completed peers remain in the cycle for
+     * inspection and any legal follow-up orders.
+     */
+    resolveCycleablePlayerInitiativeBandActivations(activeGroup) {
+        if (activeGroup.ownerId !== "player") {
+            return [];
+        }
+        const queue = typeof this.initiativeMethods?.getCurrentInitiativeQueue === "function"
+            ? this.initiativeMethods.getCurrentInitiativeQueue()
+            : null;
+        const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+        const bandActivations = currentBand?.initiative === activeGroup.initiative
+            ? currentBand.activations
+            : activeGroup.activations;
+        return [
+            ...bandActivations.filter((activation) => !activation.isActivated),
+            ...bandActivations.filter((activation) => activation.isActivated)
+        ];
+    }
+    focusNextPlayerInitiativeBandUnit(activeGroup, anchorUnitId) {
+        const orderedActivations = this.resolveCycleablePlayerInitiativeBandActivations(activeGroup);
+        if (orderedActivations.length === 0) {
+            return false;
+        }
+        let anchorIndex = anchorUnitId
+            ? orderedActivations.findIndex((activation) => activation.unitId === anchorUnitId)
+            : -1;
+        if (anchorIndex < 0 && this.initiativeGroupCursorUnitId) {
+            anchorIndex = orderedActivations.findIndex((activation) => activation.unitId === this.initiativeGroupCursorUnitId);
+        }
+        const nextActivation = orderedActivations[(anchorIndex + 1 + orderedActivations.length) % orderedActivations.length];
         if (!nextActivation) {
             return false;
         }
@@ -8444,9 +8560,10 @@ export class BattleScreen {
         if (!flags) {
             return false;
         }
+        // Calling in an off-map fire mission is an observation order, not a committed action -
+        // like setting facing, it doesn't spend the formation's movement or attack for the turn.
         return ((flags.movementPointsUsed ?? 0) > 0 ||
-            (flags.attacksUsed ?? 0) > 0 ||
-            flags.supportQueued === true);
+            (flags.attacksUsed ?? 0) > 0);
     }
     canPlayerUnitContinueAfterMove(destination, unitId) {
         if (!this.isInitiativeSystemEnabled || !unitId) {
@@ -8460,7 +8577,17 @@ export class BattleScreen {
         const commandState = engine.getUnitCommandState(destination, unitId);
         return commandState?.canLaySmoke === true ||
             commandState?.canSetFacing === true ||
-            commandState?.canDeployTow === true;
+            commandState?.canDeployTow === true ||
+            this.canPlayerUnitCallArtilleryAfterMove(engine, destination, unitId, commandState);
+    }
+    canPlayerUnitCallArtilleryAfterMove(engine, destination, unitId, commandState) {
+        const unit = engine.playerUnits.find((candidate) => candidate.unitId === unitId);
+        if (!unit) {
+            return false;
+        }
+        const offset = CoordinateSystem.axialToOffset(destination.q, destination.r);
+        const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+        return this.resolveArtilleryActionState(unit, commandState, hexKey).available;
     }
     completeInitiativeActivationAfterPlayerOrder(unitId) {
         if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
@@ -8475,6 +8602,15 @@ export class BattleScreen {
             const currentActivation = this.initiativeMethods.getCurrentActivation();
             const activationUnitId = unitId ?? currentActivation?.unitId ?? null;
             if (!activationUnitId) {
+                return;
+            }
+            const isAlreadyCompletedInCurrentBand = queue.activations.some((activation) => activation.unitId === activationUnitId &&
+                activation.ownerId === "player" &&
+                activation.initiative === activeGroup.initiative &&
+                activation.isActivated);
+            if (isAlreadyCompletedInCurrentBand) {
+                // Follow-up orders from a completed peer must not consume the queue
+                // head belonging to another formation in the same initiative band.
                 return;
             }
             let completionUnitId = activationUnitId;
@@ -8517,7 +8653,7 @@ export class BattleScreen {
             return;
         }
         this.syncInitiativeGroupSession(activeGroup);
-        this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId);
+        this.focusNextPlayerInitiativeBandUnit(activeGroup, this.initiativeGroupCursorUnitId);
     }
     focusInitiativeUnit(unitId) {
         const engine = this.battleState.ensureGameEngine();
@@ -8557,9 +8693,7 @@ export class BattleScreen {
         if (!stillInSamePlayerInitiativeBand) {
             this.initiativeGroupCursorUnitId = null;
             this.initiativeGroupSessionId = null;
-            if (!this.initiativeEndTurnSkipModeActive) {
-                this.initiativeSkippedUnitIds.clear();
-            }
+            this.initiativeSkippedUnitIds.clear();
             return;
         }
         if (lastCompletedUnitId && this.initiativeGroupCursorUnitId === lastCompletedUnitId) {
@@ -8617,20 +8751,28 @@ export class BattleScreen {
             !this.selectedPlayerUnitId) {
             return;
         }
+        const queue = typeof this.initiativeMethods?.getCurrentInitiativeQueue === "function"
+            ? this.initiativeMethods.getCurrentInitiativeQueue()
+            : null;
+        const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+        const selectableActivations = currentBand?.initiative === activeGroup.initiative
+            ? currentBand.activations
+            : activeGroup.activations;
+        const selectableIds = new Set(selectableActivations.map((activation) => activation.unitId));
         const candidateIds = new Set(candidates.map((activation) => activation.unitId));
         const selectedUnitId = this.selectedPlayerUnitId;
         const currentActivation = this.initiativeMethods?.getCurrentActivation();
         if (currentActivation?.ownerId === "player" && candidateIds.has(currentActivation.unitId)) {
             if (selectedUnitId &&
                 selectedUnitId !== currentActivation.unitId &&
-                candidateIds.has(selectedUnitId)) {
-                // Respect explicit commander selection within the active initiative group
+                selectableIds.has(selectedUnitId)) {
+                // Respect explicit commander selection within the current initiative band
                 // instead of snapping focus back to the queue head every sync tick.
                 this.initiativeGroupCursorUnitId = selectedUnitId;
                 return;
             }
             const cursorUnitId = this.initiativeGroupCursorUnitId;
-            if (cursorUnitId && cursorUnitId !== currentActivation.unitId && candidateIds.has(cursorUnitId)) {
+            if (cursorUnitId && cursorUnitId !== currentActivation.unitId && selectableIds.has(cursorUnitId)) {
                 if (this.selectedPlayerUnitId !== cursorUnitId) {
                     this.focusInitiativeUnit(cursorUnitId);
                 }
@@ -8644,7 +8786,7 @@ export class BattleScreen {
             this.initiativeGroupCursorUnitId = currentActivation.unitId;
             return;
         }
-        if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
+        if (!selectedUnitId || !selectableIds.has(selectedUnitId)) {
             // Keep the existing initiative cursor stable when selection is briefly cleared
             // after an action so "Next Unit" advances from the player's last position.
             if (this.initiativeGroupCursorUnitId && candidateIds.has(this.initiativeGroupCursorUnitId)) {
@@ -8657,7 +8799,7 @@ export class BattleScreen {
             this.focusCurrentInitiativeActivation();
             return;
         }
-        if (!this.initiativeGroupCursorUnitId || !candidateIds.has(this.initiativeGroupCursorUnitId)) {
+        if (!this.initiativeGroupCursorUnitId || !selectableIds.has(this.initiativeGroupCursorUnitId)) {
             this.initiativeGroupCursorUnitId = selectedUnitId;
         }
     }
@@ -8955,9 +9097,6 @@ export class BattleScreen {
             const hasRemainingActivations = this.hasPendingInitiativeActivations(queue);
             const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
             const canAdvanceRound = initiativeActive && !hasRemainingActivations && !activation;
-            if (this.initiativeEndTurnSkipModeActive && canAdvanceRound && !this.initiativeTurnAdvanceInProgress) {
-                void this.advanceInitiativeRound();
-            }
             const controlsPhase = initiativeActive && (hasRemainingActivations || Boolean(activation))
                 ? 'initiativeTurn'
                 : initiativeActive
@@ -8997,7 +9136,7 @@ export class BattleScreen {
             if (!activation || activation.ownerId !== "player") {
                 break;
             }
-            const shouldAutoSkip = this.initiativeSkippedUnitIds.has(activation.unitId) || this.initiativeEndTurnSkipModeActive;
+            const shouldAutoSkip = this.initiativeSkippedUnitIds.has(activation.unitId);
             if (!shouldAutoSkip) {
                 break;
             }
@@ -9005,8 +9144,7 @@ export class BattleScreen {
             this.initiativeMethods.completeUnitActivation(activation.unitId);
         }
     }
-    clearInitiativeSkipState() {
-        this.initiativeEndTurnSkipModeActive = false;
+    clearInitiativeGroupSkipState() {
         this.initiativeSkippedUnitIds.clear();
     }
     /**
@@ -9061,13 +9199,7 @@ export class BattleScreen {
         if (!svg || !canvas) {
             return;
         }
-        // Use the strategic theater map as a backdrop for flavor, whether in campaign mode or standalone mission.
-        // This eliminates empty black space beyond the tactical hex grid and reinforces the operational context.
-        const campaign = ensureCampaignState();
-        const campaignScenario = campaign.getScenario();
-        if (campaignScenario?.background?.imageUrl) {
-            this.hexMapRenderer.setBackdropImage(campaignScenario.background.imageUrl);
-        }
+        this.configureBattlefieldBackdrop();
         this.hexMapRenderer.render(svg, canvas, scenarioClone);
         this.hexMapRenderer.setSoundEnabled(this.soundEnabled);
         this.hexMapRenderer.onHexClick((key) => this.handleHexSelection(key));
@@ -9083,6 +9215,22 @@ export class BattleScreen {
             this.hexMapRenderer.renderBaseCampMarker(baseCampKey);
         }
         this.updateAirHudWidget();
+    }
+    /**
+     * Campaign art belongs behind generated campaign engagements only. Reusing it for standalone
+     * scenarios exposes the tactical grid fringe as map-shaped wedges, making a complete tile matrix
+     * look incomplete.
+     */
+    configureBattlefieldBackdrop() {
+        if (!this.hexMapRenderer) {
+            return;
+        }
+        if (!this.uiState?.isFromCampaign) {
+            this.hexMapRenderer.setBackdropImage(null);
+            return;
+        }
+        const campaignScenario = ensureCampaignState().getScenario();
+        this.hexMapRenderer.setBackdropImage(campaignScenario?.background?.imageUrl ?? null);
     }
     setBattleSettingsMenuOpen(open) {
         if (!this.settingsToggleButton || !this.settingsMenu) {
@@ -9375,12 +9523,9 @@ export class BattleScreen {
         if (members.length === 0) {
             return null;
         }
-        const currentActivation = this.initiativeMethods?.getCurrentActivation();
-        if (currentActivation?.ownerId === "player") {
-            const activeMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
-            if (activeMember) {
-                return activeMember.unit;
-            }
+        const activeMember = this.resolveActivePlayerInitiativeStackMember(members);
+        if (activeMember) {
+            return activeMember.unit;
         }
         if (this.selectedPlayerUnitId) {
             const selectedMember = members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null;
@@ -9390,6 +9535,38 @@ export class BattleScreen {
         }
         const playerMember = members.find((member) => !member.isAutomated) ?? members[0];
         return playerMember?.unit ?? null;
+    }
+    /**
+     * Resolves the directly controllable member of a friendly stack from the
+     * current player initiative band.
+     *
+     * Explicit in-group selection wins first, followed by the queue cursor and
+     * then queue order. Completed peers remain selectable; later bands do not.
+     */
+    resolveActivePlayerInitiativeStackMember(members) {
+        if (!this.isInitiativeSystemEnabled || !this.initiativeMethods || members.length === 0) {
+            return null;
+        }
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+        if (!currentBand) {
+            return null;
+        }
+        const activeUnitIds = new Set(currentBand.activations.map((activation) => activation.unitId));
+        if (this.selectedPlayerUnitId && activeUnitIds.has(this.selectedPlayerUnitId)) {
+            const selectedMember = members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null;
+            if (selectedMember) {
+                return selectedMember;
+            }
+        }
+        const currentActivation = this.initiativeMethods.getCurrentActivation();
+        if (currentActivation?.ownerId === "player" && activeUnitIds.has(currentActivation.unitId)) {
+            const currentMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
+            if (currentMember) {
+                return currentMember;
+            }
+        }
+        return members.find((member) => activeUnitIds.has(member.unitId)) ?? null;
     }
     /**
      * Handles clicks on sentry pips to toggle sentry mode off.
@@ -9508,7 +9685,9 @@ export class BattleScreen {
             if (parsed) {
                 const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
                 try {
+                    const existingUnitIds = new Set(engine.playerUnits.map((unit) => unit.unitId).filter(Boolean));
                     engine.callUpReserveByKey(unitKey, axial);
+                    this.registerReserveArrivalForInitiative(engine, axial, existingUnitIds);
                     const label = this.resolveUnitLabel(unitKey);
                     this.renderEngineUnits();
                     this.refreshDeploymentMirrors("deploy", { unitKey, hexKey: this.selectedHexKey, label });
@@ -9560,7 +9739,9 @@ export class BattleScreen {
             .sort((a, b) => a.d - b.d);
         for (const c of candidates) {
             try {
+                const existingUnitIds = new Set(engine.playerUnits.map((unit) => unit.unitId).filter(Boolean));
                 engine.callUpReserveByKey(unitKey, c.ax);
+                this.registerReserveArrivalForInitiative(engine, c.ax, existingUnitIds);
                 return { hexKey: c.k };
             }
             catch {
@@ -9568,6 +9749,22 @@ export class BattleScreen {
             }
         }
         return null;
+    }
+    /**
+     * A reserve unit called up mid-battle should be able to act the turn it arrives instead of
+     * sitting idle until the initiative queue rebuilds next turn. Locates the freshly-placed unit
+     * and, if the initiative system is active, gives it an activation slot in the current queue.
+     */
+    registerReserveArrivalForInitiative(engine, hex, existingUnitIds) {
+        if (!this.initiativeMethods) {
+            return;
+        }
+        const deployedUnit = (engine.playerUnits ?? []).find((unit) => unit.hex.q === hex.q &&
+            unit.hex.r === hex.r &&
+            !existingUnitIds.has(unit.unitId));
+        if (deployedUnit) {
+            this.initiativeMethods.registerReserveArrival(deployedUnit);
+        }
     }
     axialDistance(q1, r1, q2, r2) {
         const dq = q1 - q2;
@@ -9971,7 +10168,7 @@ export class BattleScreen {
                 this.promptFortificationFacing(state.callerAxial, state.callerLabel, state.callerUnitId, "smoke");
                 return;
             }
-            this.cancelSmokeTargeting(false);
+            this.announceBattleUpdate("Select a highlighted smoke target or click the firing unit's hex.");
             return;
         }
         if (this.artilleryTargetingState) {
@@ -9984,6 +10181,17 @@ export class BattleScreen {
                 return;
             }
             this.cancelArtilleryTargeting(false);
+        }
+        if (this.selectedHexKey !== key) {
+            const clickedMembers = this.getPlayerStackMembersAtHex(key);
+            const clickedActiveMember = this.resolveActivePlayerInitiativeStackMember(clickedMembers);
+            const selectedUnitIsActive = Boolean(this.selectedPlayerUnitId && this.isUnitInCurrentInitiativeGroup(this.selectedPlayerUnitId));
+            if (clickedActiveMember && !selectedUnitIsActive) {
+                // Stale movement highlights from a completed formation must not turn a
+                // deliberate click on the current group into an invalid move attempt.
+                this.applySelectedHex(key);
+                return;
+            }
         }
         // If there is an active selection and the user clicked a move/attack destination, execute the action.
         if (this.selectedHexKey) {
@@ -10681,6 +10889,7 @@ export class BattleScreen {
             const facingArmor = Math.round(preview.result.facingArmor);
             const personnelEffects = this.formatPersonnelDelta(preview.projectedDamage);
             const equipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
+            const statusShifts = this.formatStatusTransitions(preview.projectedDamage);
             sections.push({
                 title: "Preview Odds",
                 entries: [
@@ -10691,6 +10900,7 @@ export class BattleScreen {
                     { label: "Projected Return Fire", value: preview.retaliationPossible ? `${projectedRetaliation}%` : "None" },
                     { label: "Personnel Effects", value: personnelEffects },
                     { label: "Equipment Effects", value: equipmentEffects },
+                    { label: "Status Shifts", value: statusShifts },
                     { label: "Armor Penetration", value: `${effectiveAP} vs ${facingArmor} armor` }
                 ]
             });
@@ -10719,6 +10929,10 @@ export class BattleScreen {
                 {
                     label: "Target Effects",
                     value: resolution.defenderDamage?.summary ?? "--"
+                },
+                {
+                    label: "Applied Status Shifts",
+                    value: this.formatStatusTransitions(resolution.defenderDamage)
                 },
                 {
                     label: "Defender Remaining",
@@ -10780,24 +10994,11 @@ export class BattleScreen {
         const matched = this.selectedPlayerUnitId
             ? members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null
             : null;
-        if (this.isInitiativeSystemEnabled && this.initiativeMethods) {
-            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-            const activeGroup = this.resolveActiveInitiativeGroup(queue);
-            if (activeGroup?.ownerId === "player") {
-                if (matched && activeGroup.activations.some((activation) => activation.unitId === matched.unitId)) {
-                    this.initiativeGroupCursorUnitId = matched.unitId;
-                    return matched;
-                }
-                const currentActivation = this.initiativeMethods.getCurrentActivation();
-                const activeMember = currentActivation
-                    ? members.find((member) => member.unitId === currentActivation.unitId) ?? null
-                    : null;
-                if (activeMember) {
-                    this.selectedPlayerUnitId = activeMember.unitId;
-                    this.initiativeGroupCursorUnitId = activeMember.unitId;
-                    return activeMember;
-                }
-            }
+        const activeMember = this.resolveActivePlayerInitiativeStackMember(members);
+        if (activeMember) {
+            this.selectedPlayerUnitId = activeMember.unitId;
+            this.initiativeGroupCursorUnitId = activeMember.unitId;
+            return activeMember;
         }
         const preferred = matched
             ?? members.find((member) => !member.isAutomated)
@@ -10971,7 +11172,7 @@ export class BattleScreen {
                 actions.push({
                     id: "callArtillery",
                     label: "Call Artillery",
-                    detail: "Queue an off-map Corps Artillery strike on an observed enemy hex. Impact lands during turn transition.",
+                    detail: "Queue an off-map Corps Artillery strike on an observed enemy hex. Impact lands at initiative 2 (artillery).",
                     tone: "denial",
                     available: artilleryState.available,
                     reason: artilleryState.reason
@@ -11013,7 +11214,7 @@ export class BattleScreen {
             actions.push({
                 id: "laySmoke",
                 label: "Lay Smoke",
-                detail: "Fire close smoke on this hex or an adjacent hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
+                detail: "Fire smoke on this hex or an adjacent hex; artillery can place it anywhere within its indirect-fire range. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
                 tone: "mobility",
                 available: commandState.canLaySmoke,
                 reason: commandState.smokeReason
@@ -11741,7 +11942,9 @@ export class BattleScreen {
      */
     refreshScenario() {
         const missionKey = this.uiState?.selectedMission ?? "training";
-        this.scenarioSource = getScenarioByMissionKey(missionKey);
+        // Campaign engagements resolve through the battle generator so this screen consumes the same
+        // generated (template + Bot roster) scenario object that precombat presented.
+        this.scenarioSource = resolveScenarioForMission(missionKey);
         if (missionKey === "patrol_river_watch") {
             const sourceName = this.scenarioSource.name;
             if (sourceName !== "River Crossing Watch") {

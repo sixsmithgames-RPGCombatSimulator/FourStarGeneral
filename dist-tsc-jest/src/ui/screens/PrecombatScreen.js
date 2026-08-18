@@ -12,6 +12,10 @@ import { HexMapRenderer } from "../../rendering/HexMapRenderer";
 import { getScenarioByMissionKey } from "../../data/scenarioRegistry";
 import { normalizeScenarioSource } from "../../data/scenarioNormalizer";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
+import { ensureCampaignState } from "../../state/CampaignState";
+import { resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
+import { describeForceRatio, MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
+import { RESERVE_PURCHASABLE_KEYS } from "../../game/campaign/campaignForceMapping";
 const ALLOCATION_RESET_LABEL = "Reset Allocations";
 function createAllocationPreset(missionKey, missionName, entries) {
     return {
@@ -294,6 +298,12 @@ export class PrecombatScreen {
         this.activeDifficulty = "Normal";
         this.campaignCaps = null;
         /**
+         * Strategic context for the active campaign engagement, when present. Drives per-type allocation
+         * caps (committed forces), the consumables budget, and the outgunned banner. Null outside the
+         * campaign flow or for legacy engagements queued without context.
+         */
+        this.engagementContext = null;
+        /**
          * Allocation state containers required by interaction TODO.
          *
          * Contract Summary:
@@ -409,7 +419,14 @@ export class PrecombatScreen {
     setup(missionKey, selectedGeneralId, selectedDifficulty) {
         this.activeMissionKey = missionKey;
         this.activeDifficulty = selectedDifficulty;
-        this.scenarioSource = getScenarioByMissionKey(missionKey);
+        // Campaign engagements resolve through the battle generator (template + generated Bot roster,
+        // cached per engagement so BattleScreen receives the identical scenario object).
+        this.scenarioSource = resolveScenarioForMission(missionKey);
+        // Load the strategic engagement context before budget priming so committed-force caps and the
+        // consumables reserve shape the requisition screen from the first render.
+        this.engagementContext = missionKey === "campaign"
+            ? (ensureCampaignState().getActiveEngagement()?.context ?? null)
+            : null;
         console.info("[PrecombatScreen] setup mission", {
             missionKey,
             scenarioName: this.scenarioSource.name,
@@ -444,9 +461,12 @@ export class PrecombatScreen {
         else {
             this.campaignCaps = null;
         }
+        this.renderEngagementContextBanner();
         if (typeof console !== "undefined") {
-            console.assert((ALLOCATION_BY_CATEGORY.get("units")?.filter((option) => this.isUnitAllowedByScenario(option.key)).length ?? 0) ===
-                this.allocationUnitList.children.length, "Precombat allocation list did not render the expected number of unit entries.");
+            const expectedUnitRows = this.engagementContext
+                ? (ALLOCATION_BY_CATEGORY.get("units") ?? []).filter((option) => RESERVE_PURCHASABLE_KEYS.includes(option.key) || this.getEffectiveMaxQuantity(option) > 0).length
+                : (ALLOCATION_BY_CATEGORY.get("units") ?? []).filter((option) => this.isUnitAllowedByScenario(option.key)).length;
+            console.assert(expectedUnitRows === this.allocationUnitList.children.length, "Precombat allocation list did not render the expected number of unit entries.");
         }
         // Start the tutorial if this is the training mission
         if (isTrainingMission(missionKey)) {
@@ -506,12 +526,12 @@ export class PrecombatScreen {
                     tutorialState.advancePhase(nextPhase);
             }, 800);
         }
-        if (currentPhase === "select_air_wing" &&
+        if (currentPhase === "select_recon" &&
             ["reconBike", "recon"].includes(optionKey) &&
             (hasAllocation("reconBike", 1) || hasAllocation("recon", 1))) {
             tutorialState.setCanProceed(true);
             setTimeout(() => {
-                const nextPhase = getNextPhase("select_air_wing");
+                const nextPhase = getNextPhase("select_recon");
                 if (nextPhase)
                     tutorialState.advancePhase(nextPhase);
             }, 800);
@@ -615,6 +635,40 @@ export class PrecombatScreen {
         this.handleProceedToBattle(true);
     }
     /**
+     * Returns the effective requisition ceiling for an allocation row.
+     * With an engagement context, combat formations are capped by the forces actually committed on
+     * the campaign map; consumables/support stay purchasable from the RP reserve up to catalog max.
+     */
+    getEffectiveMaxQuantity(option) {
+        if (!this.engagementContext) {
+            return option.maxQuantity;
+        }
+        if (RESERVE_PURCHASABLE_KEYS.includes(option.key)) {
+            return option.maxQuantity;
+        }
+        const committed = this.engagementContext.allocationCaps[option.key] ?? 0;
+        return Math.min(option.maxQuantity, committed);
+    }
+    /**
+     * Total RP value of the committed campaign forces at their effective (catalog-clamped) caps.
+     * The budget covers this value in full so type caps — not money — are the binding constraint
+     * on combat formations, while the RP reserve funds consumables on top.
+     */
+    calculateCommittedForceValue() {
+        if (!this.engagementContext) {
+            return 0;
+        }
+        let total = 0;
+        for (const [key, cap] of Object.entries(this.engagementContext.allocationCaps)) {
+            const option = getAllocationOption(key);
+            if (!option || cap <= 0) {
+                continue;
+            }
+            total += Math.min(cap, option.maxQuantity) * option.costPerUnit;
+        }
+        return total;
+    }
+    /**
      * Seeds the allocation map with zeroed counts so render paths can assume presence.
      */
     primeAllocationState() {
@@ -623,9 +677,24 @@ export class PrecombatScreen {
         });
         const rawScenarioBudget = this.scenarioSource["playerBudget"];
         const scenarioBudget = typeof rawScenarioBudget === "number" ? rawScenarioBudget : undefined;
-        this.allocationBudget = scenarioBudget ?? 10000;
+        if (this.engagementContext) {
+            // Campaign engagement: budget = full value of committed forces + consumables reserve.
+            // Committing everything is always affordable; the reserve is the real discretionary spend.
+            this.allocationBudget = this.calculateCommittedForceValue() + this.engagementContext.rpReserve;
+        }
+        else {
+            this.allocationBudget = scenarioBudget ?? 10000;
+        }
         console.info("[PrecombatScreen] Budget initialized:", {
             scenarioBudget,
+            engagementContext: this.engagementContext
+                ? {
+                    missionType: this.engagementContext.missionType,
+                    rpReserve: this.engagementContext.rpReserve,
+                    committedForceValue: this.calculateCommittedForceValue(),
+                    battleHexKey: this.engagementContext.battleHexKey
+                }
+                : null,
             effectiveBudget: this.allocationBudget
         });
         this.allocationDirty = false;
@@ -813,6 +882,13 @@ export class PrecombatScreen {
                 if (restrictedUnits.includes(option.key)) {
                     return false;
                 }
+                // Campaign engagements: the strategic context is authoritative. Combat rows appear iff
+                // forces are in position (cap > 0); consumables stay visible because the RP reserve can
+                // always purchase sustainment. The scenario's static requisition whitelist is bypassed —
+                // it describes the placeholder map, not the situation on the campaign map.
+                if (this.engagementContext) {
+                    return RESERVE_PURCHASABLE_KEYS.includes(option.key) || this.getEffectiveMaxQuantity(option) > 0;
+                }
                 if (!this.shouldApplyScenarioRestrictions(option)) {
                     return true;
                 }
@@ -860,8 +936,9 @@ export class PrecombatScreen {
         const missionMinimum = this.getMissionMinimumAllocationCount(option.key);
         const unavailable = !this.isAllocationImplemented(option);
         const locked = this.unlockState.isUnitLocked(option.key);
+        const effectiveMax = this.getEffectiveMaxQuantity(option);
         const decrementDisabled = unavailable || locked || quantity <= missionMinimum;
-        const incrementDisabled = unavailable || locked || quantity >= option.maxQuantity;
+        const incrementDisabled = unavailable || locked || quantity >= effectiveMax;
         const totalCost = option.costPerUnit * quantity;
         const composition = Object.prototype.hasOwnProperty.call(unitComposition, option.key)
             ? unitComposition[option.key]
@@ -869,6 +946,9 @@ export class PrecombatScreen {
         const compositionDisplay = buildAllocationCompositionDisplay(composition, { maxDetails: 5 });
         const missionMinimumBadge = missionMinimum > 0
             ? `<span class="allocation-lock" aria-label="${option.label} has a mission minimum of ${missionMinimum}.">Mission minimum ×${missionMinimum}</span>`
+            : "";
+        const committedCapBadge = this.engagementContext && !RESERVE_PURCHASABLE_KEYS.includes(option.key)
+            ? `<span class="allocation-lock" aria-label="${option.label} limited to ${effectiveMax} by forces in position on the campaign map.">In position ×${effectiveMax}</span>`
             : "";
         const availabilityBadge = unavailable
             ? `<span class="allocation-lock" aria-label="${option.label} is planned but not yet implemented.">Planned feature</span>`
@@ -902,7 +982,7 @@ export class PrecombatScreen {
               ${incrementDisabled ? "disabled" : ""}
             >+</button>
           </div>`;
-        const statusBadges = [missionMinimumBadge, availabilityBadge, unlockBadge]
+        const statusBadges = [missionMinimumBadge, committedCapBadge, availabilityBadge, unlockBadge]
             .filter((badge) => badge.length > 0)
             .join("");
         return `
@@ -1075,7 +1155,7 @@ export class PrecombatScreen {
             }
             const floor = this.getAllocationQuantityFloor(entry.key);
             const requested = Math.max(floor, entry.quantity);
-            const applied = Math.min(option.maxQuantity, requested);
+            const applied = Math.min(this.getEffectiveMaxQuantity(option), requested);
             if (applied < requested) {
                 capped.push(option.label);
             }
@@ -1112,7 +1192,7 @@ export class PrecombatScreen {
             "select_tanks",
             "select_engineers",
             "select_flak",
-            "select_air_wing",
+            "select_recon",
             "select_howitzer",
             "select_ammo",
             "select_fuel",
@@ -1145,8 +1225,14 @@ export class PrecombatScreen {
         }
         const current = this.allocationCounts.get(optionKey) ?? 0;
         const quantityFloor = this.getMissionMinimumAllocationCount(optionKey);
-        const next = Math.max(quantityFloor, Math.min(option.maxQuantity, current + delta));
+        const effectiveMax = this.getEffectiveMaxQuantity(option);
+        const next = Math.max(quantityFloor, Math.min(effectiveMax, current + delta));
         if (next === current) {
+            if (delta > 0 && this.engagementContext && current >= effectiveMax && effectiveMax < option.maxQuantity) {
+                this.allocationFeedbackElement.classList.remove("feedback--ready");
+                this.allocationFeedbackElement.classList.add("feedback--warning");
+                this.allocationFeedbackElement.textContent = `${option.label}: only ${effectiveMax} in position on the campaign map. Move more forces adjacent to the battle hex to raise the cap.`;
+            }
             return;
         }
         this.allocationCounts.set(optionKey, next);
@@ -1204,7 +1290,9 @@ export class PrecombatScreen {
             this.allocationFeedbackElement.classList.add("feedback--ready");
         }
         // Campaign gating: enforce economy-derived caps in addition to money budget when applicable.
-        if (this.activeMissionKey === "campaign" && this.campaignCaps) {
+        // When a structured engagement context exists, per-type caps are enforced at interaction level
+        // and this coarse global gate is skipped.
+        if (this.activeMissionKey === "campaign" && this.campaignCaps && !this.engagementContext) {
             // Units cap uses requisition quantities only (scenario-provided baselines do not consume campaign manpower).
             const unitOptions = ALLOCATION_BY_CATEGORY.get("units") ?? [];
             let requestedUnits = 0;
@@ -1237,6 +1325,47 @@ export class PrecombatScreen {
                 this.allocationFeedbackElement.textContent = "Budget and campaign caps OK. You may proceed.";
                 this.allocationFeedbackElement.classList.add("feedback--ready");
             }
+        }
+    }
+    /**
+     * Renders (or clears) the strategic-context banner above the budget panel: mission type,
+     * battle hex, consumables reserve, and the banded outgunned warning. The banner never shows
+     * exact enemy counts — intel stays estimate-grade by design.
+     */
+    renderEngagementContextBanner() {
+        const existing = this.budgetPanel.querySelector("#engagementContextBanner");
+        if (!this.engagementContext) {
+            existing?.remove();
+            return;
+        }
+        const context = this.engagementContext;
+        const legacyRatio = describeForceRatio(context.forceRatio);
+        const briefing = context.intelligenceBriefing;
+        const assessedDanger = briefing
+            ? briefing.resistanceBand === "heavy" || briefing.resistanceBand === "overwhelming"
+            : legacyRatio.outgunned;
+        const assessmentLabel = briefing?.summary ?? legacyRatio.label;
+        const banner = existing ?? document.createElement("div");
+        banner.id = "engagementContextBanner";
+        banner.style.cssText = [
+            "margin-bottom:0.75rem",
+            "padding:0.6rem 0.8rem",
+            "border-radius:8px",
+            "line-height:1.45",
+            "font-size:0.85rem",
+            assessedDanger
+                ? "background:rgba(180,83,9,0.18);border:1px solid rgba(245,196,109,0.55);color:#f5c46d"
+                : "background:rgba(34,80,44,0.22);border:1px solid rgba(134,196,144,0.45);color:#b9e0c0"
+        ].join(";");
+        const committedGroups = context.availableForces.reduce((sum, group) => sum + group.count, 0);
+        banner.innerHTML = `
+      <strong style="display:block;letter-spacing:0.05em;text-transform:uppercase;">${MISSION_TYPE_LABELS[context.missionType]} — hex ${context.battleHexKey}</strong>
+      <span style="display:block;">${committedGroups} formation group${committedGroups === 1 ? "" : "s"} in position · ${context.airSorties} air sortie${context.airSorties === 1 ? "" : "s"} in range · ${context.rpReserve.toLocaleString()} RP consumables reserve</span>
+      <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}">${assessmentLabel}</span>
+      ${briefing ? `<span style="display:block;opacity:0.88;">Intel confidence: ${briefing.confidenceBand} · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"} · Unknown: ${briefing.explicitUnknowns.join(", ") || "none reported"}</span>` : ""}
+    `;
+        if (!existing) {
+            this.budgetPanel.insertBefore(banner, this.budgetPanel.firstChild);
         }
     }
     /**

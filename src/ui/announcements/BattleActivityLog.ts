@@ -132,7 +132,7 @@ export class BattleActivityLog {
     }
   }
 
-  private isCollapsed(): boolean {
+  isCollapsed(): boolean {
     return this.host?.hasAttribute("data-activity-collapsed") ?? false;
   }
 

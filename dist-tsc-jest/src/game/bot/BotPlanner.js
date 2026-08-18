@@ -395,6 +395,9 @@ function scoreEnemyPressure(snapshot, reachable, enemies, input, modifiers, stro
         return null;
     }
     const purpose = classifyUnitPurpose(snapshot.definition);
+    if (purpose === "artillery") {
+        return scoreArtilleryHoldOrDisplace(snapshot, reachable, enemies, input, modifiers, strongholds);
+    }
     let best = null;
     const otherReconAllies = purpose === "recon"
         ? input.botUnits.filter((ally) => axialKey(ally.unit.hex) !== axialKey(snapshot.unit.hex) && ally.definition.class === "recon")
@@ -463,6 +466,66 @@ function scoreEnemyPressure(snapshot, reachable, enemies, input, modifiers, stro
         }
     }
     return best;
+}
+/**
+ * Long-range/towed formations should not drive into the enemy's face just because a target is visible.
+ * Once a unit is outside danger range it holds its firing position and waits for a target to come into
+ * range (handled separately by the attack scorer). It only moves when staying put is actually dangerous,
+ * and even then it displaces to the safest reachable hex rather than closing the distance further.
+ */
+function scoreArtilleryHoldOrDisplace(snapshot, reachable, enemies, input, modifiers, strongholds) {
+    const nearestEnemyDistance = Math.min(...enemies.map((enemy) => hexDistance(snapshot.unit.hex, enemy.unit.hex)));
+    if (nearestEnemyDistance > ARTILLERY_DANGER_RANGE) {
+        // Not under threat: hold this position and wait for a target instead of advancing toward the enemy.
+        return null;
+    }
+    // A battery that is actually dug into a defensible position (entrenched, or sitting in terrain that
+    // grants real cover/concealment) should stand and fight rather than abandon prepared ground the moment
+    // an enemy formation comes within sight - that's the whole point of a fixed gun pit. Moving also throws
+    // away the entrenchment bonus outright (units re-entrench from zero after moving), so fleeing a strong
+    // position for a marginal safety gain is usually a net loss. Only bail when the enemy is close enough
+    // to be a genuine overrun risk (adjacent) rather than merely "within long-range danger distance".
+    const currentTerrain = input.map.terrainAt(snapshot.unit.hex);
+    const isDugIn = (snapshot.unit.entrench ?? 0) >= 1
+        || (currentTerrain?.defense ?? 0) >= 2
+        || currentTerrain?.blocksLOS === true;
+    const OVERRUN_RANGE = 1;
+    if (isDugIn && nearestEnemyDistance > OVERRUN_RANGE) {
+        return null;
+    }
+    // Something is actually wrong with staying put (enemy is closing to danger range, or overrunning an
+    // undefended position) - find a safer hex to displace to. Only reachable hexes that increase distance
+    // from every nearby enemy qualify; this is a retreat/reposition, not an advance.
+    let retreat = null;
+    const currentEnemyDistances = enemies.map((enemy) => hexDistance(snapshot.unit.hex, enemy.unit.hex));
+    for (const option of reachable.values()) {
+        if (option.path.length <= 1) {
+            continue;
+        }
+        const optionEnemyDistances = enemies.map((enemy) => hexDistance(option.hex, enemy.unit.hex));
+        const optionNearestEnemyDistance = Math.min(...optionEnemyDistances);
+        const movesTowardAnyEnemy = optionEnemyDistances.some((distance, index) => distance < (currentEnemyDistances[index] ?? Number.POSITIVE_INFINITY));
+        if (optionNearestEnemyDistance <= nearestEnemyDistance || movesTowardAnyEnemy) {
+            continue; // Must gain safety without creeping toward a different enemy formation.
+        }
+        let score = 4
+            + (optionNearestEnemyDistance - nearestEnemyDistance) * 3
+            - (option.path.length - 1) * 0.45;
+        score += calculateApproachPositionScore(snapshot, option.hex, null, input, modifiers, option.path.length, strongholds);
+        const candidate = {
+            destination: option.hex,
+            path: option.path,
+            attackTarget: null,
+            expectedDamage: 0,
+            expectedRetaliation: 0,
+            score,
+            rationale: "Displace to a safer firing position"
+        };
+        if (!retreat || candidate.score > retreat.score) {
+            retreat = candidate;
+        }
+    }
+    return retreat;
 }
 function isFlakRole(definition) {
     return definition.traits.includes("intercept");
@@ -1994,6 +2057,12 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
         const rangeMax = snapshot.definition.rangeMax ?? 1;
         const rangeMin = snapshot.definition.rangeMin ?? 1;
         for (const option of reachable.values()) {
+            // Artillery cannot move and fire in the same activation. Evaluating a mobile
+            // firing hex produced plans whose move succeeded and whose attack was then
+            // rejected by the engine, causing batteries to creep toward the front.
+            if (purpose === "artillery" && axialKey(option.hex) !== axialKey(snapshot.unit.hex)) {
+                continue;
+            }
             const distance = hexDistance(option.hex, playerSnapshot.unit.hex);
             if (distance < rangeMin || distance > rangeMax) {
                 continue;
@@ -2023,6 +2092,21 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
                 top = candidate;
             }
         }
+    }
+    if (purpose === "artillery") {
+        const displacement = scoreArtilleryHoldOrDisplace(snapshot, reachable, input.playerUnits, input, difficultyMods, strongholds);
+        if (displacement && (!top || displacement.score > top.score)) {
+            top = displacement;
+        }
+        return top ?? {
+            destination: snapshot.unit.hex,
+            path: [snapshot.unit.hex],
+            attackTarget: null,
+            expectedDamage: 0,
+            expectedRetaliation: 0,
+            score: 0,
+            rationale: "Hold long-range firing position"
+        };
     }
     const setupCandidate = scoreFireSetup(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);
     if (setupCandidate && (allowEnemyEliminationFallback || enemyNearOrVisible)) {

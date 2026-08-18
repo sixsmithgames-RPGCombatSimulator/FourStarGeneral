@@ -11,6 +11,8 @@ const TERRAIN_OVERLAY_LAYER_ID = "campaign-map-terrain-overlay";
 const SPRITE_LAYER_ID = "campaign-map-sprites";
 const FRONT_LAYER_ID = "campaign-map-fronts";
 const FORCE_LAYER_ID = "campaign-map-forces";
+const INTEL_COVERAGE_LAYER_ID = "campaign-map-intel-coverage";
+const INTEL_CONTACT_LAYER_ID = "campaign-map-intel-contacts";
 const FORCE_ICON_SIZE = 34;
 const FORCE_POSITIONS = [
     { dx: -20, dy: -16 },
@@ -38,11 +40,14 @@ export class CampaignMapRenderer {
         this.svgElement = null;
         this.canvasElement = null;
         this.scenario = null;
+        this.viewModel = null;
         this.tileIndex = new Map();
         this.hexGroups = new Map();
         this.spriteIndex = new Map();
         this.hexClickHandler = null;
         this.boundClickListener = null;
+        /** Single pan/zoom transform owner recreated on each render (see MapViewport). */
+        this.viewportRoot = null;
         this.gridBounds = null;
         /** Stores the dimensions in pixels so callers can size viewports accordingly. */
         this.mapPixelWidth = 0;
@@ -150,10 +155,12 @@ export class CampaignMapRenderer {
      * Renders the campaign map using the supplied SVG + canvas container.
      * Background image loads beneath hex outlines, followed by strategic sprites.
      */
-    render(svg, canvas, scenario) {
+    render(svg, canvas, viewModel) {
+        const scenario = viewModel.scenario;
         this.svgElement = svg;
         this.canvasElement = canvas;
         this.scenario = scenario;
+        this.viewModel = structuredClone(viewModel);
         this.tileIndex.clear();
         this.hexGroups.clear();
         this.spriteIndex.clear();
@@ -174,12 +181,20 @@ export class CampaignMapRenderer {
         svg.setAttribute("width", `${width}`);
         svg.setAttribute("height", `${height}`);
         svg.innerHTML = "";
-        const backgroundGroup = this.ensureLayer(svg, BACKGROUND_LAYER_ID);
-        const hexGroup = this.ensureLayer(svg, HEX_LAYER_ID);
-        const terrainOverlayGroup = this.ensureLayer(svg, TERRAIN_OVERLAY_LAYER_ID);
-        const spriteGroup = this.ensureLayer(svg, SPRITE_LAYER_ID);
-        const frontGroup = this.ensureLayer(svg, FRONT_LAYER_ID);
-        const forceGroup = this.ensureLayer(svg, FORCE_LAYER_ID);
+        // All rendered layers live under a single #viewportRoot group. MapViewport applies
+        // pan/zoom transforms ONLY to this group — without it, zoom/pan controls are inert.
+        const viewportRoot = document.createElementNS(SVG_NS, "g");
+        viewportRoot.id = "viewportRoot";
+        svg.appendChild(viewportRoot);
+        this.viewportRoot = viewportRoot;
+        const backgroundGroup = this.ensureLayer(viewportRoot, BACKGROUND_LAYER_ID);
+        const hexGroup = this.ensureLayer(viewportRoot, HEX_LAYER_ID);
+        const terrainOverlayGroup = this.ensureLayer(viewportRoot, TERRAIN_OVERLAY_LAYER_ID);
+        const spriteGroup = this.ensureLayer(viewportRoot, SPRITE_LAYER_ID);
+        const frontGroup = this.ensureLayer(viewportRoot, FRONT_LAYER_ID);
+        const forceGroup = this.ensureLayer(viewportRoot, FORCE_LAYER_ID);
+        const coverageGroup = this.ensureLayer(viewportRoot, INTEL_COVERAGE_LAYER_ID);
+        const contactGroup = this.ensureLayer(viewportRoot, INTEL_CONTACT_LAYER_ID);
         const density = this.getHexDensityScalar();
         this.gridBounds = null;
         this.renderBackground(backgroundGroup, scenario);
@@ -188,6 +203,8 @@ export class CampaignMapRenderer {
         this.renderFronts(frontGroup, scenario);
         this.renderSprites(spriteGroup, scenario);
         this.renderForceGroups(forceGroup, scenario);
+        this.renderIntelCoverage(coverageGroup, viewModel);
+        this.renderIntelContacts(contactGroup, viewModel);
         const bounds = this.gridBounds;
         if (!bounds) {
             return;
@@ -208,7 +225,17 @@ export class CampaignMapRenderer {
         frontGroup.setAttribute("transform", transform);
         spriteGroup.setAttribute("transform", transform);
         forceGroup.setAttribute("transform", transform);
+        coverageGroup.setAttribute("transform", transform);
+        contactGroup.setAttribute("transform", transform);
         this.bindInteraction();
+    }
+    /** Shows or hides the collection-coverage overlay without hiding contact markers. */
+    setIntelCoverageVisible(visible) {
+        if (!this.svgElement)
+            return;
+        const layer = this.svgElement.querySelector(`#${INTEL_COVERAGE_LAYER_ID}`);
+        if (layer)
+            layer.style.display = visible ? "block" : "none";
     }
     /** Allow UI modules to react when the player clicks a campaign hex. */
     onHexClick(handler) {
@@ -288,15 +315,19 @@ export class CampaignMapRenderer {
             polygon.setAttribute("data-terrain", isWater ? "water" : "unmarked");
         });
     }
-    ensureLayer(svg, id) {
-        let layer = svg.querySelector(`#${id}`);
+    ensureLayer(parent, id) {
+        let layer = parent.querySelector(`#${id}`);
         if (!layer) {
             layer = document.createElementNS(SVG_NS, "g");
             layer.id = id;
-            svg.appendChild(layer);
+            parent.appendChild(layer);
         }
         layer.innerHTML = "";
         return layer;
+    }
+    /** Returns the transform root created during the last render, so MapViewport can re-bind after re-renders. */
+    getViewportRoot() {
+        return this.viewportRoot;
     }
     /** Injects the campaign background illustration. */
     renderBackground(layer, scenario) {
@@ -574,6 +605,128 @@ export class CampaignMapRenderer {
                 }
             });
         });
+    }
+    /** Renders the observing faction's collection footprint. Hidden by default and safe by construction. */
+    renderIntelCoverage(layer, viewModel) {
+        layer.style.display = "none";
+        layer.style.pointerEvents = "none";
+        const density = this.getHexDensityScalar();
+        for (const coverage of viewModel.coverage) {
+            const group = this.hexGroups.get(coverage.hexKey);
+            if (!group)
+                continue;
+            const cx = Number(group.dataset.cx ?? NaN);
+            const cy = Number(group.dataset.cy ?? NaN);
+            if (!Number.isFinite(cx) || !Number.isFinite(cy))
+                continue;
+            const polygon = document.createElementNS(SVG_NS, "polygon");
+            polygon.setAttribute("points", this.buildHexPolygon(cx, cy, density));
+            polygon.setAttribute("fill", coverage.strength === "priority"
+                ? "rgba(72, 200, 214, 0.28)"
+                : coverage.strength === "observed"
+                    ? "rgba(72, 156, 214, 0.20)"
+                    : "rgba(120, 140, 170, 0.12)");
+            polygon.setAttribute("stroke", coverage.strength === "priority" ? "rgba(150, 245, 255, 0.72)" : "rgba(118, 190, 220, 0.42)");
+            polygon.setAttribute("stroke-width", coverage.strength === "priority" ? "2" : "1");
+            polygon.setAttribute("data-coverage", coverage.strength);
+            polygon.setAttribute("data-hex", coverage.hexKey);
+            layer.appendChild(polygon);
+        }
+    }
+    /** Renders only sanitized contact views; no true enemy unit type or count reaches this layer. */
+    renderIntelContacts(layer, viewModel) {
+        const density = this.getHexDensityScalar();
+        layer.setAttribute("aria-label", "Enemy intelligence contacts");
+        viewModel.enemyContacts.forEach((contact) => {
+            const hex = this.hexGroups.get(contact.locationHexKey);
+            if (!hex)
+                return;
+            const cx = Number(hex.dataset.cx ?? NaN);
+            const cy = Number(hex.dataset.cy ?? NaN);
+            if (!Number.isFinite(cx) || !Number.isFinite(cy))
+                return;
+            const marker = document.createElementNS(SVG_NS, "g");
+            marker.classList.add("campaign-intel-contact", `intel-level-${contact.level}`, `intel-state-${contact.state}`);
+            marker.setAttribute("data-contact-id", contact.id);
+            marker.setAttribute("data-hex", contact.locationHexKey);
+            marker.setAttribute("role", "img");
+            marker.setAttribute("aria-label", this.describeContactForAccessibility(contact));
+            if (contact.uncertaintyRadius > 0) {
+                const uncertainty = document.createElementNS(SVG_NS, "circle");
+                const radius = HEX_RADIUS * density * (1.15 + contact.uncertaintyRadius * 1.45);
+                uncertainty.setAttribute("cx", String(cx));
+                uncertainty.setAttribute("cy", String(cy));
+                uncertainty.setAttribute("r", String(radius));
+                uncertainty.setAttribute("fill", "rgba(230, 177, 67, 0.08)");
+                uncertainty.setAttribute("stroke", "rgba(238, 190, 85, 0.65)");
+                uncertainty.setAttribute("stroke-width", contact.state === "disputed" ? "2.5" : "1.5");
+                uncertainty.setAttribute("stroke-dasharray", contact.state === "current" ? "4 3" : "7 5");
+                uncertainty.classList.add("campaign-intel-uncertainty");
+                marker.appendChild(uncertainty);
+            }
+            const plateSize = contact.level === "assessed" ? 30 : 26;
+            const plate = document.createElementNS(SVG_NS, contact.level === "reported" ? "circle" : "rect");
+            if (plate.tagName.toLowerCase() === "circle") {
+                plate.setAttribute("cx", String(cx));
+                plate.setAttribute("cy", String(cy));
+                plate.setAttribute("r", String(plateSize / 2));
+            }
+            else {
+                plate.setAttribute("x", String(cx - plateSize / 2));
+                plate.setAttribute("y", String(cy - plateSize / 2));
+                plate.setAttribute("width", String(plateSize));
+                plate.setAttribute("height", String(plateSize));
+                plate.setAttribute("rx", contact.level === "located" ? "13" : "3");
+            }
+            plate.setAttribute("fill", contact.state === "stale" ? "rgba(68, 70, 78, 0.88)" : contact.state === "disputed" ? "rgba(121, 75, 132, 0.92)" : "rgba(104, 55, 45, 0.94)");
+            plate.setAttribute("stroke", contact.confidenceBand === "high" ? "#ffe1a0" : contact.confidenceBand === "medium" ? "#e6bd68" : "#c99a55");
+            plate.setAttribute("stroke-width", contact.level === "assessed" ? "3" : "2");
+            if (contact.state !== "current")
+                plate.setAttribute("stroke-dasharray", "4 2");
+            marker.appendChild(plate);
+            const glyph = document.createElementNS(SVG_NS, "text");
+            glyph.textContent = this.contactGlyph(contact);
+            glyph.setAttribute("x", String(cx));
+            glyph.setAttribute("y", String(cy + 4));
+            glyph.setAttribute("text-anchor", "middle");
+            glyph.setAttribute("font-size", contact.level === "reported" ? "18" : "11");
+            glyph.setAttribute("font-weight", "800");
+            glyph.setAttribute("fill", "#fff7df");
+            glyph.setAttribute("pointer-events", "none");
+            marker.appendChild(glyph);
+            const age = document.createElementNS(SVG_NS, "text");
+            age.textContent = contact.ageSegments === 0 ? "NOW" : `${contact.ageSegments * 3}H`;
+            age.setAttribute("x", String(cx));
+            age.setAttribute("y", String(cy + plateSize / 2 + 12));
+            age.setAttribute("text-anchor", "middle");
+            age.setAttribute("font-size", "9");
+            age.setAttribute("font-weight", "700");
+            age.setAttribute("fill", "#fff1c6");
+            age.setAttribute("stroke", "#1b1720");
+            age.setAttribute("stroke-width", "2");
+            age.setAttribute("paint-order", "stroke");
+            marker.appendChild(age);
+            layer.appendChild(marker);
+        });
+    }
+    contactGlyph(contact) {
+        if (contact.level === "reported")
+            return "?";
+        if (contact.level === "located")
+            return "●";
+        switch (contact.domain) {
+            case "air": return "AIR";
+            case "naval": return "NAV";
+            case "logistics": return "LOG";
+            case "ground": return "GRD";
+            default: return "UNK";
+        }
+    }
+    describeContactForAccessibility(contact) {
+        const age = contact.ageSegments === 0 ? "current observation" : `${contact.ageSegments * 3} hours old`;
+        const strength = contact.strengthBand ? `, ${contact.strengthBand} strength` : "";
+        const radius = contact.uncertaintyRadius > 0 ? `, within ${contact.uncertaintyRadius} hexes` : "";
+        return `${contact.label}, ${contact.level}, ${contact.confidenceBand} confidence${strength}, ${age}, near ${contact.locationHexKey}${radius}`;
     }
     resolveForces(instance, scenario) {
         const paletteEntry = scenario.tilePalette[instance.tile];

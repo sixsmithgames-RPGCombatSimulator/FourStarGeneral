@@ -173,13 +173,14 @@ export class MapViewport {
                 this.handleTouchPointerDown(event);
                 return;
             }
-            if (event.button !== 1) {
+            // Middle (1) or right (2) button initiates a drag pan; left stays reserved for selection.
+            if (event.button !== 1 && event.button !== 2) {
                 return;
             }
             if (event.pointerType && event.pointerType !== "mouse") {
                 return;
             }
-            // Middle-click initiates a drag pan; capture the pointer so movement outside the SVG still pans.
+            // Capture the pointer so movement outside the SVG still pans.
             this.dragState.active = true;
             this.dragState.pointerId = event.pointerId;
             this.dragState.lastX = event.clientX;
@@ -238,6 +239,8 @@ export class MapViewport {
             this.wheelEventTarget.addEventListener("pointerup", this.handlePointerUp);
             this.wheelEventTarget.addEventListener("pointercancel", this.handlePointerUp);
             this.wheelEventTarget.addEventListener("pointerleave", this.handlePointerUp);
+            // Right-drag pans the map, so the browser context menu must not open over the battlefield.
+            this.wheelEventTarget.addEventListener("contextmenu", (event) => event.preventDefault());
         };
         // Zoom limits keep interactions bounded; a higher max lets commanders inspect the map closely.
         this.MIN_ZOOM = 0.5;

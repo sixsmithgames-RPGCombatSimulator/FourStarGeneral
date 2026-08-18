@@ -80,6 +80,28 @@ registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Giv
         }
     });
 });
+registerTest("BATTLESCREEN_STANDALONE_SCENARIOS_CLEAR_CAMPAIGN_BACKDROP", async ({ Given, When, Then }) => {
+    let screen;
+    let backdropUrl;
+    await Given("a standalone historical scenario after campaign state has been initialized", async () => {
+        mountBattleScreenRoot();
+        screen = Object.create(BattleScreen.prototype);
+        screen.uiState = { isFromCampaign: false };
+        screen.hexMapRenderer = {
+            setBackdropImage(url) {
+                backdropUrl = url;
+            }
+        };
+    });
+    await When("the battle screen configures the tactical battlefield backdrop", async () => {
+        screen.configureBattlefieldBackdrop();
+    });
+    await Then("the standalone map should not show strategic artwork beyond its authored tiles", async () => {
+        if (backdropUrl !== null) {
+            throw new Error(`Expected standalone battle backdrop to clear, received ${String(backdropUrl)}.`);
+        }
+    });
+});
 registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
     let screen;
     let assignedAxial = null;
@@ -685,6 +707,69 @@ registerTest("BATTLESCREEN_REPORTS_MISSING_PLAYER_SELECTION_CONTEXT", async ({ G
             throw new Error("Expected base-camp status to mirror the blocking selection-context error title.");
         }
         resetDeploymentState();
+    });
+});
+registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", async ({ Given, When, Then }) => {
+    let screen;
+    const callOrder = [];
+    let announcement = "";
+    await Given("a finalized deployment with two predeployed allied formations", async () => {
+        mountBattleScreenRoot();
+        screen = Object.create(BattleScreen.prototype);
+        const engine = {
+            baseCamp: { key: "0,0", hex: { q: 0, r: 0 } },
+            finalizeDeployment: () => {
+                callOrder.push("finalize");
+                return [];
+            },
+            transferAllAlliedUnitsToPlayerControl: () => {
+                callOrder.push("transfer-allies");
+                return 2;
+            },
+            getReserveSnapshot: () => []
+        };
+        screen.uiState = { selectedMission: "training" };
+        screen.scenario = { name: "Training Exercise" };
+        screen.shouldDeferTutorialInitiativeAutoFocus = () => false;
+        screen.prepareBattleState = () => engine;
+        screen.assertBattleReady = () => { };
+        screen.initializeInitiativeSystem = () => {
+            callOrder.push("initialize-initiative");
+        };
+        screen.initiativeMethods = {
+            startInitiativeTurnPhase: () => {
+                callOrder.push("start-initiative");
+            }
+        };
+        screen.syncInitiativeTurnControlsState = () => { };
+        screen.focusCurrentInitiativeActivation = () => { };
+        screen.refreshDeploymentMirrors = () => { };
+        screen.battleState = {
+            getCurrentTurnSummary: () => ({ turnNumber: 1, activeFaction: "Player", phase: "playerTurn" })
+        };
+        screen.battleLoadout = null;
+        screen.reservePresenter = null;
+        screen.deploymentPanel = null;
+        screen.lockDeploymentInteractions = () => { };
+        screen.updateUIForBattlePhase = () => { };
+        screen.collapseDeploymentPanelForBattlePhase = () => { };
+        screen.renderEngineUnits = () => { };
+        screen.announceBattleUpdate = (message) => {
+            announcement = message;
+        };
+        screen.completeTutorialPhase = () => { };
+    });
+    await When("the commander selects Begin Mission", async () => {
+        screen.handleBeginBattle();
+    });
+    await Then("allied ownership settles before the opening initiative queue is created", async () => {
+        const expectedOrder = ["finalize", "transfer-allies", "initialize-initiative", "start-initiative"];
+        if (JSON.stringify(callOrder) !== JSON.stringify(expectedOrder)) {
+            throw new Error(`Expected mission-start ownership order ${JSON.stringify(expectedOrder)}, received ${JSON.stringify(callOrder)}.`);
+        }
+        if (!announcement.includes("2 allied formations transferred to your command.")) {
+            throw new Error(`Expected allied command transfer in the battle-start report, received '${announcement}'.`);
+        }
     });
 });
 registerTest("BATTLESCREEN_BEGIN_BATTLE_ERRORS_USE_PANEL_MESSAGING", async ({ Given, When, Then }) => {

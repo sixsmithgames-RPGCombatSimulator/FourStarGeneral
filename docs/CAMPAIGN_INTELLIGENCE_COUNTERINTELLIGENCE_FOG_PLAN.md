@@ -8,6 +8,8 @@
 
 **Primary scope:** Campaign layer, with a truthful handoff into and out of tactical battles
 
+**Follow-on integration:** [Campaign 2.0 — first-class game product and engineering plan](./CAMPAIGN_2_0_FIRST_CLASS_GAME_PLAN.md) preserves this truth/knowledge boundary while adding strategic AI, consequences, persistent formations, weather, saves, objectives, and the command-workspace overhaul.
+
 ## Implementation record — 2026-08-02
 
 The release candidate implements the complete core loop described by this plan:

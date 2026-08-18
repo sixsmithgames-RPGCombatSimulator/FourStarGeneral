@@ -97,6 +97,38 @@ registerTest("PRECOMBAT_ENFORCES_A_CONVOY_MINIMUM_FOR_RIVER_WATCH", async ({ Giv
   });
 });
 
+registerTest("PRECOMBAT_CAMPAIGN_CONTEXT_STAYS_OUTSIDE_BUDGET_GRID", async ({ Given, When, Then }) => {
+  let screen: PrecombatScreen;
+  let banner: HTMLElement | null = null;
+  let budget: HTMLElement | null = null;
+
+  await Given("a campaign engagement summary and the compact requisition budget", async () => {
+    screen = createScreen();
+    const internals = screen as any;
+    internals.engagementContext = {
+      battleHexKey: "4,4",
+      missionType: "meetingEngagement",
+      forceRatio: 1,
+      availableForces: [{ hexKey: "3,4", unitType: "Infantry_42", count: 2 }],
+      airSorties: 0,
+      rpReserve: 100
+    };
+  });
+
+  await When("the strategic context banner is rendered", async () => {
+    (screen as any).renderEngagementContextBanner();
+    banner = document.getElementById("engagementContextBanner");
+    budget = document.getElementById("precombatBudgetPanel");
+  });
+
+  await Then("the full-width briefing is a sibling rather than a child that distorts the budget grid", async () => {
+    if (!banner || !budget) throw new Error("Expected campaign banner and budget panel.");
+    if (budget.contains(banner) || banner.parentElement !== budget.parentElement) {
+      throw new Error("Campaign context banner was mounted inside the requisition budget grid.");
+    }
+  });
+});
+
 registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, When, Then }) => {
   let screen: PrecombatScreen;
   let convoyVisible = true;

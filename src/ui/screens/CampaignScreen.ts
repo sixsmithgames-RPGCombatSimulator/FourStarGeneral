@@ -1,6 +1,12 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
 import type { CampaignPendingEngagement, CampaignScenarioData, ProductionAllocation } from "../../core/campaignTypes";
 import type { CampaignIntelOperationType, CampaignIntelOperationView, CampaignMapViewModel } from "../../core/campaignIntelTypes";
+import type {
+  CampaignOrder,
+  CampaignOrderActionPreview,
+  CampaignReservation
+} from "../../game/campaign/orders/CampaignOrderTypes";
+import type { CampaignAdvanceStopReason } from "../../game/campaign/runtime/campaignRuntimeTypes";
 import { MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
@@ -9,6 +15,25 @@ import { TRANSPORT_MODES, getDefaultTransportMode } from "../../data/transportMo
 import { MapViewport } from "../controls/MapViewport";
 import { computeDailyProduction, ensureCampaignState } from "../../state/CampaignState";
 import { ensureUnlockState } from "../../state/UnlockState";
+import {
+  type CampaignCommandAdvanceMode,
+  type CampaignCommandOrderCommitView,
+  type CampaignCommandOrderView,
+  type CampaignCommandPriorityView,
+  type CampaignCommandSituationView,
+  type CampaignCommandShellView
+} from "../campaign/CampaignCommandShell";
+import { CampaignCommandScreen as CampaignCommandInterface } from "../campaign/CampaignCommandScreen";
+import { projectRuntimeHexKeyToCampaignOffset } from "../campaign/CampaignCommandProjection";
+import {
+  CampaignActionRegistry,
+  decorateCampaignOrderComposer,
+  explainCampaignOrderValidationIssue,
+  getCampaignIntelOperationType,
+  getCampaignIntelligenceActionId,
+  type CampaignActionContext,
+  type CampaignActionId
+} from "../campaign/CampaignOrderExperience";
 
 interface CampaignScreenStatusMessage {
   title: string;
@@ -28,10 +53,11 @@ export class CampaignScreen {
   private productionManageButton: HTMLButtonElement | null = null;
   private selectionContainer: HTMLElement | null = null;
   private queueEngagementButton: HTMLButtonElement | null = null;
-  private advanceSegmentButton: HTMLButtonElement | null = null;
   private timeDisplayElement: HTMLElement | null = null;
   private saveButton: HTMLButtonElement | null = null;
   private loadButton: HTMLButtonElement | null = null;
+  private battleSavesButton: HTMLButtonElement | null = null;
+  private saveLoadBusy = false;
   private exitButton: HTMLButtonElement | null = null;
   private selectedHexKey: string | null = null;
   private selectedFrontKey: string | null = null;
@@ -64,8 +90,22 @@ export class CampaignScreen {
   private intelTargetContactId: string | null = null;
   private intelFeedback = "";
   private intelCoverageVisible = false;
+  private commandInterface: CampaignCommandInterface | null = null;
+  private commandSaveStatus: CampaignCommandShellView["saveStatus"] = "Unsaved";
+  private campaignAdvanceMode: CampaignCommandAdvanceMode = "nextReport";
+  private pauseAfterEveryCampaignResolution = false;
+  private readonly campaignActionRegistry = new CampaignActionRegistry((actionId, context) => this.previewCampaignAction(actionId, context));
+  private editingIntelOrderId: string | null = null;
+  private editingIntelAssetKey: string | null = null;
+  private commandCommitBusy = false;
+  private commandCommitFeedback: Pick<CampaignCommandOrderCommitView, "feedback" | "feedbackTone"> = { feedback: null, feedbackTone: null };
+  private campaignPopupInvoker: HTMLElement | null = null;
 
-  constructor(screenManager: IScreenManager, renderer: CampaignMapRenderer) {
+  constructor(
+    screenManager: IScreenManager,
+    renderer: CampaignMapRenderer,
+    private readonly sourceScenario?: CampaignScenarioData
+  ) {
     this.screenManager = screenManager;
     this.renderer = renderer;
     const el = document.getElementById("campaignScreen");
@@ -73,6 +113,29 @@ export class CampaignScreen {
       throw new Error("Campaign screen element (#campaignScreen) not found in DOM");
     }
     this.element = el;
+  }
+
+  /** Routes registry lookups to state-owned preview services without recreating campaign rules in the UI. */
+  private previewCampaignAction(actionId: CampaignActionId, context: CampaignActionContext): CampaignOrderActionPreview {
+    if (actionId === "redeploy") {
+      return this.campaignState.getCampaignRedeployActionPreview(context.selectionId ?? "");
+    }
+    if (actionId === "production") {
+      return this.campaignState.getCampaignProductionActionPreview("Player", context.excludeOrderId ?? undefined);
+    }
+    if (actionId === "infrastructureRepair") {
+      return this.campaignState.getCampaignInfrastructureRepairActionPreview(context.selectionId ?? "");
+    }
+    const operationType = getCampaignIntelOperationType(actionId);
+    if (!operationType) throw new Error(`Campaign action ${actionId} has no authoritative preview route.`);
+    return this.campaignState.previewIntelOperationDraft({
+      type: operationType,
+      targetHexKey: context.selectionId ?? undefined,
+      targetContactId: context.targetContactId ?? undefined,
+      assignedAssetKey: context.assignedAssetKey ?? undefined,
+      excludeOrderId: context.excludeOrderId ?? undefined,
+      faction: "Player"
+    });
   }
   
   /**
@@ -145,10 +208,14 @@ export class CampaignScreen {
   /**
    * Opens the redeployment planner. Transport modes render as selectable cards (invalid modes
    * disabled with the reason), units use sliders with quick-pick buttons, and the summary is a
-   * live engine-accurate preview via CampaignState.previewRedeploy — so Confirm can never queue
-   * an order the engine would reject.
+   * live engine-accurate preview via CampaignState.previewRedeploy. Add Draft never spends resources;
+   * the authoritative validator rechecks every shared reservation before atomic commit.
    */
-  private openRedeployModal(originOffsetKey: string, destOffsetKey: string): void {
+  private openRedeployModal(
+    originOffsetKey: string,
+    destOffsetKey: string,
+    editingOrder?: Extract<CampaignOrder, { kind: "redeploy" }>
+  ): void {
     const layer = document.getElementById("battlePopupLayer");
     const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
     const title = dialog?.querySelector<HTMLElement>("[data-popup-title]");
@@ -185,74 +252,58 @@ export class CampaignScreen {
       bomber: { icon: "🛩️", name: "Bomber Ferry", note: "Airbase to airbase" }
     };
 
-    /** Reason a mode is unusable for this origin/destination/garrison, or null if usable. */
-    const modeBlockReason = (key: string): string | null => {
-      const mode = TRANSPORT_MODES[key];
-      if (!mode) return "Unknown mode";
-      if (mode.applicableUnitTypes && mode.applicableUnitTypes.length > 0) {
-        const anyUnit = originForces.some((g) => mode.applicableUnitTypes!.includes(g.unitType));
-        if (!anyUnit) return "No units here can use this";
-      }
-      if (mode.requiresNavalBase && originRole !== "navalBase" && destRole !== "navalBase") {
-        return "Needs a naval base at either end";
-      }
-      if (mode.requiresAirbase && (originRole !== "airbase" || destRole !== "airbase")) {
-        return "Needs airbases at both ends";
-      }
-      return null;
-    };
-
     // Default mode: recommended mode of the largest usable force group, else first usable mode.
     const sortedForces = [...originForces].sort((x, y) => y.count - x.count);
-    let selectedModeKey = "foot";
+    let selectedModeKey = editingOrder?.payload.transportModeKey ?? "foot";
     let defaulted = false;
-    for (const g of sortedForces) {
-      const candidate = getDefaultTransportMode(g.unitType);
-      if (!modeBlockReason(candidate)) {
-        selectedModeKey = candidate;
-        defaulted = true;
-        break;
+    if (!editingOrder) {
+      for (const g of sortedForces) {
+        const candidate = getDefaultTransportMode(g.unitType);
+        if (TRANSPORT_MODES[candidate]) {
+          selectedModeKey = candidate;
+          defaulted = true;
+          break;
+        }
       }
-    }
-    if (!defaulted) {
-      const fallback = Object.keys(TRANSPORT_MODES).find((k) => !modeBlockReason(k));
-      if (fallback) selectedModeKey = fallback;
+      if (!defaulted) selectedModeKey = Object.keys(TRANSPORT_MODES)[0] ?? "foot";
     }
 
-    title.textContent = "Schedule Redeployment";
+    title.textContent = editingOrder ? "Edit Redeployment Draft" : "Plan Redeployment";
 
     const modeCards = Object.keys(TRANSPORT_MODES)
       .map((key) => {
         const mode = TRANSPORT_MODES[key];
         const p = MODE_PRESENTATION[key] ?? { icon: "•", name: mode.label, note: "" };
-        const blocked = modeBlockReason(key);
         return `
-          <button type="button" class="redeploy-mode-card${blocked ? " mode-blocked" : ""}" data-mode="${key}" ${blocked ? "disabled" : ""} title="${this.escapeHtml(mode.description ?? mode.label)}">
+          <button type="button" class="redeploy-mode-card" data-mode="${key}" title="${this.escapeHtml(mode.description ?? mode.label)}">
             <span class="mode-icon">${p.icon}</span>
             <span class="mode-name">${p.name}</span>
             <span class="mode-speed">${mode.speedHexPerDay} hex / 3h</span>
-            <span class="mode-note">${this.escapeHtml(blocked ?? p.note)}</span>
+            <span class="mode-note">${this.escapeHtml(p.note)}</span>
           </button>`;
       })
       .join("");
 
     const unitRows = originForces
       .map(
-        (g, idx) => `
+        (g, idx) => {
+        const selectedCount = editingOrder?.payload.selections.find((selection) => selection.unitType === g.unitType)?.count ?? g.count;
+        return `
         <div class="redeploy-unit-row" data-unit-row="${idx}">
           <div class="unit-label">
             <span class="unit-name">${this.escapeHtml(g.unitType.replace(/_/g, " "))}</span>
             <span class="unit-avail">of ${g.count}</span>
           </div>
-          <input type="range" min="0" max="${g.count}" value="${g.count}" data-move-slider="${idx}" aria-label="${this.escapeHtml(g.unitType)} count" />
-          <input type="number" min="0" max="${g.count}" value="${g.count}" data-move-index="${idx}" />
+          <input type="range" min="0" max="${g.count}" value="${selectedCount}" data-move-slider="${idx}" aria-label="${this.escapeHtml(g.unitType)} count" />
+          <input type="number" min="0" max="${g.count}" value="${selectedCount}" data-move-index="${idx}" />
           <div class="unit-quick">
             <button type="button" data-quick="0" data-quick-idx="${idx}" title="Leave all behind">0</button>
             <button type="button" data-quick="half" data-quick-idx="${idx}" title="Move half">½</button>
             <button type="button" data-quick="all" data-quick-idx="${idx}" title="Move all">All</button>
           </div>
           <div class="unit-note" data-unit-note="${idx}"></div>
-        </div>`
+        </div>`;
+        }
       )
       .join("");
 
@@ -271,7 +322,7 @@ export class CampaignScreen {
         <div class="redeploy-summary-panel" id="campaignRedeploySummary"></div>
         <div class="redeploy-issues" id="campaignRedeployIssues"></div>
         <div class="button-row redeploy-actions">
-          <button type="submit" class="primary-button" id="campaignRedeployConfirm">Confirm Orders</button>
+          <button type="submit" class="primary-button" id="campaignRedeployConfirm">${editingOrder ? "Replace Draft" : "Add Draft"}</button>
           <button type="button" id="campaignRedeployCancel" class="secondary-button">Cancel</button>
         </div>
       </form>
@@ -283,6 +334,7 @@ export class CampaignScreen {
     const confirmBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployConfirm");
     const cancelBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployCancel");
     if (!form || !summaryEl || !issuesEl || !confirmBtn || !cancelBtn) return;
+    decorateCampaignOrderComposer(form, "redeploy", `${originOffsetKey} to ${destOffsetKey}`, Boolean(editingOrder));
 
     const numberInputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-index]"));
     const sliders = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-slider]"));
@@ -321,7 +373,7 @@ export class CampaignScreen {
         if (note) note.textContent = allowed ? "" : "Stays behind — can't travel by this mode";
       });
 
-      const preview = this.campaignState.previewRedeploy(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey);
+      const preview = this.campaignState.previewRedeploy(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey, editingOrder?.id);
       if (!preview) {
         summaryEl.innerHTML = "";
         issuesEl.innerHTML = "";
@@ -344,10 +396,22 @@ export class CampaignScreen {
           ${mode?.capacityType ? `<div class="summary-cell${capBad ? " cost-bad" : ""}"><span>${capLabel}</span><strong>${preview.capacityNeeded}</strong><em>of ${preview.capacityAvailable ?? 0}</em></div>` : ""}
           ${preview.manpowerLoss > 0 ? `<div class="summary-cell cost-warn"><span>💀 Est. losses</span><strong>${fmt(preview.manpowerLoss)}</strong><em>men</em></div>` : ""}
         </div>
+        <dl class="campaign-order-preview-contract">
+          <div><dt>Route</dt><dd>${this.escapeHtml(originOffsetKey)} → ${this.escapeHtml(destOffsetKey)} · ${distance} hex</dd></div>
+          <div><dt>Reservations</dt><dd>Selected force quantities${preview.capacityNeeded > 0 ? ` · ${preview.capacityNeeded} ${this.escapeHtml(mode?.capacityType ?? "transport")} capacity` : ""} · ${fmt(preview.fuelCost)} fuel · ${fmt(preview.suppliesCost)} supply</dd></div>
+          <div><dt>Known risk</dt><dd>${preview.manpowerLoss > 0 ? `${fmt(preview.manpowerLoss)} estimated transit attrition` : "No modeled transit attrition"}; destination conditions may change before arrival.</dd></div>
+          <div><dt>Objective effect</dt><dd>No score changes until the force arrives and later campaign events resolve.</dd></div>
+          <div><dt>Cancellation</dt><dd>Before execution, committed costs and reservations are refunded exactly.</dd></div>
+        </dl>
       `;
 
-      issuesEl.innerHTML = preview.ok ? "" : preview.issues.map((issue) => `<div class="redeploy-issue">⚠ ${this.escapeHtml(issue)}</div>`).join("");
-      confirmBtn.disabled = !preview.ok;
+      issuesEl.innerHTML = preview.ok ? `<div class="campaign-order-preview-clear">No conflicts in the current command picture.</div>` : preview.diagnostics.map((issue) => `<div class="redeploy-issue" data-reason-code="${issue.code}"><strong>${issue.code.replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(issue.message)}</span><small>${this.escapeHtml(issue.correctiveAction)}</small></div>`).join("");
+      const canRetainConflict = preview.diagnostics.length > 0
+        && preview.diagnostics.every((issue) => issue.code === "ORDER_RESERVATION_CONFLICT");
+      confirmBtn.disabled = !preview.ok && !canRetainConflict;
+      confirmBtn.textContent = editingOrder
+        ? canRetainConflict ? "Replace with conflicted draft" : "Replace Draft"
+        : canRetainConflict ? "Add conflicted draft" : "Add Draft";
     };
 
     modeButtons.forEach((btnEl) =>
@@ -385,11 +449,11 @@ export class CampaignScreen {
 
     form.onsubmit = (ev) => {
       ev.preventDefault();
-      const result = this.campaignState.scheduleRedeploy(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey);
+      const result = this.campaignState.createRedeployDraft(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey, editingOrder?.id);
       if (!result.ok) {
         this.setCampaignStatusMessage({
-          title: "Redeployment failed.",
-          detail: result.reason ?? "The redeployment order could not be scheduled.",
+          title: "Draft not added.",
+          detail: result.reason ?? "The redeployment draft could not be added.",
           action: "Adjust the route, unit selection, or transport mode and try again.",
           tone: "warning"
         });
@@ -397,24 +461,37 @@ export class CampaignScreen {
       }
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      clearPreview();
+      this.commandCommitFeedback = { feedback: `Redeployment draft ${editingOrder ? "replaced" : "added"}; exact holds are visible in the tray.`, feedbackTone: "success" };
       this.setCampaignStatusMessage({
-        title: "Redeployment queued.",
-        detail: `Movement order logged from ${originOffsetKey} to ${destOffsetKey}.`,
-        action: "Advance the campaign clock to process the transfer or queue another order.",
+        title: result.order.validation.valid ? `Redeployment draft ${editingOrder ? "replaced" : "ready"}.` : "Redeployment draft has a conflict.",
+        detail: result.order.validation.issues[0]?.message ?? `Movement draft ${editingOrder ? "replaced" : "added"} from ${originOffsetKey} to ${destOffsetKey}.`,
+        action: result.order.validation.valid ? "Review the order tray, then commit orders when ready." : "Remove the conflicting draft or free the required capacity before committing.",
         tone: "success"
       });
+    };
+    const clearPreview = (): void => {
+      this.renderer.clearAllHighlights("order-preview-origin");
+      this.renderer.clearAllHighlights("order-preview-target");
     };
     cancelBtn.onclick = () => {
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      clearPreview();
+      this.campaignPopupInvoker?.focus({ preventScroll: true });
     };
 
     // Show popup
     layer.classList.remove("hidden");
     layer.setAttribute("aria-hidden", "false");
+    this.renderer.highlightHex(originOffsetKey, "order-preview-origin");
+    this.renderer.highlightHex(destOffsetKey, "order-preview-target");
+    confirmBtn.focus({ preventScroll: true });
     close.onclick = () => {
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      clearPreview();
+      this.campaignPopupInvoker?.focus({ preventScroll: true });
     };
   }
 
@@ -495,25 +572,132 @@ export class CampaignScreen {
     }
   }
 
+  /**
+   * Mounts the legacy editor controls only for explicitly authorized development builds.
+   * Keeping the controls in template fragments prevents internal tools from entering the normal player DOM.
+   */
+  private mountCampaignDeveloperTools(): void {
+    const editorEnabled = import.meta.env?.DEV === true || import.meta.env?.VITE_CAMPAIGN_EDITOR === "true";
+    if (!editorEnabled) return;
+    const sessionTemplate = this.element.querySelector<HTMLTemplateElement>("#campaignDeveloperSessionTemplate");
+    const editorTemplate = this.element.querySelector<HTMLTemplateElement>("#campaignDeveloperEditorTemplate");
+    const sessionTarget = this.element.querySelector<HTMLElement>(".session-controls");
+    const editorTarget = this.element.querySelector<HTMLElement>(".campaign-sidebar");
+    if (sessionTemplate && sessionTarget) sessionTarget.appendChild(sessionTemplate.content.cloneNode(true));
+    if (editorTemplate && editorTarget) editorTarget.appendChild(editorTemplate.content.cloneNode(true));
+  }
+
   initialize(): void {
     // Gate via a live subscription rather than a one-time startup check: Clerk auth
     // resolves after initializeApplication() runs, so the entitlement snapshot here
     // may still be the guest bootstrap. The overlay reacts to hydration in both directions.
     this.unlockState.subscribe(() => this.syncCampaignLockState());
 
-    // Capture sidebar hooks if present. These may be null in minimal DOMs (e.g. tests)
+    this.mountCampaignDeveloperTools();
+    this.commandInterface = new CampaignCommandInterface(this.element, {
+      onOpenIntelligence: () => document.dispatchEvent(new CustomEvent("campaign:intelligence:open")),
+      onAcknowledgeAfterActionReport: (reportId) => {
+        this.campaignState.acknowledgeCampaignAfterActionReport(reportId);
+        this.renderCommandShell();
+      },
+      onAcknowledgeAlert: (alertId) => {
+        this.campaignState.acknowledgeCampaignAlert(alertId);
+        this.renderCommandShell();
+      },
+      onAfterActionTargetSelected: (targetKind, targetId) => {
+        this.commandInterface?.navigate({ kind: targetKind, id: targetId, focus: true });
+        const runtime = this.campaignState.getRuntimeSnapshot();
+        let runtimeHexKey = targetKind === "infrastructure" ? targetId : null;
+        if (targetKind === "formation" && targetId) runtimeHexKey = runtime?.formations[targetId]?.locationHexKey ?? null;
+        if (targetKind === "engagement" && targetId) runtimeHexKey = this.campaignState.getCampaignAfterActionReport(targetId)?.battleHexKey ?? null;
+        if (runtimeHexKey) {
+          const [q, r] = runtimeHexKey.split(",").map(Number);
+          if (Number.isFinite(q) && Number.isFinite(r)) {
+            const offset = CoordinateSystem.axialToOffset(q, r);
+            const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+            this.selectedHexKey = offsetKey;
+            this.renderer.clearAllHighlights("selected");
+            this.renderer.highlightHex(offsetKey, "selected");
+            this.renderSelection();
+          }
+        }
+      },
+      onSelectionRequested: (selection) => {
+        if (!selection) return;
+        let selectedHexKey: string | null = null;
+        if (selection.kind === "hex") {
+          selectedHexKey = selection.id;
+          this.selectedFrontKey = null;
+        } else if (selection.kind === "front") {
+          const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
+          if (!front) return;
+          this.selectedFrontKey = front.key;
+          selectedHexKey = front.hexKeys[0] ?? null;
+        } else if (selection.kind === "formation") {
+          const formation = this.campaignState.getCampaignFormationSnapshot(selection.id);
+          if (!formation || formation.faction !== "Player") return;
+          this.selectedFrontKey = null;
+          selectedHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
+        } else {
+          return;
+        }
+        if (selection.kind === "hex" && selectedHexKey === this.selectedHexKey) return;
+        this.selectedHexKey = selectedHexKey;
+        this.moveOriginHexKey = null;
+        this.renderer.clearAllHighlights("selected");
+        this.renderer.clearAllHighlights("origin");
+        if (selection.kind === "front") {
+          const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
+          front?.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
+        } else if (selectedHexKey) {
+          this.renderer.highlightHex(selectedHexKey, "selected");
+        }
+        this.renderSelection();
+        this.renderCampaignIntel();
+      },
+      onCommitOrders: () => this.commitDraftOrders(),
+      onAdvance: (mode) => this.advanceCampaignTime(mode),
+      onAdvanceModeChanged: (mode) => { this.campaignAdvanceMode = mode; },
+      onPauseAfterEveryResolutionChanged: (enabled) => { this.pauseAfterEveryCampaignResolution = enabled; },
+      onRemoveOrder: (orderId) => this.removeDraftOrder(orderId),
+      onEditOrder: (orderId) => this.editDraftOrder(orderId),
+      onMoveOrder: (orderId, direction) => this.moveDraftOrder(orderId, direction),
+      onCancelOrder: (orderId) => this.openOrderCancellationPreview(orderId),
+      onContinueOutcome: () => {
+        const continued = this.campaignState.continueCampaignAfterOutcome();
+        if (!continued.ok) this.setCampaignStatusMessage({
+          title: "Campaign continuation unavailable",
+          detail: continued.reason,
+          action: "Review the recorded result or load an earlier save.",
+          tone: "warning"
+        });
+        this.renderCommandShell();
+      },
+      onCancelGesture: () => {
+        if (!this.moveOriginHexKey) return;
+        this.moveOriginHexKey = null;
+        this.renderer.clearAllHighlights("origin");
+        this.renderSelection();
+      }
+    });
+    this.commandInterface.initialize();
+
+    // Capture hooks after shell composition. Existing IDs are moved, never duplicated.
     this.economyContainer = this.element.querySelector<HTMLElement>("#campaignEconomySummary");
     this.productionContainer = this.element.querySelector<HTMLElement>("#campaignProductionSummary");
     this.productionManageButton = this.element.querySelector<HTMLButtonElement>("#campaignProductionManage");
     if (this.productionManageButton) {
-      this.productionManageButton.addEventListener("click", () => this.openProductionModal());
+      this.productionManageButton.addEventListener("click", () => {
+        this.campaignPopupInvoker = this.productionManageButton;
+        this.openProductionModal();
+      });
     }
     this.selectionContainer = this.element.querySelector<HTMLElement>("#campaignSelectionInfo");
     this.queueEngagementButton = this.element.querySelector<HTMLButtonElement>("#campaignQueueEngagement");
-    this.advanceSegmentButton = this.element.querySelector<HTMLButtonElement>("#campaignAdvanceSegment");
     this.timeDisplayElement = this.element.querySelector<HTMLElement>("#campaignTimeDisplay");
     this.saveButton = this.element.querySelector<HTMLButtonElement>("#campaignSave");
     this.loadButton = this.element.querySelector<HTMLButtonElement>("#campaignLoad");
+    this.battleSavesButton = this.element.querySelector<HTMLButtonElement>("#campaignBattleSaves");
     this.exitButton = this.element.querySelector<HTMLButtonElement>("#campaignExit");
     this.editModeButton = this.element.querySelector<HTMLButtonElement>("#campaignEditMode");
     this.exportJSONButton = this.element.querySelector<HTMLButtonElement>("#campaignExportJSON");
@@ -523,35 +707,20 @@ export class CampaignScreen {
     this.intelUnreadBadge = this.element.querySelector<HTMLElement>("#campaignIntelUnread");
     this.intelCoverageButton = this.element.querySelector<HTMLButtonElement>("#campaignIntelCoverage");
     this.bindCampaignIntelControls();
-
-    if (this.advanceSegmentButton) {
-      // Clicking the advance segment button progresses the campaign by 3 hours (1 segment)
-      this.advanceSegmentButton.addEventListener("click", () => {
-        this.campaignState.advanceSegment();
-      });
-    }
-
-    // Speed control buttons
-    const speedButtons = this.element.querySelectorAll<HTMLButtonElement>(".speed-btn");
-    speedButtons.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        // Remove active class from all speed buttons
-        speedButtons.forEach((b) => b.classList.remove("active"));
-        // Add active class to clicked button
-        btn.classList.add("active");
-
-        const speed = parseInt(btn.dataset.speed ?? "1", 10);
-        // Note: For now we just show the selected speed. Future enhancement could implement
-        // auto-advancement based on the selected speed multiplier.
-        console.log(`Game speed set to ${speed}x`);
-      });
-    });
+    this.bindCampaignInspectorActions();
 
     if (this.saveButton) {
-      this.saveButton.addEventListener("click", () => this.saveCampaignSession());
+      this.saveButton.addEventListener("click", () => { void this.saveCampaignSession(); });
     }
     if (this.loadButton) {
-      this.loadButton.addEventListener("click", () => this.loadCampaignSession());
+      this.loadButton.addEventListener("click", () => { void this.loadCampaignSession(); });
+    }
+    if (this.battleSavesButton) {
+      this.battleSavesButton.addEventListener("click", () => {
+        document.dispatchEvent(new CustomEvent("campaign:battle:saves-open", {
+          detail: { invokerId: this.battleSavesButton?.id ?? null }
+        }));
+      });
     }
     if (this.exitButton) {
       this.exitButton.addEventListener("click", () => this.screenManager.showScreenById("landing"));
@@ -570,6 +739,10 @@ export class CampaignScreen {
     if (this.queueEngagementButton) {
       // Clicking the button queues a pending engagement for the currently selected front
       this.queueEngagementButton.addEventListener("click", () => {
+        if (this.campaignState.getActiveCampaignBattlePackage()) {
+          this.onQueueEngagement?.();
+          return;
+        }
         const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
         if (!scenario) return;
         const existing = this.campaignState.getPendingEngagements();
@@ -579,12 +752,22 @@ export class CampaignScreen {
         if (this.selectedFrontKey) {
           const front = scenario.fronts.find((f) => f.key === this.selectedFrontKey);
           if (!front) return;
+          if (front.initiative !== "Player") {
+            this.setCampaignStatusMessage({
+              title: "Enemy initiative front.",
+              detail: `${front.label} is controlled by the opposing command and cannot be launched as a Player attack.`,
+              action: "Advance campaign time or issue defensive orders. Any enemy offensive will interrupt command automatically.",
+              tone: "info"
+            });
+            this.renderCommandShell();
+            return;
+          }
           engagement = {
             id,
             frontKey: front.key,
             objectiveKey: null,
-            attacker: front.initiative,
-            defender: front.initiative === "Player" ? "Bot" : "Player",
+            attacker: "Player",
+            defender: "Bot",
             hexKeys: front.hexKeys.slice(),
             tags: ["front"]
           };
@@ -645,18 +828,21 @@ export class CampaignScreen {
     // Subscribe to campaign state changes so the sidebar reflects latest data
     this.unsubscribe = this.campaignState.subscribe((reason) => {
       // On scenario mutations (e.g., post-battle outcome), re-render the map so fronts/economy refresh visually.
-      if (reason === "scenarioLoaded" || reason === "intelligenceUpdated" || reason === "dayAdvanced") {
+      if (reason === "scenarioLoaded" || reason === "intelligenceUpdated" || reason === "dayAdvanced" || reason === "segmentResolved") {
         this.renderCampaignMap();
       }
-      // On day advancement, update the day counter and economy display
-      if (reason === "dayAdvanced") {
+      // Segment transactions update the operational clock only after the full candidate commits.
+      if (reason === "dayAdvanced" || reason === "segmentResolved") {
         this.renderTimeDisplay();
       }
       this.renderEconomy();
       this.renderProduction();
       this.renderSelection();
       this.renderCampaignIntel();
+      if (!this.saveLoadBusy) this.commandSaveStatus = "Unsaved";
+      this.renderCommandShell();
     });
+    this.renderCommandShell();
   }
 
   getElement(): HTMLElement {
@@ -672,14 +858,11 @@ export class CampaignScreen {
     }
     this.renderCampaignMap();
     this.bindTerrainEditDragHandlers(svg);
-    // Handle hex clicks by recording selection and detecting if the hex is part of a front
+    // Map clicks are selection-only. Every campaign action requires a separate inspector or tray control.
     this.renderer.onHexClick((hexKey) => {
       const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
       if (this.campaignStatusMessage) {
         this.campaignStatusMessage = null;
-      }
-      if (this.campaignState.getHeadquartersStatusMessage()) {
-        this.campaignState.setHeadquartersStatusMessage(null);
       }
       this.selectedFrontKey = null;
       // Front selection path
@@ -692,61 +875,17 @@ export class CampaignScreen {
         }
       }
 
-      // Skip movement/redeployment logic when in edit mode
-      if (!this.editMode) {
-        // Movement: if an origin is primed, move adjacent immediately; otherwise open redeploy scheduler for non-adjacent
-        if (this.moveOriginHexKey && this.moveOriginHexKey !== hexKey) {
-          const a = CoordinateSystem.parseHexKey(this.moveOriginHexKey);
-          const b = CoordinateSystem.parseHexKey(hexKey);
-          if (a && b) {
-            // Convert offset to axial
-            const aAx = CoordinateSystem.offsetToAxial(a.col, a.row);
-            const bAx = CoordinateSystem.offsetToAxial(b.col, b.row);
-            const d = hexDistance(aAx, bAx);
-            if (d === 1) {
-              this.campaignState.moveForces(this.moveOriginHexKey, hexKey);
-            } else if (d > 1) {
-              this.openRedeployModal(this.moveOriginHexKey, hexKey);
-            }
-          }
-          this.moveOriginHexKey = null;
-          this.selectedHexKey = hexKey;
-          // Update selection highlights
-          this.renderer.clearAllHighlights("selected");
-          this.renderer.clearAllHighlights("origin");
-          if (this.selectedHexKey) this.renderer.highlightHex(this.selectedHexKey, "selected");
-          this.renderSelection();
-          return;
-        }
-
-        // If no origin is primed: select this hex. If it belongs to the Player and has forces, prime as move origin.
-        this.selectedHexKey = hexKey;
-        if (scenario) {
-          const parsed = CoordinateSystem.parseHexKey(hexKey);
-          if (parsed) {
-            const { q, r } = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
-            const tile = scenario.tiles.find((t) => t.hex.q === q && t.hex.r === r);
-            if (tile) {
-              const owner = tile.factionControl ?? scenario.tilePalette[tile.tile]?.factionControl;
-              const hasForces = Array.isArray(tile.forces) && tile.forces.length > 0;
-              if (owner === "Player" && hasForces) {
-                this.moveOriginHexKey = hexKey;
-              }
-            }
-          }
-        }
-      } else {
-        // In edit mode, just select the hex
-        this.selectedHexKey = hexKey;
+      this.selectedHexKey = hexKey;
+      if (this.editMode) {
         this.moveOriginHexKey = null;
       }
-      // Update selection highlights
       this.renderer.clearAllHighlights("selected");
       this.renderer.clearAllHighlights("origin");
       if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
       if (this.selectedHexKey) this.renderer.highlightHex(this.selectedHexKey, "selected");
       this.renderSelection();
       this.renderCampaignIntel();
+      this.commandInterface?.revealInspector({ kind: "hex", id: hexKey });
     });
 
     // Initial sidebar render
@@ -755,6 +894,7 @@ export class CampaignScreen {
     this.renderProduction();
     this.renderSelection();
     this.renderCampaignIntel();
+    this.renderCommandShell();
   }
 
   /** Binds pointer handlers used to drag-select hexes for bulk terrain marking in edit mode. */
@@ -927,10 +1067,21 @@ export class CampaignScreen {
         </div>
       </div>
     `;
+    if (this.productionManageButton) {
+      const action = this.campaignActionRegistry.resolve("production", {
+        selectionKind: "none",
+        selectionId: null
+      });
+      this.productionManageButton.disabled = action.availability !== "available";
+      this.productionManageButton.dataset.reasonCode = action.reasonCode ?? "";
+      this.productionManageButton.title = action.availability === "available"
+        ? "Plan the next industrial allocation."
+        : `${action.reason ?? "Production planning is unavailable."} ${action.correctiveAction ?? ""}`.trim();
+    }
   }
 
   /** Opens the industrial allocation modal: sliders per resource with a live daily-output preview. */
-  private openProductionModal(): void {
+  private openProductionModal(editingOrder?: Extract<CampaignOrder, { kind: "production" }>): void {
     const layer = document.getElementById("battlePopupLayer");
     const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
     const title = dialog?.querySelector<HTMLElement>("[data-popup-title]");
@@ -941,7 +1092,7 @@ export class CampaignScreen {
     const report = this.campaignState.getProductionReport();
     if (!report) return;
 
-    title.textContent = "War Production";
+    title.textContent = editingOrder ? "Edit Production Draft" : "War Production";
     const fmt = (n: number) => n.toLocaleString();
 
     const RESOURCES: Array<{ key: keyof ProductionAllocation; icon: string; label: string; hint: string }> = [
@@ -958,8 +1109,8 @@ export class CampaignScreen {
           <span class="alloc-name">${r.icon} ${r.label}</span>
           <span class="alloc-hint">${r.hint}</span>
         </div>
-        <input type="range" min="0" max="100" step="5" value="${report.allocation[r.key]}" data-alloc-slider="${r.key}" aria-label="${r.label} allocation" />
-        <span class="alloc-pct" data-alloc-pct="${r.key}">${report.allocation[r.key]}%</span>
+        <input type="range" min="0" max="100" step="5" value="${editingOrder?.payload.allocation[r.key] ?? report.allocation[r.key]}" data-alloc-slider="${r.key}" aria-label="${r.label} allocation" />
+        <span class="alloc-pct" data-alloc-pct="${r.key}">${editingOrder?.payload.allocation[r.key] ?? report.allocation[r.key]}%</span>
         <span class="alloc-out" data-alloc-out="${r.key}"></span>
       </div>`
     ).join("");
@@ -982,12 +1133,13 @@ export class CampaignScreen {
         </div>
         <div class="redeploy-section-label">Allocation <span class="alloc-total" id="productionAllocTotal"></span></div>
         <div class="production-alloc">${sliderRows}</div>
-        <div class="production-alloc-note">Percentages are normalized to 100% when applied.</div>
+        <div class="production-alloc-note">Percentages are normalized to 100% in the authoritative preview.</div>
+        <div id="productionOrderPreview" class="campaign-order-preview-contract" aria-live="polite"></div>
         ${topSources.length > 0 ? `
           <div class="redeploy-section-label">Top production sites</div>
           <div class="production-sources">${sourceRows}</div>` : ""}
         <div class="button-row redeploy-actions">
-          <button type="button" class="primary-button" id="productionApply">Apply Allocation</button>
+          <button type="button" class="primary-button" id="productionApply">${editingOrder ? "Replace Draft" : "Add Draft"}</button>
           <button type="button" class="secondary-button" id="productionCancel">Cancel</button>
         </div>
       </div>
@@ -997,7 +1149,10 @@ export class CampaignScreen {
     const totalEl = body.querySelector<HTMLElement>("#productionAllocTotal");
     const applyBtn = body.querySelector<HTMLButtonElement>("#productionApply");
     const cancelBtn = body.querySelector<HTMLButtonElement>("#productionCancel");
+    const previewEl = body.querySelector<HTMLElement>("#productionOrderPreview");
     if (!applyBtn || !cancelBtn) return;
+    const composer = body.querySelector<HTMLElement>(".production-modal");
+    if (composer) decorateCampaignOrderComposer(composer, "production", "Set the next daily industrial allocation", Boolean(editingOrder));
 
     const readAllocation = (): ProductionAllocation => {
       const raw: ProductionAllocation = { supplies: 0, fuel: 0, ammo: 0, manpower: 0 };
@@ -1015,22 +1170,27 @@ export class CampaignScreen {
         totalEl.textContent = `· total ${total}%`;
         totalEl.classList.toggle("alloc-total-off", total !== 100);
       }
-      // Preview uses the normalized share, matching what setProductionAllocation will store.
-      const scale = total > 0 ? 100 / total : 0;
-      const normalized: ProductionAllocation = {
-        supplies: raw.supplies * scale,
-        fuel: raw.fuel * scale,
-        ammo: raw.ammo * scale,
-        manpower: raw.manpower * scale
-      };
-      const daily = computeDailyProduction(report.capacity, normalized);
+      const preview = this.campaignState.previewProductionDraft(raw, editingOrder?.id);
+      const daily = preview.dailyOutput ?? computeDailyProduction(report.capacity, { supplies: 0, fuel: 0, ammo: 0, manpower: 0 });
       RESOURCES.forEach((r) => {
         const pctEl = body.querySelector<HTMLElement>(`[data-alloc-pct="${r.key}"]`);
         const outEl = body.querySelector<HTMLElement>(`[data-alloc-out="${r.key}"]`);
         if (pctEl) pctEl.textContent = `${raw[r.key]}%`;
         if (outEl) outEl.textContent = `+${fmt(daily[r.key])}/day`;
       });
-      applyBtn.disabled = total <= 0;
+      if (previewEl) {
+        const normalized = preview.normalizedAllocation;
+        previewEl.innerHTML = preview.action.availability === "available" && normalized && preview.effectiveSegment !== null
+          ? `<div><dt>Intent</dt><dd>Supply ${normalized.supplies}% · Fuel ${normalized.fuel}% · Ammo ${normalized.ammo}% · Personnel ${normalized.manpower}%</dd></div>
+             <div><dt>Timing</dt><dd>Effective ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(preview.effectiveSegment))}; the current allocation remains active until then.</dd></div>
+             <div><dt>Reservation</dt><dd>Holds the exclusive next-delivery allocation slot; no stocks are spent.</dd></div>
+             <div><dt>Known risk</dt><dd>Output follows controlled industrial capacity at delivery time.</dd></div>
+             <div><dt>Objective effect</dt><dd>Indirect only; objective score changes when later campaign conditions resolve.</dd></div>
+             <div><dt>Cancellation</dt><dd>After commitment, supersede this directive with a new allocation.</dd></div>
+             <div class="campaign-order-preview-clear"><dt>Conflicts</dt><dd>No conflict in the current command picture.</dd></div>`
+          : `<div class="redeploy-issue" data-reason-code="${preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID"}"><strong>${(preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(preview.action.reason ?? "The allocation is unavailable.")}</span><small>${this.escapeHtml(preview.action.correctiveAction ?? "Adjust the allocation and review it again.")}</small></div>`;
+      }
+      applyBtn.disabled = preview.action.availability !== "available" || !preview.normalizedAllocation;
     };
 
     sliders.forEach((sl) => sl.addEventListener("input", refresh));
@@ -1042,32 +1202,153 @@ export class CampaignScreen {
     };
 
     applyBtn.onclick = () => {
-      const result = this.campaignState.setProductionAllocation(readAllocation());
+      const result = this.campaignState.createProductionDraft(readAllocation(), editingOrder?.id);
       if (!result.ok) {
         this.setCampaignStatusMessage({
-          title: "Allocation not applied.",
-          detail: result.reason ?? "The production allocation could not be stored.",
+          title: "Draft not added.",
+          detail: result.reason ?? "The production allocation draft could not be stored.",
           action: "Adjust the sliders so at least one resource receives output.",
           tone: "warning"
         });
         return;
       }
       hide();
+      this.commandCommitFeedback = { feedback: `Production draft ${editingOrder ? "replaced" : "added"}; the next-delivery slot is held without spending stocks.`, feedbackTone: "success" };
       this.setCampaignStatusMessage({
-        title: "Production allocation updated.",
-        detail: "New output mix takes effect at the next daily delivery.",
-        action: "Advance the campaign clock to collect the adjusted output.",
+        title: result.order.validation.valid ? `Production draft ${editingOrder ? "replaced" : "ready"}.` : "Production draft has a conflict.",
+        detail: result.order.validation.issues[0]?.message ?? `The ${editingOrder ? "revised" : "new"} output mix is waiting in the order tray.`,
+        action: result.order.validation.valid ? "Review and commit the draft before the next daily delivery." : "Remove the earlier production draft before committing.",
         tone: "success"
       });
     };
-    cancelBtn.onclick = hide;
-    close.onclick = hide;
+    cancelBtn.onclick = () => { hide(); this.campaignPopupInvoker?.focus({ preventScroll: true }); };
+    close.onclick = () => { hide(); this.campaignPopupInvoker?.focus({ preventScroll: true }); };
 
     layer.classList.remove("hidden");
     layer.setAttribute("aria-hidden", "false");
+    applyBtn.focus({ preventScroll: true });
   }
 
-  /** Renders current selection details and engagement queue status. */
+  /** Opens a reviewed, fully costed reconstruction composer instead of creating a one-click draft. */
+  private openInfrastructureRepairModal(targetOffsetHexKey: string): void {
+    const layer = document.getElementById("battlePopupLayer");
+    const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
+    const title = dialog?.querySelector<HTMLElement>("[data-popup-title]");
+    const body = dialog?.querySelector<HTMLElement>("[data-popup-body]");
+    const close = dialog?.querySelector<HTMLButtonElement>("#battlePopupClose");
+    const status = this.campaignState.getCampaignInfrastructureStatus(targetOffsetHexKey, "Player");
+    const action = this.campaignActionRegistry.resolve("infrastructureRepair", {
+      selectionKind: "hex",
+      selectionId: targetOffsetHexKey
+    });
+    if (!layer || !dialog || !title || !body || !close || !status || action.availability === "hidden") return;
+    title.textContent = "Plan Reconstruction";
+    const infrastructureLabel = status.infrastructure.role.replace(/([A-Z])/g, " $1").trim();
+    body.innerHTML = `
+      <form id="campaignInfrastructureRepairForm" class="campaign-infrastructure-composer">
+        <section class="campaign-order-preview-hero">
+          <span>Facility and intent</span>
+          <strong>${this.escapeHtml(infrastructureLabel)} at ${this.escapeHtml(targetOffsetHexKey)}</strong>
+          <p>Restore ${status.infrastructure.integrity}/${status.infrastructure.maxIntegrity} integrity to full operational capacity.</p>
+        </section>
+        <dl class="campaign-order-preview-contract">
+          <div><dt>Target / area</dt><dd>${this.escapeHtml(targetOffsetHexKey)} · friendly-controlled ${this.escapeHtml(infrastructureLabel)}</dd></div>
+          <div><dt>Participant</dt><dd>${this.escapeHtml(status.engineerFormationName ?? "No supervising formation available")}</dd></div>
+          <div><dt>Timing</dt><dd>Starts next segment · ${status.durationSegments * 3} hours · completes ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(status.completeSegment))}</dd></div>
+          <div><dt>Cost now</dt><dd>${status.suppliesCost.toLocaleString()} supply · ${status.manpowerCost.toLocaleString()} personnel</dd></div>
+          <div><dt>Reservations</dt><dd>Supervising formation, facility reconstruction slot, and exact resource stocks.</dd></div>
+          <div><dt>Known risk</dt><dd>The formation remains committed on site; control loss or interruption can block completion.</dd></div>
+          <div><dt>Objective effect</dt><dd>Restored capacity can support later objective conditions; no score changes at draft or commit.</dd></div>
+          <div><dt>Cancellation</dt><dd>Before execution, committed stocks and the supervising formation are released exactly.</dd></div>
+        </dl>
+        <div id="campaignInfrastructureRepairIssues" class="redeploy-issues" aria-live="polite"></div>
+        <div class="button-row redeploy-actions">
+          <button type="submit" class="primary-button" id="campaignInfrastructureRepairConfirm">Add Draft</button>
+          <button type="button" class="secondary-button" id="campaignInfrastructureRepairCancel">Cancel</button>
+        </div>
+      </form>
+    `;
+    const form = body.querySelector<HTMLFormElement>("#campaignInfrastructureRepairForm");
+    const confirm = body.querySelector<HTMLButtonElement>("#campaignInfrastructureRepairConfirm");
+    const cancel = body.querySelector<HTMLButtonElement>("#campaignInfrastructureRepairCancel");
+    const issues = body.querySelector<HTMLElement>("#campaignInfrastructureRepairIssues");
+    if (!form || !confirm || !cancel || !issues) return;
+    decorateCampaignOrderComposer(form, "infrastructureRepair", `Restore ${infrastructureLabel} at ${targetOffsetHexKey}`);
+    confirm.disabled = action.availability !== "available";
+    issues.innerHTML = action.availability === "available"
+      ? `<div class="campaign-order-preview-clear">No conflicts in the current command picture.</div>`
+      : `<div class="redeploy-issue" data-reason-code="${action.reasonCode ?? "ORDER_INFRASTRUCTURE_INVALID"}"><strong>${(action.reasonCode ?? "ORDER_INFRASTRUCTURE_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(action.reason ?? "Reconstruction is unavailable.")}</span><small>${this.escapeHtml(action.correctiveAction ?? "Review the selected facility.")}</small></div>`;
+    const hide = (): void => {
+      layer.classList.add("hidden");
+      layer.setAttribute("aria-hidden", "true");
+      this.renderer.clearAllHighlights("order-preview-target");
+      this.campaignPopupInvoker?.focus({ preventScroll: true });
+    };
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      const result = this.campaignState.createInfrastructureRepairDraft(targetOffsetHexKey);
+      if (!result.ok) {
+        issues.innerHTML = `<div class="redeploy-issue"><strong>DRAFT NOT ADDED</strong><span>${this.escapeHtml(result.reason ?? "Headquarters could not authorize reconstruction.")}</span><small>Review control, stocks, and on-site formation supervision.</small></div>`;
+        return;
+      }
+      hide();
+      this.commandCommitFeedback = { feedback: "Reconstruction draft added; stocks, facility slot, and supervising formation are held without spending.", feedbackTone: "success" };
+      this.setCampaignStatusMessage({
+        title: result.order.validation.valid ? "Repair draft ready." : "Repair draft has a conflict.",
+        detail: result.order.validation.issues[0]?.message ?? "The reconstruction plan is waiting in the order tray.",
+        action: result.order.validation.valid
+          ? "Review its cost and completion time, then commit the order."
+          : "Resolve the listed reservation conflict before committing.",
+        tone: result.order.validation.valid ? "success" : "warning"
+      });
+    };
+    cancel.onclick = hide;
+    close.onclick = hide;
+    layer.classList.remove("hidden");
+    layer.setAttribute("aria-hidden", "false");
+    this.renderer.highlightHex(targetOffsetHexKey, "order-preview-target");
+    confirm.focus({ preventScroll: true });
+  }
+
+  /** Binds explicit inspector actions; map gestures themselves remain selection-only. */
+  private bindCampaignInspectorActions(): void {
+    this.selectionContainer?.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-plan-campaign-redeploy]")) {
+        if (!this.selectedHexKey) return;
+        this.campaignPopupInvoker = target.closest<HTMLElement>("[data-plan-campaign-redeploy]");
+        this.moveOriginHexKey = this.selectedHexKey;
+        this.renderer.clearAllHighlights("origin");
+        this.renderer.highlightHex(this.moveOriginHexKey, "origin");
+        this.renderSelection();
+        return;
+      }
+      if (target.closest("[data-confirm-campaign-redeploy]")) {
+        if (!this.moveOriginHexKey || !this.selectedHexKey || this.moveOriginHexKey === this.selectedHexKey) return;
+        const origin = this.moveOriginHexKey;
+        const destination = this.selectedHexKey;
+        this.moveOriginHexKey = null;
+        this.renderer.clearAllHighlights("origin");
+        this.campaignPopupInvoker = target.closest<HTMLElement>("[data-confirm-campaign-redeploy]");
+        this.openRedeployModal(origin, destination);
+        this.renderSelection();
+        return;
+      }
+      if (target.closest("[data-cancel-campaign-redeploy]")) {
+        this.moveOriginHexKey = null;
+        this.renderer.clearAllHighlights("origin");
+        this.renderSelection();
+        return;
+      }
+      if (target.closest("[data-draft-infrastructure-repair]")) {
+        if (!this.selectedHexKey) return;
+        this.campaignPopupInvoker = target.closest<HTMLElement>("[data-draft-infrastructure-repair]");
+        this.openInfrastructureRepairModal(this.selectedHexKey);
+      }
+    });
+  }
+
+  /** Renders projected selection details, legal explicit actions, and engagement queue status. */
   private renderSelection(): void {
     if (!this.selectionContainer) {
       return;
@@ -1089,25 +1370,115 @@ export class CampaignScreen {
       this.selectionContainer.removeAttribute("aria-live");
       this.selectionContainer.removeAttribute("data-status");
     }
-    if (this.selectedHexKey) {
-      items.push(`<div>Selected hex: ${this.selectedHexKey}</div>`);
-    }
-    if (this.moveOriginHexKey) {
-      items.push(`<div>Move: origin ${this.moveOriginHexKey} — select destination (non-adjacent opens Schedule Redeploy)</div>`);
+    const view = this.campaignState.getCampaignMapView("Player");
+    let selectedIsFriendlyOccupied = false;
+    let selectedIsFriendlyControlled = false;
+    const selectedInfrastructure = this.selectedHexKey
+      ? this.campaignState.getCampaignInfrastructureStatus(this.selectedHexKey, "Player")
+      : null;
+    if (this.selectedHexKey && view) {
+      const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
+      const axial = parsed ? CoordinateSystem.offsetToAxial(parsed.col, parsed.row) : null;
+      const tile = axial ? view.scenario.tiles.find((entry) => entry.hex.q === axial.q && entry.hex.r === axial.r) : null;
+      const palette = tile ? view.scenario.tilePalette[tile.tile] : null;
+      const owner = tile ? tile.factionControl ?? palette?.factionControl ?? "Neutral" : "Unknown";
+      selectedIsFriendlyControlled = owner === "Player";
+      selectedIsFriendlyOccupied = owner === "Player" && Boolean(tile?.forces?.some((force) => force.count > 0));
+      items.push(`
+        <div class="campaign-selection-identity">
+          <strong>${this.escapeHtml(palette?.role?.replace(/([A-Z])/g, " $1").trim() ?? "Operational hex")}</strong>
+          <span>${this.escapeHtml(this.selectedHexKey)} · ${this.escapeHtml(String(owner))} control</span>
+        </div>
+      `);
+      if (selectedIsFriendlyOccupied && tile) {
+        const forceSummary = (tile.forces ?? [])
+          .filter((force) => force.count > 0)
+          .map((force) => `${force.count.toLocaleString()} ${force.unitType.replace(/_/g, " ")}`)
+          .join(" · ");
+        items.push(`<div><strong>Present forces</strong><br>${this.escapeHtml(forceSummary)}</div>`);
+      }
+      if (selectedInfrastructure) {
+        const infrastructure = selectedInfrastructure.infrastructure;
+        const integrityPercent = Math.round(infrastructure.effectiveness * 100);
+        const disruption = infrastructure.captureDisruptionUntilSegment !== null
+          ? ` · Capture disruption clears ${this.campaignState.segmentToTimeDisplay(infrastructure.captureDisruptionUntilSegment)}`
+          : "";
+        const repairStatus = infrastructure.activeRepairOrderId
+          ? "Reconstruction order active"
+          : selectedInfrastructure.repairPoints > 0
+            ? `${selectedInfrastructure.repairPoints} integrity missing · ${selectedInfrastructure.repairRate}/segment repair rate`
+            : "Fully operational";
+        const repairDescriptor = this.campaignActionRegistry.resolve("infrastructureRepair", {
+          selectionKind: "hex",
+          selectionId: this.selectedHexKey
+        });
+        const repairAction = selectedInfrastructure.repairPoints > 0 && !infrastructure.activeRepairOrderId
+          ? `<button type="button" data-draft-infrastructure-repair data-reason-code="${repairDescriptor.reasonCode ?? ""}" ${repairDescriptor.availability === "available" ? "" : "disabled"} title="${this.escapeHtml(repairDescriptor.availability === "available" ? "Review the full reconstruction plan." : `${repairDescriptor.reason ?? "Reconstruction is unavailable."} ${repairDescriptor.correctiveAction ?? ""}`.trim())}">Plan reconstruction</button>`
+          : "";
+        items.push(`
+          <section class="campaign-infrastructure-card" data-infrastructure-state="${this.escapeHtml(infrastructure.damageState)}">
+            <div class="campaign-infrastructure-card__heading">
+              <strong>Installation condition</strong>
+              <span>${this.escapeHtml(infrastructure.damageState.replace(/([A-Z])/g, " $1").toLowerCase())}</span>
+            </div>
+            <div class="campaign-infrastructure-meter" role="meter" aria-label="Installation effectiveness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${integrityPercent}">
+              <span style="width:${integrityPercent}%"></span>
+            </div>
+            <p>${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${integrityPercent}% operational capacity${this.escapeHtml(disruption)}</p>
+            <p>${this.escapeHtml(repairStatus)}</p>
+            ${selectedInfrastructure.repairPoints > 0 ? `<p>${selectedInfrastructure.suppliesCost} supply · ${selectedInfrastructure.manpowerCost} personnel${infrastructure.activeRepairOrderId ? " committed" : ""} · ETA ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedInfrastructure.completeSegment))}${selectedInfrastructure.engineerFormationName ? ` · ${this.escapeHtml(selectedInfrastructure.engineerFormationName)}` : ""}</p>` : ""}
+            ${repairDescriptor.reason ? `<small><strong>${repairDescriptor.reasonCode ?? "Blocked"}</strong> · ${this.escapeHtml(repairDescriptor.reason)} ${this.escapeHtml(repairDescriptor.correctiveAction ?? "")}</small>` : ""}
+            ${repairAction ? `<div class="campaign-context-actions">${repairAction}</div>` : ""}
+          </section>
+        `);
+      }
     }
     if (this.selectedFrontKey) {
-      items.push(`<div>Front: ${this.selectedFrontKey}</div>`);
+      items.push(`<div><strong>Front assessment</strong><br>${this.escapeHtml(this.selectedFrontKey)}</div>`);
     }
     const engagements = this.campaignState.getPendingEngagements();
     if (engagements.length > 0) {
-      items.push(`<div>Pending engagements: ${engagements.length}</div>`);
+      items.push(`<div><strong>Pending engagements</strong><br>${engagements.length} decision${engagements.length === 1 ? "" : "s"} awaiting command</div>`);
+    }
+    if (this.moveOriginHexKey) {
+      const destinationReady = Boolean(this.selectedHexKey && this.selectedHexKey !== this.moveOriginHexKey);
+      items.push(`
+        <div class="campaign-redeploy-gesture" role="status">
+          <strong>Redeployment origin</strong>
+          <span>${this.escapeHtml(this.moveOriginHexKey)}</span>
+          <p>${destinationReady ? `Destination selected: ${this.escapeHtml(this.selectedHexKey ?? "")}. Review the route before opening the planner.` : "Select a destination hex. Selection will not move the formation."}</p>
+          <div class="campaign-context-actions">
+            ${destinationReady ? `<button type="button" data-confirm-campaign-redeploy>Plan redeployment here</button>` : ""}
+            <button type="button" class="secondary" data-cancel-campaign-redeploy>Cancel planning</button>
+          </div>
+        </div>
+      `);
+    } else if (selectedIsFriendlyControlled) {
+      const redeployDescriptor = this.campaignActionRegistry.resolve("redeploy", {
+        selectionKind: "hex",
+        selectionId: this.selectedHexKey
+      });
+      items.push(`
+        <div class="campaign-context-actions">
+          <button type="button" data-plan-campaign-redeploy data-reason-code="${redeployDescriptor.reasonCode ?? ""}" ${redeployDescriptor.availability === "available" ? "" : "disabled"} title="${this.escapeHtml(redeployDescriptor.availability === "available" ? "Choose a destination and review the movement plan." : `${redeployDescriptor.reason ?? "Redeployment is unavailable."} ${redeployDescriptor.correctiveAction ?? ""}`.trim())}">Plan redeployment</button>
+          ${redeployDescriptor.reason ? `<small><strong>${redeployDescriptor.reasonCode ?? "Blocked"}</strong> · ${this.escapeHtml(redeployDescriptor.reason)} ${this.escapeHtml(redeployDescriptor.correctiveAction ?? "")}</small>` : ""}
+        </div>
+      `);
     }
     this.selectionContainer.innerHTML = items.join("") || "<div>No selection</div>";
 
     if (this.queueEngagementButton) {
+      const activePackage = this.campaignState.getActiveCampaignBattlePackage();
       const canProximity = this.selectedHexKey ? this.campaignState.hasActionableEnemyContactNear(this.selectedHexKey) : false;
-      const canEngage = Boolean(this.selectedFrontKey) || canProximity;
+      const selectedFront = this.selectedFrontKey
+        ? view?.scenario.fronts.find((front) => front.key === this.selectedFrontKey) ?? null
+        : null;
+      const canPlayerLaunchFront = selectedFront?.initiative === "Player";
+      const canEngage = Boolean(activePackage) || canPlayerLaunchFront || canProximity;
       this.queueEngagementButton.disabled = !canEngage;
+      this.queueEngagementButton.textContent = activePackage?.context.defender === "Player"
+        ? "Respond to Enemy Offensive"
+        : "Queue Tactical Engagement";
     }
 
     // Update edit mode UI if active
@@ -1132,6 +1503,7 @@ export class CampaignScreen {
       else {
         this.intelDrawer.classList.add("hidden");
         toggle.setAttribute("aria-expanded", "false");
+        this.renderer.clearAllHighlights("order-preview-target");
       }
     });
     document.addEventListener("campaign:intelligence:open", openDrawer);
@@ -1148,6 +1520,7 @@ export class CampaignScreen {
       if (target.closest("[data-intel-close]")) {
         this.intelDrawer?.classList.add("hidden");
         toggle?.setAttribute("aria-expanded", "false");
+        this.renderer.clearAllHighlights("order-preview-target");
         toggle?.focus();
         return;
       }
@@ -1180,6 +1553,8 @@ export class CampaignScreen {
         if (contact) {
           this.intelTab = "operations";
           this.intelOperationType = "verify";
+          this.editingIntelOrderId = null;
+          this.editingIntelAssetKey = null;
           this.intelTargetContactId = contact.id;
           this.selectedHexKey = contact.locationHexKey;
           this.intelFeedback = `Verification target set: ${contact.label} near ${contact.locationHexKey}.`;
@@ -1191,6 +1566,8 @@ export class CampaignScreen {
       if (operationType) {
         this.intelOperationType = operationType;
         if (operationType !== "verify") this.intelTargetContactId = null;
+        this.editingIntelOrderId = null;
+        this.editingIntelAssetKey = null;
         this.intelFeedback = "";
         this.renderCampaignIntel();
         return;
@@ -1198,6 +1575,10 @@ export class CampaignScreen {
       if (target.closest("[data-intel-schedule]")) {
         this.scheduleSelectedIntelOperation();
       }
+    });
+    this.intelDrawer?.addEventListener("change", (event) => {
+      const select = (event.target as Element).closest<HTMLSelectElement>("#campaignIntelAsset");
+      if (select) this.editingIntelAssetKey = select.value || null;
     });
   }
 
@@ -1208,11 +1589,12 @@ export class CampaignScreen {
       return;
     }
     const assetSelect = this.intelDrawer?.querySelector<HTMLSelectElement>("#campaignIntelAsset");
-    const result = this.campaignState.scheduleIntelOperation({
+    const result = this.campaignState.createIntelOperationDraft({
       type: this.intelOperationType,
       targetHexKey: this.selectedHexKey,
       assignedAssetKey: assetSelect?.value || undefined,
       targetContactId: this.intelTargetContactId ?? undefined,
+      replaceOrderId: this.editingIntelOrderId ?? undefined,
       faction: "Player"
     });
     if (!result.ok) {
@@ -1220,8 +1602,15 @@ export class CampaignScreen {
       this.renderCampaignIntel();
       return;
     }
-    this.intelFeedback = `${this.campaignState.getIntelOperationRules()[this.intelOperationType].label} ordered for ${this.selectedHexKey}; resolves in ${result.operation.resolveSegment - result.operation.startSegment} segment${result.operation.resolveSegment - result.operation.startSegment === 1 ? "" : "s"}.`;
+    const rule = this.campaignState.getIntelOperationRules()[this.intelOperationType];
+    const replaced = Boolean(this.editingIntelOrderId);
+    this.commandCommitFeedback = { feedback: `${rule.label} draft ${replaced ? "replaced" : "added"}; capacity, assets, and stocks are held without spending.`, feedbackTone: "success" };
+    this.intelFeedback = result.order.validation.valid
+      ? `${rule.label} draft ${replaced ? "replaced" : "added"} for ${this.selectedHexKey}; review and commit it in the order tray.`
+      : result.order.validation.issues[0]?.message ?? `${rule.label} draft has a conflict.`;
     this.intelTargetContactId = null;
+    this.editingIntelOrderId = null;
+    this.editingIntelAssetKey = null;
     this.renderCampaignIntel();
   }
 
@@ -1233,9 +1622,11 @@ export class CampaignScreen {
       if (this.intelSummary) this.intelSummary.textContent = "Intelligence unavailable";
       return;
     }
+    const heldCapacity = this.campaignState.getCampaignDraftReservations("Player").intelligenceCapacity;
+    const draftAwareCapacity = Math.max(0, view.capacity.available - heldCapacity);
     if (this.intelSummary) {
       this.intelSummary.innerHTML = `
-        <span><strong>${view.capacity.available}/${view.capacity.total}</strong> capacity available</span>
+        <span><strong>${draftAwareCapacity}/${view.capacity.total}</strong> capacity free${heldCapacity > 0 ? ` · ${heldCapacity} held` : ""}</span>
         <span><strong>${view.enemyContacts.length}</strong> active contact${view.enemyContacts.length === 1 ? "" : "s"}</span>
       `;
     }
@@ -1258,6 +1649,17 @@ export class CampaignScreen {
       : this.intelTab === "contacts"
         ? this.composeIntelContactsMarkup(view)
         : this.composeIntelOperationsMarkup(view, operations);
+    const composer = body.querySelector<HTMLElement>(".campaign-intel-composer");
+    if (composer) {
+      const kind = this.intelOperationType === "counterRecon" || this.intelOperationType === "opsec" || this.intelOperationType === "phantom"
+        ? "counterIntelligence" as const
+        : "reconnaissance" as const;
+      const rule = this.campaignState.getIntelOperationRules()[this.intelOperationType];
+      decorateCampaignOrderComposer(composer, kind, `${rule.label} at ${this.selectedHexKey ?? "unselected area"}`, Boolean(this.editingIntelOrderId));
+      if (this.selectedHexKey) this.renderer.highlightHex(this.selectedHexKey, "order-preview-target");
+    } else {
+      this.renderer.clearAllHighlights("order-preview-target");
+    }
   }
 
   private composeIntelSituationMarkup(view: CampaignMapViewModel): string {
@@ -1273,10 +1675,12 @@ export class CampaignScreen {
           </article>
         `).join("");
     const stale = view.enemyContacts.filter((contact) => contact.state === "stale" || contact.state === "disputed").length;
+    const heldCapacity = this.campaignState.getCampaignDraftReservations("Player").intelligenceCapacity;
+    const draftAwareCapacity = Math.max(0, view.capacity.available - heldCapacity);
     return `
       <div class="campaign-intel-situation-grid">
         <article><span>Operational picture</span><strong>${view.enemyContacts.length} contacts</strong><small>${stale} stale or disputed</small></article>
-        <article><span>Collection capacity</span><strong>${view.capacity.available}/${view.capacity.total}</strong><small>${view.capacity.committed} committed</small></article>
+        <article><span>Collection capacity</span><strong>${draftAwareCapacity}/${view.capacity.total}</strong><small>${view.capacity.committed} committed · ${heldCapacity} held</small></article>
         <article><span>Unread reports</span><strong>${view.unreadReportCount}</strong><small>since last briefing</small></article>
       </div>
       <div class="campaign-intel-section-heading"><h4>Briefing changes</h4><button type="button" data-intel-mark-read>Mark read</button></div>
@@ -1312,17 +1716,45 @@ export class CampaignScreen {
   private composeIntelOperationsMarkup(view: CampaignMapViewModel, operations: CampaignIntelOperationView[]): string {
     const rules = this.campaignState.getIntelOperationRules();
     const rule = rules[this.intelOperationType];
-    const assets = this.campaignState.getEligibleIntelAssets(
-      this.intelOperationType,
-      "Player",
-      this.selectedHexKey ?? undefined
-    );
+    const initialPreview = this.campaignState.previewIntelOperationDraft({
+      type: this.intelOperationType,
+      targetHexKey: this.selectedHexKey ?? undefined,
+      targetContactId: this.intelTargetContactId ?? undefined,
+      excludeOrderId: this.editingIntelOrderId ?? undefined,
+      faction: "Player"
+    });
+    const assets = initialPreview.eligibleAssets;
+    const selectedAssetKey = this.editingIntelAssetKey && assets.some((asset) => asset.assetKey === this.editingIntelAssetKey)
+      ? this.editingIntelAssetKey
+      : assets[0]?.assetKey ?? null;
+    const selectedPreview = this.campaignState.previewIntelOperationDraft({
+      type: this.intelOperationType,
+      targetHexKey: this.selectedHexKey ?? undefined,
+      targetContactId: this.intelTargetContactId ?? undefined,
+      assignedAssetKey: selectedAssetKey ?? undefined,
+      excludeOrderId: this.editingIntelOrderId ?? undefined,
+      faction: "Player"
+    });
+    const selectedAction = this.campaignActionRegistry.resolve(getCampaignIntelligenceActionId(this.intelOperationType), {
+      selectionKind: this.intelTargetContactId ? "contact" : this.selectedHexKey ? "hex" : "none",
+      selectionId: this.selectedHexKey,
+      targetContactId: this.intelTargetContactId,
+      assignedAssetKey: selectedAssetKey,
+      excludeOrderId: this.editingIntelOrderId
+    });
     const requiresAsset = rule.requiresAsset !== "none";
-    const operationButtons = (Object.keys(rules) as CampaignIntelOperationType[]).map((type) => `
-      <button type="button" class="campaign-intel-operation-choice${type === this.intelOperationType ? " active" : ""}" data-intel-operation-type="${type}">
-        <strong>${this.escapeHtml(rules[type].shortLabel)}</strong><span>${rules[type].capacityCost} capacity · ${rules[type].durationSegments * 3}h</span>
-      </button>
-    `).join("");
+    const operationButtons = (Object.keys(rules) as CampaignIntelOperationType[]).map((type) => {
+      const descriptor = this.campaignActionRegistry.resolve(getCampaignIntelligenceActionId(type), {
+        selectionKind: type === "verify" && this.intelTargetContactId ? "contact" : this.selectedHexKey ? "hex" : "none",
+        selectionId: this.selectedHexKey,
+        targetContactId: type === "verify" ? this.intelTargetContactId : null,
+        excludeOrderId: type === this.intelOperationType ? this.editingIntelOrderId : null
+      });
+      return `
+        <button type="button" class="campaign-intel-operation-choice${type === this.intelOperationType ? " active" : ""}" data-intel-operation-type="${type}" data-action-availability="${descriptor.availability}" data-reason-code="${descriptor.reasonCode ?? ""}" title="${this.escapeHtml(descriptor.availability === "available" ? rules[type].description : `${descriptor.reason ?? "Operation unavailable."} ${descriptor.correctiveAction ?? ""}`.trim())}">
+          <strong>${this.escapeHtml(rules[type].shortLabel)}</strong><span>${rules[type].capacityCost} capacity · ${rules[type].durationSegments * 3}h</span>
+        </button>`;
+    }).join("");
     const active = operations
       .filter((operation) => operation.status === "planned" || operation.status === "active")
       .map((operation) => `
@@ -1337,29 +1769,906 @@ export class CampaignScreen {
       .reverse()
       .map((operation) => `<article class="campaign-intel-outcome"><strong>${this.escapeHtml(operation.publicOutcome!.summary)}</strong><p>${this.escapeHtml(operation.publicOutcome!.detail)}</p></article>`)
       .join("");
+    const heldCapacity = this.campaignState.getCampaignDraftReservations("Player").intelligenceCapacity;
+    const draftAwareCapacity = Math.max(0, view.capacity.available - heldCapacity);
     return `
-      <div class="campaign-intel-capacity"><span>Capacity</span><strong>${view.capacity.available}/${view.capacity.total} available</strong><small>${view.capacity.committed} committed</small></div>
+      <div class="campaign-intel-capacity"><span>Capacity</span><strong>${draftAwareCapacity}/${view.capacity.total} free</strong><small>${view.capacity.committed} committed · ${heldCapacity} held</small></div>
       <div class="campaign-intel-operation-grid">${operationButtons}</div>
       <section class="campaign-intel-composer">
         <span class="campaign-intel-eyebrow">Order preview</span>
         <h4>${this.escapeHtml(rule.label)}</h4>
         <p>${this.escapeHtml(rule.description)}</p>
         <div class="campaign-intel-costs">
-          <span>${rule.capacityCost} capacity</span><span>${rule.durationSegments * 3} hours</span><span>${rule.suppliesCost} supplies</span><span>${rule.fuelCost} fuel</span>${requiresAsset && rule.assetRangeHex !== undefined ? `<span>${rule.assetRangeHex} hex range</span>` : ""}
+          <span>${rule.capacityCost} of ${selectedPreview.capacityAvailable} free capacity</span><span>${rule.durationSegments * 3} hours</span><span>${rule.suppliesCost} of ${selectedPreview.suppliesAvailable} supply</span><span>${rule.fuelCost} of ${selectedPreview.fuelAvailable} fuel</span>${requiresAsset && rule.assetRangeHex !== undefined ? `<span>${rule.assetRangeHex} hex range</span>` : ""}
         </div>
         <label>Target <strong>${this.escapeHtml(this.selectedHexKey ?? "Select a map hex")}</strong></label>
         ${requiresAsset ? `
           <label for="campaignIntelAsset">Assigned asset</label>
           <select id="campaignIntelAsset" ${assets.length === 0 ? "disabled" : ""}>
-            ${assets.length === 0 ? `<option value="">No eligible asset</option>` : assets.map((asset) => `<option value="${this.escapeHtml(asset.assetKey)}">${this.escapeHtml(asset.label)}</option>`).join("")}
+            ${assets.length === 0 ? `<option value="">No eligible asset</option>` : assets.map((asset) => `<option value="${this.escapeHtml(asset.assetKey)}" ${asset.assetKey === selectedAssetKey ? "selected" : ""}>${this.escapeHtml(asset.label)}</option>`).join("")}
           </select>
         ` : `<p class="campaign-intel-doctrine">This operation uses headquarters deception capacity and does not require a formation assignment.</p>`}
+        <dl class="campaign-order-preview-contract">
+          <div><dt>Area</dt><dd>${this.escapeHtml(this.selectedHexKey ?? "No target selected")} · radius ${rule.targetRadius} hex</dd></div>
+          <div><dt>Timing</dt><dd>${selectedPreview.resolveSegment === null ? "Unavailable" : `Starts next segment · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedPreview.resolveSegment))}`}</dd></div>
+          <div><dt>Reservations</dt><dd>${rule.capacityCost} intelligence capacity${requiresAsset ? " · assigned asset" : ""} · ${rule.suppliesCost} supply · ${rule.fuelCost} fuel</dd></div>
+          <div><dt>Known risk</dt><dd>Results remain limited by source access, uncertainty, and operation outcome; no hidden enemy truth is guaranteed.</dd></div>
+          <div><dt>Objective effect</dt><dd>Improves or protects the operational picture; no direct objective score changes at draft or commit.</dd></div>
+          <div><dt>Cancellation</dt><dd>Before execution, committed costs, capacity, and the assigned asset are released exactly.</dd></div>
+        </dl>
+        ${selectedAction.availability === "available"
+          ? `<div class="campaign-order-preview-clear">No conflicts in the current command picture.</div>`
+          : `<div class="redeploy-issue" data-reason-code="${selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID"}"><strong>${(selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(selectedAction.reason ?? "The operation is unavailable.")}</span><small>${this.escapeHtml(selectedAction.correctiveAction ?? "Review the target and assigned asset.")}</small></div>`}
         ${this.intelFeedback ? `<div class="campaign-intel-feedback" aria-live="polite">${this.escapeHtml(this.intelFeedback)}</div>` : ""}
-        <button type="button" class="campaign-intel-confirm" data-intel-schedule ${!this.selectedHexKey || (requiresAsset && assets.length === 0) || (this.intelOperationType === "verify" && !this.intelTargetContactId) ? "disabled" : ""}>Issue order</button>
+        <button type="button" class="campaign-intel-confirm" data-intel-schedule ${selectedAction.availability !== "available" ? "disabled" : ""}>${this.editingIntelOrderId ? "Replace draft" : "Add draft"}</button>
       </section>
       <div class="campaign-intel-section-heading"><h4>Active operations</h4></div>${active}
       ${recentlyComplete ? `<div class="campaign-intel-section-heading"><h4>Recent outcomes</h4></div>${recentlyComplete}` : ""}
     `;
+  }
+
+  /** Opens the owning composer with a draft's authoritative payload preselected. */
+  private editDraftOrder(orderId: string): void {
+    const order = this.campaignState.getCampaignOrders().find((entry) => entry.id === orderId && entry.faction === "Player");
+    if (!order || order.status !== "draft") {
+      this.setCampaignStatusMessage({
+        title: "Draft not editable.",
+        detail: "The selected order is no longer an active draft.",
+        action: "Inspect its current lifecycle state in the order tray.",
+        tone: "warning"
+      });
+      return;
+    }
+    this.campaignPopupInvoker = Array.from(this.element.querySelectorAll<HTMLElement>("[data-order-id]"))
+      .find((entry) => entry.dataset.orderId === orderId) ?? null;
+    if (order.kind === "redeploy") {
+      this.openRedeployModal(order.payload.originOffsetKey, order.payload.destinationOffsetKey, order);
+      return;
+    }
+    if (order.kind === "production") {
+      this.openProductionModal(order);
+      return;
+    }
+    if (order.kind === "infrastructureRepair") {
+      this.setCampaignStatusMessage({
+        title: "Reconstruction has no editable field.",
+        detail: "Its target, supervising formation, cost, and timing are fixed by current facility conditions.",
+        action: "Remove the draft and create a fresh reconstruction plan if conditions changed.",
+        tone: "info"
+      });
+      return;
+    }
+    this.editingIntelOrderId = order.id;
+    this.editingIntelAssetKey = order.payload.assignedAssetKey;
+    this.intelOperationType = order.payload.operationType;
+    this.intelTargetContactId = order.payload.targetContactId;
+    this.selectedHexKey = order.payload.targetHexKey;
+    this.intelTab = "operations";
+    this.intelFeedback = "Editing this draft. Replace draft preserves the original if current validation fails.";
+    this.renderer.clearAllHighlights("selected");
+    this.renderer.highlightHex(order.payload.targetHexKey, "selected");
+    document.dispatchEvent(new CustomEvent("campaign:intelligence:open"));
+    this.renderSelection();
+    this.renderCampaignIntel();
+  }
+
+  /** Changes draft priority and reports the resulting reservation revalidation. */
+  private moveDraftOrder(orderId: string, direction: "earlier" | "later"): void {
+    const result = this.campaignState.moveCampaignOrder(orderId, direction);
+    const moved = this.campaignState.getCampaignOrders().find((order) => order.id === orderId);
+    this.commandCommitFeedback = result.ok
+      ? {
+        feedback: moved?.validation.valid
+          ? `Draft moved ${direction}; all affected holds were revalidated and this draft is ready.`
+          : `Draft moved ${direction}; ${moved?.validation.issues[0]?.message ?? "a reservation conflict remains."}`,
+        feedbackTone: moved?.validation.valid ? "success" : "warning"
+      }
+      : { feedback: result.reason ?? `The draft cannot move ${direction}.`, feedbackTone: "warning" };
+    this.setCampaignStatusMessage(result.ok ? {
+      title: `Draft moved ${direction}.`,
+      detail: moved?.validation.issues[0]?.message ?? "Planning priority and shared holds were revalidated.",
+      action: moved?.validation.valid ? "Review the updated tray or commit the valid draft set." : "Use the reason code and corrective action shown on the conflicted draft.",
+      tone: moved?.validation.valid ? "success" : "warning"
+    } : {
+      title: "Draft priority unchanged.",
+      detail: result.reason ?? `The draft cannot move ${direction}.`,
+      action: "Review the other active drafts in the tray.",
+      tone: "warning"
+    });
+    this.renderCommandShell();
+  }
+
+  /** Formats one Player-owned reservation without leaking runtime pool internals as unexplained IDs. */
+  private campaignReservationLabel(reservation: CampaignReservation): string {
+    const amount = reservation.amount.toLocaleString();
+    if (reservation.kind === "resource") return `${amount} ${reservation.poolKey}`;
+    if (reservation.kind === "transport") return `${amount} ${reservation.poolKey} transport`;
+    if (reservation.kind === "intelligenceCapacity") return `${amount} intelligence capacity`;
+    if (reservation.kind === "productionSlot") return "next production-allocation slot";
+    if (reservation.kind === "formation") return `${amount} formation or force quantity`;
+    return `${amount} assigned asset`;
+  }
+
+  /** Opens an in-game consequence review before applying a committed-order cancellation. */
+  private openOrderCancellationPreview(orderId: string): void {
+    const layer = document.getElementById("battlePopupLayer");
+    const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
+    const title = dialog?.querySelector<HTMLElement>("[data-popup-title]");
+    const body = dialog?.querySelector<HTMLElement>("[data-popup-body]");
+    const close = dialog?.querySelector<HTMLButtonElement>("#battlePopupClose");
+    const order = this.campaignState.getCampaignOrders().find((entry) => entry.id === orderId && entry.faction === "Player");
+    const preview = this.campaignState.previewCampaignOrderCancellation(orderId, "Player");
+    if (!layer || !dialog || !title || !body || !close || !order) return;
+    this.campaignPopupInvoker = Array.from(this.element.querySelectorAll<HTMLElement>("[data-order-id]"))
+      .find((entry) => entry.dataset.orderId === orderId) ?? null;
+    const projected = this.projectCommandOrder(order, this.campaignState.getCampaignOrders().filter((entry) => entry.faction === "Player"));
+    title.textContent = "Review Order Cancellation";
+    body.innerHTML = `
+      <section class="campaign-order-cancellation" data-cancellation-available="${preview.canCancel}">
+        <header><span>Committed order</span><h3>${this.escapeHtml(projected.label)}</h3><p>${this.escapeHtml(projected.detail)}</p></header>
+        <dl class="campaign-order-preview-contract">
+          <div><dt>Released holds</dt><dd>${preview.releasedReservations.length > 0 ? preview.releasedReservations.map((reservation) => this.escapeHtml(this.campaignReservationLabel(reservation))).join(" · ") : "None"}</dd></div>
+          <div><dt>Sunk cost</dt><dd>${this.escapeHtml(preview.sunkCostSummary)}</dd></div>
+          <div><dt>Operational delay</dt><dd>${this.escapeHtml(preview.delaySummary)}</dd></div>
+          <div><dt>Exposure</dt><dd>${this.escapeHtml(preview.exposureSummary)}</dd></div>
+        </dl>
+        <div class="${preview.canCancel ? "campaign-order-preview-clear" : "redeploy-issue"}" data-reason-code="${preview.reasonCode ?? ""}">
+          <strong>${preview.canCancel ? "CANCELLATION AVAILABLE" : (preview.reasonCode ?? "CANCELLATION BLOCKED").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong>
+          <span>${this.escapeHtml(preview.reason ?? "The order can be cancelled before execution.")}</span>
+          <small>${this.escapeHtml(preview.correctiveAction ?? "Confirm only if the consequences are acceptable.")}</small>
+        </div>
+        <div class="button-row redeploy-actions">
+          <button type="button" class="primary-button" id="campaignConfirmOrderCancellation" ${preview.canCancel ? "" : "disabled"}>Confirm cancellation</button>
+          <button type="button" class="secondary-button" id="campaignKeepOrder">Keep order</button>
+        </div>
+      </section>
+    `;
+    const confirm = body.querySelector<HTMLButtonElement>("#campaignConfirmOrderCancellation");
+    const keep = body.querySelector<HTMLButtonElement>("#campaignKeepOrder");
+    if (!confirm || !keep) return;
+    const hide = (): void => {
+      layer.classList.add("hidden");
+      layer.setAttribute("aria-hidden", "true");
+      this.campaignPopupInvoker?.focus({ preventScroll: true });
+    };
+    confirm.onclick = () => {
+      hide();
+      this.cancelCommittedOrder(orderId);
+    };
+    keep.onclick = hide;
+    close.onclick = hide;
+    layer.classList.remove("hidden");
+    layer.setAttribute("aria-hidden", "false");
+    (preview.canCancel ? confirm : keep).focus({ preventScroll: true });
+  }
+
+  /** Issues every valid draft through one state transaction. */
+  private commitDraftOrders(): void {
+    if (this.commandCommitBusy) return;
+    this.commandCommitBusy = true;
+    this.commandCommitFeedback = { feedback: "Validating every draft and shared hold before atomic commit…", feedbackTone: "info" };
+    this.renderCommandShell();
+    const result = this.campaignState.commitCampaignOrders();
+    this.commandCommitBusy = false;
+    this.commandCommitFeedback = result.ok
+      ? {
+        feedback: `${result.committedCount} order${result.committedCount === 1 ? "" : "s"} committed together. Advance remains a separate command.`,
+        feedbackTone: "success"
+      }
+      : {
+        feedback: `Commit rejected. No order, resource, or hold changed; every draft was preserved.${result.blockers.length > 0 ? ` ${result.blockers.length} blocker${result.blockers.length === 1 ? "" : "s"} remain.` : ""}`,
+        feedbackTone: "warning"
+      };
+    this.setCampaignStatusMessage(result.ok ? {
+      title: `${result.committedCount} order${result.committedCount === 1 ? "" : "s"} committed.`,
+      detail: "Resources and capacity were assigned together in one command transaction.",
+      action: "Advance three hours when you are ready to execute the next campaign segment.",
+      tone: "success"
+    } : {
+      title: "Orders not committed.",
+      detail: `${result.reason} No order or resource changed; all drafts were preserved.`,
+      action: result.blockers[0]
+        ? explainCampaignOrderValidationIssue({ ...result.blockers[0] }).correctiveAction
+        : "Resolve the conflict shown in the order tray, then try again.",
+      tone: "warning"
+    });
+    this.renderCommandShell();
+  }
+
+  private removeDraftOrder(orderId: string): void {
+    const result = this.campaignState.removeCampaignOrder(orderId);
+    this.commandCommitFeedback = result.ok
+      ? { feedback: "Draft removed; its holds were released and every later draft was revalidated.", feedbackTone: "success" }
+      : { feedback: result.reason ?? "The draft is no longer editable.", feedbackTone: "warning" };
+    this.setCampaignStatusMessage(result.ok ? {
+      title: "Draft removed.",
+      detail: "Its resource and capacity holds were released; later drafts were revalidated.",
+      action: "Continue planning or commit the remaining valid drafts.",
+      tone: "info"
+    } : {
+      title: "Draft not removed.",
+      detail: result.reason ?? "The draft is no longer editable.",
+      action: "Review its current status in the order tray.",
+      tone: "warning"
+    });
+    this.renderCommandShell();
+  }
+
+  private cancelCommittedOrder(orderId: string): void {
+    const preview = this.campaignState.previewCampaignOrderCancellation(orderId, "Player");
+    const result = this.campaignState.cancelCampaignOrder(orderId);
+    this.commandCommitFeedback = result.ok
+      ? { feedback: `${preview.releasedReservations.length} committed hold${preview.releasedReservations.length === 1 ? "" : "s"} released after reviewed cancellation.`, feedbackTone: "success" }
+      : { feedback: result.reason ?? "The order is no longer cancellable.", feedbackTone: "warning" };
+    this.setCampaignStatusMessage(result.ok ? {
+      title: "Order cancelled.",
+      detail: `${preview.sunkCostSummary} ${preview.releasedReservations.length} committed reservation${preview.releasedReservations.length === 1 ? "" : "s"} restored.`,
+      action: "Issue a replacement draft if command intent has changed.",
+      tone: "success"
+    } : {
+      title: "Order not cancelled.",
+      detail: result.reason ?? "The order is no longer cancellable.",
+      action: "Allow the executing order to resolve or issue a follow-on order.",
+      tone: "warning"
+    });
+    this.renderCommandShell();
+  }
+
+  private campaignAdvanceStopLabel(reason: CampaignAdvanceStopReason): string {
+    const labels: Readonly<Record<CampaignAdvanceStopReason, string>> = {
+      segmentComplete: "three-hour resolution complete",
+      nextReport: "next report received",
+      dawn: "dawn reached",
+      dusk: "dusk reached",
+      dayComplete: "one day complete",
+      pauseAfterResolution: "pause-after-resolution preference",
+      engagement: "tactical engagement requires command",
+      objectiveChanged: "primary objective changed",
+      blockedOrder: "an order requires a decision",
+      formationAtRisk: "a formation is at risk",
+      campaignEnded: "campaign ended",
+      criticalAlert: "critical alert",
+      resolutionFailed: "segment resolution failed",
+      safetyLimit: "next-report safety limit reached"
+    };
+    return labels[reason];
+  }
+
+  /** Executes the selected bounded advance command and reports its exact safe stop boundary. */
+  private advanceCampaignTime(mode: CampaignCommandAdvanceMode): void {
+    this.campaignAdvanceMode = mode;
+    const result = this.campaignState.advanceCampaign({
+      mode,
+      pauseAfterEveryResolution: this.pauseAfterEveryCampaignResolution,
+      stopOnCriticalAlerts: true
+    });
+    if (result.ok) {
+      const hours = result.report.elapsedSegments * 3;
+      const highestAlert = [...result.report.alerts]
+        .reverse()
+        .find((alert) => alert.severity !== "routine");
+      const stopLabel = this.campaignAdvanceStopLabel(result.report.stopReason);
+      this.setCampaignStatusMessage({
+        title: `Campaign advanced ${hours} hour${hours === 1 ? "" : "s"}.`,
+        detail: `${this.campaignState.segmentToTimeDisplay(result.report.toSegment)} · Stopped because ${stopLabel}.${highestAlert ? ` ${highestAlert.title}: ${highestAlert.detail}` : ""}`,
+        action: result.report.stopReason === "segmentComplete" || result.report.stopReason === "dawn"
+          || result.report.stopReason === "dusk" || result.report.stopReason === "dayComplete"
+          ? "Review the resolution timeline or continue with the next command."
+          : "Review the highlighted report and issue any required follow-on orders before advancing.",
+        tone: result.report.alerts.some((alert) => alert.requiresStop) ? "warning" : "success"
+      });
+      this.renderCommandShell();
+      if (result.report.stopReason === "engagement"
+        && this.campaignState.getActiveCampaignBattlePackage()?.context.defender === "Player") {
+        this.onQueueEngagement?.();
+      }
+      return;
+    }
+
+    const partial = "report" in result ? result.report.elapsedSegments : 0;
+    this.setCampaignStatusMessage({
+      title: partial > 0 ? "Campaign advance stopped safely." : "Campaign time did not advance.",
+      detail: partial > 0
+        ? `${partial * 3} hours committed before the next segment was rejected. ${result.error.message}`
+        : result.error.message,
+      action: `The last valid segment boundary was retained. Diagnostic: ${result.error.code}.`,
+      tone: "warning"
+    });
+    this.renderCommandShell();
+  }
+
+  /** Projects one authoritative typed order into the Player-safe tray timeline. */
+  private projectCommandOrder(order: CampaignOrder, playerOrders: readonly CampaignOrder[]): CampaignCommandOrderView {
+    let label: string;
+    let detail: string;
+    let etaSegment: number | null;
+    let costSummary: string;
+    let riskSummary: string;
+    let objectiveEffect: string;
+    let routeSummary: string;
+    if (order.kind === "redeploy") {
+      label = "Redeploy formation";
+      detail = `${order.payload.originOffsetKey} → ${order.payload.destinationOffsetKey} · ${order.payload.transportModeKey.replace(/_/g, " ")}`;
+      etaSegment = order.payload.etaSegment;
+      routeSummary = `${order.payload.originOffsetKey} → ${order.payload.destinationOffsetKey} · ${order.payload.distance} hex`;
+      costSummary = `${order.payload.fuelCost.toLocaleString()} fuel · ${order.payload.suppliesCost.toLocaleString()} supply${order.payload.manpowerCost > 0 ? ` · ${order.payload.manpowerCost.toLocaleString()} estimated personnel loss` : ""}`;
+      riskSummary = order.payload.manpowerCost > 0
+        ? `${order.payload.manpowerCost.toLocaleString()} modeled transit attrition; destination conditions can change before arrival.`
+        : "No modeled transit attrition; destination conditions can change before arrival.";
+      objectiveEffect = "No direct score change; formation position affects later control, engagement, and objective checks.";
+    } else if (order.kind === "production") {
+      label = "Set production allocation";
+      const allocation = order.payload.allocation;
+      detail = `Supply ${allocation.supplies}% · Fuel ${allocation.fuel}% · Ammo ${allocation.ammo}% · Personnel ${allocation.manpower}%`;
+      etaSegment = order.payload.effectiveSegment;
+      routeSummary = "Theater-wide industrial allocation";
+      costSummary = "No stock spent; controlled industrial capacity is redirected.";
+      riskSummary = "Output depends on controlled industrial capacity when the next delivery resolves.";
+      objectiveEffect = "Indirect only; production supports later force, logistics, and objective conditions.";
+    } else if (order.kind === "infrastructureRepair") {
+      label = `Repair ${order.payload.role.replace(/([A-Z])/g, " $1").trim()}`;
+      detail = `${order.payload.targetOffsetHexKey} · ${order.payload.sourceIntegrity} → ${order.payload.targetIntegrity} integrity · ${order.payload.suppliesCost} supply · ${order.payload.manpowerCost} personnel`;
+      etaSegment = order.payload.completeSegment;
+      routeSummary = `Facility at ${order.payload.targetOffsetHexKey}`;
+      costSummary = `${order.payload.suppliesCost.toLocaleString()} supply · ${order.payload.manpowerCost.toLocaleString()} personnel`;
+      riskSummary = "Supervising formation stays committed on site; control loss or interruption can block completion.";
+      objectiveEffect = "Restored capacity can satisfy later infrastructure, supply, or control conditions; no score changes at commit.";
+    } else {
+      const rule = this.campaignState.getIntelOperationRules()[order.payload.operationType];
+      label = rule.label;
+      detail = `${order.payload.targetHexKey}${order.payload.assignedAssetKey ? ` · ${order.payload.assignedAssetKey}` : ""}`;
+      etaSegment = order.payload.resolveSegment;
+      routeSummary = `${order.payload.targetHexKey} · radius ${rule.targetRadius} hex`;
+      costSummary = `${order.payload.suppliesCost.toLocaleString()} supply · ${order.payload.fuelCost.toLocaleString()} fuel · ${order.payload.capacityCost} intelligence capacity`;
+      riskSummary = "Result remains limited by source access, uncertainty, and operation outcome; no hidden enemy truth is guaranteed.";
+      objectiveEffect = "Changes the operational picture or its protection; no direct score change at commit.";
+    }
+    const reservations = this.campaignState.getCampaignOrderReservations(order.id, "Player");
+    const draftOrders = playerOrders.filter((entry) => entry.status === "draft");
+    const draftIndex = draftOrders.findIndex((entry) => entry.id === order.id);
+    const cancellation = this.campaignState.previewCampaignOrderCancellation(order.id, "Player");
+    const timingSummary = `${this.campaignState.segmentToTimeDisplay(order.earliestStartSegment)} start · ${etaSegment === null ? "completion not scheduled" : `${order.kind === "production" ? "effective" : "ETA"} ${this.campaignState.segmentToTimeDisplay(etaSegment)}`}`;
+    const nextTransition = order.status === "draft"
+      ? order.validation.valid ? "Ready for atomic commit" : "Blocked until the listed rule is corrected"
+      : order.status === "committed"
+        ? order.kind === "production" ? `Becomes effective ${this.campaignState.segmentToTimeDisplay(order.payload.effectiveSegment)}` : "Begins at the next campaign resolution boundary"
+        : order.status === "executing" ? `Resolves ${etaSegment === null ? "at a future report" : this.campaignState.segmentToTimeDisplay(etaSegment)}`
+          : order.status === "blocked" ? "Requires a command decision before progress can continue"
+            : "Filed in command history";
+    return {
+      id: order.id,
+      kind: order.kind,
+      label,
+      detail,
+      status: order.status === "draft" && !order.validation.valid ? "conflict" : order.status,
+      eta: etaSegment === null ? null : `${order.kind === "production" ? "Effective" : "ETA"} ${this.campaignState.segmentToTimeDisplay(etaSegment)}`,
+      validationMessages: order.validation.issues.map((entry) => entry.message),
+      validationIssues: order.validation.issues.map((entry) => explainCampaignOrderValidationIssue(entry)),
+      routeSummary,
+      costSummary,
+      reservationSummaries: reservations.map((reservation) => `${this.campaignReservationLabel(reservation)} · ${reservation.status}`),
+      timingSummary,
+      riskSummary,
+      objectiveEffect,
+      dependencySummary: order.dependencies.length > 0
+        ? `${order.dependencies.length} linked order dependenc${order.dependencies.length === 1 ? "y" : "ies"}`
+        : "No linked order dependency",
+      nextTransition,
+      cancellationSummary: order.status === "draft"
+        ? "Remove before commit to release every hold."
+        : cancellation.canCancel
+          ? `${cancellation.sunkCostSummary} Review is required before cancellation.`
+          : cancellation.reason ?? "Cancellation is no longer available.",
+      canRemove: order.status === "draft",
+      canEdit: order.status === "draft" && order.kind !== "infrastructureRepair",
+      canMoveEarlier: order.status === "draft" && draftIndex > 0,
+      canMoveLater: order.status === "draft" && draftIndex >= 0 && draftIndex < draftOrders.length - 1,
+      canCancel: cancellation.canCancel,
+      mapHexKeys: order.targetHexKeys.slice()
+    };
+  }
+
+  /** Renders the first-class shell from the Player projection and Player-owned compatibility records only. */
+  private renderCommandShell(): void {
+    if (!this.commandInterface) return;
+    const view = this.campaignState.getCampaignMapView("Player");
+    if (!view) {
+      this.commandInterface.render({
+        theaterTitle: "Campaign command",
+        campaignPhase: "Awaiting theater",
+        timeLabel: "No campaign loaded",
+        commandStatus: "Planning",
+        saveStatus: this.commandSaveStatus,
+        unreadReports: 0,
+        resources: [],
+        objectives: [],
+        forces: [],
+        airPower: 0,
+        navalPower: 0,
+        intelligenceCapacity: "Unavailable",
+        orders: [],
+        advance: {
+          mode: this.campaignAdvanceMode,
+          enabled: false,
+          pauseAfterEveryResolution: this.pauseAfterEveryCampaignResolution,
+          summary: "Load a campaign to advance time.",
+          alerts: [],
+          timeline: []
+        }
+      });
+      return;
+    }
+
+    const scenario = view.scenario;
+    const playerEconomy = scenario.economies.find((economy) => economy.faction === "Player");
+    const draftReservations = this.campaignState.getCampaignDraftReservations("Player");
+    const displayStock = (value: number, key: string): string => {
+      const held = draftReservations.resources[key] ?? 0;
+      return held > 0 ? `${value.toLocaleString()} · ${held.toLocaleString()} held` : value.toLocaleString();
+    };
+    const playerOrders = this.campaignState.getCampaignOrders().filter((order) => order.faction === "Player");
+    const objectiveStatusLabel = (status: "locked" | "active" | "completed" | "failed"): string => {
+      if (status === "completed") return "Completed";
+      if (status === "failed") return "Failed";
+      if (status === "locked") return "Upcoming";
+      return "In progress";
+    };
+    const objectivePresentations = this.campaignState.getCampaignObjectivePresentations();
+    const objectives = objectivePresentations.map((objective) => {
+      const authored = scenario.objectives.find((entry) => entry.key === objective.key);
+      const offset = authored ? CoordinateSystem.axialToOffset(authored.hex.q, authored.hex.r) : null;
+      const dependencies = authored?.requiresObjectives?.map((objectiveKey) => (
+        scenario.objectives.find((entry) => entry.key === objectiveKey)?.label ?? objectiveKey
+      )) ?? [];
+      const defaultDefeatKeys = scenario.objectives
+        .filter((entry) => entry.category === "primary" || entry.category === "failure")
+        .map((entry) => entry.key);
+      const defeatKeys = scenario.campaignArc?.defeatObjectiveKeys ?? defaultDefeatKeys;
+      return {
+        key: objective.key,
+        label: objective.label,
+        status: objectiveStatusLabel(objective.status),
+        category: objective.category,
+        progress: objective.progress,
+        detail: objective.progressLabel,
+        deadline: objective.deadlineSegment === null
+          ? null
+          : `Deadline ${this.campaignState.segmentToTimeDisplay(objective.deadlineSegment)}`,
+        score: `${objective.scoreAwarded}/${objective.score} pts`,
+        hexKey: offset ? CoordinateSystem.makeHexKey(offset.col, offset.row) : undefined,
+        dependencies: dependencies.length > 0 ? `Requires ${dependencies.join(", ")}` : null,
+        failureEffect: defeatKeys.includes(objective.key) ? "Failure ends the campaign" : null
+      };
+    });
+    const forces = scenario.tiles.flatMap((tile) => {
+      const palette = scenario.tilePalette[tile.tile];
+      const controller = tile.factionControl ?? palette?.factionControl;
+      if (controller !== "Player") return [];
+      const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+      return (tile.forces ?? [])
+        .filter((force) => force.count > 0)
+        .map((force) => ({
+          hexKey,
+          label: force.label ?? force.unitType.replace(/_/g, " "),
+          count: force.count
+        }));
+    });
+    const formations = this.campaignState.getCampaignFormationRoster("Player").map((formation) => {
+      const locationHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
+      const personnelPools = Object.values(formation.personnel);
+      const fit = personnelPools.reduce((sum, pool) => sum + pool.fit, 0);
+      const present = personnelPools.reduce(
+        (sum, pool) => sum + pool.fit + pool.injured + pool.wounded + pool.severelyWounded,
+        0
+      );
+      const killed = personnelPools.reduce((sum, pool) => sum + pool.killed, 0);
+      const equipmentPools = Object.values(formation.equipment);
+      const operational = equipmentPools.reduce((sum, pool) => sum + pool.operational, 0);
+      const equipmentTotal = equipmentPools.reduce(
+        (sum, pool) => sum + pool.operational + pool.damaged + pool.disabled + pool.destroyed,
+        0
+      );
+      const statusLabel = formation.status.replace(/([a-z])([A-Z])/g, "$1 $2");
+      return {
+        id: formation.id,
+        name: formation.name,
+        typeLabel: formation.campaignUnitType.replace(/_/g, " "),
+        ownershipLabel: formation.ownership.charAt(0).toUpperCase() + formation.ownership.slice(1),
+        locationHexKey,
+        statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
+        readiness: `${Math.round(formation.readiness)}%`,
+        cohesion: `${Math.round(formation.cohesion)}%`,
+        fatigue: `${Math.round(formation.fatigue)}%`,
+        personnel: `${fit.toLocaleString()} fit / ${present.toLocaleString()} present${killed > 0 ? ` · ${killed.toLocaleString()} lost` : ""}`,
+        equipment: equipmentTotal > 0 ? `${operational.toLocaleString()} / ${equipmentTotal.toLocaleString()} operational` : "No vehicle pool",
+        supply: `Ammo ${formation.supply.ammo} · Fuel ${formation.supply.fuel} · Rations ${formation.supply.rations} · Parts ${formation.supply.parts}`,
+        experience: `${formation.experience.base + formation.experience.earned} XP`,
+        honors: formation.honors.map((honor) => honor.name),
+        battles: formation.experience.battles,
+        currentOrderId: formation.currentOrderId,
+        latestHistory: formation.battleHistory[formation.battleHistory.length - 1]?.summary ?? null
+      };
+    });
+    const hexes = scenario.tiles.map((tile) => {
+      const palette = scenario.tilePalette[tile.tile];
+      const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+      const controller = tile.factionControl ?? palette?.factionControl ?? "Neutral";
+      const controlLabel = controller === "Player" ? "Friendly control" : controller === "Bot" ? "Opposing control" : "Neutral control";
+      const groups = tile.forces ?? palette?.forces ?? [];
+      const infrastructure = tile.infrastructure;
+      const roleText = (palette?.role ?? "region").replace(/([a-z])([A-Z])/g, "$1 $2");
+      const roleLabel = roleText.charAt(0).toUpperCase() + roleText.slice(1);
+      const infrastructureRoleText = infrastructure?.role.replace(/([a-z])([A-Z])/g, "$1 $2") ?? "";
+      const damageStateText = infrastructure?.damageState.replace(/([a-z])([A-Z])/g, "$1 $2") ?? "";
+      const infrastructureRole = infrastructureRoleText.charAt(0).toUpperCase() + infrastructureRoleText.slice(1);
+      const damageState = damageStateText.charAt(0).toUpperCase() + damageStateText.slice(1);
+      return {
+        hexKey,
+        roleLabel,
+        controlLabel,
+        forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? force.unitType.replace(/_/g, " ")} · ${force.count}`),
+        infrastructure: infrastructure
+          ? `${infrastructureRole} · ${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`
+          : null,
+        objectives: objectives.filter((objective) => objective.hexKey === hexKey).map((objective) => objective.label),
+        fronts: scenario.fronts.filter((front) => front.hexKeys.includes(hexKey)).map((front) => front.label)
+      };
+    });
+    const engagements = this.campaignState.getPendingEngagements();
+    const runtime = this.campaignState.getRuntimeSnapshot();
+    const postBattleAutosaveStatus = this.campaignState.getPostBattleAutosaveStatus();
+    const afterActionReports = this.campaignState.getCampaignAfterActionReports().map((report) => {
+      const locationHexKey = projectRuntimeHexKeyToCampaignOffset(report.battleHexKey) ?? report.battleHexKey;
+      const charged = [
+        [report.economyCharged.supplies, "supply"],
+        [report.economyCharged.fuel, "fuel"],
+        [report.economyCharged.ammo, "ammo"],
+        [report.economyCharged.airPower, "air power"],
+        [report.economyCharged.navalPower, "naval power"]
+      ] as const;
+      const resourcesSpent = charged
+        .filter(([value]) => value > 0)
+        .map(([value, label]) => `${value.toLocaleString()} ${label}`)
+        .join(" · ") || "None";
+      const resultLabel = report.strategicResult === "victory"
+        ? "Victory"
+        : report.strategicResult === "defeat"
+          ? "Defeat"
+          : report.strategicResult === "withdrawal"
+            ? "Withdrawal"
+            : "Stalemate";
+      const operationalEffects = [
+        `Control: ${report.controllerBefore} → ${report.controllerAfter}`,
+        `Fronts: ${report.frontsBefore} → ${report.frontsAfter}`,
+        report.infrastructureIntegrityBefore !== null || report.infrastructureIntegrityAfter !== null
+          ? `${report.infrastructureRole ?? "Installation"}: ${report.infrastructureIntegrityBefore ?? 0} → ${report.infrastructureIntegrityAfter ?? 0} integrity · ${Math.round(report.infrastructureEffectivenessAfter * 100)}% effective`
+          : null,
+        report.campaignPhaseBefore !== report.campaignPhaseAfter
+          ? `Campaign phase: ${report.campaignPhaseBefore} → ${report.campaignPhaseAfter}`
+          : null
+      ].filter((entry): entry is string => entry !== null);
+      return {
+        id: report.reportId,
+        title: report.title,
+        timeLabel: this.campaignState.segmentToTimeDisplay(report.segment),
+        result: report.strategicResult,
+        resultLabel,
+        acknowledged: report.acknowledged,
+        summary: report.summary,
+        location: `Operational hex ${locationHexKey}`,
+        locationHexKey,
+        checkpointStatus: postBattleAutosaveStatus?.reportId === report.reportId
+          ? postBattleAutosaveStatus.message
+          : null,
+        personnelLosses: report.friendlyFormations.reduce((total, formation) => total + formation.personnelLost, 0).toLocaleString(),
+        opponentLosses: report.opponent.personnelLosses.toLocaleString(),
+        resourcesSpent,
+        scoreChange: report.campaignScoreAfter === report.campaignScoreBefore
+          ? `${report.campaignScoreAfter} · no change`
+          : `${report.campaignScoreBefore} → ${report.campaignScoreAfter}`,
+        operationalEffects,
+        tacticalObjectives: report.tacticalObjectives.map((objective) => (
+          `${objective.label}: ${String(objective.state).replace(/([a-z])([A-Z])/g, "$1 $2")}`
+        )),
+        formations: report.friendlyFormations.map((formation) => ({
+          id: formation.formationId,
+          name: formation.name,
+          personnel: `${formation.personnelAfter.toLocaleString()} / ${formation.personnelBefore.toLocaleString()} personnel · −${formation.personnelLost.toLocaleString()}`,
+          condition: `Readiness ${Math.round(formation.readinessBefore)} → ${Math.round(formation.readinessAfter)} · Cohesion ${Math.round(formation.cohesionBefore)} → ${Math.round(formation.cohesionAfter)}`,
+          disposition: `${formation.disposition.replace(/([a-z])([A-Z])/g, "$1 $2")} · ${formation.dispositionExplanation}`
+        })),
+        objectiveChanges: report.campaignObjectiveChanges.map((objective) => (
+          `${objective.label}: ${objective.statusBefore} → ${objective.statusAfter} · ${Math.round(objective.progressAfter * 100)}%${objective.scoreAwarded > 0 ? ` · +${objective.scoreAwarded} points` : ""}`
+        )),
+        decisions: report.decisionsRequired.map((decision) => ({
+          id: decision.id,
+          severity: decision.severity,
+          targetKind: decision.targetKind,
+          targetId: decision.targetId,
+          title: decision.title,
+          detail: decision.detail
+        }))
+      };
+    });
+    const advanceRecords = this.campaignState.getCampaignAdvanceTimeline(24);
+    const severityRank = { routine: 0, notable: 1, critical: 2, decisionRequired: 3 } as const;
+    const timeline = advanceRecords.map((record) => {
+      const alert = [...record.alerts].sort((left, right) => severityRank[right.severity] - severityRank[left.severity])[0];
+      return {
+        id: record.id,
+        timeLabel: this.campaignState.segmentToTimeDisplay(record.toSegment),
+        title: alert?.title ?? "Segment resolved",
+        detail: alert?.detail ?? `${record.eventCount} material campaign updates committed.`,
+        severity: alert?.severity ?? "routine" as const,
+        stopLabel: record.stopReason ? this.campaignAdvanceStopLabel(record.stopReason) : null,
+        targetKind: alert?.targetKind ?? "time" as const,
+        targetId: alert?.targetId ?? null,
+        eventCount: record.eventCount
+      };
+    });
+    const latestRecord = advanceRecords[0];
+    const latestAlerts = latestRecord?.alerts
+      .filter((alert) => alert.severity !== "routine" || latestRecord.stopped)
+      .map((alert) => ({
+        id: alert.id,
+        severity: alert.severity,
+        title: alert.title,
+        detail: alert.detail,
+        targetKind: alert.targetKind,
+        targetId: alert.targetId,
+        timeLabel: this.campaignState.segmentToTimeDisplay(alert.segment),
+        requiresStop: alert.requiresStop,
+        acknowledged: this.campaignState.isCampaignAlertAcknowledged(alert.id)
+      })) ?? [];
+    const commandAlerts = advanceRecords.flatMap((record) => record.alerts
+      .filter((alert) => alert.severity !== "routine" || alert.requiresStop)
+      .map((alert) => ({
+        id: alert.id,
+        severity: alert.severity,
+        title: alert.title,
+        detail: alert.detail,
+        targetKind: alert.targetKind,
+        targetId: alert.targetId,
+        timeLabel: this.campaignState.segmentToTimeDisplay(alert.segment),
+        requiresStop: alert.requiresStop,
+        acknowledged: this.campaignState.isCampaignAlertAcknowledged(alert.id)
+      }))).slice(0, 12);
+    const actionableOrders = playerOrders.filter((order) => ["draft", "committed", "executing", "blocked"].includes(order.status));
+    const priorities: CampaignCommandPriorityView[] = [];
+    const urgentAlert = [...latestAlerts]
+      .filter((alert) => alert.requiresStop || !alert.acknowledged)
+      .sort((left, right) => severityRank[right.severity] - severityRank[left.severity])[0];
+    const conflictedDraft = playerOrders.find((order) => order.status === "draft" && !order.validation.valid);
+    const activePrimaryObjective = objectives.find((objective) => objective.category === "primary" && objective.status === "In progress");
+    if (urgentAlert) {
+      priorities.push({
+        id: `alert:${urgentAlert.id}`,
+        severity: urgentAlert.severity,
+        label: urgentAlert.severity === "decisionRequired" ? "Decision required" : "Latest command report",
+        title: urgentAlert.title,
+        detail: urgentAlert.detail,
+        actionLabel: "Review report",
+        targetKind: urgentAlert.targetKind,
+        targetId: urgentAlert.targetId
+      });
+    } else if (conflictedDraft) {
+      priorities.push({
+        id: `order:${conflictedDraft.id}`,
+        severity: "decisionRequired",
+        label: "Orders blocked",
+        title: "Resolve the draft-order conflict",
+        detail: conflictedDraft.validation.issues[0]?.message ?? "This draft must be corrected before command can commit the order set.",
+        actionLabel: "Review order",
+        targetKind: "order",
+        targetId: conflictedDraft.id
+      });
+    } else if (activePrimaryObjective) {
+      priorities.push({
+        id: `objective:${activePrimaryObjective.key}`,
+        severity: "notable",
+        label: "Command priority",
+        title: activePrimaryObjective.label,
+        detail: activePrimaryObjective.detail ?? "Continue the active primary objective while preserving operational freedom.",
+        actionLabel: "Review objective",
+        targetKind: "objective",
+        targetId: activePrimaryObjective.key
+      });
+    }
+    const commandStatus: CampaignCommandShellView["commandStatus"] = runtime?.status === "victory" || runtime?.status === "defeat"
+      ? "Campaign Ended"
+      : this.campaignState.getActiveEngagementId()
+        ? "Engagement"
+        : engagements.length > 0 || actionableOrders.length > 0
+          ? "Orders Ready"
+          : "Planning";
+    const gradeLabel = (grade: string): string => grade === "decisiveVictory"
+      ? "Decisive victory"
+      : grade === "costlyVictory"
+        ? "Costly victory"
+        : grade.charAt(0).toUpperCase() + grade.slice(1);
+    const campaignScore = runtime?.campaignScore;
+    const outcome = runtime?.campaignOutcome;
+    const activeObjectives = objectives.filter((objective) => objective.status === "In progress");
+    const completedObjectives = objectives.filter((objective) => objective.status === "Completed");
+    const failedObjectives = objectives.filter((objective) => objective.status === "Failed");
+    const deadlines = objectivePresentations
+      .filter((objective) => objective.status === "active" && objective.deadlineSegment !== null)
+      .map((objective) => objective.deadlineSegment as number);
+    const nearestDeadline = deadlines.length > 0 ? Math.min(...deadlines) : null;
+    const segmentsRemaining = nearestDeadline === null ? null : Math.max(0, nearestDeadline - view.currentSegment);
+    const phaseDefinition = scenario.campaignArc?.phases.find((phase) => phase.key === runtime?.campaignPhaseKey);
+    const defaultDefeatKeys = scenario.objectives
+      .filter((objective) => objective.category === "primary" || objective.category === "failure")
+      .map((objective) => objective.key);
+    const defeatKeys = scenario.campaignArc?.defeatObjectiveKeys ?? defaultDefeatKeys;
+    const lossConditions = defeatKeys.map((objectiveKey) => {
+      const objective = objectives.find((entry) => entry.key === objectiveKey);
+      return `Failing ${objective?.label ?? objectiveKey} ends the campaign.`;
+    });
+    if (scenario.campaignArc?.defeatWhenNoPlayerFormations) {
+      lossConditions.push("Losing every Player formation ends the campaign.");
+    }
+    const frontViews = scenario.fronts.map((front) => {
+      const frontHexes = new Set(front.hexKeys);
+      const assessedContacts = view.enemyContacts.filter((contact) => frontHexes.has(contact.locationHexKey));
+      const uncertainContacts = assessedContacts.filter((contact) => contact.state === "stale" || contact.state === "disputed").length;
+      const friendlyFormations = formations.filter((formation) => formation.locationHexKey && frontHexes.has(formation.locationHexKey));
+      const sectorObjectives = objectives.filter((objective) => objective.hexKey && frontHexes.has(objective.hexKey));
+      const relatedObjectiveIds = new Set(sectorObjectives.map((objective) => objective.key));
+      const relatedFormationIds = new Set(friendlyFormations.map((formation) => formation.id));
+      const lastChange = timeline.find((entry) => (
+        (entry.targetKind === "objective" && entry.targetId && relatedObjectiveIds.has(entry.targetId))
+        || (entry.targetKind === "formation" && entry.targetId && relatedFormationIds.has(entry.targetId))
+      ));
+      return {
+        key: front.key,
+        label: front.label,
+        hexKeys: front.hexKeys.slice(),
+        initiativeLabel: front.initiative === "Player" ? "Friendly initiative" : "Opposing initiative",
+        pressureLabel: assessedContacts.length === 0
+          ? "No assessed hostile contact in this mapped sector."
+          : `${assessedContacts.length} assessed contact${assessedContacts.length === 1 ? "" : "s"}${uncertainContacts > 0 ? ` · ${uncertainContacts} stale or disputed` : ""}.`,
+        forcePosture: `${friendlyFormations.length} friendly formation${friendlyFormations.length === 1 ? "" : "s"} in sector`,
+        objectivePosture: `${sectorObjectives.length} objective${sectorObjectives.length === 1 ? "" : "s"} in sector`,
+        lastChange: lastChange ? `${lastChange.timeLabel} · ${lastChange.title}` : "No recent objective or formation change in this sector."
+      };
+    });
+    const topPriority = priorities[0];
+    const situation: CampaignCommandSituationView = {
+      brief: outcome && !outcome.sandboxContinued
+        ? {
+          label: "Campaign record complete",
+          title: outcome.result === "victory" ? "The operation is complete" : "The operation has been lost",
+          detail: outcome.summary,
+          tone: "complete"
+        }
+        : topPriority
+          ? {
+            label: "Commander's brief",
+            title: phaseDefinition?.label ?? this.campaignState.getCampaignPhaseLabel(),
+            detail: `${activeObjectives.length} active objective${activeObjectives.length === 1 ? "" : "s"} · ${segmentsRemaining === null ? "no active deadline" : `${segmentsRemaining * 3} hours to the nearest deadline`}. The command priority below requires attention.`,
+            tone: topPriority.severity === "critical" || topPriority.severity === "decisionRequired" ? "critical" : "attention"
+          }
+          : {
+            label: "Commander's brief",
+            title: `${this.campaignState.getCampaignPhaseLabel()} operations continue`,
+            detail: `${activeObjectives.length} active objective${activeObjectives.length === 1 ? "" : "s"}; no immediate decision is blocking time.`,
+            tone: "steady"
+          },
+      outlook: {
+        phaseDescription: phaseDefinition?.description ?? `${this.campaignState.getCampaignPhaseLabel()} is the active operational phase.`,
+        timePressure: nearestDeadline === null
+          ? "No active objective deadline"
+          : `${segmentsRemaining === 0 ? "Deadline reached" : `${(segmentsRemaining ?? 0) * 3} hours remain`} · ${this.campaignState.segmentToTimeDisplay(nearestDeadline)}`,
+        projectedGrade: campaignScore ? gradeLabel(campaignScore.projectedGrade) : "Not yet scored",
+        score: campaignScore ? `${campaignScore.earned} / ${campaignScore.available} · ${campaignScore.percent}%` : "Not yet scored",
+        objectiveStatus: `${activeObjectives.length} active · ${completedObjectives.length} complete · ${failedObjectives.length} failed`,
+        lossConditions
+      },
+      alerts: commandAlerts,
+      intelligenceUnread: view.unreadReportCount,
+      afterActionUnread: afterActionReports.filter((report) => !report.acknowledged).length,
+      recentChanges: timeline.slice(0, 5)
+    };
+    const commitPreview = this.campaignState.getCampaignOrderCommitPreview();
+    const firstCommitBlocker = commitPreview.blockers[0];
+    const firstCommitExplanation = firstCommitBlocker
+      ? explainCampaignOrderValidationIssue({
+        code: firstCommitBlocker.code,
+        message: firstCommitBlocker.message,
+        reservationId: firstCommitBlocker.reservationId
+      })
+      : null;
+    const retainedFormations = formations.filter((formation) => !["Destroyed", "Disbanded", "Captured"].includes(formation.statusLabel));
+    const serviceRecord = [...formations]
+      .filter((formation) => formation.battles > 0 || formation.honors.length > 0)
+      .sort((left, right) => right.honors.length - left.honors.length || right.battles - left.battles)
+      .slice(0, 3)
+      .map((formation) => `${formation.name} · ${formation.battles} battle${formation.battles === 1 ? "" : "s"}${formation.honors.length > 0 ? ` · ${formation.honors.join(", ")}` : ""}`);
+
+    this.commandInterface.render({
+      theaterTitle: scenario.title,
+      campaignPhase: this.campaignState.getCampaignPhaseLabel(),
+      timeLabel: this.campaignState.getCurrentTimeDisplay(),
+      commandStatus,
+      saveStatus: this.commandSaveStatus,
+      unreadReports: view.unreadReportCount
+        + afterActionReports.filter((report) => !report.acknowledged).length
+        + commandAlerts.filter((alert) => !alert.acknowledged).length,
+      situation,
+      priorities,
+      afterActionReports,
+      resources: playerEconomy ? [
+        { key: "manpower", label: "Personnel", value: displayStock(playerEconomy.manpower, "manpower") },
+        { key: "supplies", label: "Supply", value: displayStock(playerEconomy.supplies, "supplies") },
+        { key: "fuel", label: "Fuel", value: displayStock(playerEconomy.fuel, "fuel") },
+        { key: "ammo", label: "Ammo", value: displayStock(playerEconomy.ammo, "ammo") }
+      ] : [],
+      objectives,
+      objectiveScore: campaignScore ? {
+        earned: campaignScore.earned,
+        available: campaignScore.available,
+        percent: campaignScore.percent,
+        projectedGrade: gradeLabel(campaignScore.projectedGrade)
+      } : undefined,
+      outcome: outcome && !outcome.sandboxContinued ? {
+        key: `${outcome.result}:${outcome.segment}`,
+        result: outcome.result,
+        grade: gradeLabel(outcome.grade),
+        title: outcome.result === "victory" ? "Operation complete" : "Operation lost",
+        summary: outcome.summary,
+        score: `${outcome.scoreEarned} / ${outcome.scoreAvailable}`,
+        completed: outcome.completedObjectiveKeys.length,
+        failed: outcome.failedObjectiveKeys.length,
+        canContinue: scenario.campaignArc?.allowContinueAfterOutcome === true,
+        formationsPreserved: `${retainedFormations.length} / ${formations.length} retained`,
+        serviceRecord,
+        checkpointStatus: `Campaign record ${this.commandSaveStatus.toLowerCase()}. Save before returning to the main menu.`
+      } : null,
+      forces,
+      fronts: frontViews,
+      contacts: view.enemyContacts.map((contact) => ({
+        id: contact.id,
+        label: contact.label,
+        locationHexKey: contact.locationHexKey,
+        state: contact.state,
+        confidenceBand: contact.confidenceBand,
+        ageSegments: contact.ageSegments,
+        uncertaintyRadius: contact.uncertaintyRadius,
+        sourceLabels: contact.sourceLabels.slice(),
+        strengthBand: contact.strengthBand
+      })),
+      formations,
+      hexes,
+      airPower: playerEconomy?.airPower ?? 0,
+      navalPower: playerEconomy?.navalPower ?? 0,
+      intelligenceCapacity: draftReservations.intelligenceCapacity > 0
+        ? `${Math.max(0, view.capacity.available - draftReservations.intelligenceCapacity)}/${view.capacity.total} free · ${draftReservations.intelligenceCapacity} held`
+        : `${view.capacity.available}/${view.capacity.total} available`,
+      orders: playerOrders.map((order) => this.projectCommandOrder(order, playerOrders)),
+      orderCommit: {
+        busy: this.commandCommitBusy,
+        draftCount: commitPreview.draftIds.length,
+        validDraftCount: commitPreview.validDraftCount,
+        blockerCount: commitPreview.blockers.length,
+        firstBlocker: firstCommitBlocker?.message ?? null,
+        firstCorrectiveAction: firstCommitExplanation?.correctiveAction ?? null,
+        feedback: this.commandCommitFeedback.feedback,
+        feedbackTone: this.commandCommitFeedback.feedbackTone
+      },
+      advance: {
+        mode: this.campaignAdvanceMode,
+        enabled: runtime?.status === "planning" && !this.saveLoadBusy && !this.commandCommitBusy,
+        pauseAfterEveryResolution: this.pauseAfterEveryCampaignResolution,
+        summary: `${commitPreview.draftIds.length > 0 ? `${commitPreview.draftIds.length} uncommitted draft${commitPreview.draftIds.length === 1 ? "" : "s"}; Advance will not execute them. ` : ""}${latestRecord
+          ? `${this.campaignState.segmentToTimeDisplay(latestRecord.toSegment)} · ${latestRecord.stopReason ? `Stopped: ${this.campaignAdvanceStopLabel(latestRecord.stopReason)}` : "Automation continued"}`
+          : "No campaign time resolved yet."}`,
+        alerts: latestAlerts,
+        timeline
+      }
+    });
   }
 
   private setCampaignStatusMessage(message: CampaignScreenStatusMessage | null): void {
@@ -1997,7 +3306,17 @@ export class CampaignScreen {
     scenario.tiles[tileIdx].hex.q = newAxial.q;
     scenario.tiles[tileIdx].hex.r = newAxial.r;
 
-    this.campaignState.setScenario(scenario);
+    try {
+      this.campaignState.setScenario(scenario);
+    } catch (error) {
+      this.setCampaignStatusMessage({
+        title: "Base move failed.",
+        detail: error instanceof Error ? error.message : "The edited campaign scenario is invalid.",
+        action: "Choose a destination that preserves every authored objective and retry the move.",
+        tone: "warning"
+      });
+      return;
+    }
 
     // Update selection to new position
     this.selectedHexKey = CoordinateSystem.makeHexKey(newCol, newRow);
@@ -2159,58 +3478,18 @@ export class CampaignScreen {
       }
     }
 
-    // Import the original campaign data to get the full palette and mapExtents
-    import("../../data/campaign01.json").then((originalModule) => {
-      const original = originalModule.default as any;
+    const exportScenario = this.createFullPaletteExport(scenario);
+    this.downloadCampaignJSON(exportScenario, `campaign_${scenario.key}_${Date.now()}.json`);
 
-      // Merge: use current scenario but restore full original palette and mapExtents
-      const exportScenario = {
-        ...scenario,
-        tilePalette: original.tilePalette, // Use full original palette
-        mapExtents: original.mapExtents // Include map extents documentation
-      };
-
-      const json = JSON.stringify(exportScenario, null, 2);
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `campaign_${scenario.key}_${Date.now()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      this.setCampaignStatusMessage({
-        title: warnings.length > 0 ? "Campaign JSON exported with warnings." : "Campaign JSON exported.",
-        detail: warnings.length > 0
-          ? `Downloaded a full-palette export with ${warnings.length} validation warning(s).`
-          : "Downloaded a full-palette campaign JSON export.",
-        action: warnings.length > 0
-          ? "Review the console warnings before using the exported file."
-          : "Use the downloaded JSON for archival or scenario review.",
-        tone: warnings.length > 0 ? "warning" : "success"
-      });
-    }).catch((err) => {
-      console.error("Failed to load original campaign data:", err);
-      // Fallback to exporting as-is
-      const json = JSON.stringify(scenario, null, 2);
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `campaign_${scenario.key}_${Date.now()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      this.setCampaignStatusMessage({
-        title: "Campaign JSON exported with warnings.",
-        detail: "Palette restoration failed, so the download contains the current scenario state only.",
-        action: "Review the exported file and console output before treating it as a final source asset.",
-        tone: "warning"
-      });
+    this.setCampaignStatusMessage({
+      title: warnings.length > 0 ? "Campaign JSON exported with warnings." : "Campaign JSON exported.",
+      detail: warnings.length > 0
+        ? `Downloaded a full-palette export with ${warnings.length} validation warning(s).`
+        : "Downloaded a full-palette campaign JSON export.",
+      action: warnings.length > 0
+        ? "Review the console warnings before using the exported file."
+        : "Use the downloaded JSON for archival or scenario review.",
+      tone: warnings.length > 0 ? "warning" : "success"
     });
   }
 
@@ -2235,55 +3514,75 @@ export class CampaignScreen {
       }
     }
 
-    // Import the original campaign data to get the full palette and mapExtents
-    import("../../data/campaign01.json").then((originalModule) => {
-      const original = originalModule.default as any;
+    const exportScenario = this.createFullPaletteExport(scenario);
+    this.downloadCampaignJSON(exportScenario, "campaign01.json");
 
-      // Merge: use current scenario but restore full original palette and mapExtents
-      const exportScenario = {
-        ...scenario,
-        tilePalette: original.tilePalette, // Use full original palette
-        mapExtents: original.mapExtents // Include map extents documentation
-      };
-
-      const json = JSON.stringify(exportScenario, null, 2);
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `campaign01.json`; // Fixed filename to replace the original
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      this.setCampaignStatusMessage({
-        title: warnings.length > 0 ? "Campaign saved with warnings." : "Campaign saved.",
-        detail: warnings.length > 0
-          ? `Downloaded campaign01.json with ${warnings.length} validation warning(s).`
-          : "Downloaded campaign01.json for source replacement.",
-        action: warnings.length > 0
-          ? "Review the console warnings before replacing the source file."
-          : "Replace src/data/campaign01.json with the downloaded file when ready.",
-        tone: warnings.length > 0 ? "warning" : "success"
-      });
-    }).catch((err) => {
-      console.error("Failed to load original campaign data:", err);
-      const detail = err instanceof Error
-        ? err.message
-        : "Original campaign data could not be loaded for palette restoration.";
-      this.setCampaignStatusMessage({
-        title: "Save failed.",
-        detail,
-        action: "Retry the save. If palette restoration keeps failing, inspect the source campaign data first.",
-        tone: "warning"
-      });
+    this.setCampaignStatusMessage({
+      title: warnings.length > 0 ? "Campaign saved with warnings." : "Campaign saved.",
+      detail: warnings.length > 0
+        ? `Downloaded campaign01.json with ${warnings.length} validation warning(s).`
+        : "Downloaded campaign01.json for source replacement.",
+      action: warnings.length > 0
+        ? "Review the console warnings before replacing the source file."
+        : "Replace src/data/campaign01.json with the downloaded file when ready.",
+      tone: warnings.length > 0 ? "warning" : "success"
     });
   }
 
-  /** Saves the full campaign envelope, including faction-local knowledge and active operations. */
-  private saveCampaignSession(): void {
+  private createFullPaletteExport(scenario: CampaignScenarioData): CampaignScenarioData {
+    const source = this.sourceScenario ?? scenario;
+    return {
+      ...scenario,
+      tilePalette: source.tilePalette,
+      ...(source.mapExtents ? { mapExtents: source.mapExtents } : {})
+    };
+  }
+
+  private downloadCampaignJSON(scenario: CampaignScenarioData, filename: string): void {
+    const blob = new Blob([JSON.stringify(scenario, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Builds explicit save metadata and minimal UI resume context for the current campaign workspace.
+   * Persistence timestamps are created at this UI boundary so CampaignState/runtime remain deterministic.
+   */
+  private buildCampaignPersistenceRequest(timestamp: string) {
+    const scenario = this.campaignState.getScenario();
+    return {
+      timestamp,
+      label: scenario?.title ?? "Campaign",
+      playTimeSeconds: 0,
+      difficulty: null,
+      commanderRosterLink: null,
+      uiResumeContext: {
+        workspace: "theater" as const,
+        selectedEntityId: this.selectedHexKey,
+        mapCenter: null,
+        mapZoom: null
+      }
+    };
+  }
+
+  /** Disables both persistence actions while one atomic save/load request is active. */
+  private setCampaignPersistenceBusy(busy: boolean): void {
+    this.saveLoadBusy = busy;
+    if (this.saveButton) this.saveButton.disabled = busy;
+    if (this.loadButton) this.loadButton.disabled = busy;
+    if (this.battleSavesButton) this.battleSavesButton.disabled = busy;
+    this.renderCommandShell();
+  }
+
+  /** Saves the authoritative Campaign 2.0 envelope, including faction-local knowledge and active operations. */
+  private async saveCampaignSession(): Promise<void> {
+    if (this.saveLoadBusy) return;
     if (!this.campaignState.getScenario()) {
       this.setCampaignStatusMessage({
         title: "Save failed.",
@@ -2293,34 +3592,118 @@ export class CampaignScreen {
       });
       return;
     }
-    this.campaignState.saveToStorage();
+    this.commandSaveStatus = "Saving";
+    this.setCampaignPersistenceBusy(true);
     this.setCampaignStatusMessage({
-      title: "Campaign saved.",
-      detail: "Progress, reports, contacts, uncertainty, and intelligence operations are stored in the local campaign slot.",
-      action: "Continue the campaign or use Load to restore this checkpoint.",
-      tone: "success"
+      title: "Saving campaign…",
+      detail: "Validating campaign state and writing the verified primary slot.",
+      action: "Wait for save confirmation before closing the game.",
+      tone: "info"
     });
-  }
-
-  /** Restores the full versioned campaign envelope from the local campaign slot. */
-  private loadCampaignSession(): void {
-    if (!this.campaignState.hasSave()) {
+    try {
+      await this.campaignState.savePrimaryCampaign(
+        this.buildCampaignPersistenceRequest(new Date().toISOString())
+      );
+      this.commandSaveStatus = "Saved";
       this.setCampaignStatusMessage({
-        title: "No campaign save found.",
-        detail: "The local campaign slot is empty.",
-        action: "Save the current campaign before trying to restore it.",
+        title: "Campaign saved.",
+        detail: "Campaign progress and faction-local intelligence were verified and committed to durable storage.",
+        action: "Continue the campaign or use Load to restore this checkpoint.",
+        tone: "success"
+      });
+    } catch (error) {
+      this.commandSaveStatus = "Save Failed";
+      const detail = error instanceof Error ? error.message : "The campaign save could not be written.";
+      this.setCampaignStatusMessage({
+        title: "Save failed.",
+        detail,
+        action: "Keep this campaign open and retry. Existing verified saves were not replaced.",
         tone: "warning"
       });
-      return;
+    } finally {
+      this.setCampaignPersistenceBusy(false);
     }
-    this.campaignState.loadFromStorage();
-    this.renderTimeDisplay();
+  }
+
+  /** Restores a verified Campaign 2.0 slot or explicitly accepted prior recovery candidate. */
+  private async loadCampaignSession(): Promise<void> {
+    if (this.saveLoadBusy) return;
+    this.commandSaveStatus = "Loading";
+    this.setCampaignPersistenceBusy(true);
     this.setCampaignStatusMessage({
-      title: "Campaign restored.",
-      detail: "The operational picture and all intelligence operations were restored with campaign progress.",
-      action: "Review new and stale reports before issuing the next order.",
-      tone: "success"
+      title: "Loading campaign…",
+      detail: "Verifying save integrity, authored content, and runtime invariants.",
+      action: "Wait for verification to finish.",
+      tone: "info"
     });
+    try {
+      const result = await this.campaignState.loadPrimaryCampaign(
+        this.buildCampaignPersistenceRequest(new Date().toISOString())
+      );
+      if (!result.ok) {
+        if (result.recoveryCandidate) {
+          const accepted = window.confirm(
+            "The newest campaign save is damaged. A verified earlier save is available. Recover it now?"
+          );
+          if (accepted) {
+            this.campaignState.restorePrimaryCampaignRecovery(result.recoveryCandidate);
+            this.commandSaveStatus = "Saved";
+            this.renderTimeDisplay();
+            this.setCampaignStatusMessage({
+              title: "Earlier campaign recovered.",
+              detail: "A verified prior save was loaded. The damaged newest record remains quarantined for diagnosis.",
+              action: "Review the restored time and situation, then Save to create a new current checkpoint.",
+              tone: "warning"
+            });
+            return;
+          }
+        }
+        const missing = result.error.code === "SLOT_NOT_FOUND";
+        this.commandSaveStatus = "Unsaved";
+        this.setCampaignStatusMessage({
+          title: missing ? "No campaign save found." : "Campaign load failed.",
+          detail: result.error.message,
+          action: result.recoveryCandidate
+            ? "Load again when you are ready to choose the verified recovery checkpoint."
+            : "Keep the current campaign open and retry or inspect storage diagnostics.",
+          tone: "warning"
+        });
+        return;
+      }
+      this.renderTimeDisplay();
+      this.commandSaveStatus = "Saved";
+      const activeBattle = this.campaignState.getActiveBattleSave();
+      if (activeBattle) {
+        this.setCampaignStatusMessage({
+          title: "Tactical battle restored.",
+          detail: "The campaign and its active engagement passed integrity and revision checks.",
+          action: "Returning directly to the saved tactical decision point.",
+          tone: "success"
+        });
+        document.dispatchEvent(new CustomEvent("campaign:battle:resume", {
+          detail: { save: activeBattle }
+        }));
+        return;
+      }
+      this.setCampaignStatusMessage({
+        title: result.source === "legacyMigration" ? "Campaign migrated and restored." : "Campaign restored.",
+        detail: result.warning
+          ?? "The operational picture and faction-local intelligence were verified and restored with campaign progress.",
+        action: "Review new and stale reports before issuing the next order.",
+        tone: result.warning ? "warning" : "success"
+      });
+    } catch (error) {
+      this.commandSaveStatus = "Unsaved";
+      const detail = error instanceof Error ? error.message : "The campaign save could not be loaded.";
+      this.setCampaignStatusMessage({
+        title: "Campaign load failed.",
+        detail,
+        action: "The current campaign was retained. Retry or inspect storage diagnostics.",
+        tone: "warning"
+      });
+    } finally {
+      this.setCampaignPersistenceBusy(false);
+    }
   }
 
   private loadCampaignFromFile(): void {

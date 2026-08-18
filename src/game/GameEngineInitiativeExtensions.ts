@@ -10,7 +10,10 @@
 import type { BattlePhase } from './GameEngine';
 import { initiativeQueueManager, type InitiativeQueue, type UnitActivation } from '../core/InitiativeQueue';
 import type { ScenarioUnit } from '../core/types';
-import { BattleStateInitiativeManager } from '../state/BattleStateInitiativeExtensions';
+import {
+  BattleStateInitiativeManager,
+  type SerializedInitiativeState
+} from '../state/BattleStateInitiativeExtensions';
 
 /**
  * Extended battle phase that includes initiative system phases
@@ -27,6 +30,13 @@ export interface GameEngineInitiativeExtensions {
   isInitiativeSystemEnabled: boolean;
   /** Current activation being processed */
   currentActivation: UnitActivation | null;
+}
+
+/** JSON-safe initiative integration state owned by the tactical save contract. */
+export interface SerializedInitiativeIntegrationState {
+  readonly manager: SerializedInitiativeState;
+  readonly isInitiativeSystemEnabled: boolean;
+  readonly currentActivation: UnitActivation | null;
 }
 
 /**
@@ -427,5 +437,31 @@ export class GameEngineInitiativeIntegration {
       isInitiativeSystemEnabled: this.extensions.isInitiativeSystemEnabled,
       currentActivation: this.extensions.currentActivation
     };
+  }
+
+  /** Captures exact queue/activation state without exposing the live manager object. */
+  public serializeState(): SerializedInitiativeIntegrationState {
+    return {
+      manager: this.extensions.initiativeManager.getStateSnapshot(),
+      isInitiativeSystemEnabled: this.extensions.isInitiativeSystemEnabled,
+      currentActivation: this.extensions.currentActivation
+        ? structuredClone(this.extensions.currentActivation)
+        : null
+    };
+  }
+
+  /** Restores an exact queue and current activation without regenerating initiative order. */
+  public hydrateState(snapshot: SerializedInitiativeIntegrationState): void {
+    if (snapshot.isInitiativeSystemEnabled !== snapshot.manager.isInitiativeSystemActive) {
+      throw new Error("Initiative integration enabled state disagrees with the serialized manager.");
+    }
+    this.extensions.initiativeManager.hydrateState(snapshot.manager);
+    this.extensions.isInitiativeSystemEnabled = snapshot.isInitiativeSystemEnabled;
+    this.extensions.currentActivation = snapshot.currentActivation
+      ? structuredClone(snapshot.currentActivation)
+      : null;
+    if (this.extensions.currentActivation) {
+      this.updateEngineActiveFaction(this.extensions.currentActivation.ownerId === "player" ? "Player" : "Bot");
+    }
   }
 }

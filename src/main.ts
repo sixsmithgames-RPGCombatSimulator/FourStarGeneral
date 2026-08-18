@@ -22,6 +22,8 @@ import { CampaignScreen } from "./ui/screens/CampaignScreen";
 import { CampaignMapRenderer } from "./rendering/CampaignMapRenderer";
 import type { CampaignScenarioData } from "./core/campaignTypes";
 import campaignScenarioData from "./data/campaign01.json";
+import soundCatalogData from "./data/soundCatalog.json";
+import type { SoundCatalog } from "./audio/SoundAssetMetadata";
 import campaignMapImage from "./assets/campaign/Campaign Map -- Central Channel.png";
 import { ensureCampaignState } from "./state/CampaignState";
 import { ensureBattleState } from "./state/BattleState";
@@ -38,6 +40,7 @@ import { ensureTutorialOverlay } from "./ui/components/TutorialOverlay";
 import { setMissionStartedUI } from "./ui/utils/missionUi";
 import { installAirShowPlaybackCaptureDebugHook } from "./ui/airshow/AirShowPlaybackCapture";
 import { installAirShowRuntimeTraceDebugHook } from "./ui/airshow/AirShowRuntimeTrace";
+import type { ActiveCampaignBattleSave } from "./game/battle/persistence/BattleSaveTypes";
 
 /**
  * Application initialization and bootstrapping.
@@ -88,7 +91,11 @@ function initializeApplication(): void {
   if (battleMapElement) {
     mapViewport = new MapViewport();
     zoomPanControls = new ZoomPanControls(mapViewport);
-    hexMapRenderer = new HexMapRenderer();
+    hexMapRenderer = new HexMapRenderer({
+      effects: "data/effectSpecs.json",
+      terrainTints: "data/terrainTints.json",
+      sounds: soundCatalogData as unknown as SoundCatalog
+    });
     console.log("Map rendering system initialized");
   }
 
@@ -105,7 +112,11 @@ function initializeApplication(): void {
   const landingScreen = new LandingScreen(screenManager, uiState);
   const precombatScreen = new PrecombatScreen(screenManager, battleState);
   const campaignRenderer = new CampaignMapRenderer();
-  const campaignScreen = new CampaignScreen(screenManager, campaignRenderer);
+  const campaignScreen = new CampaignScreen(
+    screenManager,
+    campaignRenderer,
+    campaignScenarioData as unknown as CampaignScenarioData
+  );
   const battleScreen = new BattleScreen(
     screenManager,
     battleState,
@@ -134,9 +145,13 @@ function initializeApplication(): void {
       scenario: campaignState.getScenario(),
       turnState: campaignState.getTurnState(),
       queuedDecisions: campaignState.getQueuedDecisions(),
-      pendingEngagements: campaignState.getPendingEngagements()
+      pendingEngagements: campaignState.getPendingEngagements(),
+      battlePackage: campaignState.getActiveCampaignBattlePackage()
     } as const;
     battleState.setCampaignBridgeState(bridge);
+    // CampaignScreen bypasses LandingScreen, so promote the campaign mission explicitly before
+    // precombat. BattleScreen and mission-specific tactical services consume this shared key.
+    uiState.selectedMission = "campaign";
     // Mark this mission as started from campaign screen
     uiState.isFromCampaign = true;
     precombatScreen.setup("campaign", generalId, uiState.selectedDifficulty);
@@ -153,6 +168,19 @@ function initializeApplication(): void {
   };
   campaignScreen.renderScenario(patchedCampaignData);
   battleScreen.initialize();
+  document.addEventListener("campaign:battle:resume", (event: Event) => {
+    const save = (event as CustomEvent<{ save?: ActiveCampaignBattleSave }>).detail?.save;
+    if (!save) return;
+    try {
+      battleScreen.resumeActiveCampaignBattle(save);
+      screenManager.showScreenById("battle");
+    } catch (error) {
+      console.error("[CampaignBattleResume] Tactical hydration failed safely", error);
+      document.dispatchEvent(new CustomEvent("campaign:battle:resume-failed", {
+        detail: { message: error instanceof Error ? error.message : String(error) }
+      }));
+    }
+  });
 
   // Initialize tutorial overlay system
   const tutorialOverlay = ensureTutorialOverlay();

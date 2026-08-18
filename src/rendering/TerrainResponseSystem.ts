@@ -33,7 +33,7 @@ class TerrainTintCatalog {
   /**
    * Load terrain tints from configuration.
    */
-  load(tintConfigs: TerrainTint[]): void {
+  load(tintConfigs: readonly TerrainTint[]): void {
     this.tints.clear();
 
     for (const config of tintConfigs) {
@@ -87,19 +87,25 @@ class TerrainTintCatalog {
 export const terrainTintCatalog = new TerrainTintCatalog();
 
 /**
- * Load terrain tint configurations from JSON file.
+ * Load terrain tint configurations from injected data or a JSON file.
  */
-export async function loadTerrainTints(jsonPath: string): Promise<void> {
+export async function loadTerrainTints(source: string | readonly TerrainTint[]): Promise<void> {
+  const sourceLabel = typeof source === "string" ? source : "injected catalog";
   try {
-    const response = await fetch(jsonPath);
+    if (typeof source !== "string") {
+      terrainTintCatalog.load(source);
+      return;
+    }
+
+    const response = await fetch(new URL(source, document.baseURI));
     if (!response.ok) {
       throw new Error(`Failed to load terrain tints: ${response.statusText}`);
     }
 
-    const tintConfigs: TerrainTint[] = await response.json();
+    const tintConfigs = await response.json() as TerrainTint[];
     terrainTintCatalog.load(tintConfigs);
   } catch (error) {
-    console.error(`[TerrainResponseSystem] Error loading tints from ${jsonPath}:`, error);
+    console.error(`[TerrainResponseSystem] Error loading tints from ${sourceLabel}:`, error);
     throw error;
   }
 }

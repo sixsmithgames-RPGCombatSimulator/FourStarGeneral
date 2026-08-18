@@ -266,22 +266,13 @@ function dedupeFindings(findings) {
     return deduped;
 }
 function collectAuthoritativeAirScenarioFindings(playbackProjection, airshowInspections) {
-    const coordinatedMissionIds = new Set(playbackProjection.coordinatedPlans.flatMap((plan) => plan.coveredMissionIds));
     const blockingFindings = playbackProjection.coordinatedPlans.flatMap((plan) => plan.sceneFindings);
-    const legacyDiagnosticFindings = [];
-    airshowInspections.forEach((inspection) => {
-        const missionId = inspection.missionId ?? null;
-        const isSyntheticScenario = missionId?.startsWith(SYNTHETIC_SCENARIO_MISSION_PREFIX) ?? false;
-        const coveredByCoordinatedPlayback = missionId ? coordinatedMissionIds.has(missionId) : false;
-        if (coveredByCoordinatedPlayback && !isSyntheticScenario) {
-            legacyDiagnosticFindings.push(...inspection.findings);
-            return;
-        }
-        blockingFindings.push(...inspection.findings);
-    });
+    airshowInspections.forEach((inspection) => blockingFindings.push(...inspection.findings));
     return {
         findings: dedupeFindings(blockingFindings),
-        legacyDiagnosticFindings: dedupeFindings(legacyDiagnosticFindings)
+        // Retained in the serialized contract for report compatibility. Findings are
+        // never reclassified here; every production defect remains release blocking.
+        legacyDiagnosticFindings: []
     };
 }
 function snapshotExpectedFlakCoverage(engine) {
@@ -359,6 +350,20 @@ function inspectCoordinatedScene(scene, subjectLabel, strikeSortieMissionIds) {
             return null;
         }
         const phaseMetrics = report.phases.map((phase, phaseIndex) => measurePhase(report, phase, phaseIndex > 0 ? report.phases[phaseIndex - 1] : undefined));
+        if (report.timelineVersion === 2) {
+            const findings = (report.timelineFindings ?? [])
+                .filter((finding) => finding.severity === "error")
+                .map((finding) => ({ code: finding.code, message: `${subjectLabel}: ${finding.message}` }));
+            return {
+                report,
+                phaseLabels: report.phases.map((phase) => phase.label),
+                tracerCount: report.phases.reduce((sum, phase) => sum + phase.tracers.length, 0),
+                flakBurstCount: report.phases.reduce((sum, phase) => sum + phase.flakBursts.length, 0),
+                durationMs: report.timelineTotalDurationMs ?? report.phases.reduce((sum, phase) => sum + phase.durationMs, 0),
+                phaseMetrics,
+                findings
+            };
+        }
         const findings = [];
         const fighterIngress = report.phases.find((phase) => phase.label === "fighter-ingress");
         const targetRunMetric = phaseMetrics.find((phase) => phase.label === "target-run");
@@ -1277,7 +1282,11 @@ function buildAirshowInspections(engine, engagements) {
                 return null;
             }
             const phaseMetrics = report.phases.map((phase, phaseIndex) => measurePhase(report, phase, phaseIndex > 0 ? report.phases[phaseIndex - 1] : undefined));
-            const findings = detectAirshowFindings(event, diagnostics, report, phaseMetrics, (scene.flakBursts?.length ?? 0) > 0);
+            const findings = report.timelineVersion === 2
+                ? (report.timelineFindings ?? [])
+                    .filter((finding) => finding.severity === "error")
+                    .map((finding) => ({ code: finding.code, message: finding.message }))
+                : detectAirshowFindings(event, diagnostics, report, phaseMetrics, (scene.flakBursts?.length ?? 0) > 0);
             return { eventType: event.type, missionId: event.missionId, diagnostics, report, phaseMetrics, findings };
         };
         const engineCases = engagements.flatMap((event) => {
@@ -2568,6 +2577,7 @@ export function buildAirScenarioDiagnosticTextFiles(result) {
     indexLines.push(`Scenario: ${result.scenarioName}`);
     indexLines.push(`Animations: ${animations.length}`);
     indexLines.push(`Findings: ${result.findings.length}`);
+    indexLines.push(`Legacy findings: ${result.legacyDiagnosticFindings.length}`);
     indexLines.push(`Anomalies: ${result.anomalies.length}`);
     indexLines.push(`Bundle Layout:`);
     indexLines.push(`- summary.txt`);
@@ -2614,6 +2624,9 @@ export function formatAirScenarioSummary(result) {
     }
     else {
         lines.push(`- none`);
+    }
+    if (result.legacyDiagnosticFindings.length > 0) {
+        lines.push(`- Reporter contract violation: ${result.legacyDiagnosticFindings.length} finding(s) were reclassified as legacy.`);
     }
     if (result.anomalies.length > 0) {
         lines.push(``);

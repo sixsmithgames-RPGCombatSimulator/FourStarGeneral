@@ -33,8 +33,8 @@ export const missionTitles = {
  * Displayed to the player on the landing screen when selecting a mission.
  */
 export const missionBriefings = {
-    training: "This is a low-stakes training exercise designed to familiarize your forces with operational procedures. " +
-        "Focus on unit coordination and terrain assessment. No hostile contact expected.",
+    training: "A live opposing force is standing by for a controlled field exercise. " +
+        "Practice deployment, initiative, reconnaissance, field engineering, fire support, and direct combat under training conditions.",
     patrol: "Enemy battle groups are pushing up the southern road net toward the northern town. " +
         "Establish a base camp inside the town perimeter, deploy your reserves around the crossroads, and break the assault before the attackers can force their way into the center. Expect a strong combined-arms attack with armor, artillery, and probing recon screens.",
     patrol_pointe_du_hoc: "Enemy batteries at Pointe du Hoc still dominate the coastal approach. The ridge is cratered and broken, with fortified gun positions on the forward line and a forest counterattack route inland. " +
@@ -786,7 +786,9 @@ const missionDeploymentProfiles = {
         validation: {
             minimumPlayerZoneCapacityTotal: 12,
             minimumPlayerZoneFrontage: 5,
-            minimumPlayerZoneDepth: 4
+            // Depth 3 (not 4): campaign battles reuse authored templates, and the coastal maps
+            // (Omaha, Gela) legitimately deploy from shallow beachheads three hexes deep.
+            minimumPlayerZoneDepth: 3
         },
         zoneDoctrine: [
             {

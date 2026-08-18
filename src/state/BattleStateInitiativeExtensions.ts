@@ -29,6 +29,9 @@ export interface BattleStateInitiativeExtensions {
   turnPhase: 'initiative' | 'airShow' | 'ended';
 }
 
+/** JSON-safe authoritative initiative state retained by tactical saves. */
+export type SerializedInitiativeState = BattleStateInitiativeExtensions;
+
 /**
  * Manages initiative system state and operations for BattleState
  * 
@@ -308,10 +311,43 @@ export class BattleStateInitiativeManager {
    */
   public getStateSnapshot(): BattleStateInitiativeExtensions {
     return {
-      initiativeQueue: this.state.initiativeQueue ? { ...this.state.initiativeQueue } : null,
-      currentActivation: this.state.currentActivation ? { ...this.state.currentActivation } : null,
+      initiativeQueue: this.state.initiativeQueue ? structuredClone(this.state.initiativeQueue) : null,
+      currentActivation: this.state.currentActivation ? structuredClone(this.state.currentActivation) : null,
       isInitiativeSystemActive: this.state.isInitiativeSystemActive,
       turnPhase: this.state.turnPhase
     };
+  }
+
+  /**
+   * Restores a previously validated initiative queue without regenerating sort order or consuming an activation.
+   */
+  public hydrateState(snapshot: SerializedInitiativeState): void {
+    if (!snapshot || typeof snapshot.isInitiativeSystemActive !== "boolean") {
+      throw new Error("Initiative snapshot is missing its active-state flag.");
+    }
+    if (!(["initiative", "airShow", "ended"] as const).includes(snapshot.turnPhase)) {
+      throw new Error(`Initiative snapshot has invalid turn phase '${String(snapshot.turnPhase)}'.`);
+    }
+    if (snapshot.initiativeQueue) {
+      if (!Array.isArray(snapshot.initiativeQueue.activations)
+        || !Number.isInteger(snapshot.initiativeQueue.currentIndex)
+        || !Number.isInteger(snapshot.initiativeQueue.currentTurn)) {
+        throw new Error("Initiative snapshot queue is malformed.");
+      }
+      const unitIds = new Set<string>();
+      snapshot.initiativeQueue.activations.forEach((activation) => {
+        if (!activation.unitId || unitIds.has(activation.unitId)) {
+          throw new Error(`Initiative snapshot contains an invalid or duplicate unit '${activation.unitId}'.`);
+        }
+        unitIds.add(activation.unitId);
+      });
+      if (snapshot.currentActivation && !unitIds.has(snapshot.currentActivation.unitId)) {
+        throw new Error("Initiative snapshot current activation is not present in its queue.");
+      }
+    } else if (snapshot.currentActivation || snapshot.isInitiativeSystemActive) {
+      throw new Error("Active initiative snapshot requires a queue.");
+    }
+
+    this.state = structuredClone(snapshot);
   }
 }

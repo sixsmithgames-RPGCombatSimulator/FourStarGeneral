@@ -209,6 +209,22 @@ export interface FormationStatusSummary {
   readinessBreakdown: FormationReadinessBreakdown;
 }
 
+/**
+ * Immutable campaign origin copied into a tactical unit at engagement creation.
+ * Tactical systems may carry this record through saves and casualties, but campaign truth changes only through result reconciliation.
+ */
+export interface TacticalCampaignFormationProvenance {
+  readonly campaignId: string;
+  readonly formationId: string;
+  readonly engagementId: string;
+  readonly sourceRevision: number;
+  readonly sourceSegment: number;
+  readonly faction: string;
+  readonly ownership: "core" | "attached" | "auxiliary";
+  readonly formationName: string;
+  readonly campaignUnitType: string;
+}
+
 export interface ScenarioUnit {
   type: keyof typeof unitTypesData;
   hex: Axial;
@@ -224,6 +240,8 @@ export interface ScenarioUnit {
   status?: FormationStatus;
   /** Allocation/formation key that produced this scenario unit, when known. */
   formationKey?: string;
+  /** Save-stable campaign identity when this unit represents a persistent campaign formation. */
+  campaignProvenance?: TacticalCampaignFormationProvenance;
   ammo: number;
   fuel: number;
   entrench: number;

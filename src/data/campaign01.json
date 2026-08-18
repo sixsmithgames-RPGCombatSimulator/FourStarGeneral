@@ -1988,6 +1988,38 @@
         }
       ],
       "rotation": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 20,
+        "r": 18
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 2,
+          "label": "Beachhead Garrison"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botNavalBase",
+      "hex": {
+        "q": 28,
+        "r": 24
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 2,
+          "label": "Port Defense Battalion"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
     }
   ],
   "fronts": [
@@ -2038,10 +2070,36 @@
         "q": 20,
         "r": 18
       },
-      "owner": "Neutral",
+      "owner": "Player",
+      "category": "primary",
+      "visibility": "briefed",
+      "phaseKey": "beachhead",
+      "conditions": [
+        {
+          "kind": "controlHex",
+          "faction": "Player",
+          "holdSegments": 2,
+          "minimumInfrastructureEffectiveness": 0.5
+        }
+      ],
+      "deadlineSegment": 16,
+      "score": 100,
       "rewards": [
         "supplyBonus:5",
         "reinforcements:available"
+      ],
+      "rewardEffects": [
+        {
+          "kind": "resource",
+          "resource": "supplies",
+          "amount": 10000,
+          "label": "Beach supply dumps released: +10,000 supply."
+        },
+        {
+          "kind": "unlock",
+          "key": "beachhead_reinforcements",
+          "label": "Beachhead reinforcements"
+        }
       ]
     },
     {
@@ -2053,9 +2111,44 @@
         "r": 24
       },
       "owner": "Bot",
+      "category": "primary",
+      "visibility": "briefed",
+      "phaseKey": "expansion",
+      "requiresObjectives": [
+        "secure_beachhead"
+      ],
+      "conditions": [
+        {
+          "kind": "controlHex",
+          "faction": "Player",
+          "holdSegments": 2,
+          "minimumInfrastructureEffectiveness": 0.25
+        }
+      ],
+      "deadlineSegment": 96,
+      "score": 150,
       "rewards": [
         "navalCapacity:+10",
         "supplyBonus:8"
+      ],
+      "rewardEffects": [
+        {
+          "kind": "resource",
+          "resource": "supplies",
+          "amount": 20000,
+          "label": "Port stores secured: +20,000 supply."
+        },
+        {
+          "kind": "power",
+          "resource": "navalPower",
+          "amount": 10,
+          "label": "Port capacity restored: +10 naval power."
+        },
+        {
+          "kind": "unlock",
+          "key": "heavy_equipment_unloading",
+          "label": "Heavy equipment unloading"
+        }
       ],
       "penalties": [
         "enemyReinforcement:-50%"
@@ -2070,15 +2163,78 @@
         "r": 25
       },
       "owner": "Bot",
+      "category": "secondary",
+      "visibility": "briefed",
+      "phaseKey": "expansion",
+      "requiresObjectives": [
+        "secure_beachhead"
+      ],
+      "conditions": [
+        {
+          "kind": "controlHex",
+          "faction": "Player",
+          "holdSegments": 2,
+          "minimumInfrastructureEffectiveness": 0.25
+        }
+      ],
+      "deadlineSegment": 80,
+      "score": 75,
       "rewards": [
         "airSuperiority",
         "airSortieCapacity:+8"
+      ],
+      "rewardEffects": [
+        {
+          "kind": "power",
+          "resource": "airPower",
+          "amount": 8,
+          "label": "Forward air operations established: +8 air power."
+        },
+        {
+          "kind": "power",
+          "resource": "intelCoverage",
+          "amount": 5,
+          "label": "Air reconnaissance coverage improved: +5 intelligence coverage."
+        }
       ],
       "penalties": [
         "enemyAirPower:-30%"
       ]
     }
   ],
+  "campaignArc": {
+    "phases": [
+      {
+        "key": "beachhead",
+        "label": "Beachhead phase",
+        "description": "Secure the lodgment and open the reinforcement route.",
+        "objectiveKeys": [
+          "secure_beachhead"
+        ]
+      },
+      {
+        "key": "expansion",
+        "label": "Expansion phase",
+        "description": "Capture the port and forward airfield before the enemy consolidates.",
+        "objectiveKeys": [
+          "capture_port",
+          "airfield_control"
+        ]
+      }
+    ],
+    "victoryObjectiveKeys": [
+      "secure_beachhead",
+      "capture_port"
+    ],
+    "defeatObjectiveKeys": [
+      "secure_beachhead",
+      "capture_port"
+    ],
+    "defeatWhenNoPlayerFormations": true,
+    "decisiveVictoryThreshold": 90,
+    "standardVictoryThreshold": 60,
+    "allowContinueAfterOutcome": false
+  },
   "economies": [
     {
       "faction": "Player",

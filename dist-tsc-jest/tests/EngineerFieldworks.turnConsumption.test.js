@@ -95,10 +95,30 @@ const smokeTankDef = {
     traits: ["zoc"],
     cost: 160
 };
+const smokeHowitzerDef = {
+    class: "artillery",
+    combat: { category: "artillery", weight: "medium", role: "antiInfantry", signature: "large" },
+    movement: 2,
+    moveType: "wheel",
+    vision: 4,
+    ammo: 8,
+    fuel: 20,
+    rangeMin: 3,
+    rangeMax: 32,
+    initiative: 2,
+    armor: { front: 2, side: 2, top: 2 },
+    hardAttack: 50,
+    softAttack: 50,
+    ap: 0,
+    accuracyBase: 50,
+    traits: ["indirect", "suppression"],
+    cost: 260
+};
 const unitTypes = {
     TestEngineer: engineerDef,
     TestTruck: truckDef,
-    TestSmokeTank: smokeTankDef
+    TestSmokeTank: smokeTankDef,
+    TestSmokeHowitzer: smokeHowitzerDef
 };
 function side(hq = { q: 0, r: 0 }, units = []) {
     return {
@@ -262,6 +282,36 @@ registerTest("SMOKE_ACTION_DELEGATES_FROM_GENERIC_MODIFICATION_PATH", async ({ T
         throw new Error("Expected smoke to expire at the start of the next player turn.");
     }
     await Then("smoke behaves as a smoke action through both engine entry points", () => { });
+});
+registerTest("ARTILLERY_SMOKE_USES_INDIRECT_FIRE_RANGE", async ({ Then }) => {
+    const howitzer = {
+        type: "TestSmokeHowitzer",
+        unitId: "smoke-howitzer",
+        hex: { q: 1, r: 1 },
+        strength: 100,
+        experience: 0,
+        ammo: 8,
+        fuel: 20,
+        entrench: 0,
+        facing: "NE"
+    };
+    const { engine } = createEngine([howitzer], {
+        tiles: Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => ({ tile: "PLAINS" })))
+    });
+    if (engine.getReachableHexes(howitzer.hex, howitzer.unitId).length !== 0) {
+        throw new Error("Expected a deployed howitzer to show no movement destinations until Move Out.");
+    }
+    const target = { q: 4, r: 1 };
+    const targetKeys = engine.resolveSmokeTargetHexKeys(howitzer.hex, howitzer.unitId);
+    if (!targetKeys.includes(axialKey(target))) {
+        throw new Error(`Expected artillery smoke to reach ${axialKey(target)}, received ${targetKeys.join(", ")}.`);
+    }
+    engine.laySmoke(howitzer.hex, "E", howitzer.unitId, target);
+    const smoke = engine.getHexModifications(target).find((modification) => modification.type === "smoke");
+    if (!smoke) {
+        throw new Error(`Expected artillery smoke to be placed at ${axialKey(target)}.`);
+    }
+    await Then("artillery smoke follows the indirect-fire range", () => { });
 });
 registerTest("FORTIFICATIONS_AND_TANK_TRAPS_CAN_SHARE_THE_SAME_EDGE", async ({ Then }) => {
     const engineerA = {

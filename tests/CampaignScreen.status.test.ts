@@ -1,5 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
+import campaignScenarioData from "../src/data/campaign01.json";
+import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { CampaignScreen } from "../src/ui/screens/CampaignScreen";
 import { ensureCampaignState } from "../src/state/CampaignState";
 
@@ -105,5 +107,87 @@ registerTest("CAMPAIGNSCREEN_EXPORT_WITHOUT_SCENARIO_USES_STATUS_MESSAGE", async
       throw new Error("Expected corrective action for export failure.");
     }
     campaignState.reset();
+  });
+});
+
+registerTest("CAMPAIGNSCREEN_EDITOR_REPORTS_INVALID_BASE_MOVE_SAFELY", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let selectionInfo: HTMLElement | null = null;
+  let screen: CampaignScreen;
+
+  await Given("an objective-bearing campaign base selected in the authorized editor", async () => {
+    campaignState.reset();
+    document.body.innerHTML = `
+      <div id="campaignScreen">
+        <div id="campaignSelectionInfo"></div>
+        <input id="editorCol" value="27" />
+        <input id="editorRow" value="37" />
+      </div>
+    `;
+    campaignState.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    screen = new CampaignScreen({ showScreenById() {} } as any, {} as any);
+    screen.initialize();
+    (screen as any).selectedHexKey = "20,28";
+    selectionInfo = document.getElementById("campaignSelectionInfo");
+  });
+
+  await When("the editor attempts to move that base away from its authored objective", async () => {
+    (screen as any).moveBase();
+  });
+
+  await Then("the campaign remains intact and the editor explains the rejected move without a page error", async () => {
+    const scenario = campaignState.getScenario();
+    if (!scenario?.tiles.some((tile) => tile.hex.q === 20 && tile.hex.r === 18)) {
+      throw new Error("Rejected base move removed the objective-bearing campaign tile.");
+    }
+    if (selectionInfo?.getAttribute("data-status") !== "warning"
+      || !selectionInfo.textContent?.includes("Base move failed.")) {
+      throw new Error(`Expected a safe editor warning, received '${selectionInfo?.textContent ?? ""}'.`);
+    }
+    campaignState.reset();
+  });
+});
+registerTest("CAMPAIGNSCREEN_ENEMY_INITIATIVE_FRONT_CANNOT_BE_LAUNCHED_BY_PLAYER", async ({ Given, When, Then }) => {
+  let screen: CampaignScreen;
+  let queueButton: HTMLButtonElement;
+  const scenario = {
+    fronts: [
+      { key: "enemy-front", label: "Enemy Front", hexKeys: ["4,4"], initiative: "Bot" },
+      { key: "player-front", label: "Player Front", hexKeys: ["5,5"], initiative: "Player" }
+    ]
+  };
+
+  await Given("the commander has selected a front where the opposing command owns initiative", async () => {
+    screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+    (screen as any).selectionContainer = document.createElement("div");
+    queueButton = document.createElement("button");
+    (screen as any).queueEngagementButton = queueButton;
+    (screen as any).campaignState = {
+      getCampaignMapView: () => ({ scenario }),
+      getHeadquartersStatusMessage: () => null,
+      getPendingEngagements: () => [],
+      getActiveCampaignBattlePackage: () => null,
+      hasActionableEnemyContactNear: () => false
+    };
+    (screen as any).campaignStatusMessage = null;
+    (screen as any).selectedHexKey = null;
+    (screen as any).selectedFrontKey = "enemy-front";
+    (screen as any).moveOriginHexKey = null;
+    (screen as any).editMode = false;
+  });
+
+  await When("campaign selection actions are projected", async () => {
+    (screen as any).renderSelection();
+  });
+
+  await Then("the tactical engagement control stays disabled until Player owns initiative", async () => {
+    if (!queueButton.disabled) {
+      throw new Error("Expected an enemy-initiative front to block a player-launched tactical engagement.");
+    }
+    (screen as any).selectedFrontKey = "player-front";
+    (screen as any).renderSelection();
+    if (queueButton.disabled) {
+      throw new Error("Expected a Player-initiative front to permit a tactical engagement.");
+    }
   });
 });

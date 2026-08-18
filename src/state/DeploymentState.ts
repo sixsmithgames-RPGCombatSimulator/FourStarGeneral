@@ -21,6 +21,8 @@ export interface DeploymentPoolEntry {
   label: string;
   remaining: number;
   sprite?: string;
+  /** Persistent campaign formations already adapted into defensive battle-owned unit copies. */
+  campaignUnits?: ScenarioUnit[];
 }
 
 /**
@@ -130,8 +132,8 @@ export class DeploymentState {
    */
   initialize(entries: DeploymentPoolEntry[]): void {
     console.log("[DeploymentState] initialize called with entries", entries.map((e) => ({ key: e.key, remaining: e.remaining })));
-    this.pool = entries.map((entry) => ({ ...entry }));
-    this.committedEntries = entries.map((entry) => ({ ...entry }));
+    this.pool = entries.map((entry) => structuredClone(entry));
+    this.committedEntries = entries.map((entry) => structuredClone(entry));
     this.initialized = true;
     this.totalAllocationMap.clear();
     this.reserves = [];
@@ -164,7 +166,7 @@ export class DeploymentState {
    * This helper preserves sprite keys and totals exactly as the precombat flow determined them.
    */
   recordCommittedEntries(entries: readonly DeploymentPoolEntry[]): void {
-    this.committedEntries = entries.map((entry) => ({ ...entry }));
+    this.committedEntries = entries.map((entry) => structuredClone(entry));
     console.log("[DeploymentState] recordCommittedEntries", {
       count: this.committedEntries.length,
       keys: this.committedEntries.map((e) => e.key)
@@ -236,7 +238,9 @@ export class DeploymentState {
         return;
       }
       for (let index = 0; index < entry.remaining; index += 1) {
-        const unit = createScenarioUnitFromTemplate(template, { q: 0, r: 0 });
+        const unit = entry.campaignUnits?.[index]
+          ? structuredClone(entry.campaignUnits[index])
+          : createScenarioUnitFromTemplate(template, { q: 0, r: 0 });
         blueprints.push({
           unitKey: entry.key,
           label: entry.label,

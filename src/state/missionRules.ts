@@ -55,6 +55,26 @@ export interface MissionSnapshot {
 export interface MissionRulesController {
   onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus;
   getStatus(): MissionStatus;
+  serializeState(): SerializedMissionRulesState;
+  hydrateState(snapshot: SerializedMissionRulesState): void;
+}
+
+/** Versioned closure state required to continue mission-specific objective rules exactly after reload. */
+export interface SerializedMissionRulesState {
+  readonly version: 1;
+  readonly kind: string;
+  readonly data: Readonly<Record<string, unknown>>;
+}
+
+function readMissionRuleState(
+  snapshot: SerializedMissionRulesState,
+  expectedKind: string
+): Record<string, unknown> {
+  if (!snapshot || snapshot.version !== 1 || snapshot.kind !== expectedKind
+    || typeof snapshot.data !== "object" || snapshot.data === null || Array.isArray(snapshot.data)) {
+    throw new Error(`Mission-rule snapshot does not match '${expectedKind}'.`);
+  }
+  return snapshot.data as Record<string, unknown>;
 }
 
 function makeKey(hex: Axial): string {
@@ -300,6 +320,29 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
         phase: tracker.phase,
         markers: buildMarkers(new Map<string, TurnFaction>())
       };
+    },
+    serializeState(): SerializedMissionRulesState {
+      return {
+        version: 1,
+        kind: "riverWatch",
+        data: {
+          counters: Array.from(tracker.counters.entries()),
+          outcome: structuredClone(tracker.outcome),
+          blockedFordsStreak: tracker.blockedFordsStreak,
+          phase: structuredClone(tracker.phase)
+        }
+      };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      const data = readMissionRuleState(snapshot, "riverWatch");
+      if (!Array.isArray(data.counters) || !Number.isInteger(data.blockedFordsStreak)) {
+        throw new Error("River Watch mission-rule snapshot is malformed.");
+      }
+      tracker.counters.clear();
+      (data.counters as Array<[string, number]>).forEach(([key, value]) => tracker.counters.set(key, value));
+      tracker.outcome = structuredClone(data.outcome as MissionOutcome);
+      tracker.blockedFordsStreak = Number(data.blockedFordsStreak);
+      tracker.phase = structuredClone(data.phase as MissionPhaseStatus);
     }
   } satisfies MissionRulesController;
 }
@@ -454,6 +497,24 @@ function createTownDefenseController(scenario: ScenarioData): MissionRulesContro
         outcome: tracker.outcome,
         markers: [buildMarker(tracker.outcome, townOccupant, enemyForceRatio, friendlyForceRatio)]
       } satisfies MissionStatus;
+    },
+    serializeState(): SerializedMissionRulesState {
+      return {
+        version: 1,
+        kind: "townDefense",
+        data: {
+          outcome: structuredClone(tracker.outcome),
+          initialFriendlyForce: tracker.initialFriendlyForce
+        }
+      };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      const data = readMissionRuleState(snapshot, "townDefense");
+      if (data.initialFriendlyForce !== null && typeof data.initialFriendlyForce !== "number") {
+        throw new Error("Town Defense mission-rule snapshot is malformed.");
+      }
+      tracker.outcome = structuredClone(data.outcome as MissionOutcome);
+      tracker.initialFriendlyForce = data.initialFriendlyForce as number | null;
     }
   } satisfies MissionRulesController;
 }
@@ -661,6 +722,28 @@ function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDiff
         phase: tracker.phase,
         markers: buildMarkers(tracker.outcome, emptyOccupancy)
       };
+    },
+    serializeState(): SerializedMissionRulesState {
+      return {
+        version: 1,
+        kind: "pointeDuHoc",
+        data: {
+          holdStreak: tracker.holdStreak,
+          outcome: structuredClone(tracker.outcome),
+          phase: structuredClone(tracker.phase),
+          counterattackAnnounced: tracker.counterattackAnnounced
+        }
+      };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      const data = readMissionRuleState(snapshot, "pointeDuHoc");
+      if (!Number.isInteger(data.holdStreak) || typeof data.counterattackAnnounced !== "boolean") {
+        throw new Error("Pointe du Hoc mission-rule snapshot is malformed.");
+      }
+      tracker.holdStreak = Number(data.holdStreak);
+      tracker.outcome = structuredClone(data.outcome as MissionOutcome);
+      tracker.phase = structuredClone(data.phase as MissionPhaseStatus);
+      tracker.counterattackAnnounced = data.counterattackAnnounced;
     }
   } satisfies MissionRulesController;
 }
@@ -852,6 +935,21 @@ function createTwoBridgesController(scenario: ScenarioData, _difficulty: BotDiff
         phase: tracker.phase,
         markers: buildMarkers(emptyOccupancy)
       };
+    },
+    serializeState(): SerializedMissionRulesState {
+      return {
+        version: 1,
+        kind: "twoBridges",
+        data: {
+          outcome: structuredClone(tracker.outcome),
+          phase: structuredClone(tracker.phase)
+        }
+      };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      const data = readMissionRuleState(snapshot, "twoBridges");
+      tracker.outcome = structuredClone(data.outcome as MissionOutcome);
+      tracker.phase = structuredClone(data.phase as MissionPhaseStatus);
     }
   } satisfies MissionRulesController;
 }
@@ -1579,6 +1677,21 @@ function createHistoricalBattleController(scenario: ScenarioData, config: Histor
         phase: currentPhase,
         markers: buildMarkers(emptyOccupancy)
       };
+    },
+    serializeState(): SerializedMissionRulesState {
+      return {
+        version: 1,
+        kind: "historicalBattle",
+        data: {
+          outcome: structuredClone(currentOutcome),
+          phase: structuredClone(currentPhase)
+        }
+      };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      const data = readMissionRuleState(snapshot, "historicalBattle");
+      currentOutcome = structuredClone(data.outcome as MissionOutcome);
+      currentPhase = structuredClone(data.phase as MissionPhaseStatus);
     }
   } satisfies MissionRulesController;
 }
@@ -1711,6 +1824,17 @@ function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDif
         objectives: buildObjectives(currentOutcome, scenario.sides.Player.units, scenario.sides.Bot.units, emptyOccupancy),
         outcome: currentOutcome
       };
+    },
+    serializeState(): SerializedMissionRulesState {
+      return {
+        version: 1,
+        kind: "citadelRidge",
+        data: { outcome: structuredClone(currentOutcome) }
+      };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      const data = readMissionRuleState(snapshot, "citadelRidge");
+      currentOutcome = structuredClone(data.outcome as MissionOutcome);
     }
   } satisfies MissionRulesController;
 }
@@ -1746,6 +1870,12 @@ export function createMissionRulesController(missionKey: string, scenario: Scena
     },
     getStatus(): MissionStatus {
       return { turn: 0, objectives: [], outcome: { state: "inProgress" } } satisfies MissionStatus;
+    },
+    serializeState(): SerializedMissionRulesState {
+      return { version: 1, kind: "generic", data: {} };
+    },
+    hydrateState(snapshot: SerializedMissionRulesState): void {
+      readMissionRuleState(snapshot, "generic");
     }
   } satisfies MissionRulesController;
 }

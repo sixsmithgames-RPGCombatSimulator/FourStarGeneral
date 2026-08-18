@@ -1,4 +1,4 @@
-export const AIR_SHOW_OFF_MAP_DISTANCE_PX = 430;
+export const AIR_SHOW_OFF_MAP_DISTANCE_PX = 500;
 function normalizeVector(dx, dy, fallbackX = 1, fallbackY = 0) {
     const length = Math.hypot(dx, dy);
     if (length > 0.0001) {

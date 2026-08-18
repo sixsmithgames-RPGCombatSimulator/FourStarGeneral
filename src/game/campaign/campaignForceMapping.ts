@@ -27,7 +27,10 @@ const CAMPAIGN_TO_ALLOCATION: Readonly<Record<string, string>> = Object.freeze({
   Heavy_Tank: "heavyTankCompany",
   Howitzer_105: "howitzer",
   Artillery_105mm: "howitzer",
-  Artillery_155mm: "corpsArtilleryGroup",
+  // The tactical engine has no distinct 155mm map unit. Use the deployable howitzer battery as
+  // the closest exact-provenance proxy so a persistent heavy-artillery formation can survive the
+  // complete commitment -> battle -> result chain instead of becoming an untracked support charge.
+  Artillery_155mm: "howitzer",
   Rocket_Artillery: "rocketArtilleryBattalion",
   SP_Artillery: "spArtilleryGroup",
   Fighter: "fighter",

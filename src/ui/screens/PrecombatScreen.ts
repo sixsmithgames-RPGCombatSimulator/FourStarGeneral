@@ -28,8 +28,9 @@ import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenari
 import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { ensureCampaignState } from "../../state/CampaignState";
-import { resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
+import { clearCampaignScenarioCache, resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
 import type { CampaignEngagementContext } from "../../core/campaignTypes";
+import type { CampaignBattlePackage } from "../../game/campaign/engagements/CampaignEngagementLedgerTypes";
 import { describeForceRatio, MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { RESERVE_PURCHASABLE_KEYS } from "../../game/campaign/campaignForceMapping";
 
@@ -469,6 +470,10 @@ export class PrecombatScreen {
    * campaign flow or for legacy engagements queued without context.
    */
   private engagementContext: CampaignEngagementContext | null = null;
+  /** Existing exact package for a mandatory Player defense; null while a Player attack is still being planned. */
+  private campaignBattlePackage: CampaignBattlePackage | null = null;
+  /** Revision shown to the player while choosing forces; commitment rejects a stale plan. */
+  private campaignPlanningRevision: number | null = null;
 
   /**
    * Allocation state containers required by interaction TODO.
@@ -599,9 +604,17 @@ export class PrecombatScreen {
     this.scenarioSource = resolveScenarioForMission(missionKey);
     // Load the strategic engagement context before budget priming so committed-force caps and the
     // consumables reserve shape the requisition screen from the first render.
-    this.engagementContext = missionKey === "campaign"
-      ? (ensureCampaignState().getActiveEngagement()?.context ?? null)
+    const campaignState = missionKey === "campaign" ? ensureCampaignState() : null;
+    this.campaignBattlePackage = campaignState?.getActiveCampaignBattlePackage() ?? null;
+    this.engagementContext = campaignState
+      ? (this.campaignBattlePackage?.context ?? campaignState.getActiveEngagement()?.context ?? null)
       : null;
+    this.campaignPlanningRevision = this.campaignBattlePackage?.committedRevision
+      ?? campaignState?.getRuntimeSnapshot()?.revision
+      ?? null;
+    this.proceedToBattleButton.textContent = missionKey === "campaign"
+      ? (this.isPlayerDefensiveEngagement() ? "Deploy Defense & Begin Battle" : "Commit Forces & Begin Battle")
+      : "Begin Battle";
 
     console.info("[PrecombatScreen] setup mission", {
       missionKey,
@@ -625,6 +638,10 @@ export class PrecombatScreen {
     this.renderMiniMap();
     this.requestMiniMapRender();
     this.renderMissionSummary(missionKey, selectedDifficulty);
+    if (this.isPlayerDefensiveEngagement()) {
+      this.missionTitleElement.textContent = `${MISSION_TYPE_LABELS[this.engagementContext!.missionType]} Defense`;
+      this.missionBriefingElement.textContent = "Enemy forces have opened a tactical attack. Deploy the exact campaign formations caught in the battle, hold the defended objectives, and preserve the core force.";
+    }
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();
     this.appendAlliedForcesObjective();
@@ -642,7 +659,9 @@ export class PrecombatScreen {
     if (typeof console !== "undefined") {
       const expectedUnitRows = this.engagementContext
         ? (ALLOCATION_BY_CATEGORY.get("units") ?? []).filter(
-            (option) => RESERVE_PURCHASABLE_KEYS.includes(option.key) || this.getEffectiveMaxQuantity(option) > 0
+            (option) => this.isPlayerDefensiveEngagement()
+              ? this.getEffectiveMaxQuantity(option) > 0
+              : RESERVE_PURCHASABLE_KEYS.includes(option.key) || this.getEffectiveMaxQuantity(option) > 0
           ).length
         : (ALLOCATION_BY_CATEGORY.get("units") ?? []).filter((option) => this.isUnitAllowedByScenario(option.key)).length;
       console.assert(
@@ -774,6 +793,13 @@ export class PrecombatScreen {
    */
   private handleReturnToLanding(): void {
     ensureDeploymentState().reset();
+    if (this.activeMissionKey === "campaign") {
+      // A committed defensive package is a mandatory interruption. The commander may inspect the
+      // campaign, but cannot discard the attack by backing out of precombat.
+      if (!this.campaignBattlePackage) ensureCampaignState().setActiveEngagementId(null);
+      this.screenManager.showScreenById("campaign");
+      return;
+    }
     this.screenManager.showScreenById("landing");
   }
 
@@ -786,16 +812,53 @@ export class PrecombatScreen {
       tutorialState.advancePhase("ui_overview");
     }
 
-    const entries = this.toDeploymentEntries();
-    console.log("[PrecombatScreen] toDeploymentEntries built", entries.map((e) => ({ key: e.key, remaining: e.remaining })));
     if (!this.hasOperationalCombatForces() && !force) {
       this.showAllocationWarning();
       return;
     }
-
     this.hideAllocationWarning();
-
+    // Validate every local deployment prerequisite before campaign truth is locked.
     this.registerScenarioDeploymentZones();
+
+    if (this.activeMissionKey === "campaign" && this.engagementContext) {
+      const campaignState = ensureCampaignState();
+      const runtime = campaignState.getRuntimeSnapshot();
+      let battlePackage = this.campaignBattlePackage;
+      if (!battlePackage) {
+        const commitment = campaignState.commitCampaignEngagement({
+          engagementId: this.engagementContext.engagementId,
+          expectedRevision: this.campaignPlanningRevision ?? runtime?.revision ?? -1,
+          selections: Array.from(this.allocationCounts.entries()).flatMap(([allocationKey, quantity]) => {
+            const option = getAllocationOption(allocationKey);
+            return option && quantity > 0
+              ? [{ allocationKey, category: option.category, quantity, unitRpCost: option.costPerUnit }]
+              : [];
+          })
+        });
+        if (!commitment.ok) {
+          this.allocationFeedbackElement.textContent = `Commitment blocked: ${commitment.reason}`;
+          this.allocationFeedbackElement.classList.remove("feedback--ready");
+          this.allocationFeedbackElement.classList.add("feedback--warning");
+          this.proceedToBattleButton.disabled = false;
+          return;
+        }
+        battlePackage = commitment.package;
+        this.campaignBattlePackage = battlePackage;
+        this.campaignPlanningRevision = battlePackage.committedRevision;
+        // Any opportunity preview must now regenerate from the exact frozen package.
+        clearCampaignScenarioCache();
+      }
+      const bridge = this.battleState.getCampaignBridgeState();
+      if (bridge) {
+        this.battleState.setCampaignBridgeState({
+          ...bridge,
+          battlePackage: structuredClone(battlePackage)
+        });
+      }
+    }
+
+    const entries = this.toDeploymentEntries();
+    console.log("[PrecombatScreen] toDeploymentEntries built", entries.map((e) => ({ key: e.key, remaining: e.remaining })));
 
     const deploymentState = ensureDeploymentState();
     // Preserve the exact requisition snapshot before initialization so BattleScreen can seed the engine with the same payloads.
@@ -819,7 +882,9 @@ export class PrecombatScreen {
 
     this.screenManager.showScreenById("battle");
     if (this.allocationFeedbackElement) {
-      this.allocationFeedbackElement.textContent = "Deployment package locked in. Review the battle screen to finalize placements.";
+      this.allocationFeedbackElement.textContent = this.activeMissionKey === "campaign"
+        ? "Campaign formations locked. The battle package is integrity-checked and saved with this engagement."
+        : "Deployment package locked in. Review the battle screen to finalize placements.";
     }
   }
 
@@ -844,9 +909,43 @@ export class PrecombatScreen {
    * With an engagement context, combat formations are capped by the forces actually committed on
    * the campaign map; consumables/support stay purchasable from the RP reserve up to catalog max.
    */
+  private isPlayerDefensiveEngagement(): boolean {
+    return Boolean(
+      this.campaignBattlePackage
+      && this.engagementContext?.attacker === "Bot"
+      && this.engagementContext.defender === "Player"
+    );
+  }
+
+  private getPlayerDefensiveCommitmentCaps(): Record<string, number> {
+    const caps: Record<string, number> = {};
+    if (!this.isPlayerDefensiveEngagement()) return caps;
+    this.campaignBattlePackage!.formationCommitments
+      .filter((entry) => entry.faction === "Player" && entry.role === "defender")
+      .forEach((entry) => { caps[entry.allocationKey] = (caps[entry.allocationKey] ?? 0) + 1; });
+    return caps;
+  }
+
+  private getPlayerDefensiveCommitmentCap(allocationKey: string): number {
+    return this.getPlayerDefensiveCommitmentCaps()[allocationKey] ?? 0;
+  }
+
+  private seedCommittedDefenseAllocations(): void {
+    if (!this.isPlayerDefensiveEngagement()) return;
+    const caps = this.getPlayerDefensiveCommitmentCaps();
+    for (const key of this.allocationCounts.keys()) {
+      this.allocationCounts.set(key, caps[key] ?? 0);
+    }
+  }
+
   private getEffectiveMaxQuantity(option: UnitAllocationOption): number {
     if (!this.engagementContext) {
       return option.maxQuantity;
+    }
+    if (this.isPlayerDefensiveEngagement()) {
+      // Persistent campaign formations are already owned and committed; catalog purchase maxima
+      // cannot erase them from a mandatory defense.
+      return this.getPlayerDefensiveCommitmentCap(option.key);
     }
     if (RESERVE_PURCHASABLE_KEYS.includes(option.key)) {
       return option.maxQuantity;
@@ -865,12 +964,15 @@ export class PrecombatScreen {
       return 0;
     }
     let total = 0;
-    for (const [key, cap] of Object.entries(this.engagementContext.allocationCaps)) {
+    const caps = this.isPlayerDefensiveEngagement()
+      ? this.getPlayerDefensiveCommitmentCaps()
+      : this.engagementContext.allocationCaps;
+    for (const [key, cap] of Object.entries(caps)) {
       const option = getAllocationOption(key);
       if (!option || cap <= 0) {
         continue;
       }
-      total += Math.min(cap, option.maxQuantity) * option.costPerUnit;
+      total += (this.isPlayerDefensiveEngagement() ? cap : Math.min(cap, option.maxQuantity)) * option.costPerUnit;
     }
     return total;
   }
@@ -888,7 +990,8 @@ export class PrecombatScreen {
     if (this.engagementContext) {
       // Campaign engagement: budget = full value of committed forces + consumables reserve.
       // Committing everything is always affordable; the reserve is the real discretionary spend.
-      this.allocationBudget = this.calculateCommittedForceValue() + this.engagementContext.rpReserve;
+      this.allocationBudget = this.calculateCommittedForceValue()
+        + (this.isPlayerDefensiveEngagement() ? 0 : this.engagementContext.rpReserve);
     } else {
       this.allocationBudget = scenarioBudget ?? 10_000;
     }
@@ -909,6 +1012,7 @@ export class PrecombatScreen {
     this.allocationDirty = false;
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();
+    this.seedCommittedDefenseAllocations();
     this.updateBudgetDisplay();
   }
 
@@ -983,11 +1087,20 @@ export class PrecombatScreen {
         deploymentState.registerSprite(option.key, option.spriteUrl);
       }
 
+      const campaignUnits = this.engagementContext
+        ? ensureCampaignState().buildCampaignFormationBattleUnits(
+            this.engagementContext.engagementId,
+            option.key,
+            quantity
+          )
+        : [];
+
       entries.push({
         key,
         label: option.label,
         remaining: quantity,
-        sprite: option.spriteUrl
+        sprite: option.spriteUrl,
+        ...(campaignUnits.length > 0 ? { campaignUnits } : {})
       });
     }
     console.debug("[PrecombatScreen] toDeploymentEntries summary", entries.map((e) => ({ key: e.key, qty: e.remaining })));
@@ -1085,6 +1198,9 @@ export class PrecombatScreen {
   }
 
   private getMissionMinimumAllocationCount(optionKey: string): number {
+    if (this.isPlayerDefensiveEngagement()) {
+      return this.getPlayerDefensiveCommitmentCap(optionKey);
+    }
     if (optionKey === "supplyConvoy" && this.isUnitAllowedByScenario(optionKey)) {
       return 1;
     }
@@ -1131,7 +1247,9 @@ export class PrecombatScreen {
         // always purchase sustainment. The scenario's static requisition whitelist is bypassed —
         // it describes the placeholder map, not the situation on the campaign map.
         if (this.engagementContext) {
-          return RESERVE_PURCHASABLE_KEYS.includes(option.key) || this.getEffectiveMaxQuantity(option) > 0;
+          return this.isPlayerDefensiveEngagement()
+            ? this.getEffectiveMaxQuantity(option) > 0
+            : RESERVE_PURCHASABLE_KEYS.includes(option.key) || this.getEffectiveMaxQuantity(option) > 0;
         }
         if (!this.shouldApplyScenarioRestrictions(option)) {
           return true;
@@ -1629,7 +1747,7 @@ export class PrecombatScreen {
    * exact enemy counts — intel stays estimate-grade by design.
    */
   private renderEngagementContextBanner(): void {
-    const existing = this.budgetPanel.querySelector<HTMLElement>("#engagementContextBanner");
+    const existing = this.element.querySelector<HTMLElement>("#engagementContextBanner");
     if (!this.engagementContext) {
       existing?.remove();
       return;
@@ -1642,6 +1760,7 @@ export class PrecombatScreen {
       ? briefing.resistanceBand === "heavy" || briefing.resistanceBand === "overwhelming"
       : legacyRatio.outgunned;
     const assessmentLabel = briefing?.summary ?? legacyRatio.label;
+    const playerDefense = this.isPlayerDefensiveEngagement();
     const banner = existing ?? document.createElement("div");
     banner.id = "engagementContextBanner";
     banner.style.cssText = [
@@ -1650,19 +1769,35 @@ export class PrecombatScreen {
       "border-radius:8px",
       "line-height:1.45",
       "font-size:0.85rem",
+      "width:100%",
+      "box-sizing:border-box",
       assessedDanger
         ? "background:rgba(180,83,9,0.18);border:1px solid rgba(245,196,109,0.55);color:#f5c46d"
         : "background:rgba(34,80,44,0.22);border:1px solid rgba(134,196,144,0.45);color:#b9e0c0"
     ].join(";");
-    const committedGroups = context.availableForces.reduce((sum, group) => sum + group.count, 0);
-    banner.innerHTML = `
+    const committedGroups = playerDefense
+      ? Object.values(this.getPlayerDefensiveCommitmentCaps()).reduce((sum, count) => sum + count, 0)
+      : context.availableForces.reduce((sum, group) => sum + group.count, 0);
+    banner.innerHTML = playerDefense ? `
+      <strong style="display:block;letter-spacing:0.05em;text-transform:uppercase;">Enemy offensive · ${MISSION_TYPE_LABELS[context.missionType]} defense — hex ${context.battleHexKey}</strong>
+      <span style="display:block;">${committedGroups} friendly formation${committedGroups === 1 ? "" : "s"} caught in the battle · Exact defenders locked</span>
+      <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}">${assessmentLabel}</span>
+      ${briefing ? `<span style="display:block;opacity:0.88;">Intel confidence: ${briefing.confidenceBand} · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"} · Unknown: ${briefing.explicitUnknowns.join(", ") || "none reported"}</span>` : ""}
+      <span style="display:block;margin-top:0.3rem;font-weight:700;">Mandatory defense · Deploy your committed formations. Enemy exact strength remains concealed.</span>
+    ` : `
       <strong style="display:block;letter-spacing:0.05em;text-transform:uppercase;">${MISSION_TYPE_LABELS[context.missionType]} — hex ${context.battleHexKey}</strong>
       <span style="display:block;">${committedGroups} formation group${committedGroups === 1 ? "" : "s"} in position · ${context.airSorties} air sortie${context.airSorties === 1 ? "" : "s"} in range · ${context.rpReserve.toLocaleString()} RP consumables reserve</span>
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}">${assessmentLabel}</span>
       ${briefing ? `<span style="display:block;opacity:0.88;">Intel confidence: ${briefing.confidenceBand} · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"} · Unknown: ${briefing.explicitUnknowns.join(", ") || "none reported"}</span>` : ""}
+      <span style="display:block;margin-top:0.3rem;font-weight:700;">Planning package · Forces lock only when you choose Commit Forces &amp; Begin Battle.</span>
     `;
     if (!existing) {
-      this.budgetPanel.insertBefore(banner, this.budgetPanel.firstChild);
+      const header = this.element.querySelector<HTMLElement>(".precombat-header");
+      if (header) {
+        header.appendChild(banner);
+      } else if (this.budgetPanel.parentElement) {
+        this.budgetPanel.parentElement.insertBefore(banner, this.budgetPanel);
+      }
     }
   }
 
@@ -1671,6 +1806,7 @@ export class PrecombatScreen {
    * purchase the player only discovers after running dry in battle.
    */
   private seedRecommendedLogisticsAllocations(): void {
+    if (this.isPlayerDefensiveEngagement()) return;
     const convoyOption = getAllocationOption("supplyConvoy");
     if (!convoyOption || !this.isUnitAllowedByScenario(convoyOption.key)) {
       return;

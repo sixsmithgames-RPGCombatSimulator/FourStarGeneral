@@ -19,7 +19,33 @@ import {
   type SupportAssetSnapshot
 } from "../../game/GameEngine";
 import { GameEngineInitiativeMethods, type InitiativeBotActivationResult } from "../../game/GameEngineInitiativeIntegration";
+import {
+  CAMPAIGN_BATTLE_SAVE_PACKAGE_VERSION,
+  COMPLETE_BATTLE_SAVE_VERSION,
+  assertCompleteActiveCampaignBattleSave,
+  type ActiveCampaignBattleSave,
+  type TacticalSaveAvailability,
+  type TacticalUIResumeContext
+} from "../../game/battle/persistence/BattleSaveTypes";
+import {
+  TacticalSaveCoordinator,
+  buildTacticalTurnAutosaveSlotId,
+  type TacticalSaveCoordinatorSnapshot,
+  type TacticalSaveIntent
+} from "../../game/battle/persistence/TacticalSaveCoordinator";
+import type {
+  CampaignSaveQuarantineRecord,
+  CampaignSaveRecoveryCandidate,
+  CampaignSaveSlotIndexEntry
+} from "../../game/campaign/persistence/CampaignSaveTypes";
+import { createStableCampaignRecordId } from "../../game/campaign/runtime/CampaignCanonical";
+import { extractCampaignBattleResultPackage } from "../../game/campaign/results/CampaignBattleResultExtractor";
 import { EnhancedInitiativeTurnControls } from "../components/EnhancedInitiativeTurnControls";
+import {
+  TacticalSaveCenter,
+  type TacticalSaveCenterMode,
+  type TacticalSaveCenterModel
+} from "../components/TacticalSaveCenter";
 import type { CombatDamageSummary, CombatPreview, AttackResolution } from "../../game/GameEngine";
 import type {
   Axial,
@@ -83,7 +109,7 @@ import {
   type DeploymentState,
   type ReserveBlueprint
 } from "../../state/DeploymentState";
-import type { BattleAnimationMode, UIState } from "../../state/UIState";
+import type { BattleAnimationMode, MissionKey, UIState } from "../../state/UIState";
 import { type ScenarioSource } from "../../data/scenarioRegistry";
 import { resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
 import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
@@ -407,6 +433,9 @@ export class BattleScreen {
   private soundToggleButton: HTMLButtonElement | null = null;
   private animationToggleButton: HTMLButtonElement | null = null;
   private fullscreenToggleButton: HTMLButtonElement | null = null;
+  private battleSaveButton: HTMLButtonElement | null = null;
+  private battleLoadButton: HTMLButtonElement | null = null;
+  private battleSaveStatus: HTMLElement | null = null;
   private endTurnButton: HTMLButtonElement | null = null;
   private endMissionButton: HTMLButtonElement | null = null;
   private baseCampStatus: HTMLElement | null = null;
@@ -449,6 +478,27 @@ export class BattleScreen {
   private cameraFrozen: boolean = false;
   private soundEnabled = true;
   private battleAnimationMode: BattleAnimationMode = "regular";
+  private readonly tacticalSaveCoordinator: TacticalSaveCoordinator;
+  private tacticalSaveCoordinatorUnsubscribe: (() => void) | null = null;
+  private tacticalSaveCenter: TacticalSaveCenter | null = null;
+  private tacticalSaveSlots: readonly CampaignSaveSlotIndexEntry[] = [];
+  private tacticalSaveQuarantine: readonly CampaignSaveQuarantineRecord[] = [];
+  private tacticalSaveRecoveryCandidate: CampaignSaveRecoveryCandidate | null = null;
+  private tacticalSaveRecoveryMessage: string | null = null;
+  private tacticalSaveCenterBusy = false;
+  private tacticalSavePollTimerId: number | null = null;
+  private lastTacticalFocusElementId: string | null = null;
+  private readonly tacticalSessionStartedAt = Date.now();
+  private readonly tacticalDocumentVisibilityHandler = (): void => {
+    if (document.visibilityState === "hidden" && !this.element.classList.contains("hidden")) {
+      void this.requestBeforeExitTacticalAutosave();
+    }
+  };
+  private readonly tacticalSaveCenterOpenHandler = (event: Event): void => {
+    const invokerId = (event as CustomEvent<{ invokerId?: string | null }>).detail?.invokerId ?? null;
+    const invoker = invokerId ? document.getElementById(invokerId) : null;
+    void this.openTacticalSaveCenter("load", invoker);
+  };
   private readonly settingsDocumentPointerHandler = (event: Event): void => {
     const target = event.target instanceof Node ? event.target : null;
     if (!target || this.settingsMenu?.contains(target) || this.settingsToggleButton?.contains(target)) {
@@ -5511,6 +5561,10 @@ export class BattleScreen {
       })(),
       ...escortAnimations
     ]);
+
+    if (flakEvent) {
+      this.announceFlakEngagement(flakEvent);
+    }
   }
 
   private async playMissionAirInterceptEvent(
@@ -7589,6 +7643,10 @@ export class BattleScreen {
       }
       this.syncInitiativeTurnControlsState();
       this.syncQueuedTargetMarkers();
+      if (reason === "turnAdvanced") {
+        void this.requestTacticalTurnStartAutosave();
+      }
+      void this.tacticalSaveCoordinator.flush();
     });
   }
 
@@ -7640,6 +7698,10 @@ export class BattleScreen {
       throw new Error("Battle screen element (#battleScreen) not found in DOM");
     }
     this.element = battleScreen;
+    this.tacticalSaveCoordinator = new TacticalSaveCoordinator({
+      getAvailability: () => this.getCampaignTacticalSaveAvailability(),
+      persist: (intent) => this.persistTacticalSaveIntent(intent)
+    });
 
     // Wire Air Support preview events so the map can visualize combat radius while picking targets
     this.airPreviewListener = (ev: Event) => this.handleAirPreviewRange(ev as CustomEvent<{ origin: Axial; radius: number }>);
@@ -7681,6 +7743,7 @@ export class BattleScreen {
     this.applySoundPreference(this.soundEnabled);
     this.applyBattleAnimationMode(this.uiState?.battleAnimationMode ?? "regular");
     this.hydrateMissionBriefing();
+    this.initializeTacticalSaveUx();
     this.bindEvents();
 
     // Initialize child components so their DOM scaffolding is ready before map renders.
@@ -7716,11 +7779,516 @@ export class BattleScreen {
     }
     document.addEventListener("tutorial:airMissionQueued", this.tutorialAirMissionQueuedListener);
     this.syncTutorialPhaseWithCurrentContext(ensureTutorialState().getCurrentPhase());
+    document.addEventListener("visibilitychange", this.tacticalDocumentVisibilityHandler);
+    document.addEventListener("campaign:battle:saves-open", this.tacticalSaveCenterOpenHandler);
 
     document.addEventListener("screen:shown", this.screenShownHandler);
 
     // Keyboard navigation wiring.
     window.addEventListener("keydown", this.keyboardNavigationHandler);
+  }
+
+  /** Creates the Save Center and binds it to the serialized tactical-save coordinator exactly once. */
+  private initializeTacticalSaveUx(): void {
+    if (this.tacticalSaveCenter) return;
+    this.tacticalSaveCenter = new TacticalSaveCenter(document.body, {
+      saveNew: (label) => this.requestNewManualTacticalSave(label),
+      overwrite: (slotId) => this.requestOverwriteTacticalSave(slotId),
+      load: (slotId) => this.loadTacticalSaveSlot(slotId),
+      recover: () => this.recoverTacticalSaveCandidate(),
+      exportQuarantine: (quarantineId) => this.exportTacticalQuarantine(quarantineId)
+    }, this.buildTacticalSaveCenterModel("save"));
+    this.tacticalSaveCoordinatorUnsubscribe = this.tacticalSaveCoordinator.subscribe((snapshot) => {
+      this.handleTacticalSaveCoordinatorUpdate(snapshot);
+    });
+    void this.refreshTacticalSaveBrowserData();
+  }
+
+  private buildTacticalSaveCenterModel(mode: TacticalSaveCenterMode): TacticalSaveCenterModel {
+    const coordinator = this.tacticalSaveCoordinator.getSnapshot();
+    return {
+      mode,
+      slots: this.tacticalSaveSlots,
+      quarantine: this.tacticalSaveQuarantine,
+      availability: this.getCampaignTacticalSaveAvailability(),
+      coordinator,
+      recoveryMessage: this.tacticalSaveRecoveryMessage,
+      recoveryAvailable: this.tacticalSaveRecoveryCandidate !== null,
+      busy: this.tacticalSaveCenterBusy || coordinator.status === "saving"
+    };
+  }
+
+  private updateTacticalSaveCenter(mode?: TacticalSaveCenterMode): void {
+    if (!this.tacticalSaveCenter) return;
+    const currentMode = mode ?? (this.tacticalSaveCenter.isOpen() && this.element.querySelector("#tacticalSaveCenter")?.getAttribute("data-mode") === "load"
+      ? "load"
+      : "save");
+    this.tacticalSaveCenter.update(this.buildTacticalSaveCenterModel(currentMode));
+  }
+
+  private handleTacticalSaveCoordinatorUpdate(snapshot: TacticalSaveCoordinatorSnapshot): void {
+    if (this.battleSaveStatus) {
+      this.battleSaveStatus.textContent = snapshot.message;
+      this.battleSaveStatus.dataset.state = snapshot.status;
+    }
+    const hasQueuedRequest = Boolean(snapshot.queuedManual || snapshot.queuedAutosave);
+    if (hasQueuedRequest && this.tacticalSavePollTimerId === null) {
+      this.tacticalSavePollTimerId = window.setInterval(() => {
+        this.updateTacticalSaveCenter();
+        void this.tacticalSaveCoordinator.flush();
+      }, 250);
+    } else if (!hasQueuedRequest && this.tacticalSavePollTimerId !== null) {
+      window.clearInterval(this.tacticalSavePollTimerId);
+      this.tacticalSavePollTimerId = null;
+    }
+    this.updateTacticalSaveCenter();
+  }
+
+  private getCampaignTacticalSaveAvailability(): TacticalSaveAvailability {
+    const runtime = ensureCampaignState().getRuntimeSnapshot();
+    const bridge = this.battleState.getCampaignBridgeState();
+    if (!runtime || !runtime.activeEngagementId || !bridge) {
+      return {
+        stable: false,
+        boundary: null,
+        reason: "Tactical saves are available for campaign-linked battles. This operation has no active campaign engagement."
+      };
+    }
+    return this.getTacticalSaveAvailability();
+  }
+
+  private getTacticalSaveSlotPrefix(): string | null {
+    const runtime = ensureCampaignState().getRuntimeSnapshot();
+    return runtime ? `battle:${runtime.campaignId}:` : null;
+  }
+
+  private async openTacticalSaveCenter(mode: TacticalSaveCenterMode, invoker: HTMLElement | null): Promise<void> {
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : invoker;
+    if (active?.id && !active.closest("#tacticalSaveCenter")) {
+      this.lastTacticalFocusElementId = active.id;
+    }
+    this.tacticalSaveRecoveryCandidate = null;
+    this.tacticalSaveRecoveryMessage = null;
+    this.tacticalSaveCenter?.open(mode, invoker);
+    this.updateTacticalSaveCenter(mode);
+    await this.refreshTacticalSaveBrowserData(mode);
+  }
+
+  private async refreshTacticalSaveBrowserData(mode?: TacticalSaveCenterMode): Promise<void> {
+    const prefix = this.getTacticalSaveSlotPrefix();
+    if (!prefix) {
+      this.tacticalSaveSlots = [];
+      this.tacticalSaveQuarantine = [];
+      this.updateTacticalSaveCenter(mode);
+      return;
+    }
+    try {
+      const campaignState = ensureCampaignState();
+      const [slots, quarantine] = await Promise.all([
+        campaignState.listCampaignSaveSlots(),
+        campaignState.listCampaignSaveQuarantine()
+      ]);
+      this.tacticalSaveSlots = slots
+        .filter((slot) => slot.slotId.startsWith("battle:"))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      this.tacticalSaveQuarantine = quarantine
+        .filter((record) => record.slotId.startsWith("battle:"))
+        .sort((left, right) => right.quarantinedAt.localeCompare(left.quarantinedAt));
+    } catch (error) {
+      this.tacticalSaveRecoveryMessage = error instanceof Error
+        ? `Save storage could not be inspected: ${error.message}`
+        : "Save storage could not be inspected.";
+    }
+    this.updateTacticalSaveCenter(mode);
+  }
+
+  private buildTacticalPersistenceRequest(timestamp: string, label: string) {
+    return {
+      timestamp,
+      label,
+      playTimeSeconds: Math.max(0, Math.floor((Date.now() - this.tacticalSessionStartedAt) / 1000)),
+      difficulty: this.uiState?.selectedDifficulty ?? null,
+      commanderRosterLink: this.battleState.getAssignedCommanderId(),
+      uiResumeContext: {
+        workspace: "operations" as const,
+        selectedEntityId: this.selectedHexKey,
+        mapCenter: null,
+        mapZoom: this.mapViewport?.getTransform().zoom ?? null
+      }
+    };
+  }
+
+  private async persistTacticalSaveIntent(intent: TacticalSaveIntent): Promise<void> {
+    const availability = this.getCampaignTacticalSaveAvailability();
+    if (!availability.stable || !availability.boundary) {
+      throw new Error(availability.reason ?? "The tactical battle is not at a stable save boundary.");
+    }
+    const activeBattle = this.captureActiveCampaignBattle();
+    const timestamp = new Date().toISOString();
+    await ensureCampaignState().saveCampaignSlot({
+      ...this.buildTacticalPersistenceRequest(timestamp, intent.label),
+      slotId: intent.slotId,
+      slotType: intent.slotType,
+      thumbnailKey: `tactical:${activeBattle.engagementPackage.scenarioKey}:${activeBattle.engagementPackage.engagementId}:turn-${activeBattle.battle.boundary.turn}`
+    });
+    await this.refreshTacticalSaveBrowserData();
+    if (intent.trigger === "manual") {
+      this.announceBattleUpdate(`Tactical checkpoint saved as ${intent.label}.`);
+    }
+  }
+
+  private async requestNewManualTacticalSave(label: string): Promise<void> {
+    const runtime = ensureCampaignState().getRuntimeSnapshot();
+    const prefix = this.getTacticalSaveSlotPrefix();
+    if (!runtime?.activeEngagementId || !prefix || !this.battleState.getCampaignBridgeState()) {
+      this.tacticalSaveRecoveryMessage = this.getCampaignTacticalSaveAvailability().reason;
+      this.updateTacticalSaveCenter("save");
+      return;
+    }
+    const requestedAt = new Date().toISOString();
+    const slotId = `${prefix}manual:${createStableCampaignRecordId("slot", runtime.campaignId, label, requestedAt)}`;
+    await this.tacticalSaveCoordinator.requestManual({
+      trigger: "manual",
+      slotId,
+      label,
+      slotType: "manual",
+      requestedAt,
+      dedupeKey: null
+    });
+  }
+
+  private async requestOverwriteTacticalSave(slotId: string): Promise<void> {
+    if (!ensureCampaignState().getRuntimeSnapshot()?.activeEngagementId || !this.battleState.getCampaignBridgeState()) {
+      this.tacticalSaveRecoveryMessage = this.getCampaignTacticalSaveAvailability().reason;
+      this.updateTacticalSaveCenter("save");
+      return;
+    }
+    const slot = this.tacticalSaveSlots.find((candidate) => candidate.slotId === slotId && candidate.slotType === "manual");
+    if (!slot) {
+      this.tacticalSaveRecoveryMessage = "The selected manual checkpoint is no longer available.";
+      this.updateTacticalSaveCenter("save");
+      return;
+    }
+    await this.tacticalSaveCoordinator.requestManual({
+      trigger: "manual",
+      slotId: slot.slotId,
+      label: slot.label,
+      slotType: "manual",
+      requestedAt: new Date().toISOString(),
+      dedupeKey: null
+    });
+  }
+
+  private async loadTacticalSaveSlot(slotId: string): Promise<void> {
+    const slot = this.tacticalSaveSlots.find((candidate) => candidate.slotId === slotId);
+    if (!slot || this.tacticalSaveCenterBusy) return;
+    const coordinator = this.tacticalSaveCoordinator.getSnapshot();
+    if (coordinator.status === "saving" || coordinator.queuedManual || coordinator.queuedAutosave || coordinator.activeIntent) {
+      this.tacticalSaveRecoveryMessage = "Wait for the current queued save or autosave to finish before loading another checkpoint.";
+      this.updateTacticalSaveCenter("load");
+      return;
+    }
+    this.tacticalSaveCenterBusy = true;
+    this.tacticalSaveRecoveryCandidate = null;
+    this.tacticalSaveRecoveryMessage = null;
+    this.updateTacticalSaveCenter("load");
+    try {
+      const result = await ensureCampaignState().loadCampaignSlot(
+        slot.slotId,
+        this.buildTacticalPersistenceRequest(new Date().toISOString(), slot.label)
+      );
+      if (!result.ok) {
+        this.tacticalSaveRecoveryCandidate = result.recoveryCandidate;
+        this.tacticalSaveRecoveryMessage = result.recoveryCandidate
+          ? `${result.error.message} A verified earlier checkpoint is available and has not been applied.`
+          : result.error.message;
+        await this.refreshTacticalSaveBrowserData("load");
+        return;
+      }
+      const activeBattle = ensureCampaignState().getActiveBattleSave();
+      if (!activeBattle) throw new Error("The selected campaign checkpoint does not contain an active tactical battle.");
+      this.resumeActiveCampaignBattle(activeBattle);
+      this.screenManager.showScreenById("battle");
+      this.tacticalSaveCenter?.close();
+      this.announceBattleUpdate(`Tactical checkpoint ${slot.label} restored.`);
+    } catch (error) {
+      this.tacticalSaveRecoveryMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.tacticalSaveCenterBusy = false;
+      this.updateTacticalSaveCenter("load");
+    }
+  }
+
+  private async recoverTacticalSaveCandidate(): Promise<void> {
+    const candidate = this.tacticalSaveRecoveryCandidate;
+    if (!candidate || this.tacticalSaveCenterBusy) return;
+    this.tacticalSaveCenterBusy = true;
+    this.updateTacticalSaveCenter("load");
+    try {
+      ensureCampaignState().restoreCampaignRecovery(candidate);
+      const activeBattle = ensureCampaignState().getActiveBattleSave();
+      if (!activeBattle) throw new Error("The verified recovery checkpoint has no active tactical battle.");
+      this.resumeActiveCampaignBattle(activeBattle);
+      this.screenManager.showScreenById("battle");
+      this.tacticalSaveRecoveryCandidate = null;
+      this.tacticalSaveRecoveryMessage = null;
+      this.tacticalSaveCenter?.close();
+      this.announceBattleUpdate("Earlier verified tactical checkpoint recovered. The damaged record remains quarantined.");
+    } catch (error) {
+      this.tacticalSaveRecoveryMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.tacticalSaveCenterBusy = false;
+      this.updateTacticalSaveCenter("load");
+    }
+  }
+
+  private exportTacticalQuarantine(quarantineId: string): void {
+    const record = this.tacticalSaveQuarantine.find((candidate) => candidate.quarantineId === quarantineId);
+    if (!record) return;
+    const blob = new Blob([JSON.stringify(record, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `four-star-quarantine-${record.saveId}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  private async requestTacticalTurnStartAutosave(): Promise<void> {
+    const runtime = ensureCampaignState().getRuntimeSnapshot();
+    const prefix = this.getTacticalSaveSlotPrefix();
+    const engine = this.battleState.tryGetGameEngine();
+    if (!runtime?.activeEngagementId || !prefix || !engine
+      || !this.battleState.getCampaignBridgeState()
+      || engine.phase !== "playerTurn" || engine.activeFaction !== "Player") return;
+    const turn = engine.turnNumber;
+    await this.tacticalSaveCoordinator.requestAutosave({
+      trigger: "battle-turn-start",
+      slotId: buildTacticalTurnAutosaveSlotId(prefix, turn),
+      label: `Turn ${turn} start`,
+      slotType: "autosave",
+      requestedAt: new Date().toISOString(),
+      dedupeKey: `${runtime.campaignId}:${runtime.activeEngagementId}:turn-start:${turn}`
+    });
+  }
+
+  private async requestBeforeExitTacticalAutosave(): Promise<void> {
+    const runtime = ensureCampaignState().getRuntimeSnapshot();
+    const prefix = this.getTacticalSaveSlotPrefix();
+    const engine = this.battleState.tryGetGameEngine();
+    const availability = this.getCampaignTacticalSaveAvailability();
+    if (!runtime?.activeEngagementId || !prefix || !engine || !availability.stable) return;
+    const requestedAt = new Date().toISOString();
+    await this.tacticalSaveCoordinator.requestAutosave({
+      trigger: "battle-before-exit",
+      slotId: `${prefix}autosave:battle-before-exit`,
+      label: `Before exit · Turn ${engine.turnNumber}`,
+      slotType: "autosave",
+      requestedAt,
+      dedupeKey: `${runtime.campaignId}:${runtime.activeEngagementId}:before-exit:${requestedAt}`
+    });
+  }
+
+  /** Reports whether an exact tactical snapshot can be taken without capturing an in-flight transaction. */
+  getTacticalSaveAvailability(): TacticalSaveAvailability {
+    const engine = this.battleState.tryGetGameEngine();
+    if (!engine || !this.missionRulesController || !this.missionStatus) {
+      return { stable: false, boundary: null, reason: "Battle initialization is not complete." };
+    }
+    if (engine.phase === "completed") {
+      return { stable: false, boundary: null, reason: "The battle is complete and must reconcile with the campaign." };
+    }
+    if (this.cameraFrozen || this.activeAirShowPlaybackCaptureContext || this.deferMissionLogSync
+      || this.initiativeTurnAdvanceInProgress || this.attackConfirmationLocked) {
+      return { stable: false, boundary: null, reason: "A combat or animation transaction is still resolving." };
+    }
+    if (this.pendingAttack || this.pendingIdleTurnAdvance || this.missionEndModal) {
+      return { stable: false, boundary: null, reason: "Finish or cancel the open tactical decision first." };
+    }
+    if (engine.phase !== "deployment" && engine.activeFaction !== "Player") {
+      return { stable: false, boundary: null, reason: "Enemy or allied automation is still resolving." };
+    }
+
+    const initiativeActive = this.initiativeMethods?.isInitiativeSystemActive() === true;
+    const kind = engine.phase === "deployment"
+      ? "deploymentActionComplete" as const
+      : initiativeActive && this.initiativeMethods?.getCurrentActivation() === null
+        ? "activationBoundary" as const
+        : engine.phase === "playerTurn"
+          ? "playerDecision" as const
+          : "turnBoundary" as const;
+    return {
+      stable: true,
+      boundary: {
+        kind,
+        turn: engine.turnNumber,
+        phase: engine.phase,
+        activeFaction: engine.activeFaction
+      },
+      reason: null
+    };
+  }
+
+  /** Captures and attaches a complete, revision-bound battle save to the current campaign. */
+  captureActiveCampaignBattle(): ActiveCampaignBattleSave {
+    const availability = this.getTacticalSaveAvailability();
+    if (!availability.stable || !availability.boundary || !this.missionRulesController || !this.missionStatus) {
+      throw new Error(availability.reason ?? "The tactical save boundary is unavailable.");
+    }
+    const campaignState = ensureCampaignState();
+    const runtime = campaignState.getRuntimeSnapshot();
+    const engagementId = runtime?.activeEngagementId ?? null;
+    const bridge = this.battleState.getCampaignBridgeState();
+    const commitmentPackage = campaignState.getActiveCampaignBattlePackage();
+    if (!runtime || !engagementId || !bridge || !commitmentPackage) {
+      throw new Error("Campaign battle identity is incomplete; this battle cannot be attached to a campaign save.");
+    }
+    const committedBridge = bridge.battlePackage?.packageId === commitmentPackage.packageId
+      ? bridge
+      : { ...bridge, battlePackage: structuredClone(commitmentPackage) };
+    const battle = this.battleState.serializeComplete({
+      initiative: this.initiativeMethods?.serializeState() ?? null,
+      missionRules: this.missionRulesController.serializeState(),
+      missionStatus: this.missionStatus,
+      boundary: availability.boundary
+    });
+    const tacticalUI: TacticalUIResumeContext = {
+      selectedHexKey: this.selectedHexKey,
+      selectedPlayerUnitId: this.selectedPlayerUnitId,
+      intelOverlayExpanded: this.isBattleIntelOverlayExpanded(),
+      openPopup: this.popupManager.getActivePopup(),
+      activityLogCollapsed: this.battleActivityLog?.isCollapsed() ?? true,
+      viewport: this.mapViewport ? structuredClone(this.mapViewport.getTransform()) : null,
+      animationMode: this.battleAnimationMode,
+      accessibilitySettingsReference: "fsg-local-ui-v1",
+      focusedElementId: this.lastTacticalFocusElementId
+        ?? (document.activeElement instanceof HTMLElement && this.element.contains(document.activeElement)
+          ? document.activeElement.id || null
+          : null),
+      currentObjectiveIndex: this.currentObjectiveIndex,
+      activityEvents: structuredClone(this.activityEvents),
+      activityEventSequence: this.activityEventSequence,
+      seenAirReportIds: Array.from(this.seenAirReportIds),
+      initiativeGroupCursorUnitId: this.initiativeGroupCursorUnitId,
+      initiativeGroupSessionId: this.initiativeGroupSessionId,
+      initiativeSkippedUnitIds: Array.from(this.initiativeSkippedUnitIds)
+    };
+    const save: ActiveCampaignBattleSave = {
+      version: COMPLETE_BATTLE_SAVE_VERSION,
+      engagementPackage: {
+        packageVersion: CAMPAIGN_BATTLE_SAVE_PACKAGE_VERSION,
+        campaignId: runtime.campaignId,
+        campaignRevision: runtime.revision,
+        scenarioKey: runtime.scenarioKey,
+        engagementId,
+        commitmentPackageId: commitmentPackage.packageId,
+        commitmentIntegrityHash: commitmentPackage.integrityHash,
+        bridge: structuredClone(committedBridge)
+      },
+      battle,
+      tacticalUI
+    };
+    const validated = assertCompleteActiveCampaignBattleSave(save, {
+      campaignId: runtime.campaignId,
+      campaignRevision: runtime.revision,
+      scenarioKey: runtime.scenarioKey,
+      engagementId
+    });
+    campaignState.setActiveBattleSave(validated);
+    return validated;
+  }
+
+  /** Restores authoritative battle state first, then reconstructs derived tactical presentation. */
+  resumeActiveCampaignBattle(value: ActiveCampaignBattleSave): void {
+    const campaignState = ensureCampaignState();
+    const runtime = campaignState.getRuntimeSnapshot();
+    if (!runtime || !runtime.activeEngagementId) {
+      throw new Error("Cannot resume a tactical battle without its active campaign engagement.");
+    }
+    const save = assertCompleteActiveCampaignBattleSave(value, {
+      campaignId: runtime.campaignId,
+      campaignRevision: runtime.revision,
+      scenarioKey: runtime.scenarioKey,
+      engagementId: runtime.activeEngagementId
+    });
+
+    this.resetMissionDerivedUiState();
+    this.battleState.hydrateComplete(save.battle);
+    this.scenario = structuredClone(save.battle.engineConfig.scenario);
+    this.scenarioSource = structuredClone(save.battle.engineConfig.scenario) as unknown as ScenarioSource;
+    const missionKey = save.battle.precombatMission?.missionKey ?? this.uiState?.selectedMission ?? "training";
+    if (this.uiState) {
+      this.uiState.selectedMission = missionKey;
+      this.uiState.isFromCampaign = true;
+    }
+    this.missionRulesController = createMissionRulesController(
+      missionKey,
+      this.scenario,
+      this.uiState?.selectedDifficulty ?? "Normal"
+    );
+    this.missionRulesController.hydrateState(save.battle.missionRules);
+    this.missionStatus = structuredClone(save.battle.missionStatus);
+    this.lastMissionPhaseId = this.missionStatus.phase?.id ?? null;
+
+    this.teardownInitiativeSystemUi();
+    if (save.battle.initiative) {
+      this.initiativeMethods = new GameEngineInitiativeMethods(this.battleState.ensureGameEngine());
+      this.initiativeMethods.hydrateState(save.battle.initiative);
+      this.initiativeMethods.setBotActivationListener((event) => this.handleInitiativeBotActivation(event));
+      this.initiativeMethods.setSupportImpactListener(async () => {
+        this.syncQueuedTargetMarkers();
+        await this.triggerSupportImpacts();
+        this.syncQueuedTargetMarkers();
+      });
+      this.isInitiativeSystemEnabled = this.initiativeMethods.isInitiativeSystemActive();
+      this.ensureInitiativeUiSyncLoop();
+    }
+
+    const ui = save.tacticalUI;
+    this.selectedHexKey = null;
+    this.selectedPlayerUnitId = ui.selectedPlayerUnitId;
+    this.currentObjectiveIndex = ui.currentObjectiveIndex;
+    this.activityEvents.splice(0, this.activityEvents.length);
+    this.activityEvents.push(...structuredClone(ui.activityEvents));
+    this.activityEventSequence = ui.activityEventSequence;
+    this.seenAirReportIds = new Set(ui.seenAirReportIds);
+    this.initiativeGroupCursorUnitId = ui.initiativeGroupCursorUnitId;
+    this.initiativeGroupSessionId = ui.initiativeGroupSessionId;
+    this.initiativeSkippedUnitIds.clear();
+    ui.initiativeSkippedUnitIds.forEach((unitId) => this.initiativeSkippedUnitIds.add(unitId));
+    this.applyBattleAnimationMode(ui.animationMode);
+
+    this.activeMissionSessionKey = this.getMissionSessionKey();
+    this.initializeBattleMap();
+    this.initializeDeploymentMirrors();
+    this.syncTurnContext();
+    this.renderMissionStatus();
+    void this.requestTacticalTurnStartAutosave();
+    this.syncQueuedTargetMarkers();
+    this.battleActivityLog?.sync(this.activityEvents);
+    this.battleActivityLog?.setCollapsed(ui.activityLogCollapsed);
+    if (ui.viewport && this.mapViewport) {
+      this.mapViewport.setTransform(ui.viewport.zoom, ui.viewport.panX, ui.viewport.panY);
+    }
+    if (ui.selectedHexKey) {
+      this.applySelectedHex(ui.selectedHexKey, true);
+      this.selectedPlayerUnitId = ui.selectedPlayerUnitId;
+    }
+    if (ui.intelOverlayExpanded) this.expandBattleIntelOverlayIfCollapsed();
+    if (ui.openPopup) this.popupManager.openPopup(ui.openPopup);
+    this.highlightCurrentInitiativeGroup();
+    this.syncLegacyEndTurnButton();
+    this.lastTacticalFocusElementId = ui.focusedElementId;
+    if (ui.focusedElementId) {
+      window.requestAnimationFrame(() => {
+        const focusTarget = document.getElementById(ui.focusedElementId ?? "");
+        if (focusTarget instanceof HTMLElement && this.element.contains(focusTarget) && !focusTarget.hasAttribute("disabled")) {
+          focusTarget.focus();
+        }
+      });
+    }
   }
 
   /**
@@ -7734,6 +8302,8 @@ export class BattleScreen {
     }
     window.removeEventListener("keydown", this.keyboardNavigationHandler);
     document.removeEventListener("screen:shown", this.screenShownHandler);
+    document.removeEventListener("visibilitychange", this.tacticalDocumentVisibilityHandler);
+    document.removeEventListener("campaign:battle:saves-open", this.tacticalSaveCenterOpenHandler);
     document.removeEventListener("pointerdown", this.settingsDocumentPointerHandler);
     document.removeEventListener("keydown", this.settingsDocumentKeydownHandler);
     document.removeEventListener("fullscreenchange", this.fullscreenChangeHandler);
@@ -7793,6 +8363,9 @@ export class BattleScreen {
     this.soundToggleButton = this.element.querySelector("#battleSoundToggle");
     this.animationToggleButton = this.element.querySelector("#battleAnimationToggle");
     this.fullscreenToggleButton = this.element.querySelector("#battleFullscreenToggle");
+    this.battleSaveButton = this.element.querySelector("#battleSaveButton");
+    this.battleLoadButton = this.element.querySelector("#battleLoadButton");
+    this.battleSaveStatus = this.element.querySelector("#battleSaveStatus");
     this.endTurnButton = this.element.querySelector("#endTurn");
     this.endMissionButton = this.element.querySelector("#endMissionButton");
     this.baseCampStatus = this.element.querySelector("#baseCampStatus");
@@ -7891,6 +8464,12 @@ export class BattleScreen {
     this.animationToggleButton?.addEventListener("click", () => this.handleToggleBattleAnimationMode());
     this.fullscreenToggleButton?.addEventListener("click", () => {
       void this.handleToggleBattleFullscreen();
+    });
+    this.battleSaveButton?.addEventListener("click", () => {
+      void this.openTacticalSaveCenter("save", this.battleSaveButton);
+    });
+    this.battleLoadButton?.addEventListener("click", () => {
+      void this.openTacticalSaveCenter("load", this.battleLoadButton);
     });
     document.addEventListener("fullscreenchange", this.fullscreenChangeHandler);
     this.updateFullscreenToggleButton();
@@ -8295,6 +8874,7 @@ export class BattleScreen {
       );
 
       this.completeTutorialPhase("begin_battle");
+      void this.requestTacticalTurnStartAutosave();
 
       // Diagnostic logging for click handling
       setTimeout(() => {
@@ -8622,6 +9202,7 @@ export class BattleScreen {
     if (resolution.aborted) {
       return;
     }
+    let reportedCasualties = resolution.casualties;
 
     // Compute a coarse resource expenditure snapshot so the campaign economy reflects this battle.
     // We prefer supply history deltas when available; otherwise fall back to the most recent snapshot.
@@ -8651,6 +9232,7 @@ export class BattleScreen {
     // remove the resolved engagement. This keeps the feedback loop tight without breaking existing flows.
     const campaign = ensureCampaignState();
     let outcomeAppliedToCampaign = false;
+    let postBattleAutosaveError: string | null = null;
     if (!campaign.getScenario()) {
       console.error("[BattleScreen] mission end could not record campaign outcome", {
         missionKey: this.uiState?.selectedMission ?? "training",
@@ -8660,15 +9242,63 @@ export class BattleScreen {
     } else {
       try {
         const active = campaign.getActiveEngagement();
-        campaign.applyBattleOutcome({
-          activeEngagementId: campaign.getActiveEngagementId(),
-          frontKey: active?.frontKey ?? null,
-          result: resolution.success ? "PlayerVictory" : "PlayerDefeat",
-          casualties: resolution.casualties,
-          spentAmmo,
-          spentFuel
-        });
-        outcomeAppliedToCampaign = true;
+        const activeEngagementId = campaign.getActiveEngagementId();
+        const commitmentPackage = campaign.getActiveCampaignBattlePackage();
+        const engine = this.battleState.tryGetGameEngine();
+        const tacticalPlayerWon = resolution.success;
+        const campaignResult = commitmentPackage?.context.attacker === "Player"
+          ? (tacticalPlayerWon ? "attackerVictory" : "defenderVictory")
+          : (tacticalPlayerWon ? "defenderVictory" : "attackerVictory");
+        const application = commitmentPackage && engine
+          ? campaign.applyCampaignBattleResult(extractCampaignBattleResultPackage({
+              battlePackage: commitmentPackage,
+              tacticalState: engine.serialize(),
+              missionStatus: this.missionStatus,
+              result: campaignResult
+            }))
+          : campaign.applyBattleOutcome({
+              activeEngagementId,
+              frontKey: active?.frontKey ?? null,
+              result: resolution.success ? "PlayerVictory" : "PlayerDefeat",
+              casualties: resolution.casualties,
+              spentAmmo,
+              spentFuel,
+              resolutionId: createStableCampaignRecordId(
+                "battle-resolution",
+                activeEngagementId,
+                resolution.success ? "PlayerVictory" : "PlayerDefeat",
+                engine?.turnNumber ?? 0,
+                resolution.objectivesCompleted,
+                resolution.casualties,
+                spentAmmo,
+                spentFuel
+              )
+            });
+        if (commitmentPackage) {
+          const retained = campaign.getCampaignBattleResultPackage(commitmentPackage.engagementId);
+          const playerResources = retained?.resourcesConsumed.Player;
+          spentAmmo = playerResources?.ammo ?? spentAmmo;
+          spentFuel = playerResources?.fuel ?? spentFuel;
+          reportedCasualties = retained?.formationDeltas
+            .filter((delta) => delta.faction === "Player")
+            .reduce((sum, delta) => sum + Math.max(0, delta.personnelBefore - delta.personnelAfter), 0)
+            ?? reportedCasualties;
+        }
+        outcomeAppliedToCampaign = application.applied || application.duplicate;
+        if (application.applied && commitmentPackage) {
+          try {
+            await campaign.savePostBattleAutosave(
+              commitmentPackage.engagementId,
+              this.buildTacticalPersistenceRequest(new Date().toISOString(), "Post-battle checkpoint")
+            );
+          } catch (error) {
+            postBattleAutosaveError = error instanceof Error ? error.message : String(error);
+            console.error("[BattleScreen] post-battle autosave failed", {
+              engagementId: commitmentPackage.engagementId,
+              error
+            });
+          }
+        }
       } catch (err) {
         console.error("[BattleScreen] mission end failed to apply battle outcome to campaign layer", {
           missionKey: this.uiState?.selectedMission ?? "training",
@@ -8678,14 +9308,16 @@ export class BattleScreen {
       }
     }
     const objectiveLabel = resolution.objectivesCompleted === 1 ? "objective" : "objectives";
-    const casualtyLabel = resolution.casualties === 1 ? "casualty" : "casualties";
+    const casualtyLabel = reportedCasualties === 1 ? "casualty" : "casualties";
     campaign.setHeadquartersStatusMessage({
       title: resolution.headquartersTitle,
       detail: outcomeAppliedToCampaign
-        ? `${this.scenario.name} recorded ${resolution.objectivesCompleted} ${objectiveLabel}, ${resolution.casualties} ${casualtyLabel}, ${spentAmmo} ammo spent, and ${spentFuel} fuel spent. ${resolution.reason}`
+        ? `${this.scenario.name} recorded ${resolution.objectivesCompleted} ${objectiveLabel}, ${reportedCasualties} ${casualtyLabel}, ${spentAmmo} ammo spent, and ${spentFuel} fuel spent. ${resolution.reason}${postBattleAutosaveError ? " The recovery checkpoint could not be written." : " A post-battle recovery checkpoint was saved."}`
         : `${this.scenario.name} ended, but headquarters could not record the strategic outcome cleanly.`,
       action: outcomeAppliedToCampaign
-        ? resolution.headquartersAction
+        ? postBattleAutosaveError
+          ? `Review the after-action report, then make a manual campaign save. ${postBattleAutosaveError}`
+          : resolution.headquartersAction
         : "Review the campaign state immediately. If the front or resources did not update, reload before continuing.",
       tone: outcomeAppliedToCampaign && resolution.success ? "success" : "warning"
     });
@@ -10248,6 +10880,16 @@ export class BattleScreen {
     if (!activeGroup || activeGroup.ownerId !== "player") {
       return null;
     }
+    if (this.tacticalSaveCoordinatorUnsubscribe) {
+      this.tacticalSaveCoordinatorUnsubscribe();
+      this.tacticalSaveCoordinatorUnsubscribe = null;
+    }
+    if (this.tacticalSavePollTimerId !== null) {
+      window.clearInterval(this.tacticalSavePollTimerId);
+      this.tacticalSavePollTimerId = null;
+    }
+    this.tacticalSaveCenter?.dispose();
+    this.tacticalSaveCenter = null;
 
     return {
       initiative: activeGroup.initiative,
@@ -11521,7 +12163,29 @@ export class BattleScreen {
   }
 
   private getMissionSessionKey(): string {
-    return `${this.uiState?.selectedMission ?? "training"}:${this.uiState?.selectedDifficulty ?? "Normal"}:${this.scenario.name}`;
+    return `${this.resolveActiveMissionKey()}:${this.uiState?.selectedDifficulty ?? "Normal"}:${this.scenario.name}`;
+  }
+
+  /**
+   * Treats the mission frozen by precombat as authoritative at the tactical boundary. Campaign
+   * engagements do not pass through LandingScreen, and save/resume may reconstruct UI state after
+   * battle state, so relying on UIState alone can silently load the default training scenario.
+   */
+  private resolveActiveMissionKey(): MissionKey {
+    return this.battleState.getPrecombatMissionInfo?.()?.missionKey
+      ?? this.uiState?.selectedMission
+      ?? "training";
+  }
+
+  private synchronizeActiveMissionContext(): MissionKey {
+    const missionKey = this.resolveActiveMissionKey();
+    if (this.uiState && this.uiState.selectedMission !== missionKey) {
+      this.uiState.selectedMission = missionKey;
+    }
+    if (this.uiState && missionKey === "campaign") {
+      this.uiState.isFromCampaign = true;
+    }
+    return missionKey;
   }
 
   private handleScreenShown(event: Event): void {
@@ -11530,6 +12194,7 @@ export class BattleScreen {
       return;
     }
 
+    this.synchronizeActiveMissionContext();
     this.refreshScenario();
     const nextMissionSessionKey = this.getMissionSessionKey();
     const scenarioChanged = this.activeMissionSessionKey !== nextMissionSessionKey;
@@ -14324,7 +14989,7 @@ export class BattleScreen {
    * Normalizes the scenario JSON source into the strongly typed structure required by the engine.
    */
   private refreshScenario(): void {
-    const missionKey = this.uiState?.selectedMission ?? "training";
+    const missionKey = this.resolveActiveMissionKey();
     // Campaign engagements resolve through the battle generator so this screen consumes the same
     // generated (template + Bot roster) scenario object that precombat presented.
     this.scenarioSource = resolveScenarioForMission(missionKey);
@@ -14410,7 +15075,7 @@ export class BattleScreen {
   }
 
   private buildScenarioData(): ScenarioData {
-    const missionKey = this.uiState?.selectedMission ?? "training";
+    const missionKey = this.resolveActiveMissionKey();
     return normalizeScenarioSource(
       this.deepCloneValue(this.scenarioSource) as RawScenarioInput,
       { turnLimit: getMissionTurnLimit(missionKey, this.uiState?.selectedDifficulty ?? "Normal") }

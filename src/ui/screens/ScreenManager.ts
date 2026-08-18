@@ -37,13 +37,16 @@ export class ScreenManager implements IScreenManager {
     screen.classList.remove("hidden");
     screen.setAttribute("aria-hidden", "false");
 
-    // Retrigger animation by removing and re-adding the animation class
+    // Retrigger animation without forcing a synchronous layout of the newly revealed screen.
+    // The campaign map can contain a large SVG; reading offsetWidth here made entering the
+    // campaign block the browser main thread while it laid out the entire operational map.
     screen.classList.remove("screen-entering");
-    // Force reflow to restart animation
-    void screen.offsetWidth;
-    screen.classList.add("screen-entering");
-
     this.currentScreen = screen;
+    requestAnimationFrame(() => {
+      if (this.currentScreen === screen) {
+        screen.classList.add("screen-entering");
+      }
+    });
   }
 
   /**

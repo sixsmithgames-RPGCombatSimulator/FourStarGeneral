@@ -85,3 +85,56 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
     }
   });
 });
+
+registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_ON_SHARED_HEX_BORDERS", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario: CampaignScenarioData = {
+    key: "derived-front-render",
+    title: "Derived Front Render",
+    description: "Shared-border rendering certification.",
+    hexScaleKm: 5,
+    dimensions: { cols: 2, rows: 2 },
+    background: { imageUrl: "about:blank" },
+    tilePalette: { region: { role: "region", factionControl: "Neutral" } },
+    tiles: [],
+    fronts: [{
+      key: "derived-front",
+      label: "Derived Front",
+      hexKeys: ["0,0"],
+      edges: [{ friendlyHexKey: "0,0", opposingHexKey: "1,0" }],
+      initiative: "Player"
+    }],
+    objectives: [],
+    economies: []
+  };
+  const renderer = new CampaignMapRenderer();
+
+  await Given("a front defined by exact adjacent friendly and opposing hexes", () => {
+    renderer.render(svg, canvas as HTMLDivElement, {
+      observerFaction: "Player",
+      scenario,
+      enemyContacts: [],
+      coverage: [],
+      capacity: { total: 0, committed: 0, available: 0 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+  });
+
+  await When("the campaign renderer builds the front layer", () => {});
+
+  await Then("one non-interactive line marks the shared border rather than connecting tile centers", () => {
+    const edge = svg.querySelector<SVGLineElement>(".campaign-front-edge.front-derived-front");
+    if (!edge
+      || edge.getAttribute("data-front-edge") !== "0,0|1,0"
+      || edge.getAttribute("pointer-events") !== "none"
+      || !edge.hasAttribute("x1") || !edge.hasAttribute("y1")
+      || !edge.hasAttribute("x2") || !edge.hasAttribute("y2")
+      || svg.querySelector("polyline.front-derived-front")) {
+      throw new Error("The derived front did not render as one exact shared-border segment.");
+    }
+  });
+});

@@ -242,7 +242,12 @@ export function calculateAccuracy(request) {
     const fortificationCoverPct = defenderCtx.fortified
         ? resolveFortificationCoverBonusPct(attackerCtx.hex, defenderCtx.hex, defenderCtx.fortificationFacings ?? defenderCtx.fortificationFacing, attacker.unit.class)
         : 0;
-    const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, fortificationCoverPct, defenderCtx.class);
+    const entrenchmentLevel = defenderCtx.isRushing
+        ? 0
+        : clamp(defenderCtx.entrenchment ?? 0, 0, combatBalance.entrench.max);
+    const entrenchmentCoverPct = entrenchmentLevel * combatBalance.cover.entrenchmentPerLevelPct;
+    const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, fortificationCoverPct, defenderCtx.class)
+        + entrenchmentCoverPct;
     const terrainMultiplier = 1 + terrainMod / 100;
     const afterTerrain = afterDefenderExperience * terrainMultiplier;
     // Step 6: Apply spotted target penalty as multiplier

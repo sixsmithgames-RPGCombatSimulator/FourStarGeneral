@@ -32,8 +32,17 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
         economies: [{ faction: "Player", manpower: 0, supplies: 0, fuel: 0, ammo: 0, airPower: 0, navalPower: 0, intelCoverage: 0 }]
     };
     const renderer = new CampaignMapRenderer();
+    const viewModel = {
+        observerFaction: "Player",
+        scenario,
+        enemyContacts: [],
+        coverage: [],
+        capacity: { total: 2, committed: 0, available: 2 },
+        unreadReportCount: 0,
+        currentSegment: 0
+    };
     await Given("a minimal campaign scenario and DOM targets", async () => {
-        renderer.render(svg, canvas, scenario);
+        renderer.render(svg, canvas, viewModel);
     });
     await Then("background, hexes, sprites, and fronts are present", async () => {
         const bg = svg.querySelector("#campaign-map-background-image");

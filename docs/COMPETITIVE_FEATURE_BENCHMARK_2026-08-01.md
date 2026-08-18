@@ -4,6 +4,8 @@
 
 **Implementation update:** 2026-08-02 — campaign intelligence, counterintelligence, and operational fog core loop shipped
 
+**Delivery plan:** The Tier 0 campaign, save, formation, weather, AI, victory, and interface gaps are specified in [Campaign 2.0 — first-class game product and engineering plan](./CAMPAIGN_2_0_FIRST_CLASS_GAME_PLAN.md).
+
 **Repository:** `C:\FourStarGeneral` at commit `7fff732`
 
 **Scope:** Panzer Marshal, Panzer Corps 2, Order of Battle: World War II, Unity of Command II, Hex of Steel, and Four-Star General (FSG)

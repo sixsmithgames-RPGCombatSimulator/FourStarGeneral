@@ -11,12 +11,13 @@ import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints } from "./Te
 import { WreckFxRenderer, resolveWreckFxClass } from "./WreckFxRenderer";
 import { CombatSoundManager } from "../audio/CombatSoundManager";
 import { sampleAirShowWaypointPath } from "../ui/airshow/AirShowPathMath";
-import { AIR_SHOW_OFF_MAP_DISTANCE_PX, buildAirShowMapBounds, resolveAirShowBoundsRayIntersection, resolveAirShowHqAxis } from "../ui/airshow/AirShowPlanner";
+import { AIR_SHOW_OFF_MAP_DISTANCE_PX, buildAirShowPhaseTimingAudit, buildAirShowMapBounds, resolveAirShowBoundsRayIntersection, resolveAirShowHqAxis } from "../ui/airshow/AirShowPlanner";
+import { planAirShowTimeline } from "../ui/airshow/AirShowDirector";
+import { sampleAirShowTimelineTrack } from "../ui/airshow/AirShowTimeline";
 import { AIR_SHOW_BOMBER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS, AIR_SHOW_FIGHTER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS } from "../ui/airshow/AirShowPlaybackPolicy";
-import { planResolvedAirCombatShowScene } from "../ui/airshow/AirShowPlaybackPlanner";
 import { resolveResolvedAirShowBombers } from "../ui/airshow/AirShowPlaybackScene";
 import { beginAirShowRuntimeTrace, completeAirShowRuntimeTrace, recordAirShowRuntimeTraceEvent } from "../ui/airshow/AirShowRuntimeTrace";
-import { logAirShowPackageStart, logAirShowBeatStart, logAirShowOwnershipAssert, logAirShowPackageEnd, debugAirShowPhase, debugAirShowEffect, debugAirShowActor } from "../ui/airshow/AirShowLogger";
+import { logAirShowPackageStart, logAirShowOwnershipAssert, logAirShowPackageEnd, debugAirShowPhase, debugAirShowEffect, debugAirShowActor } from "../ui/airshow/AirShowLogger";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitSystem/derivedUnitTypes";
 import { axialDirections, hexLine } from "../core/Hex";
@@ -717,83 +718,218 @@ export class HexMapRenderer {
     inspectResolvedAirCombatShow(scene) {
         return this.planResolvedAirCombatShow(scene);
     }
-    planResolvedAirCombatShow(scene) {
+    planResolvedAirCombatTimeline(scene) {
         if (!this.svgElement) {
             return null;
         }
-        return planResolvedAirCombatShowScene(this.createResolvedAirCombatShowPlannerHost(), scene);
+        const mapBounds = this.resolveAirShowMapBounds();
+        if (!mapBounds) {
+            return null;
+        }
+        const fallbackCenter = {
+            cx: (mapBounds.minX + mapBounds.maxX) * 0.5,
+            cy: (mapBounds.minY + mapBounds.maxY) * 0.5
+        };
+        const engagement = this.resolveHexCenterByKey(scene.hexKey) ?? fallbackCenter;
+        const targetHexKey = scene.bomberTargetHexKey
+            ?? resolveResolvedAirShowBombers(scene)[0]?.targetHexKey
+            ?? null;
+        const timeline = planAirShowTimeline({
+            scene,
+            mapBounds,
+            playerHq: this.resolveHexCenterByKey(scene.playerHqKey),
+            botHq: this.resolveHexCenterByKey(scene.botHqKey),
+            engagement,
+            target: this.resolveHexCenterByKey(targetHexKey) ?? engagement,
+            hexWidth: HEX_WIDTH,
+            hexHeight: HEX_HEIGHT
+        });
+        if (!timeline.verification.valid) {
+            const details = timeline.verification.findings
+                .map((finding) => `[${finding.code}] ${finding.message}`)
+                .join("\n");
+            throw new Error(`Air show timeline verification failed for ${scene.hexKey}:\n${details}`);
+        }
+        return timeline;
     }
-    createResolvedAirCombatShowPlannerHost() {
-        const bind = (fn) => fn.bind(this);
+    sampleTimelineTrackForBeat(track, beat, sampleCount = 16) {
+        const durationMs = Math.max(1, beat.endTimeMs - beat.startTimeMs);
+        return Array.from({ length: Math.max(2, sampleCount) + 1 }, (_, index) => {
+            const progress = index / Math.max(2, sampleCount);
+            const absoluteTimeMs = beat.startTimeMs + durationMs * progress;
+            const sample = sampleAirShowTimelineTrack(track, absoluteTimeMs);
+            return {
+                timeMs: durationMs * progress,
+                progress,
+                pathProgress: sample?.segmentProgress ?? progress,
+                cx: sample?.point.cx ?? 0,
+                cy: sample?.point.cy ?? 0,
+                headingDegrees: sample?.headingDegrees ?? 0
+            };
+        });
+    }
+    describeAirShowTimeline(timeline) {
+        const actorsById = new Map(timeline.actors.map((actor) => [actor.actorId, actor]));
+        const tracksByActorId = new Map(timeline.tracks.map((track) => [track.actorId, track]));
+        const flights = timeline.flights.map((flight) => ({
+            id: flight.id,
+            role: flight.role,
+            combatRole: flight.combatRole,
+            faction: flight.faction,
+            scenarioType: flight.scenarioType,
+            originHexKey: flight.originHexKey,
+            strengthBefore: flight.strengthBefore,
+            strengthAfterEscortPhase: flight.strengthAfterEscortPhase,
+            finalStrength: flight.finalStrength,
+            laneOffsetPx: flight.laneOffsetPx,
+            actors: flight.actorIds.flatMap((actorId) => {
+                const actor = actorsById.get(actorId);
+                const track = tracksByActorId.get(actorId);
+                const sample = track ? sampleAirShowTimelineTrack(track, track.visibleFromMs) : null;
+                if (!actor || !track || !sample) {
+                    return [];
+                }
+                return [{
+                        actorId,
+                        flightId: flight.id,
+                        role: flight.role,
+                        active: true,
+                        headingDegrees: sample.headingDegrees,
+                        position: sample.point,
+                        size: actor.size,
+                        formationIndex: actor.formationIndex,
+                        biasX: 0,
+                        biasY: 0
+                    }];
+            })
+        }));
+        const phases = timeline.beats.map((beat) => {
+            const durationMs = Math.max(1, beat.endTimeMs - beat.startTimeMs);
+            const phaseTracks = timeline.tracks.filter((track) => track.segments.some((segment) => segment.label === beat.label));
+            const assignments = phaseTracks.map((track) => {
+                const segments = track.segments.filter((segment) => segment.label === beat.label);
+                const points = segments.flatMap((segment, segmentIndex) => segmentIndex === 0 ? [...segment.points] : segment.points.slice(1));
+                return {
+                    actorId: track.actorId,
+                    flightId: track.flightId,
+                    role: track.role,
+                    points,
+                    sampledPositions: this.sampleTimelineTrackForBeat(track, beat)
+                };
+            });
+            const tracerCues = timeline.cues.filter((cue) => cue.kind === "tracer" && cue.timeMs >= beat.startTimeMs && cue.timeMs <= beat.endTimeMs);
+            const tracers = tracerCues.flatMap((cue) => {
+                if (cue.kind !== "tracer") {
+                    return [];
+                }
+                const sourceTrack = tracksByActorId.get(cue.sourceActorId);
+                const targetTrack = tracksByActorId.get(cue.targetActorId);
+                const source = sourceTrack ? sampleAirShowTimelineTrack(sourceTrack, cue.timeMs) : null;
+                const target = targetTrack ? sampleAirShowTimelineTrack(targetTrack, cue.timeMs) : null;
+                if (!source || !target) {
+                    return [];
+                }
+                return [{
+                        progress: this.clamp((cue.timeMs - beat.startTimeMs) / durationMs, 0, 1),
+                        sourceActorId: cue.sourceActorId,
+                        targetActorId: cue.targetActorId,
+                        emitter: cue.emitter,
+                        emitterPoint: source.point,
+                        sourceHeadingDegrees: source.headingDegrees,
+                        width: cue.width,
+                        lifetimeMs: cue.lifetimeMs,
+                        streakLengthPx: Math.hypot(target.point.cx - source.point.cx, target.point.cy - source.point.cy),
+                        visibleLengthPx: cue.visibleLengthPx,
+                        fanHalfAngleDeg: 0,
+                        centerlineEndPoint: target.point,
+                        color: cue.color,
+                        burstCount: 1,
+                        spreadPx: 0
+                    }];
+            });
+            const flakBursts = timeline.cues.flatMap((cue) => {
+                if (cue.kind !== "flak" || cue.timeMs < beat.startTimeMs || cue.timeMs > beat.endTimeMs) {
+                    return [];
+                }
+                const bomberTrack = tracksByActorId.get(cue.bomberActorId);
+                const bomberSample = bomberTrack ? sampleAirShowTimelineTrack(bomberTrack, cue.timeMs) : null;
+                return [{
+                        progress: this.clamp((cue.timeMs - beat.startTimeMs) / durationMs, 0, 1),
+                        bomberUnitKey: actorsById.get(cue.bomberActorId)?.flightId ?? cue.bomberActorId,
+                        targetHexKey: null,
+                        batteryHexKey: cue.batteryHexKey,
+                        sampledBomberCenter: bomberSample?.point,
+                        rangeReferenceCenter: timeline.geometry.target,
+                        targetCenter: bomberSample?.point ?? timeline.geometry.target,
+                        targetSource: "bomberPath",
+                        burstCenter: cue.point,
+                        flashCount: 1,
+                        puffCount: 1,
+                        smokePuffCount: 2,
+                        scale: cue.scale,
+                        smokeScale: cue.smokeScale,
+                        widthPx: 0,
+                        heightPx: 0,
+                        points: [cue.point]
+                    }];
+            });
+            return {
+                label: beat.label,
+                startTimeMs: beat.startTimeMs,
+                endTimeMs: beat.endTimeMs,
+                durationMs,
+                visibleActorIds: timeline.tracks
+                    .filter((track) => track.visibleFromMs <= beat.endTimeMs && track.visibleUntilMs >= beat.startTimeMs)
+                    .map((track) => track.actorId),
+                assignments,
+                tracers,
+                flakBursts
+            };
+        });
+        const roleSpeeds = new Map([
+            ["interceptor", AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS],
+            ["escort", AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS],
+            ["bomber", AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS]
+        ]);
+        const phaseTimingAudit = timeline.beats.map((beat) => {
+            const durationMs = Math.max(1, beat.endTimeMs - beat.startTimeMs);
+            return buildAirShowPhaseTimingAudit(beat.label, durationMs, timeline.tracks.flatMap((track) => {
+                const segments = track.segments.filter((segment) => segment.label === beat.label);
+                if (segments.length === 0) {
+                    return [];
+                }
+                return [{
+                        role: track.role,
+                        pathLengthPx: segments.reduce((sum, segment) => sum + segment.lengthPx, 0),
+                        activeDurationMs: segments.reduce((sum, segment) => sum + segment.endTimeMs - segment.startTimeMs, 0)
+                    }];
+            }), roleSpeeds);
+        });
         return {
-            offMapDistancePx: HexMapRenderer.OFF_MAP_DISTANCE_PX,
-            airShowFighterSpeedPxPerMs: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            airShowBomberSpeedPxPerMs: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
-            resolveHexCenterByKey: bind(this.resolveHexCenterByKey),
-            resolveHqAxis: bind(this.resolveHqAxis),
-            resolveAirShowMapBounds: bind(this.resolveAirShowMapBounds),
-            resolveAircraftHeadingDegrees: bind(this.resolveAircraftHeadingDegrees),
-            buildAirShowPlannedFlight: bind(this.buildAirShowPlannedFlight),
-            resolveSceneBomberSpecs: bind(this.resolveSceneBomberSpecs),
-            seedFromHexKey: bind(this.seedFromHexKey),
-            seededRandom: bind(this.seededRandom),
-            resolveAirShowBomberTargetCenter: bind(this.resolveAirShowBomberTargetCenter),
-            averageAirShowPoints: bind(this.averageAirShowPoints),
-            averageAirShowPosition: bind(this.averageAirShowPosition),
-            resolveAirShowCorridor: bind(this.resolveAirShowCorridor),
-            normalizeAirShowSceneFlightAnchors: bind(this.normalizeAirShowSceneFlightAnchors),
-            resolveAirShowBomberApproachProfiles: bind(this.resolveAirShowBomberApproachProfiles),
-            clamp: bind(this.clamp),
-            projectAirShowCorridorPoint: bind(this.projectAirShowCorridorPoint),
-            buildAirShowAssignmentLookup: bind(this.buildAirShowAssignmentLookup),
-            sampleAirShowAssignmentAtTime: bind(this.sampleAirShowAssignmentAtTime),
-            shouldRenderAirShowTracerBurst: bind(this.shouldRenderAirShowTracerBurst),
-            resolveAirShowTracerBurstGeometry: bind(this.resolveAirShowTracerBurstGeometry),
-            resolveAirShowFlakBurstWave: bind(this.resolveAirShowFlakBurstWave),
-            resolveAirShowAssignmentTraversedPathLengthPx: bind(this.resolveAirShowAssignmentTraversedPathLengthPx),
-            resolveAirShowAssignmentActiveDurationMs: bind(this.resolveAirShowAssignmentActiveDurationMs),
-            applyPlannedAirShowAssignments: bind(this.applyPlannedAirShowAssignments),
-            resolveAirShowContestedBomberPhaseDurations: bind(this.resolveAirShowContestedBomberPhaseDurations),
-            buildContestedBomberMasterPaths: bind(this.buildContestedBomberMasterPaths),
-            buildContestedBomberPhaseSliceAssignments: bind(this.buildContestedBomberPhaseSliceAssignments),
-            extendAirShowPhaseAssignmentsForSpeed: bind(this.extendAirShowPhaseAssignmentsForSpeed),
-            prepareAirShowPhaseAssignments: bind(this.prepareAirShowPhaseAssignments),
-            resolveAirShowEscortClashCenter: bind(this.resolveAirShowEscortClashCenter),
-            resolveAirShowEscortClashFocusPoint: bind(this.resolveAirShowEscortClashFocusPoint),
-            buildAirShowMergePassPath: bind(this.buildAirShowMergePassPath),
-            buildAirShowPursuitPath: bind(this.buildAirShowPursuitPath),
-            buildAirShowFlightAssignments: bind(this.buildAirShowFlightAssignments),
-            buildAirShowDynamicTracerVolley: bind(this.buildAirShowDynamicTracerVolley),
-            buildAirShowTracerVolley: bind(this.buildAirShowTracerVolley),
-            buildAirShowBandAssignments: bind(this.buildAirShowBandAssignments),
-            buildAirShowBreakTurnPath: bind(this.buildAirShowBreakTurnPath),
-            shapeCompactAirShowMergeAssignments: bind(this.shapeCompactAirShowMergeAssignments),
-            syncAirShowFlightStrengthForInspection: bind(this.syncAirShowFlightStrengthForInspection),
-            resolveAirShowBomberDefensePassAttackEntries: bind(this.resolveAirShowBomberDefensePassAttackEntries),
-            buildAirShowBomberDefensePassTracerBursts: bind(this.buildAirShowBomberDefensePassTracerBursts),
-            buildAirShowTargetRunEscortPath: bind(this.buildAirShowTargetRunEscortPath),
-            resolveAirShowBomberFlakBursts: bind(this.resolveAirShowBomberFlakBursts),
-            resolveAirShowRoleSpeedMap: bind(this.resolveAirShowRoleSpeedMap),
-            resolveAirShowPhaseDurationFromRoleSpeeds: bind(this.resolveAirShowPhaseDurationFromRoleSpeeds),
-            finalizeAirShowPhaseAssignments: bind(this.finalizeAirShowPhaseAssignments),
-            collectAirShowFlightTailHeadings: bind(this.collectAirShowFlightTailHeadings),
-            resolveAirShowVisibleBounds: bind(this.resolveAirShowVisibleBounds),
-            resolveAirShowCorridorCoordinates: bind(this.resolveAirShowCorridorCoordinates),
-            offsetAirShowPoint: bind(this.offsetAirShowPoint),
-            resolveAirShowFlightHeadingDegrees: bind(this.resolveAirShowFlightHeadingDegrees),
-            buildAirShowDisengagePath: bind(this.buildAirShowDisengagePath),
-            resolveAirShowRouteSideSign: bind(this.resolveAirShowRouteSideSign),
-            buildAirShowBomberInterceptPassPath: bind(this.buildAirShowBomberInterceptPassPath),
-            buildAirShowBomberTargetRunPath: bind(this.buildAirShowBomberTargetRunPath),
-            buildAirShowCurvedPath: bind(this.buildAirShowCurvedPath),
-            buildAirShowScreenRunPath: bind(this.buildAirShowScreenRunPath),
-            resolveAirShowBomberPassEntries: bind(this.resolveAirShowBomberPassEntries),
-            resolveAirShowCorridorSideSign: bind(this.resolveAirShowCorridorSideSign),
-            sanitizeAirShowEntryPath: bind(this.sanitizeAirShowEntryPath)
+            timelineVersion: 2,
+            timelineScenario: timeline.scenario,
+            timelineTotalDurationMs: timeline.totalDurationMs,
+            timelineFindings: timeline.verification.findings,
+            hexKey: timeline.sceneId,
+            center: timeline.geometry.engagement,
+            corridor: {
+                center: timeline.geometry.engagement,
+                entry: timeline.geometry.attackOrigin,
+                merge: timeline.geometry.merge,
+                strike: timeline.geometry.target,
+                exit: timeline.geometry.defenseOrigin
+            },
+            hqMidX: (timeline.geometry.playerHq.cx + timeline.geometry.botHq.cx) * 0.5,
+            bomberTarget: timeline.geometry.target,
+            originPlan: timeline.originPlan,
+            phaseTimingAudit,
+            flights,
+            phases
         };
     }
-    applyPlannedAirShowAssignments(assignments, durationMs) {
-        this.applyInspectionAirShowAssignments(assignments, durationMs);
+    planResolvedAirCombatShow(scene) {
+        const timeline = this.planResolvedAirCombatTimeline(scene);
+        return timeline ? this.describeAirShowTimeline(timeline) : null;
     }
     describePlannedAirShowFlight(flight) {
         return {
@@ -821,171 +957,173 @@ export class HexMapRenderer {
             }))
         };
     }
-    buildAirShowAssignmentsFromPlannedPhase(phase, actorsById) {
-        const assignments = [];
-        phase.assignments.forEach((plannedAssignment) => {
-            const actor = actorsById.get(plannedAssignment.actorId);
-            if (!actor) {
+    playAirShowTimelineCue(cue, actorsById, callbacks) {
+        if (cue.kind === "tracer") {
+            const source = actorsById.get(cue.sourceActorId);
+            const target = actorsById.get(cue.targetActorId);
+            if (!source || !target || !source.active || !target.active) {
                 return;
             }
-            const plannedPoints = plannedAssignment.points.map((point) => ({ cx: point.cx, cy: point.cy }));
-            const points = plannedPoints.length >= 2
-                ? plannedPoints
-                : [
-                    { cx: actor.position.cx, cy: actor.position.cy },
-                    { cx: actor.position.cx, cy: actor.position.cy }
-                ];
-            const progressTimeline = plannedAssignment.progressTimeline && plannedAssignment.progressTimeline.length >= 2
-                ? plannedAssignment.progressTimeline.map((keyframe) => ({
-                    timeMs: keyframe.timeMs,
-                    progress: keyframe.progress
-                }))
-                : undefined;
-            assignments.push({
-                actor,
-                points,
-                headingBlend: plannedAssignment.headingBlend ?? 1,
-                multiFlightOffsetPx: plannedAssignment.multiFlightOffsetPx,
-                progressOffset: plannedAssignment.progressOffset,
-                distanceBudgetPx: plannedAssignment.distanceBudgetPx,
-                progressTimeline
-            });
-        });
-        return assignments;
-    }
-    buildAirShowTracerBurstsFromPlannedPhase(phase, actorsById) {
-        const bursts = [];
-        phase.tracers.forEach((plannedTracer) => {
-            const source = actorsById.get(plannedTracer.sourceActorId);
-            if (!source) {
-                return;
-            }
-            const actorTarget = plannedTracer.targetActorId
-                ? actorsById.get(plannedTracer.targetActorId) ?? null
-                : null;
-            const pointTarget = plannedTracer.targetPoint
-                ? { cx: plannedTracer.targetPoint.cx, cy: plannedTracer.targetPoint.cy }
-                : null;
-            const target = actorTarget ?? pointTarget;
-            if (!target) {
-                return;
-            }
-            bursts.push({
-                progress: plannedTracer.progress,
+            this.playAirShowTracerBurst({
+                progress: 0,
                 source,
                 target,
-                emitter: plannedTracer.emitter,
-                color: plannedTracer.color,
-                width: plannedTracer.width,
-                lifetimeMs: plannedTracer.lifetimeMs,
-                streakLengthPx: plannedTracer.streakLengthPx,
-                visibleLengthPx: plannedTracer.visibleLengthPx,
-                fanHalfAngleDeg: plannedTracer.fanHalfAngleDeg,
-                burstCount: plannedTracer.burstCount ?? 1,
-                spreadPx: plannedTracer.spreadPx ?? 0
+                emitter: cue.emitter,
+                color: cue.color,
+                width: cue.width,
+                lifetimeMs: cue.lifetimeMs,
+                streakLengthPx: Math.hypot(target.position.cx - source.position.cx, target.position.cy - source.position.cy),
+                visibleLengthPx: cue.visibleLengthPx,
+                fanHalfAngleDeg: 0,
+                burstCount: 1,
+                spreadPx: 0
             });
-        });
-        return bursts;
-    }
-    schedulePlannedAirShowPhaseEffects(phase, scene) {
-        const handles = [];
-        phase.flakBursts.forEach((burst) => {
-            handles.push(window.setTimeout(() => {
-                this.playAirShowFlakWave({
-                    points: burst.points.map((point) => ({ cx: point.cx, cy: point.cy })),
-                    flashCount: burst.flashCount,
-                    puffCount: burst.puffCount,
-                    smokePuffCount: burst.smokePuffCount
-                }, burst.scale ?? 1.08, burst.smokeScale ?? 0.94);
-            }, Math.max(0, Math.round(phase.durationMs * this.clamp(burst.progress, 0, 1)))));
-        });
-        if (phase.label === "target-run") {
-            const targetHexKey = scene.bomberTargetHexKey ?? scene.bomber?.targetHexKey ?? null;
-            if (targetHexKey) {
-                const progress = this.clamp(scene.bombReleaseProgress ?? 0.5, 0, 0.98);
-                handles.push(window.setTimeout(() => {
-                    void this.playExplosion(targetHexKey, true);
-                    void this.playDustCloud(targetHexKey);
-                }, Math.max(0, Math.round(phase.durationMs * progress))));
-            }
-        }
-        return () => handles.forEach((handle) => window.clearTimeout(handle));
-    }
-    async animatePlannedResolvedAirCombatShow(scene) {
-        if (!this.svgElement) {
             return;
         }
+        if (cue.kind === "flak") {
+            this.playAirShowFlakWave({
+                points: [cue.point],
+                flashCount: 1,
+                puffCount: 1,
+                smokePuffCount: 2,
+                smokeLingerMs: cue.lingerMs
+            }, cue.scale, cue.smokeScale);
+            return;
+        }
+        if (cue.kind === "impact") {
+            if (cue.targetHexKey && callbacks.playImpactEffects !== false) {
+                void this.playExplosion(cue.targetHexKey, true);
+                void this.playDustCloud(cue.targetHexKey);
+            }
+            if (callbacks.onImpact) {
+                void Promise.resolve(callbacks.onImpact());
+            }
+            return;
+        }
+        if (cue.kind === "bomb-release") {
+            const bomber = actorsById.get(cue.bomberActorId);
+            bomber?.image.setAttribute("data-airshow-bomb-released", "true");
+            return;
+        }
+        const actor = actorsById.get(cue.actorId);
+        if (actor) {
+            actor.image.setAttribute("data-airshow-destroyed", "true");
+            void this.playAirDamageSmokeTrailAt(actor.position.cx, actor.position.cy, 0.78);
+        }
+    }
+    async animateAirShowTimeline(scene, timeline, callbacks) {
         const layer = this.ensureCombatEffectsLayer();
         if (!layer) {
             return;
         }
-        const plannedScene = this.planResolvedAirCombatShow(scene);
-        if (!plannedScene) {
-            return;
-        }
-        const packageId = `ascene-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const roles = plannedScene.flights.map((flight) => flight.role);
-        logAirShowPackageStart(packageId, "ResolvedAirCombat", "HexMapRenderer", plannedScene.flights.map((flight) => flight.id), roles, scene.hexKey);
-        logAirShowOwnershipAssert(packageId, "HexMapRenderer", null);
-        this.activeAirShowRuntimeTrace = beginAirShowRuntimeTrace(scene, plannedScene);
+        const plannedScene = this.describeAirShowTimeline(timeline);
         const runtimeFlights = plannedScene.flights
             .map((flight) => this.buildAirShowRuntimeFlightFromPlan(layer, flight))
             .filter((flight) => !!flight);
         const sceneActors = runtimeFlights.flatMap((flight) => flight.actors);
         const actorsById = new Map(sceneActors.map((actor) => [actor.id, actor]));
-        let runtimeTraceStatus = "success";
-        let runtimeTraceError = null;
-        runtimeFlights.forEach((flight) => {
-            this.recordAirShowRuntimeTrace({
-                kind: "runtime-flight-built",
-                flightId: flight.spec.id,
-                role: flight.spec.role,
-                combatRole: flight.spec.combatRole ?? flight.spec.role,
-                faction: flight.spec.faction ?? "",
-                actorStates: flight.actors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
-            });
+        const tracksByActorId = new Map(timeline.tracks.map((track) => [track.actorId, track]));
+        const destructionTimeByActorId = new Map(timeline.cues.flatMap((cue) => cue.kind === "destruction" ? [[cue.actorId, cue.timeMs]] : []));
+        const packageId = `ascene-v2-${Date.now()}-${timeline.seed.toString(36)}`;
+        logAirShowPackageStart(packageId, "ResolvedAirCombat", "AirShowTimelinePlayer", plannedScene.flights.map((flight) => flight.id), plannedScene.flights.map((flight) => flight.role), scene.hexKey);
+        logAirShowOwnershipAssert(packageId, "AirShowTimelinePlayer", null);
+        this.activeAirShowRuntimeTrace = beginAirShowRuntimeTrace(scene, plannedScene);
+        sceneActors.forEach((actor) => {
+            actor.active = false;
+            actor.image.style.opacity = "0";
+            actor.image.setAttribute("data-airshow-active", "false");
+            actor.image.setAttribute("data-airshow-timeline-version", String(timeline.version));
         });
+        let status = "success";
+        let runtimeError = null;
+        let nextCueIndex = 0;
+        let currentBeatLabel = "pre-roll";
+        const cueCounts = new Map();
+        ["tracer", "flak", "bomb-release", "impact", "destruction"].forEach((kind) => {
+            cueCounts.set(kind, 0);
+            layer.setAttribute(`data-airshow-cue-count-${kind}`, "0");
+        });
+        layer.setAttribute("data-airshow-completed", "false");
+        layer.setAttribute("data-airshow-total-duration-ms", String(Math.round(timeline.totalDurationMs)));
         try {
-            for (const [phaseIndex, phase] of plannedScene.phases.entries()) {
-                logAirShowBeatStart(packageId, phaseIndex, phase.label, phase.assignments.map((assignment) => assignment.flightId));
-                const assignments = this.buildAirShowAssignmentsFromPlannedPhase(phase, actorsById);
-                const tracerBursts = this.buildAirShowTracerBurstsFromPlannedPhase(phase, actorsById);
-                const cancelEffects = this.schedulePlannedAirShowPhaseEffects(phase, scene);
-                try {
-                    await this.runAirShowPhase(assignments, phase.durationMs, tracerBursts, {
-                        easing: "linear",
-                        sceneActors,
-                        visibleActorIds: phase.visibleActorIds,
-                        phaseLabel: phase.label
+            await new Promise((resolve) => {
+                const startTime = performance.now();
+                const step = (now) => {
+                    const elapsedMs = Math.min(timeline.totalDurationMs, Math.max(0, now - startTime));
+                    const activeBeat = [...timeline.beats]
+                        .reverse()
+                        .find((beat) => elapsedMs >= beat.startTimeMs && elapsedMs <= beat.endTimeMs);
+                    const nextBeatLabel = activeBeat?.label ?? (elapsedMs >= timeline.totalDurationMs ? "complete" : "transition");
+                    layer.setAttribute("data-airshow-time-ms", String(Math.round(elapsedMs)));
+                    if (nextBeatLabel !== currentBeatLabel) {
+                        currentBeatLabel = nextBeatLabel;
+                        layer.setAttribute("data-airshow-beat", currentBeatLabel);
+                    }
+                    timeline.tracks.forEach((track) => {
+                        const actor = actorsById.get(track.actorId);
+                        if (!actor) {
+                            return;
+                        }
+                        const sample = sampleAirShowTimelineTrack(track, elapsedMs);
+                        const visible = elapsedMs >= track.visibleFromMs && elapsedMs <= track.visibleUntilMs;
+                        actor.active = visible;
+                        if (sample) {
+                            actor.position = sample.point;
+                            actor.headingDegrees = sample.headingDegrees;
+                            this.positionAircraftImageGhost(actor.image, actor.size, sample.point.cx, sample.point.cy, sample.headingDegrees);
+                        }
+                        const destructionTimeMs = destructionTimeByActorId.get(track.actorId);
+                        const destructionOpacity = destructionTimeMs !== undefined && elapsedMs >= destructionTimeMs
+                            ? this.clamp((track.visibleUntilMs - elapsedMs) / Math.max(1, track.visibleUntilMs - destructionTimeMs), 0, 1)
+                            : 1;
+                        actor.image.style.opacity = visible ? String(destructionOpacity) : "0";
+                        actor.image.setAttribute("data-airshow-active", visible ? "true" : "false");
                     });
-                }
-                finally {
-                    cancelEffects();
-                }
-            }
-            this.recordAirShowRuntimeTrace({
-                kind: "scene-complete",
-                actorStates: sceneActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
+                    while (nextCueIndex < timeline.cues.length && timeline.cues[nextCueIndex].timeMs <= elapsedMs) {
+                        const cue = timeline.cues[nextCueIndex];
+                        const cueCount = (cueCounts.get(cue.kind) ?? 0) + 1;
+                        cueCounts.set(cue.kind, cueCount);
+                        layer.setAttribute(`data-airshow-cue-count-${cue.kind}`, String(cueCount));
+                        layer.setAttribute("data-airshow-last-cue", cue.kind);
+                        if (cue.kind === "impact") {
+                            layer.setAttribute("data-airshow-impact-fired", "true");
+                        }
+                        this.playAirShowTimelineCue(cue, actorsById, callbacks);
+                        nextCueIndex += 1;
+                    }
+                    if (elapsedMs >= timeline.totalDurationMs) {
+                        resolve();
+                        return;
+                    }
+                    this.scheduleAnimationFrame(step);
+                };
+                this.scheduleAnimationFrame(step);
             });
             logAirShowPackageEnd(packageId, "success", plannedScene.flights.map((flight) => flight.id), [], true);
         }
         catch (error) {
-            runtimeTraceStatus = "error";
-            runtimeTraceError = error instanceof Error ? error.message : String(error);
+            status = "error";
+            runtimeError = error instanceof Error ? error.message : String(error);
+            logAirShowPackageEnd(packageId, "aborted", [], plannedScene.flights.map((flight) => flight.id), false);
             throw error;
         }
         finally {
-            this.recordAirShowRuntimeTrace({
-                kind: "scene-cleanup",
-                actorStates: sceneActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
-            });
-            completeAirShowRuntimeTrace(this.activeAirShowRuntimeTrace, runtimeTraceStatus, runtimeTraceError);
+            completeAirShowRuntimeTrace(this.activeAirShowRuntimeTrace, status, runtimeError);
             this.activeAirShowRuntimeTrace = null;
+            layer.setAttribute("data-airshow-completed", "true");
             sceneActors.forEach((actor) => actor.image.remove());
+            layer.removeAttribute("data-airshow-beat");
+            layer.removeAttribute("data-airshow-time-ms");
+            layer.removeAttribute("data-airshow-last-cue");
+            layer.removeAttribute("data-airshow-impact-fired");
         }
     }
-    async animateResolvedAirCombatShow(scene) {
-        await this.animatePlannedResolvedAirCombatShow(scene);
+    async animateResolvedAirCombatShow(scene, callbacks = {}) {
+        const timeline = this.planResolvedAirCombatTimeline(scene);
+        if (!timeline) {
+            return;
+        }
+        await this.animateAirShowTimeline(scene, timeline, callbacks);
     }
     /**
      * Convenience helper for mission-style flights that should clearly depart and return.
@@ -1787,8 +1925,14 @@ export class HexMapRenderer {
         const dy = endCy - a.cy;
         const dist = Math.hypot(dx, dy) || 1;
         const arcHeight = options?.arcHeight ?? this.clamp(dist * 0.35, 18, 64);
-        const nx = -dy / dist;
-        const ny = dx / dist;
+        let nx = -dy / dist;
+        let ny = dx / dist;
+        // SVG +y points down-screen. If the perpendicular normal points downward,
+        // flip it so lobbed shells always crest up-and-over instead of down-and-under.
+        if (ny > 0) {
+            nx = -nx;
+            ny = -ny;
+        }
         const ctrlX = (a.cx + endCx) / 2 + nx * arcHeight;
         const ctrlY = (a.cy + endCy) / 2 + ny * arcHeight;
         const color = options?.color ?? "#ffcf5a";
@@ -10513,6 +10657,15 @@ export class HexMapRenderer {
                     const flashCount = singlePuffWave ? 1 : jitter01(index, 19) > 0.94 ? 2 : 1;
                     void this.playFlakBurstAt(point.cx + (jitter01(index, 23) - 0.5) * 16, point.cy + (jitter01(index, 29) - 0.5) * 11, flashCount, burstScale, false);
                 }, flashDelayMs);
+            }
+            if (singlePuffWave) {
+                const smokeLingerMs = Math.max(1200, wave.smokeLingerMs ?? 1600);
+                window.setTimeout(() => {
+                    void this.playCombatAnimationAt("flakSmokePuff", point.cx + (jitter01(index, 37) - 0.5) * 12, point.cy - 5 + (jitter01(index, 41) - 0.5) * 10, _smokeScale * (0.92 + jitter01(index, 43) * 0.12), false, undefined, false);
+                }, flashDelayMs + 150);
+                window.setTimeout(() => {
+                    void this.playCombatAnimationAt("flakSmokePuff", point.cx + (jitter01(index, 59) - 0.5) * 18, point.cy - 8 + (jitter01(index, 61) - 0.5) * 14, _smokeScale * (0.78 + jitter01(index, 67) * 0.14), false, undefined, false);
+                }, flashDelayMs + Math.round(smokeLingerMs * 0.48));
             }
             if (!singlePuffWave && index < smokePointCount) {
                 window.setTimeout(() => {

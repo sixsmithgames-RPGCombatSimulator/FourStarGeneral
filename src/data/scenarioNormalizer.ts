@@ -243,6 +243,15 @@ function normalizeSide(raw: Record<string, unknown> | undefined, sideKey: string
         hex: tupleToAxial(hexCoord),
         strength: typeof u["strength"] === "number" ? u["strength"] : 0,
         experience: typeof u["experience"] === "number" ? u["experience"] : 0,
+        baseExperience: typeof u["baseExperience"] === "number" ? u["baseExperience"] : undefined,
+        earnedExperience: typeof u["earnedExperience"] === "number" ? u["earnedExperience"] : undefined,
+        status: u["status"] !== null && typeof u["status"] === "object"
+          ? structuredClone(u["status"]) as ScenarioUnit["status"]
+          : undefined,
+        formationKey: typeof u["formationKey"] === "string" ? u["formationKey"] : undefined,
+        campaignProvenance: u["campaignProvenance"] !== null && typeof u["campaignProvenance"] === "object"
+          ? structuredClone(u["campaignProvenance"]) as ScenarioUnit["campaignProvenance"]
+          : undefined,
         ammo: typeof u["ammo"] === "number" ? u["ammo"] : 0,
         fuel: typeof u["fuel"] === "number" ? u["fuel"] : 0,
         entrench: typeof u["entrench"] === "number" ? u["entrench"] : 0,

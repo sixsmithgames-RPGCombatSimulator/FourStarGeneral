@@ -717,6 +717,48 @@ registerTest("BOT_ATTACK_SUMMARY_INCLUDES_PLAYER_RETALIATION", async ({ Then }) 
     }
     await Then("bot summaries surface player counter-fire for animation playback", () => { });
 });
+registerTest("ENTRENCHED_SENTRY_COVER_REDUCES_INCOMING_FIRE_BEFORE_COUNTERFIRE", async ({ Then }) => {
+    const resolveExchange = (entrench) => {
+        const defender = {
+            type: "TestInfantry",
+            hex: { q: 0, r: 0 },
+            strength: 100,
+            experience: 0,
+            ammo: 6,
+            fuel: 0,
+            entrench,
+            facing: "NE"
+        };
+        const attacker = {
+            type: "TestInfantry",
+            hex: { q: 0, r: 1 },
+            strength: 100,
+            experience: 0,
+            ammo: 6,
+            fuel: 0,
+            entrench: 0,
+            facing: "SW"
+        };
+        const { engine } = createEngine([defender], [attacker]);
+        if (!engine.enterSentry(defender.hex)) {
+            throw new Error("Expected the comparison defender to enter sentry.");
+        }
+        const exchange = engine.resolveBotAttack(attacker, attacker.hex, defender.hex, "assault");
+        if (!exchange?.retaliation) {
+            throw new Error(`Expected prepared counterfire in the comparison exchange, received ${JSON.stringify(exchange)}.`);
+        }
+        return exchange;
+    };
+    const exposed = resolveExchange(0);
+    const entrenched = resolveExchange(2);
+    if (entrenched.inflictedDamage >= exposed.inflictedDamage * 0.8) {
+        throw new Error(`Expected level-2 entrenchment to cut incoming damage by about 30%, exposed=${exposed.inflictedDamage}, entrenched=${entrenched.inflictedDamage}.`);
+    }
+    if (entrenched.retaliation.damage + 0.01 < entrenched.inflictedDamage) {
+        throw new Error(`Expected prepared sentry counterfire to match or exceed fire penetrating level-2 entrenchment, incoming=${entrenched.inflictedDamage}, counterfire=${entrenched.retaliation.damage}.`);
+    }
+    await Then("entrenchment protects the defender while sentry counterfire still targets the exposed attacker", () => { });
+});
 registerTest("PLAYER_DEFENDER_RETALIATES_ONCE_PER_TURN_AND_SPENDS_AMMO", async ({ Then }) => {
     const defender = {
         type: "TestInfantry",

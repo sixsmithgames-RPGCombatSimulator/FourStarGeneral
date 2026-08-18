@@ -7,11 +7,11 @@ import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
 import { RiverOverlayRenderer } from "./RiverOverlayRenderer";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
-import { loadEffectSpecifications } from "./EffectSpecifications";
-import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints } from "./TerrainResponseSystem";
+import { loadEffectSpecifications, type RawEffectSpec } from "./EffectSpecifications";
+import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints, type TerrainTint } from "./TerrainResponseSystem";
 import { WreckFxRenderer, resolveWreckFxClass, type WreckFxClass } from "./WreckFxRenderer";
 import { CombatSoundManager, type QueuedWeaponSoundRequest } from "../audio/CombatSoundManager";
-import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
+import type { SoundCatalog, WeaponSoundClass } from "../audio/SoundAssetMetadata";
 import { sampleAirShowWaypointPath } from "../ui/airshow/AirShowPathMath";
 import {
   AIR_SHOW_OFF_MAP_DISTANCE_PX,
@@ -393,7 +393,15 @@ export interface RenderedUnitStackMember {
  * Main hex map renderer responsible for generating SVG markup.
  * Coordinates terrain rendering, road overlays, and hex element management.
  */
+export interface HexMapRendererAssetSources {
+  readonly effects: string | readonly RawEffectSpec[];
+  readonly terrainTints: string | readonly TerrainTint[];
+  readonly sounds: SoundCatalog;
+}
+
 export class HexMapRenderer implements IMapRenderer {
+  constructor(private readonly assetSources?: HexMapRendererAssetSources) {}
+
   private static readonly AIRCRAFT_GHOST_ICON_SIZE = 60;
   private static readonly AIRCRAFT_FORMATION_SPACING = 33;
   private static readonly MIN_STRENGTH_PER_STACK_ACTOR = 25;
@@ -2912,20 +2920,20 @@ export class HexMapRenderer implements IMapRenderer {
       this.combatAnimator = new ProceduralEffectsAnimator(this.combatEffectsLayer, this.soundManager);
       console.log("[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager");
 
-      // Load effect specifications, terrain tints, and sound catalog asynchronously (only once)
-      if (!HexMapRenderer.effectSpecsLoaded) {
+      // Production injects its bundled catalogs. Isolated renderers remain deterministic
+      // and silent instead of starting asset fetches behind the caller's back.
+      if (this.assetSources && !HexMapRenderer.effectSpecsLoaded) {
         HexMapRenderer.effectSpecsLoaded = true;
         Promise.all([
-          loadEffectSpecifications("data/effectSpecs.json"),
-          loadTerrainTints("data/terrainTints.json")
+          loadEffectSpecifications(this.assetSources.effects),
+          loadTerrainTints(this.assetSources.terrainTints)
         ]).catch((error) => {
           console.error("[HexMapRenderer] Failed to load effect specifications or terrain tints:", error);
         });
       }
 
-      // Load sound catalog asynchronously (only once)
-      if (!this.soundCatalogReady) {
-        this.soundCatalogReady = this.soundManager.loadSoundCatalog("data/soundCatalog.json").catch((error) => {
+      if (this.assetSources && !this.soundCatalogReady) {
+        this.soundCatalogReady = this.soundManager.loadSoundCatalog(this.assetSources.sounds).catch((error) => {
           console.error("[HexMapRenderer] Failed to load sound catalog:", error);
         });
       }

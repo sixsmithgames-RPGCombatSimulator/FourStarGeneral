@@ -67,14 +67,20 @@ export class CombatSoundManager {
   /**
    * Load sound catalog from JSON.
    */
-  async loadSoundCatalog(catalogPath: string): Promise<void> {
+  async loadSoundCatalog(source: string | SoundCatalog): Promise<void> {
     try {
-      const response = await fetch(catalogPath);
-      if (!response.ok) {
-        throw new Error(`Failed to load sound catalog: ${response.statusText}`);
+      if (typeof source === "string") {
+        const catalogUrl = new URL(source, document.baseURI);
+        const response = await fetch(catalogUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to load sound catalog: ${response.statusText}`);
+        }
+
+        this.soundCatalog = await response.json() as SoundCatalog;
+      } else {
+        this.soundCatalog = source;
       }
 
-      this.soundCatalog = await response.json();
       this.preloadPromise = this.preloadCatalogBuffers();
       await this.preloadPromise;
       console.log(`[CombatSoundManager] Loaded sound catalog v${this.soundCatalog?.version} with ${Object.keys(this.soundCatalog?.assets ?? {}).length} assets`);
@@ -94,7 +100,8 @@ export class CombatSoundManager {
     }
 
     try {
-      const response = await fetch(asset.filePath);
+      const assetUrl = new URL(asset.filePath, document.baseURI);
+      const response = await fetch(assetUrl);
       if (!response.ok) {
         console.warn(`[CombatSoundManager] Failed to load ${asset.filePath}: ${response.statusText}`);
         return null;

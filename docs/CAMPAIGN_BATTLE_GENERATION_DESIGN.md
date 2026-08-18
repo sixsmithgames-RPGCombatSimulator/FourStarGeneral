@@ -1,7 +1,7 @@
 # Campaign Battle Generation — Design
 
 Date: 2026-07-18. Status: Approved direction (type caps + RP reserve; battle hex + adjacent availability; template library; phased implementation).
-Related: `design/CAMPAIGN_MAP_DESIGN.md` (Phase 4 "Gameplay Layer"), `docs/CAMPAIGN_CLASS_A_PLUS_GAP_REVIEW.md` (Gaps 2 and 3).
+Related: `design/CAMPAIGN_MAP_DESIGN.md` (Phase 4 "Gameplay Layer"), `docs/CAMPAIGN_CLASS_A_PLUS_GAP_REVIEW.md` (Gaps 2 and 3), and `docs/CAMPAIGN_2_0_FIRST_CLASS_GAME_PLAN.md` (authoritative follow-on plan for commitment, consequences, persistence, AI, formations, weather, objectives, and UI).
 
 ## Summary
 
@@ -24,7 +24,7 @@ Mission type is computed from the defender tile's palette role, the attacker, an
 | `logisticsHub` | Depot Raid | Objective: depot tiles; victory yields supply bonus |
 | `region` / neutral | Meeting Engagement | Symmetric open-ground template |
 
-Modifiers, applied on top of the base type: **Amphibious** when the attacking forces' staging tiles are separated from the target by water hexes (`mapExtents.waterHexes`) — landing-craft framing, no player artillery baseline; **Counterattack** when the Bot is the attacker (Phase 4, once campaign AI exists) — the mission family inverts to a defense (Hold the Line, Port Defense, etc.) using the same table from the defender's perspective.
+Modifiers, applied on top of the base type: **Amphibious** when the attacking forces' staging tiles are separated from the target by water hexes (`mapExtents.waterHexes`) — landing-craft framing, no player artillery baseline; **Counterattack** when the Bot is the attacker — the mission family inverts to a defense (Hold the Line, Port Defense, etc.) using the same table from the defender's perspective. C20-033 now implements this orientation through exact attacker/defender commitments, swapped deployment/objective sides, offensive Bot doctrine, and locked Player defensive deployment.
 
 `CampaignPendingEngagement.tags` already exists as the transport for "which battle template to instantiate"; this design keeps tags for compatibility but adds a structured context object (below) as the authoritative payload.
 
@@ -48,7 +48,7 @@ Lives in `src/game/campaign/campaignForceMapping.ts` as the single source of tru
 | `Panzer_IV`, `Panzer_V`, `Light_Tank` | `tank` | |
 | `Heavy_Tank` | `heavyTankCompany` | |
 | `Howitzer_105`, `Artillery_105mm` | `howitzer` | |
-| `Artillery_155mm` | `corpsArtilleryGroup` | |
+| `Artillery_155mm` | `howitzer` | Deployable 105mm tactical proxy; preserves exact campaign provenance and battle consequences |
 | `Rocket_Artillery` | `rocketArtilleryBattalion` | |
 | `SP_Artillery` | `spArtilleryGroup` | |
 | `Fighter` | `fighter` | Requires in-range airbase |
@@ -128,7 +128,7 @@ The context rides on the pending engagement (new optional `context` field on `Ca
 
 **Phase 3 — Consequences.** Earmarking, survivor return, territory transfer, front recomputation from control map, sortie-capacity consumption.
 
-**Phase 4 — Counterattacks.** Once campaign AI exists (Gap 1), Bot-initiated engagements invert the mission table to the defense family; the same context builder serves both directions via the `attacker` field.
+**Phase 4 — Counterattacks (implemented in C20-033).** Bot-initiated engagements invert the mission table to the defense family; the same context builder serves both directions via the `attacker` field. See `design/CAMPAIGN_2_0_M3_AI_ENGAGEMENTS.md` for belief-safe target selection, exact ledger commitment, tactical template orientation, defensive precombat, and result attribution.
 
 ## Testing strategy
 

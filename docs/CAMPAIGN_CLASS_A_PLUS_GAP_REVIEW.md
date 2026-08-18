@@ -1,5 +1,7 @@
 # Campaign Mode — Class A+ Gap Review
 
+> **Planning update (2026-08-02):** This point-in-time review is partially superseded by [Campaign 2.0 — first-class game product and engineering plan](./CAMPAIGN_2_0_FIRST_CLASS_GAME_PLAN.md). Campaign battle generation and the core campaign intelligence/counterintelligence/fog loop have since shipped. The consequence, strategic AI, victory/defeat, persistence, formation lifecycle, weather, and interface findings are incorporated into the Campaign 2.0 delivery plan.
+
 Date: 2026-07-18. Scope: `CampaignScreen.ts`, `CampaignState.ts`, `CampaignMapRenderer.ts`, `campaignTypes.ts`, `campaign01.json`, `design/CAMPAIGN_MAP_DESIGN.md`, and the battle→campaign handoff in `BattleScreen.ts`. This review assumes the campaign-lockout auth race (fixed 2026-07-18 in `CampaignScreen.initialize()`) is deployed.
 
 ## Where the campaign stands
@@ -32,7 +34,7 @@ Campaign saves live in one `localStorage` key (`fourstar.campaign.save.v1`) on o
 
 ## Gap 7 — Turn-loop and UX friction
 
-The segment clock advances one 3-hour segment per click, so passing a quiet day is eight clicks. An "advance until something happens" control (next arrival, next contact, next day) is standard for the genre. Other polish items: the scenario editor (Edit Mode, Export JSON) is developer tooling but ships visible in the player sidebar and should be gated behind a dev flag; the campaign card on the landing screen ignores the experience gate that the mission list enforces (3 missions / 2 victories), so the two surfaces disagree about who may enter; there is no campaign onboarding or tutorial layer, and the front/objective tooltips described in the design doc ("Eastern Front – Heavy Resistance, Engagements: 3 active") are not implemented. Partial intel / fog of war was explicitly deferred and remains absent — `intelCoverage` is computed but never consumed.
+The segment clock advances one 3-hour segment per click, so passing a quiet day is eight clicks. An "advance until something happens" control (next arrival, next contact, next day) is standard for the genre. Other polish items: the scenario editor (Edit Mode, Export JSON) is developer tooling but ships visible in the player sidebar and should be gated behind a dev flag; the campaign card on the landing screen ignores the experience gate that the mission list enforces (3 missions / 2 victories), so the two surfaces disagree about who may enter; there is no campaign onboarding or tutorial layer, and the front/objective tooltips described in the design doc ("Eastern Front – Heavy Resistance, Engagements: 3 active") are not implemented. The earlier partial-intelligence finding is now superseded: the core faction-knowledge, intelligence/counterintelligence, and campaign-fog loop shipped on 2026-08-02. See `docs/CAMPAIGN_INTELLIGENCE_COUNTERINTELLIGENCE_FOG_PLAN.md`.
 
 ## Gap 8 — Test coverage is thin at exactly the risky joints
 
