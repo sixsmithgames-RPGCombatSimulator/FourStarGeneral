@@ -205,6 +205,13 @@ function initializeApplication(): void {
     installAirShowRuntimeTraceDebugHook(window);
   }
 
+  const bootStatus = document.getElementById("appBootStatus");
+  if (bootStatus) {
+    bootStatus.dataset.ready = "true";
+    bootStatus.setAttribute("aria-label", "Command systems ready");
+    window.requestAnimationFrame(() => bootStatus.remove());
+  }
+
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const codexTest = searchParams?.get("codex-test");
   if (codexTest === "airshow" || codexTest === "airshow-large" || codexTest === "airshow-replay" || codexTest === "airshow-tutorial") {

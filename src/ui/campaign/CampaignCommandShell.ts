@@ -415,8 +415,6 @@ export class CampaignCommandShell {
     if (!this.initialized) return;
     this.currentView = view;
     this.setText("#campaignCommandTitle", view.theaterTitle);
-    const commandTitle = this.root.querySelector<HTMLElement>("#campaignCommandTitle");
-    if (commandTitle) commandTitle.title = view.theaterTitle;
     this.setText("#campaignCommandPhase", view.campaignPhase);
     this.setText("#campaignCommandClock", view.timeLabel);
     this.setText("#campaignCommandStatus", view.commandStatus);

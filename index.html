@@ -3787,7 +3787,7 @@
 
     .battle-map-title-row {
       display: grid;
-      grid-template-columns: minmax(10rem, 0.65fr) minmax(18rem, 1.35fr) max-content max-content;
+      grid-template-columns: minmax(15rem, 0.9fr) minmax(16rem, 1.1fr) max-content max-content;
       align-items: center;
       gap: 0.8rem;
       min-width: 0;
@@ -3817,10 +3817,10 @@
       font-size: clamp(1rem, 1vw + 0.78rem, 1.2rem);
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      white-space: nowrap;
+      white-space: normal;
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow: visible;
+      overflow-wrap: anywhere;
     }
 
     .turn-status {
@@ -10046,9 +10046,50 @@
       .tactical-save-slot { grid-template-columns: 2.3rem minmax(0, 1fr); }
       .tactical-save-slot__type { grid-column: 2; }
     }
+
+    .app-boot-status {
+      position: fixed;
+      z-index: 20000;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 1rem;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(173, 139, 66, 0.14), transparent 34%),
+        linear-gradient(155deg, #11150f, #060907 66%);
+      color: #f0e5c7;
+    }
+
+    .app-boot-status__surface {
+      display: flex;
+      width: min(30rem, calc(100vw - 2rem));
+      align-items: center;
+      gap: 1rem;
+      padding: 1.1rem 1.25rem;
+      border: 1px solid rgba(216, 184, 105, 0.28);
+      border-radius: 0.8rem;
+      background: rgba(17, 22, 17, 0.94);
+      box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.45);
+    }
+
+    .app-boot-status__surface div { display: grid; gap: 0.3rem; }
+    .app-boot-status__surface strong { font-family: var(--font-heading); letter-spacing: 0.08em; text-transform: uppercase; }
+    .app-boot-status__surface span { color: rgba(224, 214, 187, 0.72); font-size: 0.78rem; line-height: 1.4; }
+    .app-boot-status__mark { color: #dfbd6a; font-size: 1.7rem; animation: app-boot-pulse 1.2s ease-in-out infinite alternate; }
+    @keyframes app-boot-pulse { to { opacity: 0.42; transform: scale(0.92); } }
+    @media (prefers-reduced-motion: reduce) { .app-boot-status__mark { animation: none; } }
   </style>
 </head>
 <body>
+  <div id="appBootStatus" class="app-boot-status" role="status" aria-live="polite" aria-label="Preparing command systems">
+    <div class="app-boot-status__surface">
+      <span class="app-boot-status__mark" aria-hidden="true">★</span>
+      <div>
+        <strong>Preparing command systems</strong>
+        <span>Loading the operational map, roster, and battle engine…</span>
+      </div>
+    </div>
+  </div>
   <div id="app">
     <!-- Battle Screen -->
     <div id="battleScreen" class="screen battle-ui hidden" aria-labelledby="battleScreenHeading">

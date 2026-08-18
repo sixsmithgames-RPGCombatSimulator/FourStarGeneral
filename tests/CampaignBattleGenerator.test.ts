@@ -302,9 +302,12 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
 
   await Then("the same template, engagement-specific objectives, and a real terminal result survive", async () => {
     if (!generated) throw new Error("Campaign battle was not generated.");
-    const raw = generated as unknown as { campaignTemplateKey: string; deploymentZones: Array<{ label: string; description: string }> };
+    const raw = generated as unknown as { campaignTemplateKey: string; turnLimit: number; deploymentZones: Array<{ label: string; description: string }> };
     if (raw.campaignTemplateKey !== "meeting_two_bridges") {
       throw new Error(`Frozen template drifted to ${raw.campaignTemplateKey}.`);
+    }
+    if (raw.turnLimit !== 18) {
+      throw new Error(`Campaign meeting engagement retained an unbounded template deadline: ${raw.turnLimit}.`);
     }
     const normalized = normalizeScenarioSource(generated as unknown as RawScenarioInput, { turnLimit: 12 });
     const controller = createMissionRulesController("campaign", normalized);
