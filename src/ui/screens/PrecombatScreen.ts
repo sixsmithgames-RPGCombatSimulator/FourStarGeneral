@@ -2033,8 +2033,8 @@ export class PrecombatScreen {
       : getMissionTitle(missionKey);
     const briefing = campaignContext
       ? campaignPlayerDefense
-        ? `Opposing forces have opened a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Hold the marked tactical ground or break the attacking ground force before the defensive window closes.`
-        : `Friendly forces are opening a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Secure the marked tactical ground or break the opposing ground force before the tactical window closes.`
+        ? `Opposing forces have opened a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Hold the marked tactical ground or break the attacking ground force; objective control or force collapse decides the engagement.`
+        : `Friendly forces are opening a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Secure the marked tactical ground or break the opposing ground force; objective control or force collapse decides the engagement.`
       : getMissionBriefing(missionKey);
     const summary = getMissionSummaryPackage(missionKey, selectedDifficulty);
     const missionRules = createMissionRulesController(missionKey, this.miniMapScenario, selectedDifficulty);
@@ -2081,6 +2081,7 @@ export class PrecombatScreen {
 
     const missionInfo = {
       missionKey,
+      ...(campaignContext ? { campaignTitle: ensureCampaignState().getScenario()?.title ?? "Campaign Operation" } : {}),
       title,
       briefing,
       objectives,

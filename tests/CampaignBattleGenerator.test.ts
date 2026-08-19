@@ -116,14 +116,55 @@ registerTest("CAMPAIGN_BATTLE_BOT_ROSTER_GENERATION", async ({ Given, When, Then
       throw new Error(`Bot resources ${raw.sides.Bot.resources} != ${expectedResources}`);
     }
 
-    // Empty pool keeps the authored garrison; meeting engagements start exposed.
-    const neutral = generateCampaignBattleScenario(buildContext({ engagementId: "eng_neutral", enemyForces: [], enemyForceValue: 0, forceRatio: Number.POSITIVE_INFINITY }));
-    const neutralUnits = (neutral as unknown as { sides: { Bot: { units: unknown[] } } }).sides.Bot.units;
-    if (neutralUnits.length === 0) throw new Error("Empty pool should keep the template garrison");
+    // Empty campaign opposition cannot be replaced by an unrelated authored garrison.
+    let emptyPoolRejected = false;
+    try {
+      generateCampaignBattleScenario(buildContext({
+        engagementId: "eng_empty_opposition",
+        enemyForces: [],
+        enemyForceValue: 0,
+        forceRatio: Number.POSITIVE_INFINITY
+      }));
+    } catch (error) {
+      emptyPoolRejected = error instanceof Error && error.message.includes("no committed opposing ground formation");
+    }
+    if (!emptyPoolRejected) throw new Error("Empty campaign opposition was replaced by a template garrison.");
 
     const meeting = generateCampaignBattleScenario(buildContext({ engagementId: "eng_meet", missionType: "meetingEngagement" }));
     const meetingUnits = (meeting as unknown as { sides: { Bot: { units: Array<{ entrench: number }> } } }).sides.Bot.units;
     if (!meetingUnits.every((u) => u.entrench === 0)) throw new Error("Meeting engagement should not entrench defenders");
+  });
+});
+
+registerTest("CAMPAIGN_BATTLE_GENERATION_FAILS_CLOSED_WITHOUT_CAMPAIGN_IDENTITY", async ({ Given, When, Then }) => {
+  let unknownCampaignRejected = false;
+  let neutralDefenderRejected = false;
+
+  await Given("a tactical request whose campaign key or opposing faction cannot be proven", () => {});
+
+  await When("the campaign generator validates the request before selecting a playable map", () => {
+    try {
+      generateCampaignBattleScenario(buildContext(), {
+        campaignId: "campaign-unknown",
+        scenarioKey: "unknown_theater",
+        revision: 1,
+        currentSegment: 0,
+        formations: {}
+      });
+    } catch (error) {
+      unknownCampaignRejected = error instanceof Error && error.message.includes("no approved tactical template pool");
+    }
+    try {
+      generateCampaignBattleScenario(buildContext({ defender: "Neutral" }));
+    } catch (error) {
+      neutralDefenderRejected = error instanceof Error && error.message.includes("two opposing campaign factions");
+    }
+  });
+
+  await Then("no generic standalone scenario or substituted theater can launch", () => {
+    if (!unknownCampaignRejected || !neutralDefenderRejected) {
+      throw new Error("Campaign generation did not fail closed for untrusted campaign identity.");
+    }
   });
 });
 

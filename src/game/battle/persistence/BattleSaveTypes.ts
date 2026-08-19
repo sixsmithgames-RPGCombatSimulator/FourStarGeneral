@@ -21,6 +21,10 @@ import {
   assertCampaignBattlePackage
 } from "../../campaign/engagements/CampaignEngagementLedgerService";
 import type { CampaignBattlePackage } from "../../campaign/engagements/CampaignEngagementLedgerTypes";
+import { getBattleTemplateByKey } from "../../campaign/battleTemplates";
+import { MISSION_TYPE_LABELS } from "../../campaign/EngagementContextBuilder";
+import { computeCampaignContentHash } from "../../campaign/runtime/CampaignCanonical";
+import { normalizeScenarioSource, type RawScenarioInput } from "../../../data/scenarioNormalizer";
 
 export const COMPLETE_BATTLE_SAVE_VERSION = 1 as const;
 export const CAMPAIGN_BATTLE_SAVE_PACKAGE_VERSION = 1 as const;
@@ -154,6 +158,157 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const LEGACY_CAMPAIGN_DEADLINE_REASONS = new Set([
+  "Friendly forces held the engagement area through the defensive window.",
+  "The tactical window closed before the engagement objective was secured."
+]);
+
+function campaignGeometryFingerprint(scenario: GameEngineConfig["scenario"]): string {
+  return computeCampaignContentHash({
+    size: scenario.size,
+    tilePalette: scenario.tilePalette,
+    tiles: scenario.tiles,
+    objectives: scenario.objectives.map((objective) => ({ hex: objective.hex, vp: objective.vp })),
+    deploymentZones: (scenario.deploymentZones ?? []).map((zone) => ({
+      key: zone.key,
+      capacity: zone.capacity,
+      hexes: zone.hexes
+    }))
+  });
+}
+
+function assertCompatibleIdentity(label: string, actual: unknown, expected: unknown): void {
+  if (actual !== undefined && actual !== null && actual !== expected) {
+    throw new Error(`Active campaign battle cannot be migrated because ${label} conflicts with its frozen commitment package.`);
+  }
+}
+
+function isLegacyDeadlineOutcome(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value["reason"] === "string"
+    && LEGACY_CAMPAIGN_DEADLINE_REASONS.has(value["reason"]);
+}
+
+/** Reconciles only provably compatible pre-no-deadline saves from frozen campaign truth. */
+function migrateCampaignBattleRules(
+  value: Record<string, unknown>,
+  battlePackage: CampaignBattlePackage
+): ActiveCampaignBattleSave {
+  const original = structuredClone(value) as unknown as ActiveCampaignBattleSave;
+  const { context } = battlePackage;
+  if (original.battle.missionRules.kind !== "campaignBattle"
+    || original.battle.precombatMission?.missionKey !== "campaign") {
+    throw new Error("Active campaign battle cannot be migrated because its campaign mission-rule or precombat identity is missing.");
+  }
+  const playerRole = context.attacker === "Player" && context.defender === "Bot"
+    ? "attacker"
+    : context.attacker === "Bot" && context.defender === "Player"
+      ? "defender"
+      : null;
+  if (!playerRole) {
+    throw new Error("Active campaign battle cannot be migrated because its frozen factions do not identify the Player's role.");
+  }
+  if (typeof context.templateKey !== "string" || context.templateKey.length === 0) {
+    throw new Error("Active campaign battle cannot be migrated because its frozen tactical template is missing.");
+  }
+  const template = getBattleTemplateByKey(context.templateKey);
+  if (!template || !template.campaignKeys.includes(battlePackage.scenarioKey)
+    || !template.missionTypes.includes(context.missionType)) {
+    throw new Error(`Active campaign battle cannot be migrated because template '${context.templateKey}' is incompatible with campaign '${battlePackage.scenarioKey}'.`);
+  }
+
+  const scenario = original.battle.engineConfig.scenario;
+  const templateScenario = normalizeScenarioSource(template.scenario as RawScenarioInput, { turnLimit: 0 });
+  if (campaignGeometryFingerprint(scenario) !== campaignGeometryFingerprint(templateScenario)) {
+    throw new Error(`Active campaign battle cannot be migrated because its saved geometry does not match template '${template.key}'.`);
+  }
+  assertCompatibleIdentity("template identity", scenario.campaignTemplateKey, template.key);
+  assertCompatibleIdentity("template role", scenario.campaignTemplatePlayerRole, template.playerRole);
+  assertCompatibleIdentity("Player role", scenario.campaignPlayerRole, playerRole);
+  assertCompatibleIdentity("mission type", scenario.campaignMissionType, context.missionType);
+  assertCompatibleIdentity("battle hex", scenario.campaignBattleHexKey, context.battleHexKey);
+  assertCompatibleIdentity("engagement identity", scenario.campaignEngagementId, context.engagementId);
+  assertCompatibleIdentity("battle package identity", scenario.campaignBattlePackageId, battlePackage.packageId);
+  assertCompatibleIdentity(
+    "infrastructure effectiveness",
+    scenario.campaignInfrastructureEffectiveness,
+    context.infrastructureEffectiveness ?? 1
+  );
+
+  const savedBridgePackage = original.battle.campaignBridge?.battlePackage;
+  if (savedBridgePackage && savedBridgePackage.packageId !== battlePackage.packageId) {
+    throw new Error("Active campaign battle cannot be migrated because its tactical bridge references another commitment package.");
+  }
+  const deadlineOutcome = isLegacyDeadlineOutcome(original.battle.missionRules.data["outcome"])
+    || isLegacyDeadlineOutcome(original.battle.missionStatus.outcome);
+  const missionRules: SerializedMissionRulesState = deadlineOutcome
+    ? {
+        ...original.battle.missionRules,
+        data: { ...original.battle.missionRules.data, outcome: { state: "inProgress" } }
+      }
+    : original.battle.missionRules;
+  const missionStatus: MissionStatus = {
+    ...original.battle.missionStatus,
+    outcome: deadlineOutcome ? { state: "inProgress" } : original.battle.missionStatus.outcome,
+    objectives: original.battle.missionStatus.objectives.map((objective) => ({
+      ...objective,
+      ...(objective.id === "campaign_control_engagement_area" ? {
+        label: playerRole === "defender" ? "Hold the engagement area" : "Secure the engagement area",
+        state: deadlineOutcome ? "inProgress" as const : objective.state,
+        detail: `${objective.detail
+          ?.replace(/\s*(?:\d+\s+turns?\s+remain\..*|No fixed tactical deadline\.)$/i, "")
+          .trim() ?? ""} No fixed tactical deadline.`.trim()
+      } : deadlineOutcome ? { state: "inProgress" as const } : {})
+    }))
+  };
+  const engagementLabel = MISSION_TYPE_LABELS[context.missionType];
+  const title = playerRole === "defender"
+    ? `${engagementLabel} Defense — Hex ${context.battleHexKey}`
+    : `${engagementLabel} — Hex ${context.battleHexKey}`;
+  const briefing = playerRole === "defender"
+    ? `Opposing forces have opened a ${engagementLabel.toLowerCase()} at operational hex ${context.battleHexKey}. Hold the marked tactical ground or break the attacking ground force; objective control or force collapse decides the engagement.`
+    : `Friendly forces are opening a ${engagementLabel.toLowerCase()} at operational hex ${context.battleHexKey}. Secure the marked tactical ground or break the opposing ground force; objective control or force collapse decides the engagement.`;
+  const doctrine = playerRole === "defender"
+    ? "Hold coherent defensive ground, preserve the committed formations, and counterattack only when the opposing attack loses cohesion."
+    : "Concentrate the committed formations, secure the tactical objective network, and preserve a viable force for the campaign that follows.";
+  const precombatMission: PrecombatMissionInfo = {
+    ...original.battle.precombatMission,
+    campaignTitle: original.battle.precombatMission.campaignTitle
+      ?? original.engagementPackage.bridge.scenario?.title
+      ?? "Campaign Operation",
+    title,
+    briefing,
+    objectives: missionStatus.objectives.map((objective) => (
+      `${objective.tier.charAt(0).toUpperCase()}${objective.tier.slice(1)}: ${objective.label}`
+    )),
+    doctrine,
+    turnLimit: null
+  };
+  const normalizedScenario: GameEngineConfig["scenario"] = {
+    ...scenario,
+    turnLimit: 0,
+    campaignTemplateKey: template.key,
+    campaignTemplatePlayerRole: template.playerRole,
+    campaignPlayerRole: playerRole,
+    campaignMissionType: context.missionType,
+    campaignBattleHexKey: context.battleHexKey,
+    campaignEngagementId: context.engagementId,
+    campaignBattlePackageId: battlePackage.packageId,
+    campaignInfrastructureEffectiveness: context.infrastructureEffectiveness ?? 1
+  };
+  return {
+    ...original,
+    battle: {
+      ...original.battle,
+      engineConfig: { ...original.battle.engineConfig, scenario: normalizedScenario },
+      missionRules,
+      missionStatus,
+      precombatMission,
+      campaignBridge: structuredClone(original.engagementPackage.bridge)
+    }
+  };
+}
+
 /** Throws before hydration when a tactical snapshot is partial, malformed, or cross-bound. */
 export function assertCompleteActiveCampaignBattleSave(
   value: unknown,
@@ -218,5 +373,5 @@ export function assertCompleteActiveCampaignBattleSave(
     || !(tacticalUI.focusedElementId === null || typeof tacticalUI.focusedElementId === "string")) {
     throw new Error("Active battle save tactical UI resume context is malformed.");
   }
-  return structuredClone(value) as unknown as ActiveCampaignBattleSave;
+  return migrateCampaignBattleRules(value, battlePackage);
 }

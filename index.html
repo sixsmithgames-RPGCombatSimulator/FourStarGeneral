@@ -5740,7 +5740,7 @@
     .redeploy-mode-card.mode-blocked .mode-note { color: rgba(255,160,120,0.85); }
     .redeploy-units {
       display: flex; flex-direction: column; gap: 0.4rem;
-      max-height: min(240px, 26vh); overflow-y: auto; overflow-x: hidden; padding-right: 0.25rem;
+      max-height: none; overflow: visible; padding-right: 0;
     }
     .redeploy-unit-row {
       display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, 1.2fr) 64px auto; align-items: center; gap: 0.6rem;
@@ -10176,7 +10176,7 @@
                 <div class="battle-map-title-block">
                   <div class="battle-map-title-row">
                     <div class="battle-operation-identity">
-                      <span class="battle-operation-label">Operation</span>
+                      <span class="battle-operation-label" id="battleCampaignTitle">Operation</span>
                       <h2 id="battleScreenHeading" class="battle-map-title">
                         <span id="battleMissionTitle">Operation Pending</span>
                       </h2>

@@ -191,3 +191,24 @@ registerTest("CAMPAIGNSCREEN_ENEMY_INITIATIVE_FRONT_CANNOT_BE_LAUNCHED_BY_PLAYER
     }
   });
 });
+
+registerTest("CAMPAIGNSCREEN_FORMATS_INTERNAL_CAMPAIGN_LABELS_FOR_PLAYERS", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  const labels: string[] = [];
+
+  await Given("raw infrastructure and unit identifiers from campaign truth", () => {});
+
+  await When("the shared campaign presentation formatter renders them", () => {
+    labels.push(
+      (screen as any).formatCampaignLabel("navalBase"),
+      (screen as any).formatCampaignLabel("Infantry_42"),
+      (screen as any).formatCampaignLabel("transport_ship")
+    );
+  });
+
+  await Then("camelCase and snake_case tokens become first-class labels", () => {
+    if (labels.join("|") !== "Naval Base|Infantry 42|Transport Ship") {
+      throw new Error(`Campaign formatter exposed raw implementation labels: ${labels.join("|")}.`);
+    }
+  });
+});

@@ -1,13 +1,11 @@
 import {
   GameEngine,
   type GameEngineConfig,
-  type PendingReserveRequest,
   type TurnSummary,
   type BattleRosterSnapshot,
   type LogisticsSnapshot,
   type SupplySnapshot,
   type TurnFaction,
-  type BotTurnSummary,
   type CampaignBridgeState,
   type AirMissionArrival,
   type AirEngagementEvent
@@ -53,6 +51,8 @@ export interface PrecombatAllocationSummary {
  */
 export interface PrecombatMissionInfo {
   readonly missionKey: MissionKey;
+  /** Parent campaign identity shown separately from the tactical engagement title. */
+  readonly campaignTitle?: string;
   readonly title: string;
   readonly briefing: string;
   readonly objectives: readonly string[];

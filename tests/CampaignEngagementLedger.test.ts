@@ -34,7 +34,7 @@ import { CampaignState } from "../src/state/CampaignState";
 
 function buildLedgerScenario(): CampaignScenarioData {
   return {
-    key: "engagement-ledger",
+    key: "central_channel",
     title: "Engagement Ledger",
     description: "Commitment and idempotency certification fixture.",
     hexScaleKm: 10,

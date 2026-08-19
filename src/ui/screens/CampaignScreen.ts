@@ -305,7 +305,7 @@ export class CampaignScreen {
             <span class="unit-name">${this.escapeHtml(g.label)}</span>
             <span class="unit-avail">${this.escapeHtml(this.formatCampaignLabel(g.unitType))} · ${g.count} available</span>
           </div>
-          <input type="range" min="0" max="${g.count}" value="${selectedCount}" data-move-slider="${idx}" aria-label="${this.escapeHtml(g.unitType)} count" />
+          <input type="range" min="0" max="${g.count}" value="${selectedCount}" data-move-slider="${idx}" aria-label="${this.escapeHtml(this.formatCampaignLabel(g.unitType))} count" />
           <input type="number" min="0" max="${g.count}" value="${selectedCount}" data-move-index="${idx}" />
           <div class="unit-quick">
             <button type="button" data-quick="0" data-quick-idx="${idx}" title="Leave all behind">0</button>
@@ -510,24 +510,13 @@ export class CampaignScreen {
   /**
    * Resolves which hex the battle is actually fought over.
    * Proximity engagements target the enemy tile adjacent to the selected hex; front engagements
-   * target the first enemy-held hex on the front line, falling back to an enemy tile adjacent to it.
+   * target an authoritative enemy-held hex on or adjacent to the operational line.
    */
   private resolveBattleHexKey(engagement: CampaignPendingEngagement): string | null {
     if (engagement.tags.includes("proximity") && engagement.hexKeys.length > 0) {
       return this.campaignState.findAdjacentEnemyHexKey(engagement.hexKeys[0]);
     }
-    for (const hexKey of engagement.hexKeys) {
-      if (this.campaignState.getTileOwner(hexKey) === "Bot") {
-        return hexKey;
-      }
-    }
-    for (const hexKey of engagement.hexKeys) {
-      const adjacent = this.campaignState.findAdjacentEnemyHexKey(hexKey);
-      if (adjacent) {
-        return adjacent;
-      }
-    }
-    return engagement.hexKeys[0] ?? null;
+    return null;
   }
 
   /**
@@ -774,15 +763,16 @@ export class CampaignScreen {
             this.renderCommandShell();
             return;
           }
-          engagement = {
-            id,
+          const prepared = this.campaignState.prepareCampaignFrontEngagement({
+            engagementId: id,
             frontKey: front.key,
-            objectiveKey: null,
-            attacker: "Player",
-            defender: "Bot",
-            hexKeys: front.hexKeys.slice(),
-            tags: ["front"]
-          };
+            attacker: "Player"
+          });
+          if (!prepared.ok) {
+            this.reportBattleLaunchFailure(prepared.reason);
+            return;
+          }
+          engagement = prepared.engagement;
         } else if (this.selectedHexKey && this.campaignState.isAdjacentToEnemy(this.selectedHexKey)) {
           // Hex-proximity engagement when player forces are near enemy forces
           engagement = {
@@ -799,31 +789,50 @@ export class CampaignScreen {
         }
 
         // Capture the strategic context (mission type, forces in position, enemy pool, budget)
-        // so precombat can honor the situation on the map. Failure to build context falls back
-        // to the legacy generic flow rather than blocking the queue.
-        const battleHexKey = this.resolveBattleHexKey(engagement);
-        if (battleHexKey) {
-          const context = this.campaignState.buildCampaignEngagementContext({
-            engagementId: id,
-            battleHexKey,
-            attacker: engagement.attacker,
-            frontKey: engagement.frontKey,
-            objectiveKey: engagement.objectiveKey
-          }, "Player");
-          if (context) {
-            // The battle generator keeps truth internally; commitment UI uses the frozen faction briefing.
-            const briefing = context.intelligenceBriefing;
-            const assessedDanger = briefing?.resistanceBand === "heavy" || briefing?.resistanceBand === "overwhelming";
-            if (assessedDanger) {
-              const proceed = window.confirm(
-                `${MISSION_TYPE_LABELS[context.missionType]} at ${battleHexKey}.\n\n${briefing.summary}\nConfidence: ${briefing.confidenceBand}.\n\nLaunch anyway — we understand the intelligence risk?`
-              );
-              if (!proceed) {
-                return;
-              }
-            }
-            engagement.context = context;
+        // so precombat can honor the situation on the map. A campaign battle must never fall
+        // back to a generic scenario when its authoritative target cannot be proven.
+        let context = engagement.context ?? null;
+        const battleHexKey = context?.battleHexKey ?? this.resolveBattleHexKey(engagement);
+        if (!context) {
+          if (!battleHexKey) {
+            this.reportBattleLaunchFailure("The selected operation has no opposing controlled battle hex. Issue movement orders to establish contact or select another operation.");
+            return;
           }
+          try {
+            context = this.campaignState.buildCampaignEngagementContext({
+              engagementId: id,
+              battleHexKey,
+              attacker: engagement.attacker,
+              frontKey: engagement.frontKey,
+              objectiveKey: engagement.objectiveKey
+            }, "Player");
+          } catch (error) {
+            console.error("[CampaignBattleLaunch] Engagement context failed safely", error);
+            this.reportBattleLaunchFailure(error instanceof Error ? error.message : String(error));
+            return;
+          }
+          if (!context) {
+            this.reportBattleLaunchFailure("Campaign truth is unavailable for the selected battle hex. Reload the campaign before trying again.");
+            return;
+          }
+          engagement.context = context;
+        }
+        try {
+          // The battle generator keeps truth internally; commitment UI uses the frozen faction briefing.
+          const briefing = context.intelligenceBriefing;
+          const assessedDanger = briefing?.resistanceBand === "heavy" || briefing?.resistanceBand === "overwhelming";
+          if (assessedDanger) {
+            const proceed = window.confirm(
+              `${MISSION_TYPE_LABELS[context.missionType]} at ${battleHexKey}.\n\n${briefing.summary}\nConfidence: ${briefing.confidenceBand}.\n\nLaunch anyway — we understand the intelligence risk?`
+            );
+            if (!proceed) {
+              return;
+            }
+          }
+        } catch (error) {
+          console.error("[CampaignBattleLaunch] Engagement context failed safely", error);
+          this.reportBattleLaunchFailure(error instanceof Error ? error.message : String(error));
+          return;
         }
 
         existing.push(engagement);
@@ -930,6 +939,17 @@ export class CampaignScreen {
   /** Allows the app shell to provide a transition routine when an engagement is queued. */
   setQueueEngagementHandler(handler: (() => void) | null): void {
     this.onQueueEngagement = handler;
+  }
+
+  /** Keeps campaign command usable when a tactical handoff cannot preserve campaign truth. */
+  reportBattleLaunchFailure(reason: string): void {
+    this.setCampaignStatusMessage({
+      title: "Tactical handoff blocked",
+      detail: reason,
+      action: "Keep campaign time paused. Review the selected operation or reload after its campaign data is repaired.",
+      tone: "warning"
+    });
+    this.renderCommandShell();
   }
 
   /** Updates the campaign time display. */
@@ -2265,7 +2285,7 @@ export class CampaignScreen {
         .filter((force) => force.count > 0)
         .map((force) => ({
           hexKey,
-          label: force.label ?? force.unitType.replace(/_/g, " "),
+          label: force.label ?? this.formatCampaignLabel(force.unitType),
           count: force.count
         }));
     });
@@ -2288,7 +2308,7 @@ export class CampaignScreen {
       return {
         id: formation.id,
         name: formation.name,
-        typeLabel: formation.campaignUnitType.replace(/_/g, " "),
+        typeLabel: this.formatCampaignLabel(formation.campaignUnitType),
         ownershipLabel: formation.ownership.charAt(0).toUpperCase() + formation.ownership.slice(1),
         locationHexKey,
         statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
@@ -2313,17 +2333,14 @@ export class CampaignScreen {
       const controlLabel = controller === "Player" ? "Friendly control" : controller === "Bot" ? "Opposing control" : "Neutral control";
       const groups = tile.forces ?? palette?.forces ?? [];
       const infrastructure = tile.infrastructure;
-      const roleText = (palette?.role ?? "region").replace(/([a-z])([A-Z])/g, "$1 $2");
-      const roleLabel = roleText.charAt(0).toUpperCase() + roleText.slice(1);
-      const infrastructureRoleText = infrastructure?.role.replace(/([a-z])([A-Z])/g, "$1 $2") ?? "";
-      const damageStateText = infrastructure?.damageState.replace(/([a-z])([A-Z])/g, "$1 $2") ?? "";
-      const infrastructureRole = infrastructureRoleText.charAt(0).toUpperCase() + infrastructureRoleText.slice(1);
-      const damageState = damageStateText.charAt(0).toUpperCase() + damageStateText.slice(1);
+      const roleLabel = this.formatCampaignLabel(palette?.role ?? "region");
+      const infrastructureRole = infrastructure ? this.formatCampaignLabel(infrastructure.role) : "";
+      const damageState = infrastructure ? this.formatCampaignLabel(infrastructure.damageState) : "";
       return {
         hexKey,
         roleLabel,
         controlLabel,
-        forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? force.unitType.replace(/_/g, " ")} · ${force.count}`),
+        forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
         infrastructure: infrastructure
           ? `${infrastructureRole} · ${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`
           : null,

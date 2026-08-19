@@ -451,6 +451,7 @@ export class BattleScreen {
   private attackConfirmBody: HTMLElement | null = null;
   private fortificationFacingDialog: HTMLElement | null = null;
   private fortificationFacingPreview: HTMLElement | null = null;
+  private campaignTitleElement: HTMLElement | null = null;
   private missionTitleElement: HTMLElement | null = null;
   private missionBriefingElement: HTMLElement | null = null;
   private missionObjectivesList: HTMLUListElement | null = null;
@@ -4537,12 +4538,11 @@ export class BattleScreen {
     }
   }
 
-  private evaluateMissionRules(): void {
+  /** Recomputes mission truth from the hydrated engine without causing presentation side effects. */
+  private calculateMissionStatusFromEngine(): MissionStatus | null {
     if (!this.missionRulesController || !this.battleState.hasEngine()) {
-      return;
+      return null;
     }
-
-    const previousStatus = this.missionStatus;
     const engine = this.battleState.ensureGameEngine();
     const turnSummary = engine.getTurnSummary();
     const occupancy = new Map<string, TurnFaction>();
@@ -4557,7 +4557,7 @@ export class BattleScreen {
       occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Ally");
     });
 
-    const status = this.missionRulesController.onTurnAdvanced({
+    return this.missionRulesController.onTurnAdvanced({
       turnSummary,
       scenario: this.scenario,
       occupancy,
@@ -4565,6 +4565,12 @@ export class BattleScreen {
       botUnits: engine.botUnits,
       allyUnits: engine.allyUnits
     });
+  }
+
+  private evaluateMissionRules(): void {
+    const previousStatus = this.missionStatus;
+    const status = this.calculateMissionStatusFromEngine();
+    if (!status) return;
 
     this.missionStatus = status;
 
@@ -8231,7 +8237,10 @@ export class BattleScreen {
       this.uiState?.selectedDifficulty ?? "Normal"
     );
     this.missionRulesController.hydrateState(save.battle.missionRules);
-    this.missionStatus = structuredClone(save.battle.missionStatus);
+    // Migration may clear an obsolete deadline-only outcome. Re-evaluate exactly once from the
+    // restored engine so objective/force terminals remain authoritative at the resumed turn.
+    this.missionStatus = this.calculateMissionStatusFromEngine()
+      ?? structuredClone(save.battle.missionStatus);
     this.lastMissionPhaseId = this.missionStatus.phase?.id ?? null;
 
     this.teardownInitiativeSystemUi();
@@ -8384,6 +8393,7 @@ export class BattleScreen {
     this.attackConfirmBody = this.element.querySelector("#battleAttackConfirmBody");
     this.fortificationFacingDialog = this.element.querySelector("#battleFortificationFacing");
     this.fortificationFacingPreview = this.element.querySelector("#battleFortificationFacingPreview");
+    this.campaignTitleElement = this.element.querySelector("#battleCampaignTitle");
     this.missionTitleElement = this.element.querySelector("#battleMissionTitle");
     this.missionBriefingElement = this.element.querySelector("#battleMissionSummary");
     this.missionObjectivesList = this.element.querySelector("#battleMissionObjectives");
@@ -8418,6 +8428,9 @@ export class BattleScreen {
     const turnLimit = missionInfo?.turnLimit ?? null;
     const supplies = missionInfo?.baselineSupplies ?? [];
 
+    if (this.campaignTitleElement) {
+      this.campaignTitleElement.textContent = missionInfo?.campaignTitle ?? "Operation";
+    }
     if (this.missionTitleElement) {
       this.missionTitleElement.textContent = title;
     }
@@ -9233,61 +9246,44 @@ export class BattleScreen {
     // Apply the outcome back to the strategic layer: deduct resources, shift the active front, and
     // remove the resolved engagement. This keeps the feedback loop tight without breaking existing flows.
     const campaign = ensureCampaignState();
+    const isCampaignMission = this.uiState?.isFromCampaign === true || this.uiState?.selectedMission === "campaign";
     let outcomeAppliedToCampaign = false;
     let postBattleAutosaveError: string | null = null;
-    if (!campaign.getScenario()) {
-      console.error("[BattleScreen] mission end could not record campaign outcome", {
-        missionKey: this.uiState?.selectedMission ?? "training",
-        scenarioName: this.scenario.name,
-        reason: "Campaign scenario unavailable during mission-end handoff."
-      });
+    let campaignHandoffFailure: string | null = null;
+    if (!isCampaignMission) {
+      outcomeAppliedToCampaign = true;
+    } else if (!campaign.getScenario()) {
+      campaignHandoffFailure = "Campaign scenario truth is unavailable during the result handoff.";
     } else {
       try {
-        const active = campaign.getActiveEngagement();
-        const activeEngagementId = campaign.getActiveEngagementId();
         const commitmentPackage = campaign.getActiveCampaignBattlePackage();
         const engine = this.battleState.tryGetGameEngine();
+        if (!commitmentPackage || !engine || !this.missionStatus) {
+          throw new Error("The frozen campaign package, tactical engine, or terminal mission status is unavailable.");
+        }
         const tacticalPlayerWon = resolution.success;
-        const campaignResult = commitmentPackage?.context.attacker === "Player"
+        const campaignResult = commitmentPackage.context.attacker === "Player"
           ? (tacticalPlayerWon ? "attackerVictory" : "defenderVictory")
           : (tacticalPlayerWon ? "defenderVictory" : "attackerVictory");
-        const application = commitmentPackage && engine
-          ? campaign.applyCampaignBattleResult(extractCampaignBattleResultPackage({
-              battlePackage: commitmentPackage,
-              tacticalState: engine.serialize(),
-              missionStatus: this.missionStatus,
-              result: campaignResult
-            }))
-          : campaign.applyBattleOutcome({
-              activeEngagementId,
-              frontKey: active?.frontKey ?? null,
-              result: resolution.success ? "PlayerVictory" : "PlayerDefeat",
-              casualties: resolution.casualties,
-              spentAmmo,
-              spentFuel,
-              resolutionId: createStableCampaignRecordId(
-                "battle-resolution",
-                activeEngagementId,
-                resolution.success ? "PlayerVictory" : "PlayerDefeat",
-                engine?.turnNumber ?? 0,
-                resolution.objectivesCompleted,
-                resolution.casualties,
-                spentAmmo,
-                spentFuel
-              )
-            });
-        if (commitmentPackage) {
-          const retained = campaign.getCampaignBattleResultPackage(commitmentPackage.engagementId);
-          const playerResources = retained?.resourcesConsumed.Player;
-          spentAmmo = playerResources?.ammo ?? spentAmmo;
-          spentFuel = playerResources?.fuel ?? spentFuel;
-          reportedCasualties = retained?.formationDeltas
-            .filter((delta) => delta.faction === "Player")
-            .reduce((sum, delta) => sum + Math.max(0, delta.personnelBefore - delta.personnelAfter), 0)
-            ?? reportedCasualties;
+        const application = campaign.applyCampaignBattleResult(extractCampaignBattleResultPackage({
+          battlePackage: commitmentPackage,
+          tacticalState: engine.serialize(),
+          missionStatus: this.missionStatus,
+          result: campaignResult
+        }));
+        if (!application.applied && !application.duplicate) {
+          throw new Error("Campaign headquarters rejected the tactical result without recording it.");
         }
-        outcomeAppliedToCampaign = application.applied || application.duplicate;
-        if (application.applied && commitmentPackage) {
+        const retained = campaign.getCampaignBattleResultPackage(commitmentPackage.engagementId);
+        const playerResources = retained?.resourcesConsumed.Player;
+        spentAmmo = playerResources?.ammo ?? spentAmmo;
+        spentFuel = playerResources?.fuel ?? spentFuel;
+        reportedCasualties = retained?.formationDeltas
+          .filter((delta) => delta.faction === "Player")
+          .reduce((sum, delta) => sum + Math.max(0, delta.personnelBefore - delta.personnelAfter), 0)
+          ?? reportedCasualties;
+        outcomeAppliedToCampaign = true;
+        if (application.applied) {
           try {
             await campaign.savePostBattleAutosave(
               commitmentPackage.engagementId,
@@ -9307,7 +9303,23 @@ export class BattleScreen {
           scenarioName: this.scenario.name,
           error: err
         });
+        campaignHandoffFailure = err instanceof Error ? err.message : String(err);
       }
+    }
+    if (campaignHandoffFailure) {
+      const retryMessage = `Campaign result not recorded. The battle remains open for a safe retry. ${campaignHandoffFailure}`;
+      campaign.setHeadquartersStatusMessage({
+        title: "Battle result awaiting headquarters",
+        detail: retryMessage,
+        action: "Keep this battle open and choose End Mission again after reviewing the active campaign save.",
+        tone: "warning"
+      });
+      this.announceBattleUpdate(retryMessage);
+      this.showMissionEndModal(
+        resolution.success ? "playerVictory" : "playerDefeat",
+        retryMessage
+      );
+      return;
     }
     const objectiveLabel = resolution.objectivesCompleted === 1 ? "objective" : "objectives";
     const casualtyLabel = reportedCasualties === 1 ? "casualty" : "casualties";

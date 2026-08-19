@@ -927,3 +927,105 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Run all six command-board briefs and verify their real interactions at desktop and mobile sizes.
 
 ---
+## Campaign Tactical Save Rule-Migration Plan
+
+### Intended behavior
+- Campaign battles have no fixed tactical turn limit and end only through objective control or force collapse.
+- A Player defensive battle resumes with defender objectives and defeat conditions even when its active tactical save was written by the immediately preceding fixed-window build.
+- Compatible tactical saves retain exact engine, formation, initiative, and campaign-binding state while current campaign rule identity is backfilled from the integrity-checked frozen engagement package.
+
+### Current behavior
+- New campaign scenarios preserve role metadata and use `turnLimit: 0`.
+- `BattleState.hydrateComplete()` restores an older active save's engine configuration and precombat mission verbatim.
+- `BattleScreen` then creates campaign mission rules from that stale scenario; missing `campaignPlayerRole` defaults to attacker and the HUD can retain the former 16–24-turn limit.
+
+### Expected new behavior
+- Active campaign tactical-save validation performs a narrow semantic migration for campaign missions.
+- The migration derives engagement, mission type, battle hex, package identity, and Player role only from the already integrity-checked frozen campaign package.
+- It clears obsolete tactical deadlines in the scenario and precombat mission, refreshes deadline copy in the saved mission status, and leaves non-campaign tactical saves byte-stable.
+- Newly captured campaign briefings state that battlefield conditions decide the engagement instead of implying that a tactical window will close.
+
+### Edge cases
+- Player attacks and Player defenses derive opposite roles from the frozen attacker/defender identities.
+- A legacy save at turn 30 remains in progress while both sides retain effective ground forces and the decisive objectives are contested.
+- Existing saved objective progress and outcome state remain intact; only obsolete deadline wording and role metadata are migrated.
+- Training and authored standalone battle saves are not changed.
+
+### Impact analysis
+- Systems consuming this output:
+  - `BattleSaveTypes` campaign-binding validation and returned hydration payload
+  - `BattleState` complete engine/precombat hydration
+  - `BattleScreen` resumed campaign mission-controller construction and HUD copy
+  - campaign tactical autosave/manual-save recapture after resume
+- Events depending on this structure:
+  - tactical save load and `snapshotHydrated`
+  - resumed mission-status rendering and the next turn transition
+- Visual behaviors that could shift:
+  - resumed campaign HUD changes from an obsolete turn count to `No fixed turn limit`
+  - resumed defensive objectives identify the Player as defender and no longer advertise a closing tactical window
+
+### Risk assessment
+- `BattleScreen.ts` is a high-risk consumer, but the implementation remains in the persistence boundary and precombat copy; no combat math, coordinate logic, initiative ordering, or engine serialization is changed.
+- The migration is behavior-focused and source-bound to an integrity-checked campaign package rather than a fallback guess.
+
+### Verification
+- Add a tactical-save regression that validates a legacy Player-defense save, proves the migrated identity/deadline, and confirms the battle remains active beyond turn 20 until opposing objective capture.
+- Run the focused tactical-save test, `npm run test:campaign`, `npm run build`, zero-warning lint, `npm test`, and `git diff --check`.
+- Live-retest save/resume through the external browser after the browser runtime and deployment capacity are available.
+
+---
+
+## Campaign Contact, Handoff, and First-Class UI Repair Plan
+
+### Intended behavior
+- Every launchable campaign front is an exact edge between real opposing-controlled tiles with persistent formations on both sides.
+- Tactical generation remains bound to the frozen campaign, template, engagement, objective, and formation package; an invalid handoff stays in Campaign Command with recovery guidance.
+- Applying a tactical result is atomic from the player's perspective. A failed strategic write leaves the battle open and retryable.
+- Campaign identity, tactical engagement identity, human-readable labels, and recovery actions remain visible and distinct throughout campaign, precombat, and battle screens.
+- Existing saves from the immediately preceding Central Channel map and tactical-rule versions migrate only when their exact content and frozen geometry can be proven compatible.
+
+### Current behavior
+- The shipped Normandy front points to a nonexistent neutral coordinate and both authored fronts disappear after one derived-control segment.
+- Generator failure can substitute a generic standalone battle or retain an unrelated template garrison.
+- A failed campaign-result application can still close the tactical UI and navigate away.
+- The redeploy planner has nested vertical scrolling, tactical deployment loses its parent campaign title, and raw identifiers can surface in visible or accessible labels.
+- Repairing the shipped scenario changes its content hash, which would reject valid previous-build saves without an explicit migration.
+
+### Expected new behavior
+- Normandy resolves `27,37 → 28,38` as a Player port assault and Eastern Sector resolves `30,40 → 29,39` as a Bot offensive, with both contacts surviving the first segment.
+- Front preparation uses only current `front.edges`, verifies exact opposing ownership and persistent formations, and never mutates campaign state on failure.
+- Campaign generation rejects unknown pools, incompatible templates, neutral/same-side contexts, empty opposition, and unmappable opposition.
+- Result handoff returns before teardown, service history, or navigation when strategic application fails; one retry records and navigates once.
+- The redeploy popup has one vertical scroll owner, campaign and engagement titles remain separate, and shared label formatting removes camelCase/snake_case implementation tokens.
+- Exact previous content hash `fnv1a32-9f497e04` migrates to repaired hash `fnv1a32-cb416131`; every other mismatch remains read-only.
+
+### Edge cases
+- A Player defensive battle at turn 30 must remain active while objectives are contested, then end from objective capture at turn 31.
+- A Western Europe save frozen to an El Alamein template must be rejected even when its package checksum is internally valid.
+- Deadline-caused terminal state is reset only for the two exact legacy deadline reasons; objective and force-collapse terminals remain intact.
+- A previous campaign save preserves campaign ID, revision, elapsed segment, and every existing formation record while adding repaired contact formations exactly once.
+- A captured Eastern airfield does not receive newly spawned Bot reinforcement groups during content migration.
+- Multiple legal front edges require an explicit target; zero legal edges remain a no-op.
+
+### Impact analysis
+- Systems consuming this output:
+  - campaign scenario/runtime creation, front derivation, engagement preparation, tactical generation, result application, and content persistence
+  - campaign/precombat/battle headers, redeploy planner, Forces/Inspector labels, mission status, and active battle resume
+- Events depending on this structure:
+  - first segment resolution, Player battle launch, Bot mandatory defense, mission-end retry, post-battle autosave, and campaign slot load
+- Visual behaviors that shift:
+  - full theater identity remains visible while the engagement title stays specific
+  - blocked redeployment exposes its reason, corrective action, Cancel, and disabled primary action in one scroll context
+  - raw campaign role and unit identifiers are formatted for players and assistive technology
+
+### Risk assessment
+- `CampaignState.ts` and `BattleScreen.ts` are high-risk state-transition consumers. Changes are fail-closed, preserve existing transaction boundaries, and have direct regression coverage.
+- Campaign content migration accepts only one exact prior/current hash pair and revalidates runtime invariants after reconciliation.
+- Live visual and end-to-end acceptance remains blocked until the approved external-browser extension runtime initializes and the shared Vercel allowance has deployment capacity.
+
+### Verification
+- Run the shipped first-front/first-segment tests, previous-content campaign save migration, turn-30 tactical save migration, incompatible-template rejection, failed-result retry, title continuity, label formatting, and no-deadline briefing tests.
+- Run `npm run test:campaign`, `npm test`, `npm run build`, focused zero-warning lint, full repository lint, skill validation, and `git diff --check`.
+- Perform one batched push only after Vercel capacity/concurrency preflight; then rerun the complete live campaign journey through the external browser.
+
+---

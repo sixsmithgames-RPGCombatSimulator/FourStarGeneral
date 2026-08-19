@@ -352,8 +352,11 @@ export function validateCampaignSaveEnvelope(
   }
 
   const envelope = structuredClone(value) as unknown as FourStarCampaignSaveEnvelope;
+  const acceptableHashes = expectedContent
+    ? new Set([expectedContent.scenarioContentHash, ...(expectedContent.compatiblePriorContentHashes ?? [])])
+    : null;
   if (expectedContent && (envelope.scenarioKey !== expectedContent.scenarioKey
-    || envelope.payload.runtime.scenarioContentHash !== expectedContent.scenarioContentHash)) {
+    || !acceptableHashes?.has(envelope.payload.runtime.scenarioContentHash))) {
     const error = new CampaignSaveError(
       "CONTENT_MISMATCH",
       "Campaign save does not match the expected authored scenario content.",

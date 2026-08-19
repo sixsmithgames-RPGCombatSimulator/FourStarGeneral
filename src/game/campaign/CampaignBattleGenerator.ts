@@ -184,7 +184,7 @@ export function resolveScenarioForMission(missionKey: string): ScenarioSource {
   const battlePackage = campaignState.getActiveCampaignBattlePackage();
   const context = battlePackage?.context ?? engagement?.context;
   if (!context) {
-    return getScenarioByMissionKey(missionKey);
+    throw new Error("No committed campaign engagement is available for tactical planning. Return to campaign command and select a valid operation.");
   }
   const commitmentIntegrity = battlePackage?.integrityHash ?? null;
   if (cache && cache.engagementId === context.engagementId
@@ -201,12 +201,13 @@ export function resolveScenarioForMission(missionKey: string): ScenarioSource {
     cache = { engagementId: context.engagementId, commitmentIntegrity, scenario: generated };
     return generated;
   } catch (err) {
-    console.error("[CampaignBattleGenerator] Generation failed; falling back to default campaign scenario", {
+    console.error("[CampaignBattleGenerator] Campaign battle generation failed closed", {
       engagementId: context.engagementId,
       missionType: context.missionType,
       error: err
     });
-    return getScenarioByMissionKey(missionKey);
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`The selected campaign engagement cannot open a trustworthy tactical battle: ${reason}`);
   }
 }
 
@@ -216,19 +217,26 @@ export function resolveScenarioForMission(missionKey: string): ScenarioSource {
  */
 export function generateCampaignBattleScenario(
   context: CampaignEngagementContext,
-  formationSource?: Pick<CampaignRuntimeState, "campaignId" | "revision" | "currentSegment" | "formations">,
-  battlePackage?: CampaignBattlePackage
+  formationSource?: Pick<CampaignRuntimeState, "campaignId" | "scenarioKey" | "revision" | "currentSegment" | "formations">,
+  battlePackage?: CampaignBattlePackage,
+  campaignTemplatePoolOverride?: string
 ): ScenarioSource {
   const effectiveContext = battlePackage?.engagementId === context.engagementId
     ? battlePackage.context
     : context;
-  const requestedCampaignKey = battlePackage?.scenarioKey ?? "central_channel";
-  // Legacy and test packages predate theater-tagged maps. Until a campaign receives its own
-  // approved pool, keep those packages on the shipped Western Europe pool instead of reopening
-  // unrestricted global selection. Explicit pools take over automatically when authored.
-  const campaignKey = hasBattleTemplatesForCampaign(requestedCampaignKey)
-    ? requestedCampaignKey
-    : "central_channel";
+  // Direct generator tests predate a runtime argument and exercise the only currently shipped
+  // campaign. Production always supplies either the frozen package or runtime scenario key.
+  const campaignKey = battlePackage?.scenarioKey
+    ?? campaignTemplatePoolOverride
+    ?? formationSource?.scenarioKey
+    ?? "central_channel";
+  if (!hasBattleTemplatesForCampaign(campaignKey)) {
+    throw new Error(`[CampaignBattleGenerator] Campaign '${campaignKey}' has no approved tactical template pool.`);
+  }
+  if (effectiveContext.attacker === "Neutral" || effectiveContext.defender === "Neutral"
+    || effectiveContext.attacker === effectiveContext.defender) {
+    throw new Error(`[CampaignBattleGenerator] Engagement '${effectiveContext.engagementId}' does not identify two opposing campaign factions.`);
+  }
   const template = effectiveContext.templateKey
     ? getBattleTemplateByKey(effectiveContext.templateKey)
     : selectBattleTemplate(effectiveContext.missionType, effectiveContext.coastal, effectiveContext.engagementId, campaignKey);
@@ -328,9 +336,7 @@ export function generateCampaignBattleScenario(
     ? battlePackage.formationCommitments.filter((entry) => entry.role === botRole && entry.faction === "Bot").length
     : botForcePool.reduce((sum, group) => sum + group.count, 0);
   if (botTotal <= 0) {
-    // Neutral or unscouted target: keep the template's authored garrison as-is.
-    if (playerDefense) bot["units"] = [];
-    return scenario;
+    throw new Error(`[CampaignBattleGenerator] Engagement '${effectiveContext.engagementId}' has no committed opposing ground formation.`);
   }
 
   const templateUnits = playerDefense
@@ -352,11 +358,7 @@ export function generateCampaignBattleScenario(
     const botForceValue = playerDefense ? effectiveContext.playerForceValue : effectiveContext.enemyForceValue;
     bot["resources"] = Math.max(300, Math.min(1500, Math.round(botForceValue * 0.6)));
   } else {
-    console.warn("[CampaignBattleGenerator] Bot force pool produced no mappable units; keeping template garrison", {
-      engagementId: effectiveContext.engagementId,
-      botForcePool
-    });
-    if (playerDefense) bot["units"] = [];
+    throw new Error(`[CampaignBattleGenerator] Engagement '${effectiveContext.engagementId}' produced no mappable opposing tactical units from ${botForcePool.length} campaign force groups.`);
   }
 
   return scenario;

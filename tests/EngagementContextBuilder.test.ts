@@ -178,7 +178,7 @@ registerTest("ENGAGEMENT_CONTEXT_MISSION_TYPES_AND_BANDS", async ({ Given, When,
 
     const unopposed = buildEngagementContext(scenario, {
       engagementId: "eng_unopposed",
-      battleHexKey: "39,39",
+      battleHexKey: "14,7",
       attacker: "Player"
     });
     if (!unopposed || !Number.isFinite(unopposed.forceRatio) || unopposed.forceRatio !== Number.MAX_SAFE_INTEGER) {

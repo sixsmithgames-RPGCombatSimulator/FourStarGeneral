@@ -129,6 +129,51 @@ registerTest("PRECOMBAT_CAMPAIGN_CONTEXT_STAYS_OUTSIDE_BUDGET_GRID", async ({ Gi
   });
 });
 
+registerTest("PRECOMBAT_CAMPAIGN_COPY_HAS_NO_HIDDEN_TACTICAL_DEADLINE", async ({ Given, When, Then }) => {
+  let attackBriefing = "";
+  let defenseBriefing = "";
+  let turnLimit = "";
+
+  await Given("campaign attack and defense briefings using no-fixed-limit mission rules", () => {});
+
+  await When("both roles render their mission summary", () => {
+    for (const playerDefense of [false, true]) {
+      const screen = createScreen();
+      const internals = screen as any;
+      internals.engagementContext = {
+        engagementId: playerDefense ? "precombat-defense" : "precombat-attack",
+        battleHexKey: "28,38",
+        missionType: "meetingEngagement",
+        attacker: playerDefense ? "Bot" : "Player",
+        defender: playerDefense ? "Player" : "Bot"
+      };
+      internals.miniMapScenario = {
+        name: "Meeting Engagement",
+        turnLimit: 0,
+        campaignPlayerRole: playerDefense ? "defender" : "attacker",
+        campaignBattleHexKey: "28,38",
+        objectives: [{ hex: { q: 2, r: 1 }, owner: "Bot", vp: 1 }],
+        sides: { Player: { units: [] }, Bot: { units: [] }, Ally: { units: [] } }
+      };
+      internals.renderMissionSummary("campaign", "Normal");
+      const briefing = document.getElementById("precombatMissionBriefing")?.textContent ?? "";
+      if (playerDefense) defenseBriefing = briefing;
+      else attackBriefing = briefing;
+      turnLimit = document.getElementById("missionTurnLimit")?.textContent ?? "";
+    }
+  });
+
+  await Then("briefing and timeline agree that battlefield conditions decide the engagement", () => {
+    const combined = `${attackBriefing} ${defenseBriefing}`;
+    if (turnLimit !== "No fixed turn limit"
+      || !attackBriefing.includes("objective control or force collapse")
+      || !defenseBriefing.includes("objective control or force collapse")
+      || /window closes|turns? remain/i.test(combined)) {
+      throw new Error(`Campaign precombat retained contradictory deadline copy: ${combined}`);
+    }
+  });
+});
+
 registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, When, Then }) => {
   let screen: PrecombatScreen;
   let convoyVisible = true;

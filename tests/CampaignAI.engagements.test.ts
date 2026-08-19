@@ -22,7 +22,7 @@ import { extractCampaignBattleResultPackage } from "../src/game/campaign/results
 
 function scenarioFixture(): CampaignScenarioData {
   return {
-    key: "ai-engagement-fixture",
+    key: "central_channel",
     title: "AI Engagement Fixture",
     description: "Bot staging line beside two Player positions.",
     dimensions: { cols: 4, rows: 2 },

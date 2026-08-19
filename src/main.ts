@@ -154,8 +154,13 @@ function initializeApplication(): void {
     uiState.selectedMission = "campaign";
     // Mark this mission as started from campaign screen
     uiState.isFromCampaign = true;
-    precombatScreen.setup("campaign", generalId, uiState.selectedDifficulty);
-    screenManager.showScreenById("precombat");
+    try {
+      precombatScreen.setup("campaign", generalId, uiState.selectedDifficulty);
+      screenManager.showScreenById("precombat");
+    } catch (error) {
+      console.error("[CampaignBattleLaunch] Tactical handoff failed safely", error);
+      campaignScreen.reportBattleLaunchFailure(error instanceof Error ? error.message : String(error));
+    }
   });
   // Render the campaign scenario immediately so entering the Campaign screen shows the map.
   // Patch the background image URL since JSON files can't use new URL() for asset bundling

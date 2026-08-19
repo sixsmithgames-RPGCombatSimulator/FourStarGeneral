@@ -24,7 +24,7 @@ export const LEGACY_V2_ENGAGEMENT_ID = "legacy-engagement-active";
  */
 export function buildCampaignSaveCanonicalScenario(): CampaignScenarioData {
   return {
-    key: "campaign-save-fixture",
+    key: "central_channel",
     title: "Campaign Save Fixture",
     description: "Canonical scenario used to certify v1/v2 migration.",
     hexScaleKm: 10,

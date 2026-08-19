@@ -78,6 +78,8 @@ export type CampaignSaveEnvelopeInput = Omit<FourStarCampaignSaveEnvelope, "enve
 export interface CampaignSaveExpectedContent {
   readonly scenarioKey: string;
   readonly scenarioContentHash: string;
+  /** Exact prior authored identities with a certified in-memory migration to scenarioContentHash. */
+  readonly compatiblePriorContentHashes?: readonly string[];
 }
 
 /** Named pointer to the newest immutable envelope and bounded prior history. */

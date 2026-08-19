@@ -108,11 +108,17 @@ import { IndexedDbCampaignSaveBackend } from "../game/campaign/persistence/Campa
 import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../game/campaign/persistence/CampaignSaveEnvelope";
 import { migrateLegacyCampaignSave } from "../game/campaign/persistence/CampaignSaveMigration";
 import {
+  CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+  CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
+  migrateCampaignRuntimeContent
+} from "../game/campaign/persistence/CampaignContentMigration";
+import {
   CampaignSaveRepository,
   type CampaignSaveSlotLoadOptions
 } from "../game/campaign/persistence/CampaignSaveRepository";
 import {
   CampaignSaveError,
+  type CampaignSaveExpectedContent,
   type CampaignSaveLoadFailure,
   type CampaignSaveQuarantineRecord,
   type CampaignSaveRecoveryCandidate,
@@ -232,6 +238,16 @@ export interface CampaignStateLoadSuccess {
 
 /** Primary-slot load result that preserves repository recovery semantics. */
 export type CampaignStateLoadResult = CampaignStateLoadSuccess | CampaignSaveLoadFailure;
+
+/** Result of resolving one actionable front entirely from current campaign truth. */
+export type CampaignFrontEngagementPreparation = {
+  readonly ok: true;
+  readonly engagement: CampaignPendingEngagement & { readonly context: CampaignEngagementContext };
+} | {
+  readonly ok: false;
+  readonly reason: string;
+  readonly targetRequired: boolean;
+};
 
 // Hexes per day by unit type. Slowest selected unit determines redeploy ETA.
 // Each hex = 5km, so multiply by 5 to get km/day, or divide 10 by (speed × 5) to get days per 10km.
@@ -1599,23 +1615,6 @@ export class CampaignState {
   }
 
   /**
-   * WHAT: Returns the currently resolved authored identity required for safe save hydration.
-   * WHY: A valid checksum cannot authorize applying runtime state to different or changed scenario content.
-   *
-   * @returns Current scenario key/content hash.
-   * @throws CampaignSaveError when no authored scenario is resolved.
-   */
-  private getExpectedSaveContent(): { scenarioKey: string; scenarioContentHash: string } {
-    if (!this.scenarioDefinition) {
-      throw new CampaignSaveError("CONTENT_MISMATCH", "No authored campaign scenario is loaded for save validation.");
-    }
-    return {
-      scenarioKey: this.scenarioDefinition.key,
-      scenarioContentHash: computeCampaignContentHash(this.scenarioDefinition)
-    };
-  }
-
-  /**
    * WHAT: Hydrates a verified envelope into authoritative runtime and regenerates the compatibility projection.
    * WHY: Load/recovery must never assign legacy fields independently or bypass current authored-content policy.
    *
@@ -1623,13 +1622,22 @@ export class CampaignState {
    * @throws CampaignSaveError when checksum, runtime, or content identity is invalid.
    */
   private applyCampaignSaveEnvelope(envelope: FourStarCampaignSaveEnvelope): void {
-    const validation = validateCampaignSaveEnvelope(envelope, this.getExpectedSaveContent());
+    if (!this.scenarioDefinition) {
+      throw new CampaignSaveError("CONTENT_MISMATCH", "No authored campaign scenario is loaded for save migration.");
+    }
+    const validation = validateCampaignSaveEnvelope(envelope);
     if (!validation.ok) throw validation.error;
-    this.runtime = structuredClone(validation.envelope.payload.runtime);
+    const content = migrateCampaignRuntimeContent(validation.envelope.payload.runtime, this.scenarioDefinition);
+    this.runtime = content.runtime;
     reconcileCampaignInfrastructure(this.runtime, this.scenarioDefinition!.map.tilePalette);
     reconcileCampaignObjectiveRuntime(this.runtime, this.scenarioDefinition!);
     this.activeBattleSave = validation.envelope.payload.activeBattle
-      ? structuredClone(validation.envelope.payload.activeBattle)
+      ? assertCompleteActiveCampaignBattleSave(validation.envelope.payload.activeBattle, {
+          campaignId: this.runtime.campaignId,
+          campaignRevision: this.runtime.revision,
+          scenarioKey: this.runtime.scenarioKey,
+          engagementId: this.runtime.activeEngagementId ?? ""
+        })
       : null;
     this.postBattleAutosaveStatus = null;
     this.hydrateCompatibilityProjection(this.runtime);
@@ -1736,12 +1744,28 @@ export class CampaignState {
     return new CampaignSaveError("STORAGE_FAILED", `Campaign save failed while ${action}: ${detail}`, { action, detail });
   }
 
+  /** Returns current authored identity plus only the exact prior hash with a certified migration. */
+  private getExpectedSaveContent(): CampaignSaveExpectedContent {
+    if (!this.scenarioDefinition) {
+      throw new CampaignSaveError("CONTENT_MISMATCH", "No authored campaign scenario is loaded for save validation.");
+    }
+    const scenarioContentHash = computeCampaignContentHash(this.scenarioDefinition);
+    return {
+      scenarioKey: this.scenarioDefinition.key,
+      scenarioContentHash,
+      ...(this.scenarioDefinition.key === "central_channel"
+        && scenarioContentHash === CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH
+        ? { compatiblePriorContentHashes: [CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH] }
+        : {})
+    };
+  }
+
   /** Loads one named Campaign 2.0 slot without applying legacy-primary migration policy. */
   async loadCampaignSlot(
     slotId: string,
     request: CampaignStatePersistenceRequest
   ): Promise<CampaignStateLoadResult> {
-    let expectedContent: { scenarioKey: string; scenarioContentHash: string };
+    let expectedContent: CampaignSaveExpectedContent;
     try {
       expectedContent = this.getExpectedSaveContent();
     } catch (error) {
@@ -1772,7 +1796,7 @@ export class CampaignState {
    * @returns Applied current/migrated save or failure with optional unapplied recovery candidate.
    */
   async loadPrimaryCampaign(request: CampaignStatePersistenceRequest): Promise<CampaignStateLoadResult> {
-    let expectedContent: { scenarioKey: string; scenarioContentHash: string };
+    let expectedContent: CampaignSaveExpectedContent;
     try {
       expectedContent = this.getExpectedSaveContent();
     } catch (error) {
@@ -2056,6 +2080,100 @@ export class CampaignState {
     return context && this.runtime
       ? attachCampaignFormationProvenanceToContext(context, this.runtime)
       : context;
+  }
+
+  /**
+   * Resolves a front attack from exact, current opposing-control edges.
+   * No UI fallback may turn an authored polyline or missing tile into a tactical battle.
+   */
+  prepareCampaignFrontEngagement(options: {
+    readonly engagementId: string;
+    readonly frontKey: string;
+    readonly attacker: CampaignFactionKey;
+    readonly requestedTargetHexKey?: string | null;
+  }): CampaignFrontEngagementPreparation {
+    if (!this.runtime || !this.scenario) {
+      return { ok: false, reason: "No authoritative campaign runtime is available.", targetRequired: false };
+    }
+    const front = this.runtime.compatibility.initialFronts.find((candidate) => candidate.key === options.frontKey);
+    if (!front) {
+      return { ok: false, reason: "The selected front no longer exists in current campaign truth.", targetRequired: false };
+    }
+    if (front.initiative !== options.attacker) {
+      return { ok: false, reason: "The selected faction does not hold initiative on this front.", targetRequired: false };
+    }
+    const legalEdges = (front.edges ?? []).filter((edge) => {
+      const friendlyKey = campaignOffsetKeyToRuntimeHexKey(edge.friendlyHexKey);
+      const opposingKey = campaignOffsetKeyToRuntimeHexKey(edge.opposingHexKey);
+      const friendlyTile = friendlyKey ? this.runtime?.tiles[friendlyKey] : null;
+      const opposingTile = opposingKey ? this.runtime?.tiles[opposingKey] : null;
+      return Boolean(friendlyTile && opposingTile
+        && friendlyTile.controller === options.attacker
+        && opposingTile.controller !== "Neutral"
+        && opposingTile.controller !== options.attacker
+        && hexDistance(friendlyTile.hex, opposingTile.hex) === 1);
+    });
+    const requestedTarget = options.requestedTargetHexKey ?? null;
+    const candidates = requestedTarget
+      ? legalEdges.filter((edge) => edge.opposingHexKey === requestedTarget)
+      : legalEdges;
+    if (candidates.length === 0) {
+      return {
+        ok: false,
+        reason: requestedTarget
+          ? "The requested target is not a current opposing-control edge on this front."
+          : "This front has no current opposing-control edge that can support a battle.",
+        targetRequired: false
+      };
+    }
+    if (!requestedTarget && candidates.length > 1) {
+      return { ok: false, reason: "Select which opposing front hex to attack.", targetRequired: true };
+    }
+    const edge = candidates[0];
+    const objectiveKey = this.scenario.objectives.find((objective) => (
+      this.axialToOffsetKey(objective.hex.q, objective.hex.r) === edge.opposingHexKey
+    ))?.key ?? null;
+    let context: CampaignEngagementContext | null;
+    try {
+      context = this.buildCampaignEngagementContext({
+        engagementId: options.engagementId,
+        battleHexKey: edge.opposingHexKey,
+        attacker: options.attacker,
+        frontKey: front.key,
+        objectiveKey
+      }, options.attacker);
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : String(error),
+        targetRequired: false
+      };
+    }
+    if (!context) {
+      return { ok: false, reason: "Campaign engagement context could not be built.", targetRequired: false };
+    }
+    const attackerFormations = context.availableForces.flatMap((group) => group.formationIds ?? []);
+    const defenderFormations = context.enemyForces.flatMap((group) => group.formationIds ?? []);
+    if (attackerFormations.length === 0 || defenderFormations.length === 0) {
+      return {
+        ok: false,
+        reason: "Both sides need mapped persistent ground formations at this front before battle can begin.",
+        targetRequired: false
+      };
+    }
+    return {
+      ok: true,
+      engagement: {
+        id: options.engagementId,
+        frontKey: front.key,
+        objectiveKey,
+        attacker: context.attacker,
+        defender: context.defender,
+        hexKeys: [edge.friendlyHexKey, edge.opposingHexKey],
+        tags: ["front"],
+        context
+      }
+    };
   }
 
   /** Returns a defensive persistent formation record for later roster/detail surfaces. */

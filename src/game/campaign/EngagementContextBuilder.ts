@@ -166,9 +166,15 @@ export function buildEngagementContext(
 
   const attacker = options.attacker;
   const battleTile = findTile(scenario, coords.q, coords.r);
+  if (!battleTile) {
+    throw new Error(`[EngagementContextBuilder] Battle hex '${options.battleHexKey}' does not exist in campaign geometry.`);
+  }
   const defender: CampaignFactionKey = battleTile
     ? tileOwner(scenario, battleTile)
     : "Neutral";
+  if (defender === "Neutral" || defender === attacker) {
+    throw new Error(`[EngagementContextBuilder] Battle hex '${options.battleHexKey}' is not controlled by an opposing faction.`);
+  }
 
   const coastal = isCoastal(scenario, coords.q, coords.r);
   const battleInfrastructure = battleTile?.infrastructure;
@@ -234,10 +240,10 @@ export function buildEngagementContext(
   const supplies = attackerEconomy?.supplies ?? 0;
   const rpReserve = Math.max(RP_RESERVE_FLOOR, Math.min(RP_RESERVE_CEILING, Math.floor(supplies / 4)));
   const missionType = deriveMissionType(scenario, options.battleHexKey);
-  const templateCampaignKey = hasBattleTemplatesForCampaign(scenario.key)
-    ? scenario.key
-    : "central_channel";
-  const templateKey = selectBattleTemplate(missionType, coastal, options.engagementId, templateCampaignKey).key;
+  if (!hasBattleTemplatesForCampaign(scenario.key)) {
+    throw new Error(`[EngagementContextBuilder] Campaign '${scenario.key}' has no approved tactical template pool.`);
+  }
+  const templateKey = selectBattleTemplate(missionType, coastal, options.engagementId, scenario.key).key;
 
   return {
     engagementId: options.engagementId,

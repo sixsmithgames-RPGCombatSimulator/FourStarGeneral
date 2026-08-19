@@ -21,6 +21,8 @@ import {
   type CampaignBattlePackage
 } from "../src/game/campaign/engagements/CampaignEngagementLedgerTypes";
 import { computeCampaignBattlePackageIntegrity } from "../src/game/campaign/engagements/CampaignEngagementLedgerService";
+import { getBattleTemplateByKey } from "../src/game/campaign/battleTemplates";
+import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
 
 const unitTypes = unitTypesData as UnitTypeDictionary;
 const terrain = terrainData as TerrainDictionary;
@@ -30,25 +32,29 @@ function makeTestCampaignBattlePackage(binding: {
   campaignRevision: number;
   scenarioKey: string;
   engagementId: string;
+  playerRole?: "attacker" | "defender";
 }): CampaignBattlePackage {
   const sourceRevision = Math.max(0, binding.campaignRevision - 1);
+  const playerRole = binding.playerRole ?? "attacker";
+  const attacker = playerRole === "attacker" ? "Player" as const : "Bot" as const;
+  const defender = playerRole === "defender" ? "Player" as const : "Bot" as const;
   const context = {
     engagementId: binding.engagementId,
     battleHexKey: "1,1",
-    attacker: "Player" as const,
-    defender: "Bot" as const,
+    attacker,
+    defender,
     missionType: "meetingEngagement" as const,
     amphibious: false,
     coastal: false,
     availableForces: [{ hexKey: "0,1", unitType: "Infantry_42", count: 1, formationIds: ["formation-test"] }],
     allocationCaps: { infantry: 1 },
-    enemyForces: [],
+    enemyForces: [{ hexKey: "1,1", unitType: "Infantry_42", count: 1 }],
     airSorties: 0,
     rpReserve: 0,
     playerForceValue: 50,
-    enemyForceValue: 0,
+    enemyForceValue: 50,
     forceRatio: 1,
-    templateKey: null,
+    templateKey: "meeting_two_bridges",
     frontKey: null,
     objectiveKey: null
   };
@@ -56,8 +62,8 @@ function makeTestCampaignBattlePackage(binding: {
     id: binding.engagementId,
     frontKey: null,
     objectiveKey: null,
-    attacker: "Player" as const,
-    defender: "Bot" as const,
+    attacker,
+    defender,
     hexKeys: ["1,1"],
     tags: ["test"],
     context
@@ -81,7 +87,7 @@ function makeTestCampaignBattlePackage(binding: {
     formationCommitments: [{
       formationId: "formation-test",
       faction: "Player",
-      role: "attacker",
+      role: playerRole,
       allocationKey: "infantry",
       sourceHexKey: "0,1",
       tacticalUnitId: "tactical-test",
@@ -194,13 +200,40 @@ export function buildCompleteActiveBattleSave(binding: {
   scenarioKey: string;
   engagementId: string;
   focusedElementId?: string | null;
+  playerRole?: "attacker" | "defender";
 }): ActiveCampaignBattleSave {
   const battlePackage = makeTestCampaignBattlePackage(binding);
-  const scenario = makeScenario();
+  const template = getBattleTemplateByKey("meeting_two_bridges");
+  if (!template) throw new Error("Tactical save fixture could not resolve its campaign template.");
+  const scenario = normalizeScenarioSource(template.scenario as RawScenarioInput, { turnLimit: 0 });
+  scenario.name = binding.playerRole === "defender"
+    ? "Meeting Engagement Defense — Hex 1,1"
+    : "Meeting Engagement — Hex 1,1";
+  scenario.turnLimit = 0;
+  scenario.campaignTemplateKey = "meeting_two_bridges";
+  scenario.campaignPlayerRole = binding.playerRole ?? "attacker";
+  scenario.campaignMissionType = "meetingEngagement";
+  scenario.campaignBattleHexKey = "1,1";
+  scenario.campaignEngagementId = binding.engagementId;
+  scenario.campaignBattlePackageId = battlePackage.packageId;
+  scenario.campaignInfrastructureEffectiveness = 1;
   const source = new BattleState();
   source.initializeEngine(makeConfig(scenario));
   source.ensureGameEngine().hydrateFromSerialized(makeLegacyState());
-  const rules = createMissionRulesController("training", scenario);
+  const rules = createMissionRulesController("campaign", scenario);
+  const playerDefense = binding.playerRole === "defender";
+  source.setPrecombatMissionInfo({
+    missionKey: "campaign",
+    campaignTitle: "Operation Overlord - Central Channel Sector",
+    title: scenario.name,
+    briefing: playerDefense
+      ? "Opposing forces have opened a meeting engagement at operational hex 1,1. Hold the marked tactical ground or break the attacking ground force; objective control or force collapse decides the engagement."
+      : "Friendly forces are opening a meeting engagement at operational hex 1,1. Secure the marked tactical ground or break the opposing ground force; objective control or force collapse decides the engagement.",
+    objectives: [playerDefense ? "Primary: Hold the engagement area" : "Primary: Secure the engagement area"],
+    doctrine: playerDefense ? "Hold coherent defensive ground." : "Concentrate the committed formations.",
+    turnLimit: null,
+    baselineSupplies: []
+  });
   const complete = source.serializeComplete({
     initiative: null,
     missionRules: rules.serializeState(),
@@ -334,6 +367,170 @@ registerTest("TACTICAL_SAVE_NEXT_TRANSITION_IS_DETERMINISTIC", async ({ Given, W
     if (leftResult !== rightResult) {
       throw new Error("Reloading changed the deterministic result of the next tactical transition.");
     }
+  });
+});
+
+registerTest("TACTICAL_SAVE_MIGRATES_LEGACY_CAMPAIGN_DEFENSE_WITHOUT_A_DEADLINE", async ({ Given, When, Then }) => {
+  const binding = {
+    campaignId: "campaign-legacy-defense",
+    campaignRevision: 7,
+    scenarioKey: "central_channel",
+    engagementId: "engagement-legacy-defense",
+    playerRole: "defender" as const
+  };
+  const current = buildCompleteActiveBattleSave(binding);
+  const legacy = structuredClone(current) as unknown as {
+    battle: {
+      engineConfig: { scenario: ScenarioData & Record<string, unknown> };
+      engine: SerializedBattleState;
+      boundary: { turn: number };
+      missionRules: { data: Record<string, unknown> };
+      precombatMission: {
+        turnLimit: number | null;
+        title: string;
+        briefing: string;
+        objectives: string[];
+      } | null;
+      missionStatus: {
+        turn: number;
+        outcome: { state: string; reason?: string };
+        objectives: Array<{ id: string; label: string; state: string; detail?: string }>;
+      };
+    };
+  };
+  const legacyScenario = legacy.battle.engineConfig.scenario;
+  legacyScenario.turnLimit = 24;
+  delete legacyScenario.campaignPlayerRole;
+  delete legacyScenario.campaignMissionType;
+  delete legacyScenario.campaignBattleHexKey;
+  delete legacyScenario.campaignEngagementId;
+  delete legacyScenario.campaignBattlePackageId;
+  if (!legacy.battle.precombatMission) throw new Error("Campaign fixture omitted precombat mission identity.");
+  legacy.battle.engine.turnNumber = 30;
+  legacy.battle.boundary.turn = 30;
+  legacy.battle.missionRules.data = {
+    outcome: {
+      state: "playerVictory",
+      reason: "Friendly forces held the engagement area through the defensive window."
+    },
+    turn: 30
+  };
+  legacy.battle.precombatMission.turnLimit = 24;
+  legacy.battle.precombatMission.title = "Meeting Engagement — Hex 1,1";
+  legacy.battle.precombatMission.briefing = "Opposing forces have opened a meeting engagement at operational hex 1,1. Hold the marked tactical ground or break the attacking ground force before the defensive window closes.";
+  legacy.battle.precombatMission.objectives = ["Primary: Secure the engagement area"];
+  const legacyPrimary = legacy.battle.missionStatus.objectives.find((objective) => objective.id === "campaign_control_engagement_area");
+  if (!legacyPrimary) throw new Error("Campaign fixture omitted its primary mission status.");
+  legacy.battle.missionStatus.turn = 30;
+  legacy.battle.missionStatus.outcome = {
+    state: "playerVictory",
+    reason: "Friendly forces held the engagement area through the defensive window."
+  };
+  legacyPrimary.label = "Secure the engagement area";
+  legacyPrimary.state = "completed";
+  legacyPrimary.detail = "Friendly control: 0/1 tactical objectives at 1,1. 22 turns remain.";
+  let migrated: ActiveCampaignBattleSave | null = null;
+
+  await Given("an integrity-checked Player-defense save from the previous fixed-window rules", () => {});
+
+  await When("the active tactical save crosses the current validation and migration boundary", () => {
+    migrated = assertCompleteActiveCampaignBattleSave(legacy, binding);
+  });
+
+  await Then("the defender role and natural terminal conditions replace every obsolete deadline", () => {
+    if (!migrated) throw new Error("Legacy campaign save was not migrated.");
+    const scenario = migrated.battle.engineConfig.scenario;
+    const mission = migrated.battle.precombatMission;
+    const primary = migrated.battle.missionStatus.objectives.find((objective) => objective.id === "campaign_control_engagement_area");
+    if (scenario.turnLimit !== 0 || scenario.campaignPlayerRole !== "defender"
+      || scenario.campaignEngagementId !== binding.engagementId
+      || mission?.turnLimit !== null || /window closes|\d+\s+turns?\s+remain/i.test(`${mission?.briefing} ${primary?.detail}`)
+      || !mission?.title.includes("Defense") || primary?.label !== "Hold the engagement area") {
+      throw new Error("Legacy campaign save retained stale role, title, or deadline identity.");
+    }
+
+    const restored = new BattleState();
+    restored.hydrateComplete(migrated.battle);
+    const engine = restored.ensureGameEngine();
+    const controller = createMissionRulesController("campaign", scenario);
+    controller.hydrateState(migrated.battle.missionRules);
+    const occupancy = new Map<string, "Player" | "Bot" | "Ally">();
+    engine.playerUnits.forEach((unit) => occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Player"));
+    engine.botUnits.forEach((unit) => occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Bot"));
+    engine.allyUnits.forEach((unit) => occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Ally"));
+    const ongoing = controller.onTurnAdvanced({
+      turnSummary: engine.getTurnSummary(),
+      scenario,
+      occupancy,
+      playerUnits: engine.playerUnits,
+      botUnits: engine.botUnits,
+      allyUnits: engine.allyUnits
+    });
+    if (engine.getTurnSummary().turnNumber !== 30 || migrated.battle.boundary.turn !== 30
+      || ongoing.turn !== 30 || ongoing.outcome.state !== "inProgress") {
+      throw new Error(`Migrated campaign defense ended from elapsed turns: ${ongoing.outcome.state}.`);
+    }
+    const opposingControl = new Map<string, "Bot">();
+    scenario.objectives.forEach((objective) => opposingControl.set(`${objective.hex.q},${objective.hex.r}`, "Bot"));
+    const defeated = controller.onTurnAdvanced({
+      turnSummary: { ...engine.getTurnSummary(), turnNumber: 31 },
+      scenario,
+      occupancy: opposingControl,
+      playerUnits: engine.playerUnits,
+      botUnits: engine.botUnits,
+      allyUnits: engine.allyUnits
+    });
+    if (defeated.outcome.state !== "playerDefeat") {
+      throw new Error("Migrated Player defense did not end when opposing forces secured every objective.");
+    }
+  });
+});
+
+registerTest("TACTICAL_SAVE_REJECTS_INCOMPATIBLE_FROZEN_CAMPAIGN_TEMPLATE", async ({ Given, When, Then }) => {
+  const binding = {
+    campaignId: "campaign-template-mismatch",
+    campaignRevision: 4,
+    scenarioKey: "central_channel",
+    engagementId: "engagement-template-mismatch"
+  };
+  const raw = structuredClone(buildCompleteActiveBattleSave(binding)) as unknown as {
+    engagementPackage: {
+      commitmentIntegrityHash: string;
+      bridge: { battlePackage: CampaignBattlePackage };
+    };
+  };
+  const originalPackage = raw.engagementPackage.bridge.battlePackage;
+  const provisional: CampaignBattlePackage = {
+    ...originalPackage,
+    context: { ...originalPackage.context, templateKey: "line_el_alamein" },
+    engagement: {
+      ...originalPackage.engagement,
+      context: originalPackage.engagement.context
+        ? { ...originalPackage.engagement.context, templateKey: "line_el_alamein" }
+        : undefined
+    },
+    integrityHash: ""
+  };
+  const mismatchedPackage = {
+    ...provisional,
+    integrityHash: computeCampaignBattlePackageIntegrity(provisional)
+  };
+  raw.engagementPackage.bridge.battlePackage = mismatchedPackage;
+  raw.engagementPackage.commitmentIntegrityHash = mismatchedPackage.integrityHash;
+  let rejected = false;
+
+  await Given("an internally checksummed Western Europe save frozen to an unapproved desert template", () => {});
+
+  await When("the tactical load boundary verifies campaign and template compatibility", () => {
+    try {
+      assertCompleteActiveCampaignBattleSave(raw, binding);
+    } catch (error) {
+      rejected = error instanceof Error && error.message.includes("incompatible with campaign 'central_channel'");
+    }
+  });
+
+  await Then("the loader rejects the map instead of relabeling or stamping it", () => {
+    if (!rejected) throw new Error("An incompatible frozen campaign template passed tactical-save migration.");
   });
 });
 

@@ -86,7 +86,9 @@ async function createCampaignWithActiveBattle(backend: InMemoryCampaignSaveBacke
     focusedElementId
   });
   state.setActiveBattleSave(battle);
-  return { state, battle };
+  const normalizedBattle = state.getActiveBattleSave();
+  if (!normalizedBattle) throw new Error("Campaign fixture did not retain its normalized active tactical save.");
+  return { state, battle: normalizedBattle };
 }
 
 registerTest("TACTICAL_SAVE_UX_QUEUES_UNTIL_STABLE_BOUNDARY", async ({ Given, When, Then }) => {

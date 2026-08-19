@@ -279,7 +279,7 @@ registerTest("CAMPAIGN_FORMATIONS_TACTICAL_PROVENANCE", async ({ Given, When, Th
       throw new Error("Tactical provenance snapshot could not recover the persistent formation identity.");
     }
 
-    const generated = generateCampaignBattleScenario(context, runtime);
+    const generated = generateCampaignBattleScenario(context, runtime, undefined, "central_channel");
     const rawBotUnits = (generated as unknown as {
       sides: { Bot: { units: Array<{ campaignProvenance?: { formationId: string }; unitId?: string }> } };
     }).sides.Bot.units;
