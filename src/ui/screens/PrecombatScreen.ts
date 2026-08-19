@@ -2069,7 +2069,7 @@ export class PrecombatScreen {
         return `<li class="mission-order-item mission-order-item--${parsed.tier}${primaryClass}">${labelMarkup}${labelMarkup ? " " : ""}<span class="mission-order-copy">${parsed.text}</span></li>`;
       })
       .join("");
-    this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "Pending";
+    this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "No fixed turn limit";
     const visibleMissionAssets = this.filterMissionAssetsForBriefing(summary.supplies);
     if (this.baselineSupplySectionElement) {
       this.baselineSupplySectionElement.classList.toggle("hidden", visibleMissionAssets.length === 0);

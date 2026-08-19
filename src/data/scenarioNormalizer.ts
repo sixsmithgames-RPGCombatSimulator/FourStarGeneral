@@ -27,6 +27,14 @@ export type RawScenarioInput = {
   tiles?: unknown[];
   objectives?: unknown[];
   turnLimit?: unknown;
+  campaignTemplateKey?: unknown;
+  campaignTemplatePlayerRole?: unknown;
+  campaignPlayerRole?: unknown;
+  campaignMissionType?: unknown;
+  campaignBattleHexKey?: unknown;
+  campaignEngagementId?: unknown;
+  campaignBattlePackageId?: unknown;
+  campaignInfrastructureEffectiveness?: unknown;
   playerBudget?: unknown;
   restrictedUnits?: unknown[];
   allowedUnits?: unknown[];
@@ -350,6 +358,22 @@ export function normalizeScenarioSource(
     tiles,
     objectives,
     turnLimit: options.turnLimit,
+    campaignTemplateKey: typeof raw.campaignTemplateKey === "string" ? raw.campaignTemplateKey : undefined,
+    campaignTemplatePlayerRole: raw.campaignTemplatePlayerRole === "attacker" || raw.campaignTemplatePlayerRole === "defender"
+      ? raw.campaignTemplatePlayerRole
+      : undefined,
+    campaignPlayerRole: raw.campaignPlayerRole === "attacker" || raw.campaignPlayerRole === "defender"
+      ? raw.campaignPlayerRole
+      : undefined,
+    campaignMissionType: typeof raw.campaignMissionType === "string" ? raw.campaignMissionType : undefined,
+    campaignBattleHexKey: typeof raw.campaignBattleHexKey === "string" ? raw.campaignBattleHexKey : undefined,
+    campaignEngagementId: typeof raw.campaignEngagementId === "string" ? raw.campaignEngagementId : undefined,
+    campaignBattlePackageId: typeof raw.campaignBattlePackageId === "string" || raw.campaignBattlePackageId === null
+      ? raw.campaignBattlePackageId
+      : undefined,
+    campaignInfrastructureEffectiveness: typeof raw.campaignInfrastructureEffectiveness === "number"
+      ? raw.campaignInfrastructureEffectiveness
+      : undefined,
     playerBudget: typeof raw.playerBudget === "number" ? raw.playerBudget : undefined,
     restrictedUnits: Array.isArray(raw.restrictedUnits)
       ? (raw.restrictedUnits as unknown[]).map((k) => String(k))

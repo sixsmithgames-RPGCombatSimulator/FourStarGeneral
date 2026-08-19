@@ -4763,6 +4763,8 @@ export class BattleScreen {
         : "<li>Operational objectives will appear here.</li>";
       if (turnLimitElement && missionInfo?.turnLimit !== undefined && missionInfo?.turnLimit !== null) {
         turnLimitElement.textContent = `${missionInfo.turnLimit} turns`;
+      } else if (turnLimitElement) {
+        turnLimitElement.textContent = "No fixed turn limit";
       }
       return;
     }
@@ -4782,7 +4784,7 @@ export class BattleScreen {
       if (missionInfo?.turnLimit !== undefined && missionInfo?.turnLimit !== null) {
         turnLimitElement.textContent = `${missionInfo.turnLimit} turns`;
       } else {
-        turnLimitElement.textContent = "Pending";
+        turnLimitElement.textContent = "No fixed turn limit";
       }
     }
 
@@ -8431,7 +8433,7 @@ export class BattleScreen {
       this.missionDoctrineElement.textContent = doctrine;
     }
     if (this.missionTurnLimitElement) {
-      this.missionTurnLimitElement.textContent = turnLimit !== null ? `${turnLimit} turns` : "Pending";
+      this.missionTurnLimitElement.textContent = turnLimit !== null ? `${turnLimit} turns` : "No fixed turn limit";
     }
     if (this.missionSuppliesList) {
       this.missionSuppliesList.innerHTML = supplies.length

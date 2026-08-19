@@ -1863,6 +1863,9 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
   const countFriendlyObjectives = (occupancy: ReadonlyMap<string, TurnFaction>): number => objectiveHexes
     .filter((objective) => isFriendlyOccupant(occupancy.get(objective.key))).length;
 
+  const countOpposingObjectives = (occupancy: ReadonlyMap<string, TurnFaction>): number => objectiveHexes
+    .filter((objective) => occupancy.get(objective.key) === "Bot").length;
+
   const buildMarkers = (occupancy: ReadonlyMap<string, TurnFaction>): readonly ObjectiveMarkerProgress[] => objectiveHexes
     .map((objective, index) => {
       const occupant = occupancy.get(objective.key);
@@ -1889,8 +1892,7 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
     const forceState: ObjectiveState = botForce <= 0
       ? "completed"
       : currentOutcome.state === "playerDefeat" ? "failed" : "inProgress";
-    const turnLimit = scenario.turnLimit ?? null;
-    const timeDetail = turnLimit === null ? "No fixed tactical deadline." : `${Math.max(0, turnLimit - turn)} turns remain.`;
+    const timeDetail = "No fixed tactical deadline.";
     return {
       turn,
       objectives: [
@@ -1922,19 +1924,15 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
       const playerForce = getGroundForceScore([...(snapshot.allyUnits ?? []), ...snapshot.playerUnits]);
       const botForce = getGroundForceScore(snapshot.botUnits);
       const friendlyHeld = countFriendlyObjectives(snapshot.occupancy);
-      const turnLimit = snapshot.scenario.turnLimit ?? scenario.turnLimit ?? null;
+      const opposingHeld = countOpposingObjectives(snapshot.occupancy);
       if (playerForce <= 0) {
         currentOutcome = { state: "playerDefeat", reason: "No effective friendly ground formations remain in the engagement." };
       } else if (botForce <= 0) {
         currentOutcome = { state: "playerVictory", reason: "The opposing ground force is no longer combat-effective." };
       } else if (playerRole === "attacker" && objectiveHexes.length > 0 && friendlyHeld === objectiveHexes.length) {
         currentOutcome = { state: "playerVictory", reason: "Friendly forces secured every tactical objective in the engagement area." };
-      } else if (turnLimit !== null && currentTurn >= turnLimit) {
-        if (playerRole === "defender" && (objectiveHexes.length === 0 || friendlyHeld > 0)) {
-          currentOutcome = { state: "playerVictory", reason: "Friendly forces held the engagement area through the defensive window." };
-        } else {
-          currentOutcome = { state: "playerDefeat", reason: "The tactical window closed before the engagement objective was secured." };
-        }
+      } else if (playerRole === "defender" && objectiveHexes.length > 0 && opposingHeld === objectiveHexes.length) {
+        currentOutcome = { state: "playerDefeat", reason: "Opposing forces secured every tactical objective in the defended engagement area." };
       }
     }
     return buildStatus(currentTurn, snapshot.occupancy, snapshot.playerUnits, snapshot.botUnits);

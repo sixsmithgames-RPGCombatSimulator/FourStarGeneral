@@ -457,7 +457,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Capture sequential strategic nodes to cut enemy logistics.",
       "Sustain momentum across multi-phase offensive."
     ],
-    turnLimit: 999,
+    turnLimit: 0,
     doctrine: "Apply deep operations doctrine; safeguard supply corridors at all times.",
     supplies: [
       { label: "Rations", amount: "Bulk depot established" },

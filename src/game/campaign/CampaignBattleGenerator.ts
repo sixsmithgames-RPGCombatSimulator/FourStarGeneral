@@ -29,16 +29,6 @@ import type { CampaignBattlePackage } from "./engagements/CampaignEngagementLedg
 /** Hard ceiling for unfrozen previews; exact committed packages must represent every locked formation. */
 const MAX_GENERATED_BOT_UNITS = 30;
 
-/** Credible tactical windows replace authored standalone placeholders such as 999 turns. */
-const CAMPAIGN_TURN_LIMIT: Readonly<Record<CampaignMissionType, number>> = Object.freeze({
-  fortifiedAssault: 24,
-  lineAssault: 20,
-  portAssault: 22,
-  airfieldRaid: 16,
-  depotRaid: 16,
-  meetingEngagement: 18
-});
-
 /** Entrenchment by mission type — fortifications dig in, meeting engagements start exposed. */
 const ENTRENCH_BY_MISSION: Readonly<Record<CampaignMissionType, number>> = Object.freeze({
   fortifiedAssault: 3,
@@ -260,7 +250,10 @@ export function generateCampaignBattleScenario(
   scenario["campaignEngagementId"] = effectiveContext.engagementId;
   scenario["campaignBattlePackageId"] = battlePackage?.packageId ?? null;
   scenario["campaignInfrastructureEffectiveness"] = effectiveContext.infrastructureEffectiveness ?? 1;
-  scenario["turnLimit"] = CAMPAIGN_TURN_LIMIT[effectiveContext.missionType];
+  // Campaign engagements resolve from battlefield objectives or force collapse. A zero value is
+  // the normalized scenario sentinel for "no fixed turn limit" and prevents an authored template's
+  // standalone deadline from leaking into the persistent campaign.
+  scenario["turnLimit"] = 0;
   const infrastructureFactor = Math.max(0, Math.min(1, effectiveContext.infrastructureEffectiveness ?? 1));
   const modifications = Array.isArray(scenario["hexModifications"])
     ? scenario["hexModifications"] as Array<Record<string, unknown>>

@@ -306,27 +306,69 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
     if (raw.campaignTemplateKey !== "meeting_two_bridges") {
       throw new Error(`Frozen template drifted to ${raw.campaignTemplateKey}.`);
     }
-    if (raw.turnLimit !== 18) {
-      throw new Error(`Campaign meeting engagement retained an unbounded template deadline: ${raw.turnLimit}.`);
+    if (raw.turnLimit !== 0) {
+      throw new Error(`Campaign meeting engagement retained a fixed template deadline: ${raw.turnLimit}.`);
     }
-    const normalized = normalizeScenarioSource(generated as unknown as RawScenarioInput, { turnLimit: 12 });
+    const normalized = normalizeScenarioSource(generated as unknown as RawScenarioInput, { turnLimit: 0 });
     const controller = createMissionRulesController("campaign", normalized);
     const initial = controller.getStatus();
     if (initial.objectives.length !== 2 || initial.objectives[0]?.label !== "Secure the engagement area") {
       throw new Error("Campaign tactical rules did not expose engagement-specific objectives.");
     }
+    if (!initial.objectives[0]?.detail?.includes("No fixed tactical deadline")) {
+      throw new Error(`Campaign objective still advertised a tactical deadline: ${initial.objectives[0]?.detail}`);
+    }
+
+    const friendlyUnit = structuredClone(normalized.sides.Player.units[0] ?? normalized.sides.Bot.units[0]!);
+    const ongoing = controller.onTurnAdvanced({
+      turnSummary: { turnNumber: 30 } as never,
+      scenario: normalized,
+      occupancy: new Map(),
+      playerUnits: [friendlyUnit],
+      botUnits: normalized.sides.Bot.units,
+      allyUnits: normalized.sides.Ally?.units
+    });
+    if (ongoing.outcome.state !== "inProgress") {
+      throw new Error(`Campaign battle ended from elapsed turns instead of battlefield conditions: ${ongoing.outcome.state}.`);
+    }
+
     const occupancy = new Map<string, "Player">();
     normalized.objectives?.forEach((objective) => occupancy.set(`${objective.hex.q},${objective.hex.r}`, "Player"));
     const terminal = controller.onTurnAdvanced({
-      turnSummary: { turnNumber: 1 } as never,
+      turnSummary: { turnNumber: 31 } as never,
       scenario: normalized,
       occupancy,
-      playerUnits: normalized.sides.Player.units,
-      botUnits: [],
+      playerUnits: [friendlyUnit],
+      botUnits: normalized.sides.Bot.units,
       allyUnits: normalized.sides.Ally?.units
     });
     if (terminal.outcome.state !== "playerVictory" || terminal.objectives[0]?.state !== "completed") {
-      throw new Error("Campaign tactical rules remained non-terminal after the opposing force was defeated.");
+      throw new Error("Campaign tactical rules remained non-terminal after every engagement objective was secured.");
+    }
+
+    const defense = generateCampaignBattleScenario(buildContext({
+      engagementId: "eng_unbounded_player_defense",
+      missionType: "depotRaid",
+      attacker: "Bot",
+      defender: "Player",
+      templateKey: "depot_bastogne",
+      availableForces: [{ hexKey: "5,5", unitType: "Infantry_42", count: 2 }]
+    }));
+    const normalizedDefense = normalizeScenarioSource(defense as unknown as RawScenarioInput, { turnLimit: 0 });
+    const defenseController = createMissionRulesController("campaign", normalizedDefense);
+    const opposingControl = new Map<string, "Bot">();
+    normalizedDefense.objectives.forEach((objective) => opposingControl.set(`${objective.hex.q},${objective.hex.r}`, "Bot"));
+    const defenseFriendlyUnit = structuredClone(normalizedDefense.sides.Bot.units[0]!);
+    const defenseDefeat = defenseController.onTurnAdvanced({
+      turnSummary: { turnNumber: 35 } as never,
+      scenario: normalizedDefense,
+      occupancy: opposingControl,
+      playerUnits: [defenseFriendlyUnit],
+      botUnits: normalizedDefense.sides.Bot.units,
+      allyUnits: normalizedDefense.sides.Ally?.units
+    });
+    if (defenseDefeat.outcome.state !== "playerDefeat") {
+      throw new Error("Campaign defense did not end after opposing forces secured every defended objective.");
     }
   });
 });

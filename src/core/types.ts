@@ -292,6 +292,15 @@ export interface ScenarioData {
   tiles: TileInstance[][];
   objectives: Array<{ hex: Axial; owner: "Player" | "Bot"; vp: number }>;
   turnLimit: number;
+  /** Campaign-generated tactical identity preserved through scenario normalization. */
+  campaignTemplateKey?: string;
+  campaignTemplatePlayerRole?: "attacker" | "defender";
+  campaignPlayerRole?: "attacker" | "defender";
+  campaignMissionType?: string;
+  campaignBattleHexKey?: string;
+  campaignEngagementId?: string;
+  campaignBattlePackageId?: string | null;
+  campaignInfrastructureEffectiveness?: number;
   sides: {
     Player: ScenarioSide;
     Bot: ScenarioSide;
