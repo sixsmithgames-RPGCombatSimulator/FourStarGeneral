@@ -9,7 +9,7 @@
 
 import { CampaignUIEvents } from "./CampaignUIEvents";
 
-export type CampaignWorkspaceId = "situation" | "forces" | "logistics" | "intelligence" | "airNaval" | "headquarters";
+export type CampaignWorkspaceId = "situation" | "forces" | "logistics" | "intelligence";
 
 export type CampaignOverlayId =
   | "operational"

@@ -314,8 +314,9 @@ export class CampaignMapOverlayController {
               : effective.id === "orders" ? "order"
                 : "front";
       const nounLabel = count === 1 ? noun : noun === "destination hex" ? "destination hexes" : `${noun}s`;
-      this.listToggle.textContent = `${this.targetPickOriginHexKey ? "Destinations" : "Map list"} (${count} ${nounLabel})`;
-      this.listToggle.setAttribute("aria-label", `${this.targetPickOriginHexKey ? "Redeployment destination" : effective.label} map list, ${count} ${nounLabel}`);
+      const forceSummary = effective.id === "forces" && !this.targetPickOriginHexKey ? `${count} relevant` : `${count} ${nounLabel}`;
+      this.listToggle.textContent = `${this.targetPickOriginHexKey ? "Destinations" : "Map list"} (${forceSummary})`;
+      this.listToggle.setAttribute("aria-label", `${this.targetPickOriginHexKey ? "Redeployment destination" : effective.label} map list, ${forceSummary}`);
       if (requested.status === "featureGated") this.listToggle.textContent = `${requested.shortLabel} unavailable`;
     }
   }
@@ -380,18 +381,25 @@ export class CampaignMapOverlayController {
     this.listTitle.textContent = this.targetPickOriginHexKey ? "Choose a redeployment destination" : `${definition.label} map list`;
     this.listSummary.textContent = this.targetPickOriginHexKey
       ? `Origin ${this.targetPickOriginHexKey}. Legal destinations can be selected without a pointer; unavailable ground includes the authoritative blocking reason.`
+      : definition.id === "forces"
+        ? "Showing forces on active fronts and objective ground. Search by name to inspect the full theater roster."
       : definition.status === "featureGated"
       ? definition.unavailableReason ?? "This map layer is unavailable."
       : `${definition.description} Select any item to open the same context route used by the map.`;
-    const allEntries = definition.status === "available" ? this.getListEntries(definition.id) : [];
+    const allEntries = definition.status === "available"
+      ? definition.id === "forces" ? this.getAllForceEntries() : this.getListEntries(definition.id)
+      : [];
+    const defaultEntries = definition.status === "available" ? this.getListEntries(definition.id) : [];
     const query = this.listSearch.value.trim().toLocaleLowerCase();
     const entries = query.length === 0
-      ? allEntries
+      ? defaultEntries
       : allEntries.filter((entry) => `${entry.label} ${entry.meta}`.toLocaleLowerCase().includes(query));
     this.listSearch.parentElement!.hidden = definition.status === "featureGated" || allEntries.length === 0;
     this.listStatus.textContent = query.length > 0
       ? `${entries.length} of ${allEntries.length} shown`
-      : `${allEntries.length} item${allEntries.length === 1 ? "" : "s"}`;
+      : definition.id === "forces" && allEntries.length !== defaultEntries.length
+        ? `${defaultEntries.length} relevant of ${allEntries.length} formations`
+        : `${allEntries.length} item${allEntries.length === 1 ? "" : "s"}`;
     if (entries.length === 0) {
       this.listContent.replaceChildren(createText(
         "p",
@@ -429,13 +437,26 @@ export class CampaignMapOverlayController {
       }));
     }
     if (overlay === "objectives") return this.view.objectives.map((objective) => this.objectiveEntry(objective));
-    if (overlay === "forces") return this.view.formations && this.view.formations.length > 0
-      ? this.view.formations.map((formation) => this.formationEntry(formation))
-      : this.view.forces.map((force, index) => this.forceEntry(force, index));
+    if (overlay === "forces") {
+      const relevantHexes = new Set([
+        ...(this.view.fronts ?? []).flatMap((front) => front.hexKeys),
+        ...this.view.objectives.filter((objective) => objective.status === "In progress" && objective.hexKey).map((objective) => objective.hexKey!)
+      ]);
+      const formations = this.view.formations?.filter((formation) => formation.locationHexKey && relevantHexes.has(formation.locationHexKey)) ?? [];
+      if (formations.length > 0) return formations.map((formation) => this.formationEntry(formation));
+      return this.view.forces.filter((force) => relevantHexes.has(force.hexKey)).map((force, index) => this.forceEntry(force, index));
+    }
     if (overlay === "intelligence") return (this.view.contacts ?? []).map((contact) => this.contactEntry(contact));
     if (overlay === "orders") return this.view.orders.map((order) => this.orderEntry(order));
     if (overlay === "operational") return (this.view.fronts ?? []).map((front) => this.frontEntry(front));
     return [];
+  }
+
+  private getAllForceEntries(): readonly MapListEntry[] {
+    if (!this.view) return [];
+    return this.view.formations && this.view.formations.length > 0
+      ? this.view.formations.map((formation) => this.formationEntry(formation))
+      : this.view.forces.map((force, index) => this.forceEntry(force, index));
   }
 
   private objectiveEntry(objective: CampaignCommandObjectiveView): MapListEntry {

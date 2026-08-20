@@ -1,4 +1,4 @@
-/** Browser-DOM component and stable metadata for the six campaign workspaces. */
+/** Browser-DOM component and stable metadata for the four distinct campaign workspaces. */
 
 import type { CampaignWorkspaceId } from "../CampaignCommandUIState";
 
@@ -14,9 +14,7 @@ export const CAMPAIGN_WORKSPACES: readonly CampaignWorkspaceDefinition[] = Objec
   { id: "situation", shortLabel: "SIT", label: "Situation", description: "Objectives, alerts, and command priorities", shortcut: "1" },
   { id: "forces", shortLabel: "FOR", label: "Forces", description: "Player formations and current locations", shortcut: "2" },
   { id: "logistics", shortLabel: "LOG", label: "Logistics", description: "Resources, transport, and production", shortcut: "3" },
-  { id: "intelligence", shortLabel: "INT", label: "Intelligence", description: "Contacts, coverage, and operations", shortcut: "4" },
-  { id: "airNaval", shortLabel: "A/N", label: "Air & Naval", description: "Available theater support assets", shortcut: "5" },
-  { id: "headquarters", shortLabel: "HQ", label: "Headquarters", description: "Session, records, and campaign tools", shortcut: "6" }
+  { id: "intelligence", shortLabel: "INT", label: "Intelligence", description: "Contacts, coverage, and operations", shortcut: "4" }
 ]);
 
 function createTextElement(tagName: keyof HTMLElementTagNameMap, className: string, value: string): HTMLElement {

@@ -55,11 +55,11 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
   let openedIntelligence = 0;
   let advancedMode = "";
   let pausePreference = false;
-  let savedFromHeadquarters = 0;
+  let savedFromCommandBar = 0;
 
   await Given("the shipped campaign controls enter the Campaign 2.0 shell", async () => {
     root = mountCommandShellFixture();
-    root.querySelector("#campaignSave")?.addEventListener("click", () => { savedFromHeadquarters += 1; });
+    root.querySelector("#campaignSave")?.addEventListener("click", () => { savedFromCommandBar += 1; });
     shell = new CampaignCommandShell(root, {
       onOpenIntelligence: () => { openedIntelligence += 1; },
       onAdvance: (mode) => { advancedMode = mode; },
@@ -149,15 +149,18 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
     }
     root.querySelector<HTMLButtonElement>("#campaignAdvanceSegment")?.click();
     root.querySelector<HTMLButtonElement>("#campaignTimelineToggle")?.click();
-    root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='headquarters']")?.click();
-    root.querySelector<HTMLButtonElement>("[data-campaign-session-proxy='campaignSave']")?.click();
+    root.querySelector<HTMLButtonElement>("#campaignSave")?.click();
     root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='intelligence']")?.click();
     root.querySelector<HTMLButtonElement>("[data-close-campaign-workspace]")?.click();
   });
 
   await Then("semantic regions, roving tabs, text-only projections, and the committed timeline are present", async () => {
     const tabs = root.querySelectorAll("[role='tab']");
-    if (tabs.length !== 6) throw new Error(`Expected six campaign workspaces, received ${tabs.length}.`);
+    if (tabs.length !== 4) throw new Error(`Expected four distinct campaign workspaces, received ${tabs.length}.`);
+    if (root.querySelector("[data-campaign-workspace-tab='airNaval']")
+      || root.querySelector("[data-campaign-workspace-tab='headquarters']")) {
+      throw new Error("Redundant Air & Naval or Headquarters workspaces returned to the command rail.");
+    }
     if (!root.querySelector(".campaign-command-bar") || !root.querySelector(".campaign-context-inspector") || !root.querySelector(".campaign-order-tray")) {
       throw new Error("The command bar, context inspector, or order tray is missing.");
     }
@@ -174,10 +177,17 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
       throw new Error("Workspace selection and aria-selected state diverged.");
     }
     if (openedIntelligence !== 1) throw new Error(`Expected one intelligence callback, received ${openedIntelligence}.`);
-    if (savedFromHeadquarters !== 1
-      || !root.textContent?.includes("Protect campaign continuity")
+    if (root.querySelector("#campaignAirPowerValue")?.textContent !== "8"
+      || root.querySelector("#campaignNavalPowerValue")?.textContent !== "4") {
+      throw new Error("Removing the redundant Air & Naval workspace also removed support readiness from Logistics.");
+    }
+    if (savedFromCommandBar !== 1
+      || !root.querySelector("#campaignSave")
+      || !root.querySelector("#campaignLoad")
+      || !root.querySelector("#campaignBattleSaves")
+      || !root.querySelector("#campaignExit")
       || root.querySelector(".session-section")?.getAttribute("data-campaign-shell-hidden") !== "true") {
-      throw new Error("Headquarters did not expose its first-class session actions or retained the empty legacy shell.");
+      throw new Error("The command bar did not retain its first-class session actions or retained the empty legacy shell.");
     }
     if (root.querySelector(".campaign-command-shell")?.getAttribute("data-workspace-expanded") !== "false") {
       throw new Error("Compact workspace close control did not release the map canvas.");
@@ -302,7 +312,8 @@ registerTest("CAMPAIGN_COMMAND_SHELL_RENDERS_OBJECTIVE_PROGRESS_AND_TERMINAL_REC
         category: "primary",
         progress: 0.5,
         detail: "Hold for 2 more segments",
-        deadline: "Deadline Day 3",
+        progressLabel: "Hold for 2 more segments",
+        deadline: "Day 3",
         score: "0/100 pts"
       }],
       objectiveScore: { earned: 100, available: 200, percent: 50, projectedGrade: "Costly victory" },
@@ -591,16 +602,24 @@ registerTest("CAMPAIGN_COMMAND_SITUATION_PASSES_STRUCTURAL_TEN_SECOND_GATE", asy
     root.querySelector<HTMLButtonElement>("#campaignSituationOpenTimeline")?.click();
   });
 
-  await Then("one dominant decision, explicit outlook, report sources, front posture, aggregation, and routes are all immediately present", async () => {
+  await Then("one dominant decision, concise objective and front summaries, report sources, aggregation, and routes are immediately present", async () => {
     if (root.querySelectorAll(".campaign-command-priority").length !== 1
-      || !root.querySelector("#campaignSituationBrief")?.textContent?.includes("Breakout phase")
-      || !root.querySelector("#campaignSituationOutlook")?.textContent?.includes("18 hours remain")
-      || !root.querySelector("#campaignSituationObjectives")?.textContent?.includes("Failure ends the campaign")
+      || root.querySelector("#campaignSituationBrief")
+      || root.querySelector("#campaignSituationOutlook")
+      || root.querySelector("#campaignSituationObjectives")?.textContent?.includes("Failure ends the campaign")
+      || root.querySelector("#campaignSituationObjectives")?.textContent?.includes("Requires Secure the causeway")
       || !root.querySelector("#campaignSituationFronts")?.textContent?.includes("2 assessed contacts")
+      || root.querySelector("#campaignSituationFronts")?.textContent?.includes("3 friendly formations")
       || !root.querySelector("#campaignSituationRecent")?.textContent?.includes("4 material updates")
       || root.querySelectorAll(".campaign-situation-report-source").length !== 2
       || root.querySelector("#campaignAdvanceTimeline")?.hasAttribute("hidden")) {
-      throw new Error("The first-class Situation board failed its structural ten-second comprehension gate.");
+      throw new Error("The first-class Situation board failed its concise ten-second comprehension gate.");
+    }
+    const inspectorCopy = root.querySelector("#campaignContextInspector")?.textContent ?? "";
+    if (!inspectorCopy.includes("3 friendly formations")
+      || inspectorCopy.includes("derived from projected control adjacency")
+      || inspectorCopy.includes("Deadline Deadline")) {
+      throw new Error(`Front detail was lost or implementation wording leaked into the inspector: ${inspectorCopy}`);
     }
     if (acknowledgedAlert !== "decision-1" || selectedTarget !== "order:order-1"
       || root.querySelector("#campaignContextInspector")?.getAttribute("data-selection-kind") !== "front") {
@@ -828,6 +847,72 @@ registerTest("CAMPAIGN_FCI4_TRAY_EXPLAINS_PREVIEW_CONFLICT_PRIORITY_EDIT_AND_CAN
       || edited !== "draft-early"
       || cancellationReviewed !== "committed-recon") {
       throw new Error("FCI-4 order tray lost preview, conflict, history, or reversible-action behavior.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_COMMAND_SHELL_PRIORITIZES_FORCES_AND_COMPACTS_TRUE_IDLE_STATE", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+  let shell: CampaignCommandShell;
+  const baseView = {
+    theaterTitle: "Operation Clarity",
+    campaignPhase: "Opening phase",
+    timeLabel: "Day 1, 00:00-03:00",
+    commandStatus: "Planning" as const,
+    saveStatus: "Saved" as const,
+    unreadReports: 0,
+    resources: [],
+    objectives: [{ key: "hold", label: "Hold the port", status: "In progress", hexKey: "2,2" }],
+    fronts: [{ key: "front", label: "Coastal front", hexKeys: ["1,1"], initiativeLabel: "Friendly initiative" }],
+    forces: [
+      { hexKey: "1,1", label: "Frontline Infantry", count: 3 },
+      { hexKey: "2,2", label: "Port Guard", count: 2 },
+      { hexKey: "9,9", label: "Theater Reserve", count: 8 }
+    ],
+    airPower: 0,
+    navalPower: 0,
+    intelligenceCapacity: "3/3",
+    orders: [],
+    advance: { mode: "nextReport" as const, enabled: true, pauseAfterEveryResolution: false, summary: "No campaign time resolved yet.", alerts: [], timeline: [] }
+  };
+
+  await Given("operational forces, a theater reserve, and no pending orders", () => {
+    root = mountCommandShellFixture();
+    shell = new CampaignCommandShell(root);
+    if (!shell.initialize()) throw new Error("Campaign command shell did not initialize.");
+    shell.render(baseView);
+  });
+
+  await When("the concise force and order surfaces render, then a completed commit reports success", () => {
+    const directForces = root.querySelectorAll("#campaignForcesWorkspaceList > button");
+    const reserveDisclosure = root.querySelector<HTMLDetailsElement>(".campaign-forces-disclosure");
+    if (directForces.length !== 2
+      || reserveDisclosure?.open
+      || reserveDisclosure?.querySelectorAll("button").length !== 1
+      || root.querySelector<HTMLElement>(".campaign-command-shell")?.dataset.ordersEmpty !== "true") {
+      throw new Error("Operational force groups did not lead the collapsed theater roster.");
+    }
+    shell.render({
+      ...baseView,
+      orderCommit: {
+        busy: false,
+        draftCount: 0,
+        validDraftCount: 0,
+        blockerCount: 0,
+        firstBlocker: null,
+        firstCorrectiveAction: null,
+        feedback: "Orders committed successfully.",
+        feedbackTone: "success" as const
+      }
+    });
+  });
+
+  await Then("the true idle tray has one plain status while explicit success feedback remains visible", () => {
+    const layout = root.querySelector<HTMLElement>(".campaign-command-shell");
+    if (layout?.dataset.ordersEmpty !== "false"
+      || !root.querySelector(".campaign-order-tray__idle")?.textContent?.includes("No pending orders")
+      || !root.querySelector("#campaignOrderCommitFeedback")?.textContent?.includes("Orders committed successfully.")) {
+      throw new Error("Idle compaction hid meaningful commit feedback or lost its single concise status.");
     }
   });
 });

@@ -221,6 +221,24 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
         battles: 1,
         currentOrderId: "order-map-1",
         latestHistory: null
+      }, {
+        id: "formation-3",
+        name: "Theater Training Reserve",
+        typeLabel: "Infantry",
+        ownershipLabel: "Reserve",
+        locationHexKey: "9,9",
+        statusLabel: "Ready",
+        readiness: "95%",
+        cohesion: "94%",
+        fatigue: "2%",
+        personnel: "7,900 fit / 8,000 present",
+        equipment: "100 / 102 operational",
+        supply: "Ammo 95 · Fuel 90 · Rations 98 · Parts 85",
+        experience: "4 XP",
+        honors: [],
+        battles: 0,
+        currentOrderId: null,
+        latestHistory: null
       }],
       hexes: [{
         hexKey: "4,5",
@@ -284,13 +302,17 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='forces']")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
+    if (!root.querySelector(".campaign-map-accessible-list__status")?.textContent?.includes("2 relevant of 3 formations")
+      || root.querySelectorAll("[data-map-list-selection-kind='formation']").length !== 2) {
+      throw new Error("The default force list did not prioritize only active fronts and objective ground.");
+    }
     const search = root.querySelector<HTMLInputElement>("[aria-label='Search current map list']");
     if (search) {
       search.value = "Infantry";
       search.dispatchEvent(new Event("input", { bubbles: true }));
     }
     if (root.querySelectorAll("[data-map-list-selection-kind='formation']").length !== 1
-      || !root.querySelector(".campaign-map-accessible-list__status")?.textContent?.includes("1 of 2")) {
+      || !root.querySelector(".campaign-map-accessible-list__status")?.textContent?.includes("1 of 3")) {
       throw new Error("Large-roster map-list search did not filter with a live count.");
     }
     screen.setRedeploymentTargetMode("4,5", [
@@ -396,6 +418,10 @@ registerTest("CAMPAIGN_DESKTOP_MAP_LIST_RESELECTION_RETAINS_INSPECTOR_FOCUS", as
     });
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='forces']")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
+    const search = root.querySelector<HTMLInputElement>(".campaign-map-accessible-list__search input");
+    if (!search) throw new Error("Full-roster force search is unavailable.");
+    search.value = "1st Infantry";
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
     root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='formation']")?.click();
   });
 

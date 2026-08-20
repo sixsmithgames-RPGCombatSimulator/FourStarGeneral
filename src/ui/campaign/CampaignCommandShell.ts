@@ -402,6 +402,8 @@ export class CampaignCommandShell {
     layout.setAttribute("data-campaign-command-shell", "true");
     layout.setAttribute("data-inspector-expanded", "false");
     layout.setAttribute("data-workspace-expanded", "true");
+    layout.setAttribute("data-has-selection", "false");
+    layout.setAttribute("data-orders-empty", "true");
 
     const commandBar = this.createCommandBar();
     const rail = this.createWorkspaceRail();
@@ -451,7 +453,7 @@ export class CampaignCommandShell {
     this.renderAfterActionReports(view.afterActionReports ?? []);
     this.renderSituation(view);
     this.renderOutcome(view.outcome ?? null);
-    this.renderForces(view.forces);
+    this.renderForces(view.forces, view.objectives, view.fronts ?? []);
     this.renderOrders(view.orders, view.orderCommit);
     this.renderAdvance(view.advance);
     this.renderInspectorRoute();
@@ -600,8 +602,9 @@ export class CampaignCommandShell {
     tray.setAttribute("aria-label", "Campaign order tray and timeline");
     tray.innerHTML = `
       <div class="campaign-order-tray__heading">
-        <span>Order tray</span>
-        <strong><span id="campaignDraftOrderCount">0</span> drafts · <span id="campaignCommittedOrderCount">0</span> active · <span id="campaignOrderHistoryCount">0</span> filed</strong>
+        <span>Orders</span>
+        <strong class="campaign-order-tray__counts"><span id="campaignDraftOrderCount">0</span> drafts · <span id="campaignCommittedOrderCount">0</span> active · <span id="campaignOrderHistoryCount">0</span> filed</strong>
+        <strong class="campaign-order-tray__idle">No pending orders</strong>
         <small id="campaignAdvanceSummary">Select an advance mode.</small>
       </div>
       <div id="campaignOrderTrayList" class="campaign-order-tray__list" aria-live="polite"></div>
@@ -724,11 +727,6 @@ export class CampaignCommandShell {
       }
     });
     this.root.querySelector("[data-close-campaign-workspace]")?.addEventListener("click", () => this.setWorkspaceExpanded(false));
-    this.root.querySelector("#campaignHeadquartersWorkspaceIntro")?.addEventListener("click", (event) => {
-      const proxy = (event.target as Element).closest<HTMLButtonElement>("[data-campaign-session-proxy]");
-      const targetId = proxy?.dataset.campaignSessionProxy;
-      if (targetId) this.root.querySelector<HTMLButtonElement>(`#${targetId}`)?.click();
-    });
     this.root.querySelector("#campaignOutcomeReview")?.addEventListener("click", () => {
       const panel = this.root.querySelector<HTMLElement>("#campaignOutcomePanel");
       this.dismissedOutcomeKey = panel?.dataset.outcomeKey ?? null;
@@ -1042,24 +1040,11 @@ export class CampaignCommandShell {
       afterActionUnread: (view.afterActionReports ?? []).filter((report) => !report.acknowledged).length,
       recentChanges: view.advance.timeline.slice(0, 5)
     };
-    this.renderSituationBrief(situation);
     this.renderPriorities(view.priorities ?? []);
     this.renderObjectives(view.objectives, view.objectiveScore);
-    this.renderSituationOutlook(situation);
     this.renderSituationFronts(view.fronts ?? []);
     this.renderSituationAlerts(situation);
     this.renderSituationRecent(situation.recentChanges);
-  }
-
-  private renderSituationBrief(situation: CampaignCommandSituationView): void {
-    const container = this.root.querySelector<HTMLElement>("#campaignSituationBrief");
-    if (!container) return;
-    container.dataset.tone = situation.brief.tone;
-    container.replaceChildren(
-      createTextElement("span", "campaign-situation-brief__label", situation.brief.label),
-      createTextElement("h3", "", situation.brief.title),
-      createTextElement("p", "", situation.brief.detail)
-    );
   }
 
   private renderPriorities(priorities: readonly CampaignCommandPriorityView[]): void {
@@ -1121,10 +1106,7 @@ export class CampaignCommandShell {
         createTextElement("span", "campaign-objective-row__status", objective.status)
       );
       row.append(header);
-      if (objective.detail) row.append(createTextElement("p", "campaign-objective-row__detail", objective.detail));
       if (objective.progressLabel) row.append(createTextElement("p", "campaign-objective-row__condition", objective.progressLabel));
-      if (objective.dependencies) row.append(createTextElement("p", "campaign-objective-row__dependency", objective.dependencies));
-      if (objective.failureEffect) row.append(createTextElement("p", "campaign-objective-row__failure", objective.failureEffect));
       if (objective.progress !== undefined) {
         const progress = document.createElement("div");
         progress.className = "campaign-objective-row__progress";
@@ -1150,30 +1132,6 @@ export class CampaignCommandShell {
     container.replaceChildren(...content);
   }
 
-  private renderSituationOutlook(situation: CampaignCommandSituationView): void {
-    const container = this.root.querySelector<HTMLElement>("#campaignSituationOutlookBody");
-    if (!container) return;
-    const metrics = document.createElement("dl");
-    metrics.className = "campaign-situation-outlook__metrics";
-    [
-      ["Projected result", situation.outlook.projectedGrade],
-      ["Campaign score", situation.outlook.score],
-      ["Objective state", situation.outlook.objectiveStatus],
-      ["Time pressure", situation.outlook.timePressure]
-    ].forEach(([label, value]) => {
-      metrics.append(createTextElement("dt", "", label), createTextElement("dd", "", value));
-    });
-    const phase = createTextElement("p", "campaign-situation-outlook__phase", situation.outlook.phaseDescription);
-    const lossHeading = createTextElement("h4", "", "Loss conditions");
-    const losses = document.createElement("ul");
-    losses.className = "campaign-situation-losses";
-    const conditions = situation.outlook.lossConditions.length > 0
-      ? situation.outlook.lossConditions
-      : ["No explicit terminal loss condition is published for this operation."];
-    losses.replaceChildren(...conditions.map((condition) => createTextElement("li", "", condition)));
-    container.replaceChildren(phase, metrics, lossHeading, losses);
-  }
-
   private renderSituationFronts(fronts: readonly CampaignCommandFrontView[]): void {
     const container = this.root.querySelector<HTMLElement>("#campaignSituationFronts");
     if (!container) return;
@@ -1191,13 +1149,9 @@ export class CampaignCommandShell {
       heading.append(createTextElement("strong", "", front.label), createTextElement("span", "", front.initiativeLabel));
       card.append(
         heading,
-        createTextElement("p", "", front.pressureLabel ?? "No assessed pressure summary is available."),
         ...(front.engagementLabel ? [createTextElement("p", "campaign-situation-front__engagement", front.engagementLabel)] : []),
-        ...(front.roleLabel ? [createTextElement("p", "campaign-situation-front__role", front.roleLabel)] : []),
-        ...(front.intelligenceUnknowns?.length ? [createTextElement("p", "campaign-situation-front__unknowns", `Unknowns: ${front.intelligenceUnknowns.join(" · ")}`)] : []),
+        createTextElement("p", "", front.pressureLabel ?? "No assessed pressure summary is available."),
         ...(front.targetChoiceLabel ? [createTextElement("p", "campaign-situation-front__target-choice", front.targetChoiceLabel)] : []),
-        createTextElement("small", "", [front.forcePosture, front.objectivePosture].filter(Boolean).join(" · ") || `${front.hexKeys.length} mapped hexes`),
-        createTextElement("em", "", front.lastChange ?? "No recent material sector change recorded.")
       );
       card.addEventListener("click", () => this.requestSelection({ kind: "front", id: front.key }, true));
       return card;
@@ -1210,6 +1164,8 @@ export class CampaignCommandShell {
     if (!container || !sources) return;
     const unacknowledged = situation.alerts.filter((alert) => !alert.acknowledged).length
       + situation.intelligenceUnread + situation.afterActionUnread;
+    const section = this.root.querySelector<HTMLElement>("#campaignSituationAlertCenter");
+    if (section) section.hidden = situation.alerts.length === 0 && unacknowledged === 0 && this.afterActionReports.length === 0;
     this.setText("#campaignSituationUnreadCount", `${unacknowledged} unread`);
     if (situation.alerts.length === 0) {
       container.replaceChildren(createTextElement("p", "campaign-workspace-empty", "No command alerts are waiting for review."));
@@ -1273,6 +1229,8 @@ export class CampaignCommandShell {
   private renderSituationRecent(entries: readonly CampaignCommandTimelineView[]): void {
     const container = this.root.querySelector<HTMLElement>("#campaignSituationRecent");
     if (!container) return;
+    const section = this.root.querySelector<HTMLElement>("#campaignSituationRecentSection");
+    if (section) section.hidden = entries.length === 0;
     if (entries.length === 0) {
       container.replaceChildren(createTextElement("p", "campaign-workspace-empty", "Advance campaign time to establish the first resolution record."));
       return;
@@ -1320,25 +1278,55 @@ export class CampaignCommandShell {
     panel.hidden = this.dismissedOutcomeKey === outcome.key;
   }
 
-  private renderForces(forces: readonly CampaignCommandForceView[]): void {
+  private renderForces(
+    forces: readonly CampaignCommandForceView[],
+    objectives: readonly CampaignCommandObjectiveView[],
+    fronts: readonly CampaignCommandFrontView[]
+  ): void {
     const container = this.root.querySelector<HTMLElement>("#campaignForcesWorkspaceList");
     if (!container) return;
     if (forces.length === 0) {
       container.replaceChildren(createTextElement("p", "campaign-workspace-empty", "No player formations are visible in the current projection."));
       return;
     }
-    container.replaceChildren(...forces.map((force) => {
+    const groups = new Map<string, CampaignCommandForceView[]>();
+    forces.forEach((force) => groups.set(force.hexKey, [...(groups.get(force.hexKey) ?? []), force]));
+    const createGroupRow = ([hexKey, entries]: [string, CampaignCommandForceView[]]): HTMLButtonElement => {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "campaign-workspace-list-row";
-      row.dataset.forceHex = force.hexKey;
+      row.dataset.forceHex = hexKey;
+      const totalStrength = entries.reduce((sum, force) => sum + force.count, 0);
+      const groupLabel = entries.length === 1 ? entries[0]!.label : `${entries[0]!.label} group`;
       row.append(
-        createTextElement("strong", "", force.label),
-        createTextElement("span", "", `${force.count.toLocaleString()} · ${force.hexKey}`)
+        createTextElement("strong", "", groupLabel),
+        createTextElement("span", "", `${entries.length} formation${entries.length === 1 ? "" : "s"} · strength ${totalStrength.toLocaleString()} · Hex ${hexKey}`)
       );
-      row.addEventListener("click", () => this.requestSelection({ kind: "hex", id: force.hexKey }, true));
+      row.addEventListener("click", () => this.requestSelection({ kind: "hex", id: hexKey }, true));
       return row;
-    }));
+    };
+    const operationalHexes = new Set([
+      ...fronts.flatMap((front) => front.hexKeys),
+      ...objectives.filter((objective) => objective.status === "In progress" && objective.hexKey).map((objective) => objective.hexKey!)
+    ]);
+    const allGroups = Array.from(groups.entries());
+    const relevantGroups = allGroups.filter(([hexKey]) => operationalHexes.has(hexKey));
+    const primaryGroups = relevantGroups.length > 0 ? relevantGroups : allGroups.slice(0, 4);
+    const primaryHexes = new Set(primaryGroups.map(([hexKey]) => hexKey));
+    const remainingGroups = allGroups.filter(([hexKey]) => !primaryHexes.has(hexKey));
+    const content: HTMLElement[] = primaryGroups.map(createGroupRow);
+    if (remainingGroups.length > 0) {
+      const disclosure = document.createElement("details");
+      disclosure.className = "campaign-forces-disclosure";
+      const summary = document.createElement("summary");
+      summary.textContent = `All theater forces (${remainingGroups.length} more location${remainingGroups.length === 1 ? "" : "s"})`;
+      const list = document.createElement("div");
+      list.className = "campaign-forces-disclosure__list";
+      list.append(...remainingGroups.map(createGroupRow));
+      disclosure.append(summary, list);
+      content.push(disclosure);
+    }
+    container.replaceChildren(...content);
   }
 
   private renderOrders(
@@ -1368,6 +1356,9 @@ export class CampaignCommandShell {
     if (draftCount) draftCount.textContent = String(resolvedCommit.draftCount);
     if (committed) committed.textContent = String(activeOrders.filter((order) => ["committed", "executing", "blocked"].includes(order.status)).length);
     if (history) history.textContent = String(historyCount);
+    const shell = this.root.querySelector<HTMLElement>(".campaign-command-shell");
+    const hasCommitState = resolvedCommit.busy || Boolean(resolvedCommit.feedback?.trim()) || historyCount > 0;
+    if (shell) shell.dataset.ordersEmpty = activeOrders.length === 0 && !hasCommitState ? "true" : "false";
     if (feedback) {
       const blockerSummary = resolvedCommit.blockerCount > 0
         ? `${resolvedCommit.blockerCount} blocker${resolvedCommit.blockerCount === 1 ? "" : "s"}: ${resolvedCommit.firstBlocker ?? "Review conflicted drafts."}${resolvedCommit.firstCorrectiveAction ? ` ${resolvedCommit.firstCorrectiveAction}` : ""}`
@@ -1375,7 +1366,7 @@ export class CampaignCommandShell {
           ? `${resolvedCommit.validDraftCount}/${resolvedCommit.draftCount} drafts ready for one atomic commit.`
           : historyCount > 0
             ? `${historyCount} completed or cancelled order${historyCount === 1 ? "" : "s"} filed in command history.`
-            : "Drafts hold resources without spending them.";
+            : "";
       feedback.textContent = resolvedCommit.busy ? "Committing orders as one command transaction…" : resolvedCommit.feedback ?? blockerSummary;
       feedback.dataset.tone = resolvedCommit.feedbackTone ?? (resolvedCommit.blockerCount > 0 ? "warning" : "info");
       feedback.setAttribute("aria-busy", resolvedCommit.busy ? "true" : "false");
@@ -1394,7 +1385,7 @@ export class CampaignCommandShell {
     if (activeOrders.length === 0) {
       const message = historyCount > 0
         ? `${historyCount} completed or cancelled order${historyCount === 1 ? " is" : "s are"} filed in the resolution timeline.`
-        : "No active orders. Assess the map, then add a draft from a planner.";
+        : "No pending orders.";
       container.replaceChildren(createTextElement("p", "campaign-order-tray__empty", message));
       return;
     }
@@ -1571,6 +1562,8 @@ export class CampaignCommandShell {
   private renderInspectorRoute(): void {
     const inspector = this.root.querySelector<HTMLElement>("#campaignContextInspector");
     if (!inspector) return;
+    const shell = this.root.querySelector<HTMLElement>(".campaign-command-shell");
+    if (shell) shell.dataset.hasSelection = this.activeSelection ? "true" : "false";
     renderCampaignContextInspector(inspector, this.currentView, this.activeSelection);
   }
 

@@ -10,11 +10,15 @@ import { getAllMissionKeys, getMissionSummaryPackage } from "../src/data/mission
 function mountPrecombatDom(): void {
   document.body.innerHTML = `
     <section id="precombatScreen">
-      <h1 id="precombatMissionTitle"></h1>
-      <p id="precombatMissionBriefing"></p>
-      <ul id="objectiveList"></ul>
-      <span id="missionTurnLimit"></span>
-      <p id="missionClockNote"></p>
+      <header class="precombat-header"><h1 id="precombatMissionTitle"></h1></header>
+      <div id="allocationFeedback"></div>
+      <div id="engagementContextMount"></div>
+      <section class="precombat-briefing-grid">
+        <p id="precombatMissionBriefing"></p>
+        <ul id="objectiveList"></ul>
+        <span id="missionTurnLimit"></span>
+        <p id="missionClockNote"></p>
+      </section>
       <ul id="baselineSupplyList"></ul>
       <p id="missionDoctrineNotes"></p>
       <button id="returnToLanding"></button>
@@ -33,7 +37,6 @@ function mountPrecombatDom(): void {
       <aside id="precombatBudgetPanel" data-state="ready">
         <span id="budgetSpent"></span>
         <span id="budgetRemaining"></span>
-        <div id="allocationFeedback"></div>
       </aside>
       <article id="commanderSummaryCard">
         <h2 id="commanderName"></h2>
@@ -180,10 +183,14 @@ registerTest("PRECOMBAT_CAMPAIGN_CONTEXT_STAYS_OUTSIDE_BUDGET_GRID", async ({ Gi
     budget = document.getElementById("precombatBudgetPanel");
   });
 
-  await Then("the full-width briefing is a sibling rather than a child that distorts the budget grid", async () => {
+  await Then("the compact force-and-intelligence strip stays outside both the sticky header and budget grid", async () => {
     if (!banner || !budget) throw new Error("Expected campaign banner and budget panel.");
-    if (budget.contains(banner) || banner.parentElement !== budget.parentElement) {
-      throw new Error("Campaign context banner was mounted inside the requisition budget grid.");
+    const header = document.querySelector<HTMLElement>(".precombat-header");
+    if (budget.contains(banner)
+      || header?.contains(banner)
+      || banner.parentElement?.id !== "engagementContextMount"
+      || /meeting engagement|hex 4,4/i.test(banner.textContent ?? "")) {
+      throw new Error("Campaign context repeated mission identity or occupied the sticky header/budget grid.");
     }
   });
 });
@@ -193,6 +200,8 @@ registerTest("PRECOMBAT_CAMPAIGN_COPY_HAS_NO_HIDDEN_TACTICAL_DEADLINE", async ({
   let defenseBriefing = "";
   let turnLimit = "";
   let clockNote = "";
+  let clockHidden = false;
+  const handoffBriefings: string[] = [];
 
   await Given("campaign attack and defense briefings using no-fixed-limit mission rules", () => {});
 
@@ -221,17 +230,21 @@ registerTest("PRECOMBAT_CAMPAIGN_COPY_HAS_NO_HIDDEN_TACTICAL_DEADLINE", async ({
       else attackBriefing = briefing;
       turnLimit = document.getElementById("missionTurnLimit")?.textContent ?? "";
       clockNote = document.getElementById("missionClockNote")?.textContent ?? "";
+      clockHidden = document.getElementById("missionClockNote")?.hidden === true;
+      handoffBriefings.push(internals.battleState.getPrecombatMissionInfo()?.briefing ?? "");
     }
   });
 
-  await Then("briefing and timeline agree that battlefield conditions decide the engagement", () => {
-    const combined = `${attackBriefing} ${defenseBriefing} ${clockNote}`;
+  await Then("the visible briefing states the decision rule once while the complete tactical handoff is preserved", () => {
+    const visibleCopy = `${attackBriefing} ${defenseBriefing}`;
+    const handoffCopy = handoffBriefings.join(" ");
     if (turnLimit !== "No fixed turn limit"
-      || clockNote !== "Battle continues until objective control or force collapse decides the result."
-      || !attackBriefing.includes("objective control or force collapse")
-      || !defenseBriefing.includes("objective control or force collapse")
-      || /window closes|turns? remain|deadline/i.test(combined)) {
-      throw new Error(`Campaign precombat retained contradictory deadline copy: ${combined}`);
+      || !clockHidden
+      || !attackBriefing.includes("Complete either objective below")
+      || !defenseBriefing.includes("Complete either objective below")
+      || !handoffCopy.includes("objective control or force collapse")
+      || /window closes|turns? remain|deadline/i.test(`${visibleCopy} ${clockNote} ${handoffCopy}`)) {
+      throw new Error(`Campaign precombat retained contradictory or incomplete copy: ${visibleCopy} ${handoffCopy}`);
     }
   });
 });

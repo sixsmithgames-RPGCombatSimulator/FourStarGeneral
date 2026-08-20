@@ -1687,8 +1687,8 @@ export class PrecombatScreen {
     const spent = this.calculateSpend();
     const remaining = this.allocationBudget - spent;
 
-    this.budgetSpentElement.textContent = `Spent: ${spent.toLocaleString()} RP`;
-    this.budgetRemainingElement.textContent = `Budget Remaining: ${Math.max(remaining, 0).toLocaleString()} requisition points`;
+    this.budgetSpentElement.textContent = `${spent.toLocaleString()} RP used`;
+    this.budgetRemainingElement.textContent = `${Math.max(remaining, 0).toLocaleString()} RP available`;
     this.budgetPanel.dataset.state = remaining < 0 ? "over-budget" : "within-budget";
     this.syncAllocationActionButton();
 
@@ -1768,7 +1768,7 @@ export class PrecombatScreen {
     const banner = existing ?? document.createElement("div");
     banner.id = "engagementContextBanner";
     banner.style.cssText = [
-      "margin-bottom:0.75rem",
+      "margin:0 0 0.35rem",
       "padding:0.6rem 0.8rem",
       "border-radius:8px",
       "line-height:1.45",
@@ -1782,26 +1782,22 @@ export class PrecombatScreen {
     const committedGroups = playerDefense
       ? Object.values(this.getPlayerDefensiveCommitmentCaps()).reduce((sum, count) => sum + count, 0)
       : context.availableForces.reduce((sum, group) => sum + group.count, 0);
+    const intelligenceLine = briefing
+      ? `${assessmentLabel} · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
+      : assessmentLabel;
+    const unknowns = briefing?.explicitUnknowns ?? [];
     banner.innerHTML = playerDefense ? `
-      <strong style="display:block;letter-spacing:0.05em;text-transform:uppercase;">Enemy offensive · ${MISSION_TYPE_LABELS[context.missionType]} defense — hex ${context.battleHexKey}</strong>
-      <span style="display:block;">${committedGroups} friendly formation${committedGroups === 1 ? "" : "s"} caught in the battle · Exact defenders locked</span>
-      <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}">${assessmentLabel}</span>
-      ${briefing ? `<span style="display:block;opacity:0.88;">Intel confidence: ${briefing.confidenceBand} · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"} · Unknown: ${briefing.explicitUnknowns.join(", ") || "none reported"}</span>` : ""}
-      <span style="display:block;margin-top:0.3rem;font-weight:700;">Mandatory defense · Deploy your committed formations. Enemy exact strength remains concealed.</span>
+      <span style="display:block;"><strong>Committed defense</strong> · ${committedGroups} formation${committedGroups === 1 ? "" : "s"} locked to this battle</span>
+      <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
+      ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     ` : `
-      <strong style="display:block;letter-spacing:0.05em;text-transform:uppercase;">${MISSION_TYPE_LABELS[context.missionType]} — hex ${context.battleHexKey}</strong>
-      <span style="display:block;">${committedGroups} formation group${committedGroups === 1 ? "" : "s"} in position · ${context.airSorties} air sortie${context.airSorties === 1 ? "" : "s"} in range · ${context.rpReserve.toLocaleString()} RP consumables reserve</span>
-      <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}">${assessmentLabel}</span>
-      ${briefing ? `<span style="display:block;opacity:0.88;">Intel confidence: ${briefing.confidenceBand} · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"} · Unknown: ${briefing.explicitUnknowns.join(", ") || "none reported"}</span>` : ""}
-      <span style="display:block;margin-top:0.3rem;font-weight:700;">Planning package · Forces lock only when you choose Commit Forces &amp; Begin Battle.</span>
+      <span style="display:block;"><strong>Forces in range</strong> · ${committedGroups} ground groups · ${context.airSorties} air sorties · ${context.rpReserve.toLocaleString()} RP reserve</span>
+      <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
+      ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     `;
     if (!existing) {
-      const header = this.element.querySelector<HTMLElement>(".precombat-header");
-      if (header) {
-        header.appendChild(banner);
-      } else if (this.budgetPanel.parentElement) {
-        this.budgetPanel.parentElement.insertBefore(banner, this.budgetPanel);
-      }
+      const mount = this.element.querySelector<HTMLElement>("#engagementContextMount");
+      mount?.appendChild(banner);
     }
   }
 
@@ -2023,9 +2019,13 @@ export class PrecombatScreen {
         ? "Hold coherent defensive ground, preserve the committed formations, and counterattack only when the opposing attack loses cohesion."
         : "Concentrate the committed formations, secure the tactical objective network, and preserve a viable force for the campaign that follows."
       : summary.doctrine;
+    const visibleBriefing = campaignContext
+      ? `${campaignPlayerDefense ? "Defend" : "Attack"} at Hex ${campaignContext.battleHexKey}. Complete either objective below to decide the engagement.`
+      : briefing;
 
+    this.element.classList.toggle("campaign-engagement", Boolean(campaignContext));
     this.missionTitleElement.textContent = title;
-    this.missionBriefingElement.textContent = briefing;
+    this.missionBriefingElement.textContent = visibleBriefing;
     this.objectiveListElement.innerHTML = objectives
       .map((objective, index) => {
         const parsed = this.parseMissionObjective(objective);
@@ -2039,15 +2039,15 @@ export class PrecombatScreen {
       })
       .join("");
     this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "No fixed turn limit";
-    this.missionClockNoteElement.textContent = campaignContext
-      ? "Battle continues until objective control or force collapse decides the result."
-      : effectiveTurnLimit !== null
+    this.missionClockNoteElement.hidden = Boolean(campaignContext);
+    this.missionClockNoteElement.textContent = effectiveTurnLimit !== null
         ? "Complete the mission before the tactical deadline."
         : "Battle continues until the mission conditions decide the result.";
     const visibleMissionAssets = this.filterMissionAssetsForBriefing(summary.supplies);
     if (this.baselineSupplySectionElement) {
-      this.baselineSupplySectionElement.classList.toggle("hidden", visibleMissionAssets.length === 0);
+      this.baselineSupplySectionElement.classList.toggle("hidden", Boolean(campaignContext) || visibleMissionAssets.length === 0);
     }
+    this.doctrineNotesElement.closest<HTMLElement>(".info-block--doctrine")?.classList.toggle("hidden", Boolean(campaignContext));
     this.baselineSupplyListElement.innerHTML = visibleMissionAssets
       .map((item) => `<li><strong>${item.label}</strong><span>${item.amount}</span></li>`)
       .join("");

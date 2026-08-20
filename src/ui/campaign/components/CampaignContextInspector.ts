@@ -116,18 +116,18 @@ function resolveInspectorRoute(
   if (selection.kind === "objective") {
     const objective = view.objectives.find((entry) => entry.key === selection.id);
     if (!objective) return emptyRoute("objective", selection.id);
+    const progress = objective.progressCurrent !== undefined && objective.progressTarget !== undefined
+      ? `${objective.progressCurrent} of ${objective.progressTarget}${objective.progressLabel ? ` · ${objective.progressLabel}` : ""}`
+      : objective.progressLabel;
+    const requirements = objective.conditionLabels?.filter((label) => label !== objective.progressLabel) ?? [];
     return {
       kind: "objective",
       title: objective.label,
       summary: objective.detail ?? "Objective status is projected from the committed campaign boundary.",
       facts: [
         { label: "Status", value: objective.status },
-        ...(objective.hexKey ? [{ label: "Location", value: objective.hexKey }] : []),
-        ...(objective.progressLabel ? [{ label: "Progress", value: objective.progressLabel }] : []),
-        ...(objective.progressCurrent !== undefined && objective.progressTarget !== undefined
-          ? [{ label: "Current / required", value: `${objective.progressCurrent} / ${objective.progressTarget}` }]
-          : []),
-        ...(objective.conditionLabels?.length ? [{ label: "Conditions", value: objective.conditionLabels.join(" · ") }] : []),
+        ...(progress ? [{ label: "Progress", value: progress }] : []),
+        ...(requirements.length ? [{ label: "Requirements", value: requirements.join(" · ") }] : []),
         ...(objective.nextAction ? [{ label: "Next action", value: objective.nextAction }] : []),
         ...(objective.deadline ? [{ label: "Deadline", value: objective.deadline }] : []),
         ...(objective.score ? [{ label: "Score", value: objective.score }] : []),
@@ -250,19 +250,18 @@ function resolveInspectorRoute(
     return {
       kind: "front",
       title: front.label,
-      summary: "The operational boundary is derived from projected control adjacency.",
+      summary: front.pressureLabel ?? "Review this front before issuing the next command.",
       facts: [
         { label: "Initiative", value: front.initiativeLabel },
-        { label: "Sectors", value: front.hexKeys.length.toLocaleString() },
-        ...(front.pressureLabel ? [{ label: "Assessed pressure", value: front.pressureLabel }] : []),
+        ...(front.hexKeys.length > 1 ? [{ label: "Sectors", value: front.hexKeys.length.toLocaleString() }] : []),
         ...(front.engagementLabel ? [{ label: "Engagement", value: front.engagementLabel }] : []),
-        ...(front.targetHexKey ? [{ label: "Opposing target", value: front.targetHexKey }] : []),
+        ...(!front.engagementLabel && front.targetHexKey ? [{ label: "Opposing target", value: front.targetHexKey }] : []),
         ...(front.roleLabel ? [{ label: "Roles", value: front.roleLabel }] : []),
         ...(front.intelligenceUnknowns?.length ? [{ label: "Intelligence unknowns", value: front.intelligenceUnknowns.join(" · ") }] : []),
         ...(front.targetChoiceLabel ? [{ label: "Target decision", value: front.targetChoiceLabel }] : []),
         ...(front.forcePosture ? [{ label: "Friendly posture", value: front.forcePosture }] : []),
         ...(front.objectivePosture ? [{ label: "Objectives", value: front.objectivePosture }] : []),
-        ...(front.lastChange ? [{ label: "Last material change", value: front.lastChange }] : [])
+        ...(front.lastChange && !front.lastChange.startsWith("No recent") ? [{ label: "Last change", value: front.lastChange }] : [])
       ],
       mode: "projectedWithActions"
     };

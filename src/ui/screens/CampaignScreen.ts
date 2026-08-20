@@ -105,7 +105,7 @@ export class CampaignScreen {
   private intelUnreadBadge: HTMLElement | null = null;
   private intelCoverageButton: HTMLButtonElement | null = null;
   private intelTab: "situation" | "contacts" | "operations" = "situation";
-  private intelOperationType: CampaignIntelOperationType = "groundRecon";
+  private intelOperationType: CampaignIntelOperationType | null = null;
   private intelTargetContactId: string | null = null;
   private intelFeedback = "";
   private intelCoverageVisible = false;
@@ -1253,7 +1253,7 @@ export class CampaignScreen {
     const report = this.campaignState.getProductionReport();
     if (!report) return;
 
-    title.textContent = editingOrder ? "Edit Production Draft" : "War Production";
+    title.textContent = editingOrder ? "Edit Production Allocation" : "Production Allocation";
     const fmt = (n: number) => n.toLocaleString();
 
     const RESOURCES: Array<{ key: keyof ProductionAllocation; icon: string; label: string; hint: string }> = [
@@ -1276,16 +1276,6 @@ export class CampaignScreen {
       </div>`
     ).join("");
 
-    const topSources = report.sources.slice(0, 8);
-    const sourceRows = topSources.map(
-      (s) => `
-      <div class="production-source-row">
-        <span>${this.escapeHtml(this.formatCampaignLabel(s.tile))}${s.role ? ` <em>(${this.escapeHtml(this.formatCampaignLabel(s.role))})</em>` : ""}</span>
-        <span class="source-hex">${s.offsetKey}</span>
-        <span class="source-value">${fmt(s.supplyValue)}</span>
-      </div>`
-    ).join("");
-
     body.innerHTML = `
       <div class="production-modal">
         <div class="production-capacity-banner">
@@ -1294,13 +1284,10 @@ export class CampaignScreen {
         </div>
         <div class="redeploy-section-label">Allocation <span class="alloc-total" id="productionAllocTotal"></span></div>
         <div class="production-alloc">${sliderRows}</div>
-        <div class="production-alloc-note">Percentages are normalized to 100% in the authoritative preview.</div>
+        <div class="production-alloc-note">Set the four allocations to 100% total.</div>
         <div id="productionOrderPreview" class="campaign-order-preview-contract" aria-live="polite"></div>
-        ${topSources.length > 0 ? `
-          <div class="redeploy-section-label">Top production sites</div>
-          <div class="production-sources">${sourceRows}</div>` : ""}
         <div class="button-row redeploy-actions">
-          <button type="button" class="primary-button" id="productionApply">${editingOrder ? "Replace Draft" : "Add Draft"}</button>
+          <button type="button" class="primary-button" id="productionApply">${editingOrder ? "Update Draft" : "Save Allocation Draft"}</button>
           <button type="button" class="secondary-button" id="productionCancel">Cancel</button>
         </div>
       </div>
@@ -1312,9 +1299,6 @@ export class CampaignScreen {
     const cancelBtn = body.querySelector<HTMLButtonElement>("#productionCancel");
     const previewEl = body.querySelector<HTMLElement>("#productionOrderPreview");
     if (!applyBtn || !cancelBtn) return;
-    const composer = body.querySelector<HTMLElement>(".production-modal");
-    if (composer) decorateCampaignOrderComposer(composer, "production", "Set the next daily industrial allocation", Boolean(editingOrder));
-
     const readAllocation = (): ProductionAllocation => {
       const raw: ProductionAllocation = { supplies: 0, fuel: 0, ammo: 0, manpower: 0 };
       sliders.forEach((sl) => {
@@ -1342,13 +1326,7 @@ export class CampaignScreen {
       if (previewEl) {
         const normalized = preview.normalizedAllocation;
         previewEl.innerHTML = preview.action.availability === "available" && normalized && preview.effectiveSegment !== null
-          ? `<div><dt>Intent</dt><dd>Supply ${normalized.supplies}% · Fuel ${normalized.fuel}% · Ammo ${normalized.ammo}% · Personnel ${normalized.manpower}%</dd></div>
-             <div><dt>Timing</dt><dd>Effective ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(preview.effectiveSegment))}; the current allocation remains active until then.</dd></div>
-             <div><dt>Reservation</dt><dd>Holds the exclusive next-delivery allocation slot; no stocks are spent.</dd></div>
-             <div><dt>Known risk</dt><dd>Output follows controlled industrial capacity at delivery time.</dd></div>
-             <div><dt>Objective effect</dt><dd>Indirect only; objective score changes when later campaign conditions resolve.</dd></div>
-             <div><dt>Cancellation</dt><dd>After commitment, supersede this directive with a new allocation.</dd></div>
-             <div class="campaign-order-preview-clear"><dt>Conflicts</dt><dd>No conflict in the current command picture.</dd></div>`
+          ? `<div class="campaign-order-preview-clear"><dt>Effective</dt><dd>${this.escapeHtml(this.campaignState.segmentToTimeDisplay(preview.effectiveSegment))} · the current mix remains active until delivery.</dd></div>`
           : `<div class="redeploy-issue" data-reason-code="${preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID"}"><strong>${(preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(preview.action.reason ?? "The allocation is unavailable.")}</span><small>${this.escapeHtml(preview.action.correctiveAction ?? "Adjust the allocation and review it again.")}</small></div>`;
       }
       applyBtn.disabled = preview.action.availability !== "available" || !preview.normalizedAllocation;
@@ -1396,7 +1374,6 @@ export class CampaignScreen {
     layer.classList.remove("hidden");
     layer.setAttribute("aria-hidden", "false");
     body.scrollTop = 0;
-    if (composer) composer.scrollTop = 0;
     const sources = body.querySelector<HTMLElement>(".production-sources");
     if (sources) sources.scrollTop = 0;
     layer.addEventListener("keydown", onEscape);
@@ -1818,6 +1795,11 @@ export class CampaignScreen {
   }
 
   private scheduleSelectedIntelOperation(): void {
+    if (!this.intelOperationType) {
+      this.intelFeedback = "Choose an intelligence operation first.";
+      this.renderCampaignIntel();
+      return;
+    }
     if (!this.selectedHexKey) {
       this.intelFeedback = "Select a campaign hex on the map before issuing this order.";
       this.renderCampaignIntel();
@@ -1886,12 +1868,7 @@ export class CampaignScreen {
         ? this.composeIntelContactsMarkup(view)
         : this.composeIntelOperationsMarkup(view, operations);
     const composer = body.querySelector<HTMLElement>(".campaign-intel-composer");
-    if (composer) {
-      const kind = this.intelOperationType === "counterRecon" || this.intelOperationType === "opsec" || this.intelOperationType === "phantom"
-        ? "counterIntelligence" as const
-        : "reconnaissance" as const;
-      const rule = this.campaignState.getIntelOperationRules()[this.intelOperationType];
-      decorateCampaignOrderComposer(composer, kind, `${rule.label} at ${this.selectedHexKey ?? "unselected area"}`, Boolean(this.editingIntelOrderId));
+    if (composer && this.intelOperationType) {
       if (this.selectedHexKey) this.renderer.highlightHex(this.selectedHexKey, "order-preview-target");
     } else {
       this.renderer.clearAllHighlights("order-preview-target");
@@ -1931,16 +1908,10 @@ export class CampaignScreen {
     return `<div class="campaign-intel-contact-list">${view.enemyContacts.map((contact) => `
       <article class="campaign-intel-contact-card" data-level="${contact.level}" data-state="${contact.state}">
         <header>
-          <div><span class="campaign-intel-eyebrow">${contact.level} · ${contact.confidenceBand} confidence</span><strong>${this.escapeHtml(contact.label)}</strong></div>
+          <div><strong>${this.escapeHtml(contact.label)}</strong><span class="campaign-intel-eyebrow">${contact.strengthBand ?? "Unknown"} strength · ${contact.confidenceBand} confidence</span></div>
           <span class="campaign-intel-age">${contact.ageSegments === 0 ? "Current" : `${contact.ageSegments * 3}h old`}</span>
         </header>
-        <dl>
-          <div><dt>Where</dt><dd>${this.escapeHtml(contact.locationHexKey)}${contact.uncertaintyRadius > 0 ? ` ±${contact.uncertaintyRadius} hex` : ""}</dd></div>
-          <div><dt>Strength</dt><dd>${contact.strengthBand ?? "Unknown"}</dd></div>
-          <div><dt>State</dt><dd>${contact.state}${contact.movementState ? ` · ${contact.movementState}` : ""}</dd></div>
-          <div><dt>Source</dt><dd>${this.escapeHtml(contact.sourceLabels.join(", ") || "Unspecified")}</dd></div>
-        </dl>
-        <p>${this.escapeHtml(contact.analystNotes[0] ?? "No analyst note is available.")}</p>
+        <p>${this.escapeHtml(contact.locationHexKey)}${contact.uncertaintyRadius > 0 ? ` ±${contact.uncertaintyRadius} hex` : ""} · ${contact.movementState ?? contact.state} · ${this.escapeHtml(contact.sourceLabels.join(", ") || "Source unconfirmed")}</p>
         <footer>
           <button type="button" data-intel-focus="${this.escapeHtml(contact.id)}">Focus map</button>
           <button type="button" data-intel-verify-contact="${this.escapeHtml(contact.id)}">Verify</button>
@@ -1951,6 +1922,44 @@ export class CampaignScreen {
 
   private composeIntelOperationsMarkup(view: CampaignMapViewModel, operations: CampaignIntelOperationView[]): string {
     const rules = this.campaignState.getIntelOperationRules();
+    const operationButtons = (Object.keys(rules) as CampaignIntelOperationType[]).map((type) => {
+      const descriptor = this.campaignActionRegistry.resolve(getCampaignIntelligenceActionId(type), {
+        selectionKind: type === "verify" && this.intelTargetContactId ? "contact" : this.selectedHexKey ? "hex" : "none",
+        selectionId: this.selectedHexKey,
+        targetContactId: type === "verify" ? this.intelTargetContactId : null,
+        excludeOrderId: type === this.intelOperationType ? this.editingIntelOrderId : null
+      });
+      return `
+        <button type="button" class="campaign-intel-operation-choice${type === this.intelOperationType ? " active" : ""}" data-intel-operation-type="${type}" data-action-availability="${descriptor.availability}" data-reason-code="${descriptor.reasonCode ?? ""}" title="${this.escapeHtml(descriptor.availability === "available" ? rules[type].description : `${descriptor.reason ?? "Operation unavailable."} ${descriptor.correctiveAction ?? ""}`.trim())}">
+          <strong>${this.escapeHtml(rules[type].shortLabel)}</strong><span>${rules[type].capacityCost} capacity · ${rules[type].durationSegments * 3}h</span>
+        </button>`;
+    }).join("");
+    const active = operations
+      .filter((operation) => operation.status === "planned" || operation.status === "active")
+      .map((operation) => `
+        <article class="campaign-intel-active-op">
+          <strong>${this.escapeHtml(rules[operation.type].label)}</strong>
+          <span>${this.escapeHtml(operation.targetHexKey)} · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(operation.resolveSegment))}</span>
+        </article>
+      `).join("");
+    const recentlyComplete = operations
+      .filter((operation) => operation.status !== "planned" && operation.status !== "active" && operation.publicOutcome)
+      .slice(-5)
+      .reverse()
+      .map((operation) => `<article class="campaign-intel-outcome"><strong>${this.escapeHtml(operation.publicOutcome!.summary)}</strong><p>${this.escapeHtml(operation.publicOutcome!.detail)}</p></article>`)
+      .join("");
+    const heldCapacity = this.campaignState.getCampaignDraftReservations("Player").intelligenceCapacity;
+    const draftAwareCapacity = Math.max(0, view.capacity.available - heldCapacity);
+    const operationHistory = `${active ? `<div class="campaign-intel-section-heading"><h4>Active operations</h4></div>${active}` : ""}
+      ${recentlyComplete ? `<div class="campaign-intel-section-heading"><h4>Recent outcomes</h4></div>${recentlyComplete}` : ""}`;
+    if (!this.intelOperationType) {
+      return `
+        <div class="campaign-intel-capacity"><span>Capacity</span><strong>${draftAwareCapacity}/${view.capacity.total} free</strong><small>${view.capacity.committed} committed · ${heldCapacity} held</small></div>
+        <div class="campaign-intel-operation-grid">${operationButtons}</div>
+        <div class="campaign-intel-empty"><strong>Choose an operation</strong><p>Review its target, asset, timing, and cost before adding a draft.</p></div>
+        ${operationHistory}
+      `;
+    }
     const rule = rules[this.intelOperationType];
     const initialPreview = this.campaignState.previewIntelOperationDraft({
       type: this.intelOperationType,
@@ -1979,34 +1988,6 @@ export class CampaignScreen {
       excludeOrderId: this.editingIntelOrderId
     });
     const requiresAsset = rule.requiresAsset !== "none";
-    const operationButtons = (Object.keys(rules) as CampaignIntelOperationType[]).map((type) => {
-      const descriptor = this.campaignActionRegistry.resolve(getCampaignIntelligenceActionId(type), {
-        selectionKind: type === "verify" && this.intelTargetContactId ? "contact" : this.selectedHexKey ? "hex" : "none",
-        selectionId: this.selectedHexKey,
-        targetContactId: type === "verify" ? this.intelTargetContactId : null,
-        excludeOrderId: type === this.intelOperationType ? this.editingIntelOrderId : null
-      });
-      return `
-        <button type="button" class="campaign-intel-operation-choice${type === this.intelOperationType ? " active" : ""}" data-intel-operation-type="${type}" data-action-availability="${descriptor.availability}" data-reason-code="${descriptor.reasonCode ?? ""}" title="${this.escapeHtml(descriptor.availability === "available" ? rules[type].description : `${descriptor.reason ?? "Operation unavailable."} ${descriptor.correctiveAction ?? ""}`.trim())}">
-          <strong>${this.escapeHtml(rules[type].shortLabel)}</strong><span>${rules[type].capacityCost} capacity · ${rules[type].durationSegments * 3}h</span>
-        </button>`;
-    }).join("");
-    const active = operations
-      .filter((operation) => operation.status === "planned" || operation.status === "active")
-      .map((operation) => `
-        <article class="campaign-intel-active-op">
-          <strong>${this.escapeHtml(rules[operation.type].label)}</strong>
-          <span>${this.escapeHtml(operation.targetHexKey)} · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(operation.resolveSegment))}</span>
-        </article>
-      `).join("") || `<div class="campaign-intel-empty compact">No intelligence operations are active.</div>`;
-    const recentlyComplete = operations
-      .filter((operation) => operation.status !== "planned" && operation.status !== "active" && operation.publicOutcome)
-      .slice(-5)
-      .reverse()
-      .map((operation) => `<article class="campaign-intel-outcome"><strong>${this.escapeHtml(operation.publicOutcome!.summary)}</strong><p>${this.escapeHtml(operation.publicOutcome!.detail)}</p></article>`)
-      .join("");
-    const heldCapacity = this.campaignState.getCampaignDraftReservations("Player").intelligenceCapacity;
-    const draftAwareCapacity = Math.max(0, view.capacity.available - heldCapacity);
     return `
       <div class="campaign-intel-capacity"><span>Capacity</span><strong>${draftAwareCapacity}/${view.capacity.total} free</strong><small>${view.capacity.committed} committed · ${heldCapacity} held</small></div>
       <div class="campaign-intel-operation-grid">${operationButtons}</div>
@@ -2024,22 +2005,14 @@ export class CampaignScreen {
             ${assets.length === 0 ? `<option value="">No eligible asset</option>` : assets.map((asset) => `<option value="${this.escapeHtml(asset.assetKey)}" ${asset.assetKey === selectedAssetKey ? "selected" : ""}>${this.escapeHtml(asset.label)}</option>`).join("")}
           </select>
         ` : `<p class="campaign-intel-doctrine">This operation uses headquarters deception capacity and does not require a formation assignment.</p>`}
-        <dl class="campaign-order-preview-contract">
-          <div><dt>Area</dt><dd>${this.escapeHtml(this.selectedHexKey ?? "No target selected")} · radius ${rule.targetRadius} hex</dd></div>
-          <div><dt>Timing</dt><dd>${selectedPreview.resolveSegment === null ? "Unavailable" : `Starts next segment · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedPreview.resolveSegment))}`}</dd></div>
-          <div><dt>Reservations</dt><dd>${rule.capacityCost} intelligence capacity${requiresAsset ? " · assigned asset" : ""} · ${rule.suppliesCost} supply · ${rule.fuelCost} fuel</dd></div>
-          <div><dt>Known risk</dt><dd>Results remain limited by source access, uncertainty, and operation outcome; no hidden enemy truth is guaranteed.</dd></div>
-          <div><dt>Objective effect</dt><dd>Improves or protects the operational picture; no direct objective score changes at draft or commit.</dd></div>
-          <div><dt>Cancellation</dt><dd>Before execution, committed costs, capacity, and the assigned asset are released exactly.</dd></div>
-        </dl>
+        <p class="campaign-intel-order-summary">${selectedPreview.resolveSegment === null ? "Timing unavailable" : `Starts next segment · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedPreview.resolveSegment))}`} · reserves ${rule.capacityCost} capacity, ${rule.suppliesCost} supply, and ${rule.fuelCost} fuel.</p>
         ${selectedAction.availability === "available"
-          ? `<div class="campaign-order-preview-clear">No conflicts in the current command picture.</div>`
+          ? ""
           : `<div class="redeploy-issue" data-reason-code="${selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID"}"><strong>${(selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(selectedAction.reason ?? "The operation is unavailable.")}</span><small>${this.escapeHtml(selectedAction.correctiveAction ?? "Review the target and assigned asset.")}</small></div>`}
         ${this.intelFeedback ? `<div class="campaign-intel-feedback" aria-live="polite">${this.escapeHtml(this.intelFeedback)}</div>` : ""}
         <button type="button" class="campaign-intel-confirm" data-intel-schedule ${selectedAction.availability !== "available" ? "disabled" : ""}>${this.editingIntelOrderId ? "Replace draft" : "Add draft"}</button>
       </section>
-      <div class="campaign-intel-section-heading"><h4>Active operations</h4></div>${active}
-      ${recentlyComplete ? `<div class="campaign-intel-section-heading"><h4>Recent outcomes</h4></div>${recentlyComplete}` : ""}
+      ${operationHistory}
     `;
   }
 
@@ -2472,19 +2445,23 @@ export class CampaignScreen {
         progressTarget: objective.progressTarget,
         conditionLabels: objective.conditionLabels,
         nextAction: objective.status === "active"
-          ? "Keep this objective's conditions satisfied, then advance to the next report."
+          ? "Hold these conditions, then advance to the next report."
           : objective.status === "locked"
             ? "Complete the listed dependencies before issuing orders here."
             : "Review the recorded result and its effect on the campaign.",
         deadline: objective.deadlineSegment === null
           ? null
-          : `Deadline ${this.campaignState.segmentToTimeDisplay(objective.deadlineSegment)}`,
+          : this.campaignState.segmentToTimeDisplay(objective.deadlineSegment),
         score: `${objective.scoreAwarded}/${objective.score} pts`,
         hexKey: offset ? CoordinateSystem.makeHexKey(offset.col, offset.row) : undefined,
         dependencies: dependencies.length > 0 ? `Requires ${dependencies.join(", ")}` : null,
         failureEffect: defeatKeys.includes(objective.key) ? "Failure ends the campaign" : null
       };
     });
+    const priorityForceHexes = new Set(objectives
+      .filter((objective) => objective.status === "In progress")
+      .map((objective) => objective.hexKey)
+      .filter((hexKey): hexKey is string => Boolean(hexKey)));
     const forces = scenario.tiles.flatMap((tile) => {
       const palette = scenario.tilePalette[tile.tile];
       const controller = tile.factionControl ?? palette?.factionControl;
@@ -2498,6 +2475,10 @@ export class CampaignScreen {
           label: force.label ?? this.formatCampaignLabel(force.unitType),
           count: force.count
         }));
+    }).sort((left, right) => {
+      const leftPriority = priorityForceHexes.has(left.hexKey) ? 0 : 1;
+      const rightPriority = priorityForceHexes.has(right.hexKey) ? 0 : 1;
+      return leftPriority - rightPriority || left.hexKey.localeCompare(right.hexKey) || left.label.localeCompare(right.label);
     });
     const formations = this.campaignState.getCampaignFormationRoster("Player").map((formation) => {
       const locationHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
@@ -2896,8 +2877,8 @@ export class CampaignScreen {
       airPower: playerEconomy?.airPower ?? 0,
       navalPower: playerEconomy?.navalPower ?? 0,
       intelligenceCapacity: draftReservations.intelligenceCapacity > 0
-        ? `${Math.max(0, view.capacity.available - draftReservations.intelligenceCapacity)}/${view.capacity.total} free · ${draftReservations.intelligenceCapacity} held`
-        : `${view.capacity.available}/${view.capacity.total} available`,
+        ? `${Math.max(0, view.capacity.available - draftReservations.intelligenceCapacity)}/${view.capacity.total} · ${draftReservations.intelligenceCapacity} held`
+        : `${view.capacity.available}/${view.capacity.total}`,
       orders: playerOrders.map((order) => this.projectCommandOrder(order, playerOrders)),
       orderCommit: {
         busy: this.commandCommitBusy,

@@ -357,9 +357,54 @@
     }
     .landing-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr);
+      grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.45fr);
       gap: 1.1rem;
       align-items: start;
+    }
+    .landing-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .landing-header h1,
+    .landing-header p { margin: 0; }
+    .landing-header > div { display: grid; gap: 0.28rem; }
+    .landing-roster-details { gap: 0; }
+    .landing-roster-details > summary {
+      display: grid;
+      gap: 0.2rem;
+      padding-right: 1.3rem;
+      cursor: pointer;
+      list-style: none;
+    }
+    .landing-roster-details > summary::-webkit-details-marker { display: none; }
+    .landing-roster-details > summary::after {
+      content: "+";
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      color: var(--accent-strong);
+      font-size: 1.1rem;
+    }
+    .landing-roster-details[open] > summary::after { content: "−"; }
+    .landing-roster-details > summary span {
+      color: var(--text-muted);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .landing-roster-details > summary strong { color: #efe3bf; }
+    .landing-roster-details > summary small { color: var(--text-secondary); line-height: 1.4; }
+    .landing-roster-admin { display: grid; gap: 0.8rem; margin-top: 0.9rem; }
+    .general-roster-assigned {
+      align-self: center;
+      color: #a9d3aa;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
     .landing-secondary {
       display: grid;
@@ -490,6 +535,27 @@
       display: grid;
       gap: 0.65rem;
     }
+    .locked-operation-disclosure {
+      border-top: 1px solid rgba(190, 160, 102, 0.18);
+      padding-top: 0.55rem;
+    }
+    .locked-operation-disclosure > summary {
+      color: rgba(226, 211, 172, 0.76);
+      cursor: pointer;
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+    .locked-operation-list { display: grid; gap: 0.35rem; margin-top: 0.55rem; }
+    .locked-operation-row {
+      display: grid;
+      gap: 0.14rem;
+      padding: 0.48rem 0.58rem;
+      border: 1px solid rgba(150, 130, 90, 0.16);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.018);
+    }
+    .locked-operation-row strong { color: rgba(232, 219, 184, 0.62); font-size: 0.75rem; }
+    .locked-operation-row span { color: rgba(199, 190, 165, 0.5); font-size: 0.68rem; }
 
     /* Campaign selection tiles mirror mission buttons but live in their own grid for flexibility. */
     .campaign-grid {
@@ -1710,6 +1776,34 @@
       display: grid;
       gap: 1.2rem;
     }
+    #engagementContextMount:empty { display: none; }
+    .precombat-screen.campaign-engagement .screen-content { gap: 0.55rem; }
+    .precombat-screen.campaign-engagement #allocationFeedback { padding: 0.48rem 0.7rem; }
+    .precombat-screen.campaign-engagement .precombat-intel-row {
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 0.3fr);
+      gap: 0.7rem;
+      margin-bottom: 0.25rem;
+    }
+    .precombat-screen.campaign-engagement .mission-intel-panel { gap: 0.5rem; }
+    .precombat-screen.campaign-engagement .mission-details-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 0.34fr);
+      grid-template-areas: "orders turn-limit";
+      gap: 0.45rem;
+    }
+    .precombat-screen.campaign-engagement .mission-order-item {
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+      padding: 0.34rem 0.46rem;
+    }
+    .precombat-screen.campaign-engagement .mission-order-item strong { flex: 0 0 auto; }
+    .precombat-screen.campaign-engagement .map-card { gap: 0.45rem; }
+    .precombat-screen.campaign-engagement .map-card .map-preview {
+      min-height: 130px;
+      max-height: 170px;
+      aspect-ratio: 16 / 9;
+    }
+    .precombat-screen.campaign-engagement .allocation-panel { gap: 0.5rem; }
     .precombat-layout {
       display: grid;
       grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.05fr) minmax(280px, 0.8fr);
@@ -8911,6 +9005,21 @@
         linear-gradient(155deg, #10130f 0%, #080b09 52%, #07090b 100%);
       color: #efe8d4;
     }
+    .campaign-command-shell[data-orders-empty="true"] {
+      --campaign-shell-tray: 96px;
+    }
+    @media (min-width: 1121px) {
+      .campaign-command-shell[data-has-selection="false"] {
+        grid-template-columns: 76px minmax(230px, 290px) minmax(520px, 1fr);
+        grid-template-areas:
+          "command command command"
+          "rail workspace map"
+          "tray tray tray";
+      }
+      .campaign-command-shell[data-has-selection="false"] .campaign-context-inspector {
+        display: none;
+      }
+    }
     .campaign-command-shell [hidden],
     .campaign-command-shell [data-campaign-shell-hidden="true"] {
       display: none !important;
@@ -9163,6 +9272,9 @@
     .campaign-workspace-metric strong { color: #efe5cb; font-size: 0.76rem; }
     .campaign-workspace-list-row span,
     .campaign-workspace-metric span { color: rgba(215, 207, 182, 0.6); font-size: 0.63rem; text-transform: uppercase; }
+    .campaign-forces-disclosure { border-top: 1px solid rgba(221, 205, 157, 0.12); padding-top: 0.45rem; }
+    .campaign-forces-disclosure summary { color: #d8c58d; cursor: pointer; font-size: 0.7rem; font-weight: 800; }
+    .campaign-forces-disclosure__list { display: grid; gap: 0.42rem; padding-top: 0.45rem; }
     .campaign-objective-score {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -9542,6 +9654,17 @@
     }
     .campaign-order-card__actions button:hover { border-color: rgba(215, 182, 99, 0.48); color: #f0e4c5; }
     .campaign-order-tray__actions { display: flex; align-items: stretch; gap: 0.45rem; }
+    .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__list,
+    .campaign-command-shell[data-orders-empty="true"] #campaignOrderCommitFeedback,
+    .campaign-command-shell[data-orders-empty="true"] #campaignCommitOrders {
+      display: none;
+    }
+    .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__heading small {
+      display: none;
+    }
+    .campaign-order-tray__idle { display: none; }
+    .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__counts { display: none; }
+    .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__idle { display: inline; }
     .campaign-advance-control {
       display: grid;
       grid-template-columns: auto minmax(112px, 1fr);
@@ -10566,6 +10689,8 @@
             </div>
           </div>
         </div>
+        <div id="engagementContextMount"></div>
+        <div id="allocationFeedback" class="status-panel" aria-live="polite">Allocate at least one combat formation to continue.</div>
 
         <!-- Top Row: Mission Intelligence and Theater Overview -->
         <div class="precombat-intel-row">
@@ -10637,8 +10762,6 @@
           </div>
         </div>
 
-        <div id="allocationFeedback" class="status-panel">Allocate forces and supplies to prepare for deployment.</div>
-
         <!-- Warning Overlay -->
         <div id="allocationWarningOverlay" class="precombat-warning-overlay hidden">
           <div id="allocationWarningModal" class="warning-dialog">
@@ -10659,18 +10782,25 @@
     <div id="landingScreen" class="screen landing-screen">
       <div class="screen-content">
         <div class="landing-header">
-          <h1>Four Star General</h1>
-          <p>Command strategic military operations across diverse theaters of war.</p>
+          <div>
+            <h1>Four Star General</h1>
+            <p>Choose a campaign or standalone battle.</p>
+          </div>
+          <button id="resumeTacticalBattle" type="button" class="secondary-button">Resume Saved Battle</button>
         </div>
 
         <div class="landing-layout">
           <div class="landing-secondary">
-            <div class="pane">
-              <h2>Command Roster</h2>
-              <p>Commission and assign generals to lead your forces.</p>
-              <button id="commissionNewButton" type="button" class="primary-button" style="margin-bottom: 1rem;">Commission New General</button>
-              <div id="generalRosterList" class="general-roster"></div>
-              <div id="generalFormSection" class="form-grid hidden">
+            <details id="commandRosterDetails" class="pane landing-roster-details">
+              <summary>
+                <span>Commander</span>
+                <strong id="generalAssignmentHeadline">No general assigned.</strong>
+                <small id="generalAssignmentDetails">Open to choose or commission a commander.</small>
+              </summary>
+              <div class="landing-roster-admin">
+                <button id="commissionNewButton" type="button" class="primary-button">Commission New General</button>
+                <div id="generalRosterList" class="general-roster"></div>
+                <div id="generalFormSection" class="form-grid hidden">
                 <form id="generalForm" class="general-roster">
                   <h3>Commission New General</h3>
                   <label>
@@ -10709,26 +10839,13 @@
                     </ul>
                   </div>
                 </div>
-              </div>
-              <div class="general-selection-actions">
-                <button id="clearGeneralSelection" type="button" class="secondary-button">Clear Selection</button>
-                <button id="exportRosterButton" type="button" class="secondary-button">Export Roster</button>
-                <input id="importRosterInput" type="file" accept=".json" style="display: none;" />
-              </div>
-            </div>
-
-            <div class="status-summary">
-              <div class="status-card">
-                <h3>Assignment Status</h3>
-                <p id="generalAssignmentHeadline" class="status-headline">No general assigned.</p>
-                <p id="generalAssignmentDetails" class="status-subtext">Select a commander to unlock tailored operations.</p>
-              </div>
-              <div class="status-card">
-                <h3>Operation Briefing</h3>
-                <p id="missionHeadline" class="status-headline">Awaiting mission briefing.</p>
-                <p id="missionStatus" class="status-subtext">Choose a mission once a commander is assigned.</p>
-              </div>
-              <div id="generalDetailPanel" class="status-card hidden" aria-live="polite">
+                </div>
+                <div class="general-selection-actions">
+                  <button id="clearGeneralSelection" type="button" class="secondary-button">Clear Selection</button>
+                  <button id="exportRosterButton" type="button" class="secondary-button">Export Roster</button>
+                  <input id="importRosterInput" type="file" accept=".json" style="display: none;" />
+                </div>
+                <div id="generalDetailPanel" class="status-card hidden" aria-live="polite">
                 <h3>Command Record</h3>
                 <p id="generalDetailName" class="status-headline">No commander selected.</p>
                 <p id="generalDetailSummary" class="status-subtext">Activate a commander and choose "View" to review their history.</p>
@@ -10743,63 +10860,32 @@
                   <dt>Casualties</dt>
                   <dd id="generalDetailCasualties">0</dd>
                 </dl>
+                </div>
               </div>
-            </div>
+            </details>
           </div>
 
           <!-- Right column: promote the long-form campaign before the operation catalog. -->
           <div class="landing-primary">
             <div class="pane">
               <h2>Campaigns</h2>
-              <p>Choose a theater to enter the strategic command layer.</p>
+              <p>Lead a persistent offensive across linked battles.</p>
               <div id="campaignList" class="campaign-grid" data-campaign-list>
-                <button type="button" class="campaign-card" data-campaign-id="western-europe" data-mission="campaign">
+                <button type="button" class="campaign-card" data-campaign-id="western-europe" data-mission="campaign" aria-label="Enter Western Europe Campaign">
                   <strong>Western Europe</strong>
-                  <span>Enter campaign command and lead Allied forces through a multi-phase offensive.</span>
+                  <span>Lead Allied forces through a persistent multi-phase offensive.</span>
                 </button>
               </div>
             </div>
 
             <div class="pane">
-              <h2>Operations</h2>
+              <h2>Standalone Battles</h2>
               <p id="missionListSummary">Select a commander to receive tailored operations.</p>
               <div id="missionList" class="mission-grid" data-mission-list></div>
             </div>
           </div>
         </div>
-
-        <!-- Footer -->
-        <div class="landing-footer">
-          <!--
-            DIFFICULTY SELECTOR - HIDDEN
-
-            Traditional difficulty selector has been disabled in favor of a budget-based difficulty system.
-            Difficulty should be controlled by the requisition budget allocated to the player in the precombat
-            screen, not by a global difficulty switch. Higher budgets = easier missions, lower budgets = harder.
-
-            This approach:
-            - Gives players granular control over challenge level per mission
-            - Creates meaningful trade-offs in force composition
-            - Maintains immersion (generals request resources, not "difficulty settings")
-            - Allows for dynamic difficulty through budget constraints in campaigns
-
-            If difficulty selection is needed in the future, it should control budget allocation amounts,
-            turn limits, and enemy force composition - not be a separate UI control here.
-          -->
-          <!-- <div class="difficulty-selector">
-            <label for="difficultySelect">Difficulty</label>
-            <select id="difficultySelect">
-              <option value="Easy">Easy</option>
-              <option value="Normal" selected>Normal</option>
-              <option value="Hard">Hard</option>
-            </select>
-          </div> -->
-          <div class="feedback" id="feedback"></div>
-          <div class="landing-resume-actions">
-            <button id="enterPrecombat" type="button" class="primary-button" aria-describedby="missionStatus" disabled>Enter Selected Operation</button>
-            <button id="resumeTacticalBattle" type="button" class="secondary-button">Resume Saved Battle</button>
-          </div>
-        </div>
+        <div class="feedback" id="feedback" aria-live="polite"></div>
       </div>
     </div>
 

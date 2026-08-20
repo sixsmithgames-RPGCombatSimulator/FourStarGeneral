@@ -1,4 +1,4 @@
-/** Configures the six-workspace campaign pane while preserving existing control instances and listeners. */
+/** Configures the four distinct campaign workspaces while preserving existing control instances and listeners. */
 
 import type { CampaignWorkspaceId } from "../CampaignCommandUIState";
 
@@ -23,27 +23,20 @@ function createWorkspaceOverview(
 function createSituationWorkspace(): HTMLElement {
   const section = createWorkspaceOverview(
     "situation",
-    "Commander's situation",
-    "Understand what changed, what is at risk, and what requires attention now.",
+    "Situation",
+    "Your next decision, active objectives, and operational fronts.",
     "campaignSituationWorkspace"
   );
   const body = section.querySelector<HTMLElement>("#campaignSituationWorkspace");
   if (!body) return section;
   body.innerHTML = `
-    <section id="campaignSituationBrief" class="campaign-situation-brief" aria-label="Commander's brief"></section>
     <section id="campaignSituationPriority" class="campaign-situation-priority" aria-label="Decision required"></section>
-    <div class="campaign-situation-board">
-      <section class="campaign-situation-section campaign-situation-objectives" aria-labelledby="campaignSituationObjectivesTitle">
-        <header><div><span>Mission board</span><h3 id="campaignSituationObjectivesTitle">Objectives</h3></div><strong id="campaignSituationObjectiveCount">0 active</strong></header>
-        <div id="campaignSituationObjectives" class="campaign-situation-section__body"></div>
-      </section>
-      <aside id="campaignSituationOutlook" class="campaign-situation-section campaign-situation-outlook" aria-labelledby="campaignSituationOutlookTitle">
-        <header><div><span>Campaign outlook</span><h3 id="campaignSituationOutlookTitle">Operation status</h3></div></header>
-        <div id="campaignSituationOutlookBody" class="campaign-situation-section__body"></div>
-      </aside>
-    </div>
+    <section class="campaign-situation-section campaign-situation-objectives" aria-labelledby="campaignSituationObjectivesTitle">
+      <header><div><span>Mission</span><h3 id="campaignSituationObjectivesTitle">Objectives</h3></div><strong id="campaignSituationObjectiveCount">0 active</strong></header>
+      <div id="campaignSituationObjectives" class="campaign-situation-section__body"></div>
+    </section>
     <section class="campaign-situation-section" aria-labelledby="campaignSituationFrontsTitle">
-      <header><div><span>Operational posture</span><h3 id="campaignSituationFrontsTitle">Fronts</h3></div><strong id="campaignSituationFrontCount">0 sectors</strong></header>
+      <header><div><span>Operations</span><h3 id="campaignSituationFrontsTitle">Fronts</h3></div><strong id="campaignSituationFrontCount">0 sectors</strong></header>
       <div id="campaignSituationFronts" class="campaign-situation-fronts"></div>
     </section>
     <section id="campaignSituationAlertCenter" class="campaign-situation-section campaign-situation-alert-center" aria-labelledby="campaignSituationAlertsTitle" tabindex="-1">
@@ -51,7 +44,7 @@ function createSituationWorkspace(): HTMLElement {
       <div id="campaignSituationAlerts" class="campaign-situation-alerts" aria-live="polite"></div>
       <div id="campaignSituationReportSources" class="campaign-situation-report-sources"></div>
     </section>
-    <section class="campaign-situation-section campaign-situation-recent" aria-labelledby="campaignSituationRecentTitle">
+    <section id="campaignSituationRecentSection" class="campaign-situation-section campaign-situation-recent" aria-labelledby="campaignSituationRecentTitle">
       <header><div><span>What changed</span><h3 id="campaignSituationRecentTitle">Recent resolution record</h3></div><button id="campaignSituationOpenTimeline" type="button">Full timeline</button></header>
       <div id="campaignSituationRecent" class="campaign-situation-recent__list"></div>
     </section>
@@ -66,11 +59,11 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
   panel.setAttribute("aria-labelledby", "campaignWorkspaceTab-situation");
 
   panel.querySelector<HTMLElement>(".time-section")?.setAttribute("data-campaign-shell-hidden", "true");
-  panel.querySelector<HTMLElement>(".campaign-intel-section")?.setAttribute("data-campaign-workspace", "intelligence");
-  panel.querySelector<HTMLElement>(".economy-section")?.setAttribute("data-campaign-workspace", "logistics");
+  panel.querySelector<HTMLElement>(".campaign-intel-section")?.setAttribute("data-campaign-shell-hidden", "true");
+  panel.querySelector<HTMLElement>(".economy-section")?.setAttribute("data-campaign-shell-hidden", "true");
   panel.querySelector<HTMLElement>(".production-section")?.setAttribute("data-campaign-workspace", "logistics");
-  panel.querySelector<HTMLElement>(".session-section")?.setAttribute("data-campaign-workspace", "headquarters");
-  panel.querySelector<HTMLElement>("#campaignEditPanel")?.setAttribute("data-campaign-workspace", "headquarters");
+  panel.querySelector<HTMLElement>(".session-section")?.setAttribute("data-campaign-shell-hidden", "true");
+  panel.querySelector<HTMLElement>("#campaignEditPanel")?.setAttribute("data-campaign-shell-hidden", "true");
 
   const compactHeader = document.createElement("header");
   compactHeader.className = "campaign-workspace-panel__compact-header";
@@ -79,39 +72,24 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
   panel.prepend(
     compactHeader,
     createSituationWorkspace(),
-    createWorkspaceOverview("forces", "Forces in theater", "Locate Player forces and inspect their current operational position.", "campaignForcesWorkspaceList"),
-    createWorkspaceOverview("logistics", "Theater logistics", "Manage current stocks and the next daily production allocation.", "campaignLogisticsWorkspaceIntro"),
-    createWorkspaceOverview("intelligence", "Intelligence command", "Review contacts, confidence, collection coverage, and active operations.", "campaignIntelligenceWorkspaceIntro"),
-    createWorkspaceOverview("airNaval", "Air & naval command", "Review available theater support before committing an engagement.", "campaignAirNavalWorkspaceIntro"),
-    createWorkspaceOverview("headquarters", "Headquarters", "Campaign records, session controls, and authorized command tools.", "campaignHeadquartersWorkspaceIntro")
+    createWorkspaceOverview("forces", "Forces by location", "Select a group to inspect every formation at that location.", "campaignForcesWorkspaceList"),
+    createWorkspaceOverview("logistics", "Production", "Review the next delivery and adjust its allocation.", "campaignLogisticsWorkspaceIntro"),
+    createWorkspaceOverview("intelligence", "Intelligence", "Review contacts or plan a collection operation.", "campaignIntelligenceWorkspaceIntro")
   );
+
+  const logisticsIntro = panel.querySelector<HTMLElement>("#campaignLogisticsWorkspaceIntro");
+  if (logisticsIntro) {
+    logisticsIntro.innerHTML = `
+      <div class="campaign-workspace-metric"><span>Available air support</span><strong id="campaignAirPowerValue">0</strong></div>
+      <div class="campaign-workspace-metric"><span>Available naval support</span><strong id="campaignNavalPowerValue">0</strong></div>
+    `;
+  }
 
   const intelIntro = panel.querySelector<HTMLElement>("#campaignIntelligenceWorkspaceIntro");
   if (intelIntro) {
     intelIntro.innerHTML = `
-      <div class="campaign-workspace-metric"><span>Collection capacity</span><strong id="campaignIntelligenceCapacity">—</strong></div>
-      <button type="button" class="campaign-workspace-primary" data-open-campaign-intelligence>Open operational picture</button>
-    `;
-  }
-  const airNaval = panel.querySelector<HTMLElement>("#campaignAirNavalWorkspaceIntro");
-  if (airNaval) {
-    airNaval.innerHTML = `
-      <div class="campaign-workspace-metric"><span>Available air power</span><strong id="campaignAirPowerValue">0</strong></div>
-      <div class="campaign-workspace-metric"><span>Available naval power</span><strong id="campaignNavalPowerValue">0</strong></div>
-      <p>Available support is carried into engagement planning; unavailable mission types are not presented as orders.</p>
-    `;
-  }
-  const headquarters = panel.querySelector<HTMLElement>("#campaignHeadquartersWorkspaceIntro");
-  if (headquarters) {
-    headquarters.innerHTML = `
-      <p>Protect campaign continuity, resume saved operations, and review tactical battle records from one place.</p>
-      <div class="campaign-workspace-actions" aria-label="Headquarters session actions">
-        <button type="button" class="campaign-workspace-primary" data-campaign-session-proxy="campaignSave">Save campaign</button>
-        <button type="button" data-campaign-session-proxy="campaignLoad">Load latest save</button>
-        <button type="button" data-campaign-session-proxy="campaignBattleSaves">Browse battle saves</button>
-        <button type="button" data-campaign-session-proxy="campaignExit">Exit to main menu</button>
-      </div>
-      <p>The theater command bar shows whether the current campaign state is saved.</p>
+      <div class="campaign-workspace-metric"><span>Available collection capacity</span><strong id="campaignIntelligenceCapacity">—</strong></div>
+      <button type="button" class="campaign-workspace-primary" data-open-campaign-intelligence>Open intelligence</button>
     `;
   }
 }

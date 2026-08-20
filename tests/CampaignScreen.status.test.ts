@@ -309,3 +309,96 @@ registerTest("CAMPAIGNSCREEN_FORMATS_INTERNAL_CAMPAIGN_LABELS_FOR_PLAYERS", asyn
     }
   });
 });
+
+registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  let markup = "";
+
+  await Given("intelligence assets may be unavailable but the commander has not chosen an operation", () => {
+    const rules = ensureCampaignState().getIntelOperationRules();
+    (screen as any).intelOperationType = null;
+    (screen as any).intelTargetContactId = null;
+    (screen as any).editingIntelOrderId = null;
+    (screen as any).selectedHexKey = "27,37";
+    (screen as any).campaignState = {
+      getIntelOperationRules: () => rules,
+      getCampaignDraftReservations: () => ({ intelligenceCapacity: 0 })
+    };
+    (screen as any).campaignActionRegistry = {
+      resolve: () => ({
+        availability: "unavailable",
+        reasonCode: "ORDER_ASSET_UNAVAILABLE",
+        reason: "No eligible asset is available.",
+        correctiveAction: "Choose another operation."
+      })
+    };
+  });
+
+  await When("the Operations tab first renders", () => {
+    markup = (screen as any).composeIntelOperationsMarkup({
+      capacity: { total: 3, committed: 0, available: 3 }
+    }, []);
+  });
+
+  await Then("operation choices appear without a default failure, composer, or generic stage strip", () => {
+    const host = document.createElement("div");
+    host.innerHTML = markup;
+    if (host.querySelectorAll("[data-intel-operation-type]").length < 2
+      || host.querySelector(".campaign-intel-composer")
+      || host.querySelector(".campaign-order-stage-strip")
+      || /ASSET UNAVAILABLE|ORDER_ASSET_UNAVAILABLE/i.test(host.textContent ?? "")
+      || !host.textContent?.includes("Choose an operation")) {
+      throw new Error(`Intelligence planning did not begin in a neutral, concise state: ${host.textContent}`);
+    }
+  });
+});
+
+registerTest("CAMPAIGNSCREEN_PRODUCTION_ALLOCATION_IS_ONE_COMPACT_DECISION", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  let body: HTMLElement;
+
+  await Given("a valid production report opens in the shared campaign popup", () => {
+    document.body.innerHTML = `
+      <div id="battlePopupLayer" class="hidden" aria-hidden="true">
+        <section class="battle-popup">
+          <h2 data-popup-title></h2>
+          <div data-popup-body></div>
+          <button id="battlePopupClose" type="button">Close</button>
+        </section>
+      </div>`;
+    (screen as any).campaignPopupInvoker = null;
+    (screen as any).campaignState = {
+      getProductionReport: () => ({
+        capacity: 100,
+        sources: [{ tile: "industry", offsetKey: "1,1", supplyValue: 60 }, { tile: "port", offsetKey: "2,2", supplyValue: 40 }],
+        segmentsUntilNextTick: 2,
+        allocation: { supplies: 25, fuel: 25, ammo: 25, manpower: 25 }
+      }),
+      previewProductionDraft: (allocation: unknown) => ({
+        action: { availability: "available" },
+        normalizedAllocation: allocation,
+        effectiveSegment: 8,
+        dailyOutput: { supplies: 25, fuel: 25, ammo: 25, manpower: 25 }
+      }),
+      segmentToTimeDisplay: () => "Day 2, 00:00-03:00"
+    };
+  });
+
+  await When("the production allocation planner renders", () => {
+    (screen as any).openProductionModal();
+    const mounted = document.querySelector<HTMLElement>("[data-popup-body]");
+    if (!mounted) throw new Error("Production popup body did not mount.");
+    body = mounted;
+  });
+
+  await Then("four allocations, their daily output, one effective-time consequence, and no redundant stages or site roster remain", () => {
+    if (body.querySelectorAll("[data-alloc-slider]").length !== 4
+      || body.querySelectorAll("[data-alloc-out]").length !== 4
+      || body.querySelectorAll("#productionOrderPreview dt").length !== 1
+      || body.querySelector(".campaign-order-stage-strip")
+      || body.querySelector(".production-source-row")
+      || !body.textContent?.includes("Set the four allocations to 100% total.")) {
+      throw new Error(`Production planning remained verbose or incomplete: ${body.textContent}`);
+    }
+  });
+});
