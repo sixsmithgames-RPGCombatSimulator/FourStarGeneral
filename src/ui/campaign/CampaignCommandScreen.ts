@@ -27,6 +27,7 @@ import { getCampaignWorkspaceDefaultOverlay } from "./CampaignMapOverlayRegistry
 import { CampaignCompactSheetManager } from "./components/CampaignCompactSheetManager";
 import {
   CampaignMapOverlayController,
+  type CampaignRedeploymentDestinationListEntry,
   type CampaignMapOverlayPerformanceSnapshot
 } from "./components/CampaignMapOverlayController";
 
@@ -168,6 +169,13 @@ export class CampaignCommandScreen {
     this.uiState.setWorkspace(workspace, "screen-workspace-selected");
     this.uiState.setOverlay(getCampaignWorkspaceDefaultOverlay(workspace), "screen-workspace-overlay-default");
     this.shell.showWorkspace(workspace, focus);
+  }
+
+  public setRedeploymentTargetMode(
+    originHexKey: string | null,
+    destinations: readonly CampaignRedeploymentDestinationListEntry[] = []
+  ): void {
+    this.overlayController.setRedeploymentTargetMode(originHexKey, destinations);
   }
 
   public navigate(target: CampaignCommandNavigationTarget): void {

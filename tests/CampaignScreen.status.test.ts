@@ -192,6 +192,103 @@ registerTest("CAMPAIGNSCREEN_ENEMY_INITIATIVE_FRONT_CANNOT_BE_LAUNCHED_BY_PLAYER
   });
 });
 
+registerTest("CAMPAIGNSCREEN_FRONT_COPY_USES_THE_LAUNCH_INTELLIGENCE_ASSESSMENT", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  let assessment: any;
+  let expected = "";
+
+  await Given("the shipped Normandy front whose assessed contact sits on the opposing edge rather than the friendly front hex", () => {
+    campaignState.reset();
+    campaignState.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    (screen as any).campaignState = campaignState;
+  });
+
+  await When("the front card assesses the same exact edge used by tactical launch", () => {
+    const prepared = campaignState.prepareCampaignFrontEngagement({
+      engagementId: "front-copy-assessment",
+      frontKey: "normandy_coast",
+      attacker: "Player",
+      requestedTargetHexKey: "28,38"
+    });
+    if (!prepared.ok) throw new Error(prepared.reason);
+    const briefing = prepared.engagement.context.intelligenceBriefing;
+    if (!briefing) throw new Error("The shipped launch did not provide a Player-safe briefing.");
+    expected = `${briefing.contacts.length} assessed opposing contact${briefing.contacts.length === 1 ? "" : "s"} · ${briefing.resistanceBand} resistance · ${briefing.confidenceBand} confidence.`;
+    assessment = (screen as any).getPlayerFrontAssessment("normandy_coast");
+  });
+
+  await Then("front copy and launch availability agree without claiming there is no contact", () => {
+    if (!assessment.canLaunch || assessment.pressureLabel !== expected || /no assessed hostile contact/i.test(assessment.pressureLabel)) {
+      throw new Error(`Front assessment diverged from launch briefing: ${JSON.stringify(assessment)} expected ${expected}`);
+    }
+    if (assessment.target?.targetHexKey !== "28,38"
+      || assessment.target?.missionLabel !== "Port Assault"
+      || assessment.target?.roleLabel !== "Player attacks · Bot defends") {
+      throw new Error(`Front assessment dropped campaign-to-tactical identity: ${JSON.stringify(assessment.target)}.`);
+    }
+    campaignState.reset();
+  });
+});
+
+registerTest("CAMPAIGNSCREEN_MULTI_EDGE_FRONT_REQUIRES_ONE_EXPLICIT_TARGET", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  let unresolved: any;
+  let resolved: any;
+
+  await Given("a Player-initiative front with two legal opposing-control edges and different intelligence", () => {
+    (screen as any).selectedFrontTargetHexKey = null;
+    (screen as any).campaignState = {
+      getCampaignMapView: () => ({
+        scenario: {
+          fronts: [{
+            key: "split-front",
+            initiative: "Player",
+            edges: [
+              { friendlyHexKey: "4,4", opposingHexKey: "5,5" },
+              { friendlyHexKey: "4,5", opposingHexKey: "6,6" }
+            ]
+          }]
+        }
+      }),
+      prepareCampaignFrontEngagement: ({ requestedTargetHexKey }: { requestedTargetHexKey: string }) => ({
+        ok: true,
+        engagement: {
+          context: {
+            battleHexKey: requestedTargetHexKey,
+            missionType: requestedTargetHexKey === "5,5" ? "meetingEngagement" : "portAssault",
+            attacker: "Player",
+            defender: "Bot",
+            intelligenceBriefing: {
+              contacts: Array.from({ length: requestedTargetHexKey === "5,5" ? 1 : 2 }, (_, index) => ({ contactId: `${requestedTargetHexKey}:${index}` })),
+              resistanceBand: requestedTargetHexKey === "5,5" ? "light" : "heavy",
+              confidenceBand: requestedTargetHexKey === "5,5" ? "medium" : "low",
+              explicitUnknowns: [requestedTargetHexKey === "5,5" ? "Reserve strength" : "Coastal artillery"]
+            }
+          }
+        }
+      })
+    };
+  });
+
+  await When("the front is assessed before and after an explicit target choice", () => {
+    unresolved = (screen as any).getPlayerFrontAssessment("split-front", null);
+    resolved = (screen as any).getPlayerFrontAssessment("split-front", "6,6");
+  });
+
+  await Then("the button cannot launch a blended assessment and the selected target keeps its own identity and bands", () => {
+    if (unresolved.canLaunch || !unresolved.targetRequired || unresolved.targets.length !== 2
+      || !/choose the engagement hex/i.test(unresolved.pressureLabel)) {
+      throw new Error(`Multi-edge assessment launched without a target: ${JSON.stringify(unresolved)}.`);
+    }
+    if (!resolved.canLaunch || resolved.target?.targetHexKey !== "6,6"
+      || resolved.target?.missionLabel !== "Port Assault"
+      || !resolved.pressureLabel.includes("2 assessed opposing contacts · heavy resistance · low confidence")) {
+      throw new Error(`Explicit front target used blended or first-edge identity: ${JSON.stringify(resolved)}.`);
+    }
+  });
+});
+
 registerTest("CAMPAIGNSCREEN_FORMATS_INTERNAL_CAMPAIGN_LABELS_FOR_PLAYERS", async ({ Given, When, Then }) => {
   const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
   const labels: string[] = [];

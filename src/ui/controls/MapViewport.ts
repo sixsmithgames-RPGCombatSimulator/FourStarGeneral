@@ -297,7 +297,7 @@ export class MapViewport implements IMapViewport {
       // Only warn once to reduce console noise during initial loading
       if (!this.hasLoggedViewportWarning) {
         this.hasLoggedViewportWarning = true;
-        console.warn("[MapViewport] viewportRoot not found in SVG - transforms will not work until next render");
+        console.debug("[MapViewport] transforms deferred until the SVG viewport root is rendered");
       }
     }
 
@@ -360,15 +360,11 @@ export class MapViewport implements IMapViewport {
 
     const {
       viewport,
-      containerWidth,
-      containerHeight,
       baseOffsetX,
       baseOffsetY,
       renderScale,
       contentOffsetX,
       contentOffsetY,
-      elementWidth,
-      elementHeight,
       zoom: currentZoom
     } = context;
 
@@ -482,8 +478,6 @@ export class MapViewport implements IMapViewport {
     }
 
     const {
-      canvas,
-      viewport,
       containerWidth,
       containerHeight,
       baseOffsetX,
@@ -491,8 +485,6 @@ export class MapViewport implements IMapViewport {
       renderScale,
       contentOffsetX,
       contentOffsetY,
-      elementWidth,
-      elementHeight,
       zoom
     } = context;
 
@@ -525,7 +517,7 @@ export class MapViewport implements IMapViewport {
         // Only warn once to reduce console noise during initial loading
         if (!this.hasLoggedViewportWarning) {
           this.hasLoggedViewportWarning = true;
-          console.warn("[MapViewport] updateTransform: viewportRoot not found - map may not be rendered yet");
+          console.debug("[MapViewport] transform update deferred until the SVG viewport root is rendered");
         }
         return;
       }
@@ -612,7 +604,7 @@ export class MapViewport implements IMapViewport {
   } | null {
     const canvas = this.mapElement.parentElement;
     if (!canvas) {
-      console.warn("[MapViewport] computeViewportContext: no parent canvas");
+      console.debug("[MapViewport] viewport context deferred until a parent canvas is visible");
       return null;
     }
 
@@ -625,7 +617,7 @@ export class MapViewport implements IMapViewport {
     const baseOffsetY = canvasRect.top - viewportRect.top;
 
     if (containerWidth === 0 || containerHeight === 0) {
-      console.warn("[MapViewport] computeViewportContext: container has 0 size", { containerWidth, containerHeight });
+      console.debug("[MapViewport] viewport context deferred until the container is measurable");
       return null;
     }
 
@@ -633,17 +625,14 @@ export class MapViewport implements IMapViewport {
     const zoom = this.transform.zoom;
 
     if (mapWidth === 0 || mapHeight === 0) {
-      console.warn("[MapViewport] computeViewportContext: map has 0 size", { mapWidth, mapHeight });
+      console.debug("[MapViewport] viewport context deferred until map bounds are available");
       return null;
     }
 
     const elementWidth = this.mapElement.clientWidth;
     const elementHeight = this.mapElement.clientHeight;
     if (elementWidth === 0 || elementHeight === 0) {
-      console.warn("[MapViewport] computeViewportContext: map element has 0 layout size", {
-        elementWidth,
-        elementHeight
-      });
+      console.debug("[MapViewport] viewport context deferred until the map element is laid out");
       return null;
     }
 

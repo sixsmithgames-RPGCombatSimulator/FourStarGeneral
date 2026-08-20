@@ -840,6 +840,47 @@ export class CampaignState {
     return this.campaignActionPreview("available", null, null, null, [originOffsetKey]);
   }
 
+  /** Returns authoritative target-pick availability without requiring a unit or transport commitment. */
+  getCampaignRedeployDestinationPreview(
+    originOffsetKey: string,
+    destinationOffsetKey: string,
+    faction: CampaignFactionKey = "Player"
+  ): CampaignOrderActionPreview {
+    const origin = this.getCampaignRedeployActionPreview(originOffsetKey, faction);
+    if (origin.availability !== "available") return origin;
+    if (destinationOffsetKey === originOffsetKey) {
+      return this.campaignActionPreview(
+        "blocked",
+        "ORDER_TARGET_INVALID",
+        "The destination must differ from the redeployment origin.",
+        "Choose another operational hex.",
+        [originOffsetKey]
+      );
+    }
+    const destination = this.findTileByOffsetKey(destinationOffsetKey);
+    const runtimeKey = campaignOffsetKeyToRuntimeHexKey(destinationOffsetKey);
+    const runtimeDestination = runtimeKey ? this.runtime?.tiles[runtimeKey] : null;
+    if (!destination || !runtimeDestination) {
+      return this.campaignActionPreview(
+        "blocked",
+        "ORDER_TARGET_INVALID",
+        "The redeployment destination is not part of the current operational map.",
+        "Choose a published theater hex.",
+        [originOffsetKey, destinationOffsetKey]
+      );
+    }
+    if (runtimeDestination.controller !== "Neutral" && runtimeDestination.controller !== faction) {
+      return this.campaignActionPreview(
+        "blocked",
+        "ORDER_TARGET_INVALID",
+        "Redeployment cannot enter a location under opposing control.",
+        "Choose friendly or neutral ground, then use a tactical engagement to contest the front.",
+        [originOffsetKey, destinationOffsetKey]
+      );
+    }
+    return this.campaignActionPreview("available", null, null, null, [originOffsetKey, destinationOffsetKey]);
+  }
+
   /** Returns authoritative availability for the exclusive next-delivery production slot. */
   getCampaignProductionActionPreview(faction: CampaignFactionKey = "Player", excludeOrderId?: string): CampaignOrderActionPreview {
     if (!this.runtime || !this.getProductionReport()) {
@@ -2487,6 +2528,38 @@ export class CampaignState {
       { engagementId: id }
     );
     if (!result.ok) throw new Error(result.reason);
+  }
+
+  /**
+   * Removes a Player-created precombat opportunity that has not locked a battle package.
+   * Backing out of planning must not leave a ghost engagement in the order state.
+   */
+  discardActiveUncommittedEngagement(): { ok: true } | { ok: false; reason: string } {
+    if (!this.runtime) return { ok: false, reason: "No campaign runtime is loaded." };
+    const engagementId = this.runtime.activeEngagementId;
+    if (!engagementId) return { ok: true };
+    const result = this.transactCampaignEngagements(
+      `engagement:discard-plan:${engagementId}`,
+      `Uncommitted engagement ${engagementId} was discarded.`,
+      (draft) => {
+        reconcileCampaignEngagementLedger(draft);
+        const ledger = draft.engagementLedger[engagementId];
+        const engagement = draft.engagements[engagementId];
+        if (!ledger || !engagement) throw new Error("The active engagement is unavailable.");
+        if (ledger.package) throw new Error("Committed battle packages cannot be discarded from precombat.");
+        if (ledger.status !== "planned" && ledger.status !== "opportunity") {
+          throw new Error(`The active engagement is already ${ledger.status}.`);
+        }
+        draft.engagementOrder.splice(0, draft.engagementOrder.length,
+          ...draft.engagementOrder.filter((id) => id !== engagementId));
+        delete draft.engagements[engagementId];
+        draft.activeEngagementId = null;
+        draft.status = "planning";
+        reconcileCampaignEngagementLedger(draft);
+      },
+      { engagementId }
+    );
+    return result;
   }
 
   /** Returns the id of the currently active engagement, if any. */

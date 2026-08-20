@@ -74,7 +74,20 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
       saveStatus: "Unsaved",
       unreadReports: 2,
       resources: [{ key: "supply", label: "Supply", value: "12,500" }],
-      objectives: [{ key: "obj-1", label: "Secure <Port>", status: "Active objective" }],
+      objectives: [{
+        key: "obj-1",
+        label: "Secure <Port>",
+        status: "In progress",
+        detail: "Hold the operational port and its approaches.",
+        progressLabel: "Hold for 2 more segments · installation 100% / 50% required",
+        progressCurrent: 0,
+        progressTarget: 2,
+        conditionLabels: ["Hold streak 0 / 2", "Installation 100% / 50%"],
+        nextAction: "Keep the port under friendly control, then advance to the next report.",
+        deadline: "Deadline Day 2",
+        failureEffect: "Lose access to heavy equipment.",
+        hexKey: "27,37"
+      }],
       forces: [{ hexKey: "2,3", label: "1st <Division>", count: 3 }],
       airPower: 8,
       navalPower: 4,
@@ -119,6 +132,7 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
 
   await When("keyboard navigation advances from Situation and Reports opens the unified alert center before intelligence", async () => {
     shell.revealInspector();
+    root.querySelector<HTMLButtonElement>("[data-objective-key='obj-1']")?.click();
     const situation = root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='situation']");
     if (!situation) throw new Error("Situation workspace tab is missing.");
     situation.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
@@ -147,6 +161,14 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
     if (!root.querySelector(".campaign-command-bar") || !root.querySelector(".campaign-context-inspector") || !root.querySelector(".campaign-order-tray")) {
       throw new Error("The command bar, context inspector, or order tray is missing.");
     }
+    if (root.querySelector("#campaignCommandCompactClock")?.textContent !== "Day 1, 00:00-03:00"
+      || root.querySelector("#campaignCommandCompactState")?.textContent !== "Orders Ready"
+      || root.querySelector("#campaignCommandCompactSave")?.textContent !== "Unsaved") {
+      throw new Error("Compact layout status did not retain operational time, command state, and save state.");
+    }
+    if (root.querySelector<HTMLElement>("#campaignWorkspacePanel")?.scrollTop !== 0) {
+      throw new Error("Changing campaign workspaces retained a stale panel scroll position.");
+    }
     const intelligence = root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='intelligence']");
     if (intelligence?.getAttribute("aria-selected") !== "true" || shell.getActiveWorkspace() !== "intelligence") {
       throw new Error("Workspace selection and aria-selected state diverged.");
@@ -165,6 +187,14 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
     }
     if (!root.textContent?.includes("<Western Europe>") || !root.textContent.includes("Redeploy <Reserve>")) {
       throw new Error("Projected command text was not rendered as visible text.");
+    }
+    const objectiveInspector = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
+    if (!objectiveInspector.includes("Hold the operational port")
+      || !objectiveInspector.includes("Hold for 2 more segments")
+      || !objectiveInspector.includes("0 / 2")
+      || !objectiveInspector.includes("Keep the port under friendly control")
+      || objectiveInspector.includes("Awaiting evaluation")) {
+      throw new Error(`Objective inspector dropped player-ready progress or next action: ${objectiveInspector}`);
     }
     if (root.innerHTML.includes("<Western Europe>") || root.innerHTML.includes("<Reserve>")) {
       throw new Error("Projected command text was interpreted as HTML.");

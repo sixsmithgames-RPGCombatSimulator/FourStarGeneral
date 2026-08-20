@@ -88,6 +88,7 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
       <p id="precombatMissionBriefing"></p>
       <ul id="objectiveList"></ul>
       <span id="missionTurnLimit"></span>
+      <p id="missionClockNote"></p>
       <ul id="baselineSupplyList"></ul>
       <p id="missionDoctrineNotes"></p>
       <button id="returnToLanding"></button>
@@ -198,6 +199,7 @@ registerTest("PRECOMBAT_UNIMPLEMENTED_LOGISTICS_RENDER_AS_PENDING", async ({ Giv
       <p id="precombatMissionBriefing"></p>
       <ul id="objectiveList"></ul>
       <span id="missionTurnLimit"></span>
+      <p id="missionClockNote"></p>
       <ul id="baselineSupplyList"></ul>
       <p id="missionDoctrineNotes"></p>
       <button id="returnToLanding"></button>
@@ -282,6 +284,7 @@ registerTest("PRECOMBAT_SEEDS_LOW_COST_SUPPLY_CONVOYS_BUT_STILL_REQUIRES_COMBAT_
       <p id="precombatMissionBriefing"></p>
       <ul id="objectiveList"></ul>
       <span id="missionTurnLimit"></span>
+      <p id="missionClockNote"></p>
       <ul id="baselineSupplyList"></ul>
       <p id="missionDoctrineNotes"></p>
       <button id="returnToLanding"></button>
@@ -385,6 +388,7 @@ registerTest("PRECOMBAT_RIVER_WATCH_USES_AUTHORED_MISSION_PACKAGE", async ({ Giv
         <p id="precombatMissionBriefing"></p>
         <ul id="objectiveList"></ul>
         <span id="missionTurnLimit"></span>
+        <p id="missionClockNote"></p>
         <ul id="baselineSupplyList"></ul>
         <p id="missionDoctrineNotes"></p>
         <button id="returnToLanding"></button>
@@ -516,6 +520,7 @@ registerTest("PRECOMBAT_RIVER_WATCH_HARD_DIFFICULTY_UPDATES_EXTRACTION_WINDOW", 
         <p id="precombatMissionBriefing"></p>
         <ul id="objectiveList"></ul>
         <span id="missionTurnLimit"></span>
+        <p id="missionClockNote"></p>
         <ul id="baselineSupplyList"></ul>
         <p id="missionDoctrineNotes"></p>
         <button id="returnToLanding"></button>

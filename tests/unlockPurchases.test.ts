@@ -93,6 +93,7 @@ registerTest("PRECOMBAT_LOCKED_UNITS_RENDER_UNLOCK_CTA_AND_BLOCK_REQUISITIONS", 
         <p id="precombatMissionBriefing"></p>
         <ul id="objectiveList"></ul>
         <span id="missionTurnLimit"></span>
+        <p id="missionClockNote"></p>
         <ul id="baselineSupplyList"></ul>
         <p id="missionDoctrineNotes"></p>
         <button id="returnToLanding"></button>

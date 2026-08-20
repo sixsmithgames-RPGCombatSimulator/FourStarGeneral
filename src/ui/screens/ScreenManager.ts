@@ -7,6 +7,53 @@ import type { IScreenManager } from "../../contracts/IScreenManager";
 export class ScreenManager implements IScreenManager {
   private currentScreen: HTMLElement | null = null;
   private readonly screens: Map<string, HTMLElement> = new Map();
+  private transitionRevision = 0;
+  private transitionTimer: ReturnType<typeof setTimeout> | null = null;
+  private transitionFocusOrigin: HTMLElement | null = null;
+
+  /** Presents an honest blocking state before synchronous destination setup begins. */
+  beginTransition(message: string): void {
+    const status = document.getElementById("screenTransitionStatus");
+    if (!status) return;
+    this.transitionRevision += 1;
+    if (this.transitionTimer !== null) clearTimeout(this.transitionTimer);
+    this.transitionTimer = null;
+    const copy = status.querySelector<HTMLElement>("[data-screen-transition-copy]");
+    if (copy) copy.textContent = message;
+    this.transitionFocusOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    status.classList.remove("hidden");
+    status.setAttribute("aria-hidden", "false");
+    status.tabIndex = -1;
+    status.focus({ preventScroll: true });
+    const app = document.getElementById("app");
+    if (app) {
+      app.inert = true;
+      app.setAttribute("aria-busy", "true");
+    }
+  }
+
+  /** Removes a transition status after the destination has had time to paint. */
+  endTransition(): void {
+    this.transitionRevision += 1;
+    if (this.transitionTimer !== null) clearTimeout(this.transitionTimer);
+    this.transitionTimer = null;
+    const status = document.getElementById("screenTransitionStatus");
+    status?.classList.add("hidden");
+    status?.setAttribute("aria-hidden", "true");
+    const app = document.getElementById("app");
+    if (app) {
+      app.inert = false;
+      app.removeAttribute("aria-busy");
+    }
+    const origin = this.transitionFocusOrigin;
+    this.transitionFocusOrigin = null;
+    if (origin?.isConnected && !origin.closest(".hidden")) {
+      origin.focus({ preventScroll: true });
+    } else if (this.currentScreen) {
+      if (!this.currentScreen.hasAttribute("tabindex")) this.currentScreen.tabIndex = -1;
+      this.currentScreen.focus({ preventScroll: true });
+    }
+  }
 
   /**
    * Registers a screen element with a unique identifier.
@@ -23,6 +70,12 @@ export class ScreenManager implements IScreenManager {
    * @param screen - The screen element to display
    */
   showScreen(screen: HTMLElement): void {
+    const changingScreens = this.currentScreen !== null && this.currentScreen !== screen;
+    const transitionStatus = document.getElementById("screenTransitionStatus");
+    if (changingScreens && transitionStatus?.classList.contains("hidden")) {
+      this.beginTransition("Preparing the next command view…");
+    }
+    const transitionToken = this.transitionRevision;
     // Proactively hide every registered screen so a stale layout cannot leak into the active view.
     this.screens.forEach((registeredScreen) => {
       if (registeredScreen === screen) {
@@ -45,6 +98,14 @@ export class ScreenManager implements IScreenManager {
     requestAnimationFrame(() => {
       if (this.currentScreen === screen) {
         screen.classList.add("screen-entering");
+        if (changingScreens) {
+          const reducedMotion = typeof window.matchMedia === "function"
+            && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          const delay = reducedMotion ? 0 : 420;
+          this.transitionTimer = setTimeout(() => {
+            if (this.transitionRevision === transitionToken) this.endTransition();
+          }, delay);
+        }
       }
     });
   }

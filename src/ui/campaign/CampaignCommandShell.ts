@@ -36,6 +36,11 @@ export interface CampaignCommandFrontView {
   readonly hexKeys: readonly string[];
   readonly initiativeLabel: string;
   readonly pressureLabel?: string;
+  readonly engagementLabel?: string;
+  readonly targetHexKey?: string;
+  readonly roleLabel?: string;
+  readonly intelligenceUnknowns?: readonly string[];
+  readonly targetChoiceLabel?: string;
   readonly forcePosture?: string;
   readonly objectivePosture?: string;
   readonly lastChange?: string;
@@ -94,6 +99,11 @@ export interface CampaignCommandObjectiveView {
   readonly category?: "primary" | "secondary" | "optional" | "failure";
   readonly progress?: number;
   readonly detail?: string;
+  readonly progressLabel?: string;
+  readonly progressCurrent?: number;
+  readonly progressTarget?: number;
+  readonly conditionLabels?: readonly string[];
+  readonly nextAction?: string;
   readonly deadline?: string | null;
   readonly score?: string;
   readonly hexKey?: string;
@@ -417,8 +427,11 @@ export class CampaignCommandShell {
     this.setText("#campaignCommandTitle", view.theaterTitle);
     this.setText("#campaignCommandPhase", view.campaignPhase);
     this.setText("#campaignCommandClock", view.timeLabel);
+    this.setText("#campaignCommandCompactClock", view.timeLabel);
     this.setText("#campaignCommandStatus", view.commandStatus);
+    this.setText("#campaignCommandCompactState", view.commandStatus);
     this.setText("#campaignCommandSaveStatus", view.saveStatus);
+    this.setText("#campaignCommandCompactSave", view.saveStatus);
     this.setText("#campaignCommandUnread", String(view.unreadReports));
     this.setText("#campaignIntelligenceCapacity", view.intelligenceCapacity);
     this.setText("#campaignAirPowerValue", view.airPower.toLocaleString());
@@ -786,6 +799,7 @@ export class CampaignCommandShell {
     const panel = this.root.querySelector<HTMLElement>("#campaignWorkspacePanel");
     panel?.setAttribute("aria-labelledby", `campaignWorkspaceTab-${workspace}`);
     panel?.setAttribute("data-active-workspace", workspace);
+    if (panel) panel.scrollTop = 0;
     if (focusTab) {
       this.inspectorExpanded = false;
       this.syncInspectorState();
@@ -1108,6 +1122,7 @@ export class CampaignCommandShell {
       );
       row.append(header);
       if (objective.detail) row.append(createTextElement("p", "campaign-objective-row__detail", objective.detail));
+      if (objective.progressLabel) row.append(createTextElement("p", "campaign-objective-row__condition", objective.progressLabel));
       if (objective.dependencies) row.append(createTextElement("p", "campaign-objective-row__dependency", objective.dependencies));
       if (objective.failureEffect) row.append(createTextElement("p", "campaign-objective-row__failure", objective.failureEffect));
       if (objective.progress !== undefined) {
@@ -1177,6 +1192,10 @@ export class CampaignCommandShell {
       card.append(
         heading,
         createTextElement("p", "", front.pressureLabel ?? "No assessed pressure summary is available."),
+        ...(front.engagementLabel ? [createTextElement("p", "campaign-situation-front__engagement", front.engagementLabel)] : []),
+        ...(front.roleLabel ? [createTextElement("p", "campaign-situation-front__role", front.roleLabel)] : []),
+        ...(front.intelligenceUnknowns?.length ? [createTextElement("p", "campaign-situation-front__unknowns", `Unknowns: ${front.intelligenceUnknowns.join(" · ")}`)] : []),
+        ...(front.targetChoiceLabel ? [createTextElement("p", "campaign-situation-front__target-choice", front.targetChoiceLabel)] : []),
         createTextElement("small", "", [front.forcePosture, front.objectivePosture].filter(Boolean).join(" · ") || `${front.hexKeys.length} mapped hexes`),
         createTextElement("em", "", front.lastChange ?? "No recent material sector change recorded.")
       );

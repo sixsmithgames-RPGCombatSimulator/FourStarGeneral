@@ -42,6 +42,24 @@ interface CampaignScreenStatusMessage {
   tone: "info" | "success" | "warning";
 }
 
+interface PlayerFrontTargetAssessment {
+  readonly targetHexKey: string;
+  readonly missionLabel: string;
+  readonly roleLabel: string;
+  readonly contactCount: number;
+  readonly resistanceBand: string;
+  readonly confidenceBand: string;
+  readonly explicitUnknowns: readonly string[];
+}
+
+interface PlayerFrontAssessment {
+  readonly canLaunch: boolean;
+  readonly pressureLabel: string;
+  readonly targetRequired: boolean;
+  readonly target: PlayerFrontTargetAssessment | null;
+  readonly targets: readonly PlayerFrontTargetAssessment[];
+}
+
 export class CampaignScreen {
   private readonly screenManager: IScreenManager;
   private readonly campaignState = ensureCampaignState();
@@ -61,6 +79,7 @@ export class CampaignScreen {
   private exitButton: HTMLButtonElement | null = null;
   private selectedHexKey: string | null = null;
   private selectedFrontKey: string | null = null;
+  private selectedFrontTargetHexKey: string | null = null;
   private moveOriginHexKey: string | null = null;
   private unsubscribe: (() => void) | null = null;
   private onQueueEngagement: (() => void) | null = null;
@@ -100,6 +119,7 @@ export class CampaignScreen {
   private commandCommitBusy = false;
   private commandCommitFeedback: Pick<CampaignCommandOrderCommitView, "feedback" | "feedbackTone"> = { feedback: null, feedbackTone: null };
   private campaignPopupInvoker: HTMLElement | null = null;
+  private engagementTransitionBusy = false;
 
   constructor(
     screenManager: IScreenManager,
@@ -136,6 +156,68 @@ export class CampaignScreen {
       excludeOrderId: context.excludeOrderId ?? undefined,
       faction: "Player"
     });
+  }
+
+  /** Uses the same exact-edge engagement preparation as launch so front copy and action availability cannot drift. */
+  private getPlayerFrontAssessment(frontKey: string, requestedTargetHexKey = this.selectedFrontTargetHexKey): PlayerFrontAssessment {
+    const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts
+      .find((entry) => entry.key === frontKey);
+    if (!front || front.initiative !== "Player") {
+      return { canLaunch: false, pressureLabel: "Opposing initiative; await or disrupt the enemy operation.", targetRequired: false, target: null, targets: [] };
+    }
+    if (typeof this.campaignState.prepareCampaignFrontEngagement !== "function") {
+      return { canLaunch: true, pressureLabel: "Enemy strength assessment is not yet available for this edge.", targetRequired: false, target: null, targets: [] };
+    }
+    const targets = [...new Set((front.edges ?? []).map((edge) => edge.opposingHexKey))];
+    const requestedTargets: Array<string | null> = targets.length > 0 ? targets : [null];
+    const preparations = requestedTargets.flatMap((targetHexKey, index) => {
+      const prepared = this.campaignState.prepareCampaignFrontEngagement({
+        engagementId: `assessment:${front.key}:${index}`,
+        frontKey: front.key,
+        attacker: "Player",
+        requestedTargetHexKey: targetHexKey
+      });
+      return prepared.ok ? [prepared] : [];
+    });
+    if (preparations.length === 0) {
+      return { canLaunch: false, pressureLabel: "No current opposing-control edge can support an attack.", targetRequired: false, target: null, targets: [] };
+    }
+    const targetsAssessment = preparations.map((prepared): PlayerFrontTargetAssessment => {
+      const context = prepared.engagement.context;
+      const briefing = context.intelligenceBriefing;
+      return {
+        targetHexKey: context.battleHexKey,
+        missionLabel: MISSION_TYPE_LABELS[context.missionType],
+        roleLabel: `${context.attacker} attacks · ${context.defender} defends`,
+        contactCount: briefing?.contacts.length ?? 0,
+        resistanceBand: briefing?.resistanceBand ?? "unknown",
+        confidenceBand: briefing?.confidenceBand ?? "none",
+        explicitUnknowns: briefing?.explicitUnknowns ?? []
+      };
+    });
+    const selectedTarget = requestedTargetHexKey
+      ? targetsAssessment.find((target) => target.targetHexKey === requestedTargetHexKey) ?? null
+      : targetsAssessment.length === 1 ? targetsAssessment[0] : null;
+    if (!selectedTarget && targetsAssessment.length > 1) {
+      return {
+        canLaunch: false,
+        pressureLabel: `${targetsAssessment.length} legal opposing targets · choose the engagement hex before launch.`,
+        targetRequired: true,
+        target: null,
+        targets: targetsAssessment
+      };
+    }
+    const target = selectedTarget ?? targetsAssessment[0];
+    if (target.contactCount === 0) {
+      return { canLaunch: true, pressureLabel: "Enemy strength is unknown on the current opposing edge.", targetRequired: false, target, targets: targetsAssessment };
+    }
+    return {
+      canLaunch: true,
+      pressureLabel: `${target.contactCount} assessed opposing contact${target.contactCount === 1 ? "" : "s"} · ${target.resistanceBand} resistance · ${target.confidenceBand} confidence.`,
+      targetRequired: false,
+      target,
+      targets: targetsAssessment
+    };
   }
   
   /**
@@ -458,6 +540,13 @@ export class CampaignScreen {
 
     refresh();
 
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      cancelBtn.click();
+    };
+    const removeEscapeHandler = (): void => layer.removeEventListener("keydown", onEscape);
+
     form.onsubmit = (ev) => {
       ev.preventDefault();
       const result = this.campaignState.createRedeployDraft(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey, editingOrder?.id);
@@ -472,6 +561,7 @@ export class CampaignScreen {
       }
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      removeEscapeHandler();
       clearPreview();
       this.commandCommitFeedback = { feedback: `Redeployment draft ${editingOrder ? "replaced" : "added"}; exact holds are visible in the tray.`, feedbackTone: "success" };
       this.renderCommandShell();
@@ -489,6 +579,7 @@ export class CampaignScreen {
     cancelBtn.onclick = () => {
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      removeEscapeHandler();
       clearPreview();
       this.campaignPopupInvoker?.focus({ preventScroll: true });
     };
@@ -496,12 +587,15 @@ export class CampaignScreen {
     // Show popup
     layer.classList.remove("hidden");
     layer.setAttribute("aria-hidden", "false");
+    body.scrollTop = 0;
+    layer.addEventListener("keydown", onEscape);
     this.renderer.highlightHex(originOffsetKey, "order-preview-origin");
     this.renderer.highlightHex(destOffsetKey, "order-preview-target");
     confirmBtn.focus({ preventScroll: true });
     close.onclick = () => {
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      removeEscapeHandler();
       clearPreview();
       this.campaignPopupInvoker?.focus({ preventScroll: true });
     };
@@ -625,36 +719,52 @@ export class CampaignScreen {
       },
       onSelectionRequested: (selection) => {
         if (!selection) return;
+        const choosingRedeploymentDestination = selection.kind === "hex" && this.moveOriginHexKey !== null;
         let selectedHexKey: string | null = null;
         if (selection.kind === "hex") {
           selectedHexKey = selection.id;
           this.selectedFrontKey = null;
+          this.selectedFrontTargetHexKey = null;
         } else if (selection.kind === "front") {
           const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
           if (!front) return;
+          if (this.selectedFrontKey !== front.key) this.selectedFrontTargetHexKey = null;
           this.selectedFrontKey = front.key;
           selectedHexKey = front.hexKeys[0] ?? null;
         } else if (selection.kind === "formation") {
           const formation = this.campaignState.getCampaignFormationSnapshot(selection.id);
           if (!formation || formation.faction !== "Player") return;
           this.selectedFrontKey = null;
+          this.selectedFrontTargetHexKey = null;
           selectedHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
+        } else if (selection.kind === "objective") {
+          const objective = this.campaignState.getCampaignMapView("Player")?.scenario.objectives
+            .find((entry) => entry.key === selection.id);
+          if (!objective) return;
+          const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+          this.selectedFrontKey = null;
+          this.selectedFrontTargetHexKey = null;
+          selectedHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
         } else {
           return;
         }
-        if (selection.kind === "hex" && selectedHexKey === this.selectedHexKey) return;
+        if (selection.kind === "hex" && selectedHexKey === this.selectedHexKey && !choosingRedeploymentDestination) return;
         this.selectedHexKey = selectedHexKey;
-        this.moveOriginHexKey = null;
+        if (!choosingRedeploymentDestination) this.moveOriginHexKey = null;
         this.renderer.clearAllHighlights("selected");
         this.renderer.clearAllHighlights("origin");
+        if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
         if (selection.kind === "front") {
           const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
           front?.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
         } else if (selectedHexKey) {
           this.renderer.highlightHex(selectedHexKey, "selected");
+          const center = this.renderer.getHexCenter(selectedHexKey);
+          if (center) this.viewport?.centerOn(center.cx, center.cy);
         }
         this.renderSelection();
         this.renderCampaignIntel();
+        this.syncRedeploymentTargetMode();
       },
       onCommitOrders: () => this.commitDraftOrders(),
       onAdvance: (mode) => this.advanceCampaignTime(mode),
@@ -678,6 +788,7 @@ export class CampaignScreen {
         if (!this.moveOriginHexKey) return;
         this.moveOriginHexKey = null;
         this.renderer.clearAllHighlights("origin");
+        this.syncRedeploymentTargetMode();
         this.renderSelection();
       }
     });
@@ -740,6 +851,12 @@ export class CampaignScreen {
     if (this.queueEngagementButton) {
       // Clicking the button queues a pending engagement for the currently selected front
       this.queueEngagementButton.addEventListener("click", () => {
+        if (this.engagementTransitionBusy) {
+          const transitionStatus = document.getElementById("screenTransitionStatus");
+          const transitionActive = transitionStatus ? !transitionStatus.classList.contains("hidden") : false;
+          if (transitionActive) return;
+          this.engagementTransitionBusy = false;
+        }
         if (this.campaignState.getActiveCampaignBattlePackage()) {
           this.onQueueEngagement?.();
           return;
@@ -763,10 +880,18 @@ export class CampaignScreen {
             this.renderCommandShell();
             return;
           }
+          const assessment = this.getPlayerFrontAssessment(front.key, this.selectedFrontTargetHexKey);
+          if (!assessment.canLaunch || !assessment.target) {
+            this.reportBattleLaunchFailure(assessment.targetRequired
+              ? "Select which opposing front hex to attack before queuing the tactical engagement."
+              : assessment.pressureLabel);
+            return;
+          }
           const prepared = this.campaignState.prepareCampaignFrontEngagement({
             engagementId: id,
             frontKey: front.key,
-            attacker: "Player"
+            attacker: "Player",
+            requestedTargetHexKey: assessment.target.targetHexKey
           });
           if (!prepared.ok) {
             this.reportBattleLaunchFailure(prepared.reason);
@@ -841,6 +966,7 @@ export class CampaignScreen {
         this.renderSelection();
         // If the app provided a transition handler, invoke it now to proceed into precombat.
         if (this.onQueueEngagement) {
+          this.engagementTransitionBusy = true;
           this.onQueueEngagement();
         }
       });
@@ -885,6 +1011,7 @@ export class CampaignScreen {
       if (this.campaignStatusMessage) {
         this.campaignStatusMessage = null;
       }
+      const priorFrontKey = this.selectedFrontKey;
       this.selectedFrontKey = null;
       // Front selection path
       if (scenario && scenario.fronts && scenario.fronts.length > 0) {
@@ -895,6 +1022,7 @@ export class CampaignScreen {
           }
         }
       }
+      if (this.selectedFrontKey !== priorFrontKey) this.selectedFrontTargetHexKey = null;
 
       this.selectedHexKey = hexKey;
       if (this.editMode) {
@@ -943,6 +1071,7 @@ export class CampaignScreen {
 
   /** Keeps campaign command usable when a tactical handoff cannot preserve campaign truth. */
   reportBattleLaunchFailure(reason: string): void {
+    this.engagementTransitionBusy = false;
     this.setCampaignStatusMessage({
       title: "Tactical handoff blocked",
       detail: reason,
@@ -1151,7 +1280,7 @@ export class CampaignScreen {
     const sourceRows = topSources.map(
       (s) => `
       <div class="production-source-row">
-        <span>${this.escapeHtml(s.tile.replace(/_/g, " "))}${s.role ? ` <em>(${this.escapeHtml(s.role)})</em>` : ""}</span>
+        <span>${this.escapeHtml(this.formatCampaignLabel(s.tile))}${s.role ? ` <em>(${this.escapeHtml(this.formatCampaignLabel(s.role))})</em>` : ""}</span>
         <span class="source-hex">${s.offsetKey}</span>
         <span class="source-value">${fmt(s.supplyValue)}</span>
       </div>`
@@ -1231,6 +1360,13 @@ export class CampaignScreen {
     const hide = (): void => {
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      layer.removeEventListener("keydown", onEscape);
+    };
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      hide();
+      this.campaignPopupInvoker?.focus({ preventScroll: true });
     };
 
     applyBtn.onclick = () => {
@@ -1259,6 +1395,11 @@ export class CampaignScreen {
 
     layer.classList.remove("hidden");
     layer.setAttribute("aria-hidden", "false");
+    body.scrollTop = 0;
+    if (composer) composer.scrollTop = 0;
+    const sources = body.querySelector<HTMLElement>(".production-sources");
+    if (sources) sources.scrollTop = 0;
+    layer.addEventListener("keydown", onEscape);
     applyBtn.focus({ preventScroll: true });
   }
 
@@ -1345,6 +1486,35 @@ export class CampaignScreen {
   }
 
   /** Binds explicit inspector actions; map gestures themselves remain selection-only. */
+  private syncRedeploymentTargetMode(): void {
+    if (!this.commandInterface || !this.moveOriginHexKey) {
+      this.commandInterface?.setRedeploymentTargetMode(null);
+      return;
+    }
+    const view = this.campaignState.getCampaignMapView("Player");
+    if (!view) {
+      this.commandInterface.setRedeploymentTargetMode(null);
+      return;
+    }
+    const destinations = view.scenario.tiles.map((tile) => {
+      const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+      const palette = view.scenario.tilePalette[tile.tile];
+      const preview = this.campaignState.getCampaignRedeployDestinationPreview(this.moveOriginHexKey!, hexKey);
+      return {
+        hexKey,
+        label: `${this.formatCampaignLabel(palette?.role ?? "Operational hex")} · ${hexKey}`,
+        available: preview.availability === "available",
+        reason: preview.reason
+      };
+    }).sort((left, right) => {
+      const a = CoordinateSystem.parseHexKey(left.hexKey);
+      const b = CoordinateSystem.parseHexKey(right.hexKey);
+      return (a?.row ?? 0) - (b?.row ?? 0) || (a?.col ?? 0) - (b?.col ?? 0);
+    });
+    this.commandInterface.setRedeploymentTargetMode(this.moveOriginHexKey, destinations);
+  }
+
   private bindCampaignInspectorActions(): void {
     this.selectionContainer?.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
@@ -1354,6 +1524,7 @@ export class CampaignScreen {
         this.moveOriginHexKey = this.selectedHexKey;
         this.renderer.clearAllHighlights("origin");
         this.renderer.highlightHex(this.moveOriginHexKey, "origin");
+        this.syncRedeploymentTargetMode();
         this.renderSelection();
         return;
       }
@@ -1362,6 +1533,7 @@ export class CampaignScreen {
         const origin = this.moveOriginHexKey;
         const destination = this.selectedHexKey;
         this.moveOriginHexKey = null;
+        this.syncRedeploymentTargetMode();
         this.renderer.clearAllHighlights("origin");
         this.campaignPopupInvoker = target.closest<HTMLElement>("[data-confirm-campaign-redeploy]");
         this.openRedeployModal(origin, destination);
@@ -1370,6 +1542,7 @@ export class CampaignScreen {
       }
       if (target.closest("[data-cancel-campaign-redeploy]")) {
         this.moveOriginHexKey = null;
+        this.syncRedeploymentTargetMode();
         this.renderer.clearAllHighlights("origin");
         this.renderSelection();
         return;
@@ -1379,6 +1552,13 @@ export class CampaignScreen {
         this.campaignPopupInvoker = target.closest<HTMLElement>("[data-draft-infrastructure-repair]");
         this.openInfrastructureRepairModal(this.selectedHexKey);
       }
+    });
+    this.selectionContainer?.addEventListener("change", (event) => {
+      const select = (event.target as Element).closest<HTMLSelectElement>("[data-campaign-front-target]");
+      if (!select || !this.selectedFrontKey) return;
+      this.selectedFrontTargetHexKey = select.value || null;
+      this.renderSelection();
+      this.renderCommandShell();
     });
   }
 
@@ -1468,7 +1648,20 @@ export class CampaignScreen {
       }
     }
     if (this.selectedFrontKey) {
-      items.push(`<div><strong>Front assessment</strong><br>${this.escapeHtml(this.selectedFrontKey)}</div>`);
+      const assessment = this.getPlayerFrontAssessment(this.selectedFrontKey);
+      const targetOptions = assessment.targets.length > 1
+        ? `<label class="campaign-front-target-choice"><span>Engagement target</span><select data-campaign-front-target><option value="">Choose an opposing hex</option>${assessment.targets.map((target) => `<option value="${this.escapeHtml(target.targetHexKey)}" ${target.targetHexKey === this.selectedFrontTargetHexKey ? "selected" : ""}>${this.escapeHtml(`${target.missionLabel} — ${target.targetHexKey}`)}</option>`).join("")}</select></label>`
+        : "";
+      const target = assessment.target;
+      items.push(`
+        <div class="campaign-front-assessment">
+          <strong>Front assessment</strong>
+          <p>${this.escapeHtml(assessment.pressureLabel)}</p>
+          ${target ? `<p><strong>${this.escapeHtml(target.missionLabel)} — Hex ${this.escapeHtml(target.targetHexKey)}</strong><br>${this.escapeHtml(target.roleLabel)}</p>` : ""}
+          ${target?.explicitUnknowns.length ? `<p>Unknowns: ${this.escapeHtml(target.explicitUnknowns.join(" · "))}</p>` : ""}
+          ${targetOptions}
+        </div>
+      `);
     }
     const engagements = this.campaignState.getPendingEngagements();
     if (engagements.length > 0) {
@@ -1507,8 +1700,10 @@ export class CampaignScreen {
       const selectedFront = this.selectedFrontKey
         ? view?.scenario.fronts.find((front) => front.key === this.selectedFrontKey) ?? null
         : null;
-      const canPlayerLaunchFront = selectedFront?.initiative === "Player";
-      const canEngage = Boolean(activePackage) || canPlayerLaunchFront || canProximity;
+      const canPlayerLaunchFront = selectedFront
+        ? this.getPlayerFrontAssessment(selectedFront.key, this.selectedFrontTargetHexKey).canLaunch
+        : false;
+      const canEngage = Boolean(activePackage) || (selectedFront ? canPlayerLaunchFront : canProximity);
       this.queueEngagementButton.disabled = !canEngage;
       this.queueEngagementButton.textContent = activePackage?.context.defender === "Player"
         ? "Respond to Enemy Offensive"
@@ -1574,10 +1769,16 @@ export class CampaignScreen {
         const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts.find((entry) => entry.id === focusId);
         if (contact) {
           this.selectedHexKey = contact.locationHexKey;
+          this.selectedFrontKey = null;
           this.moveOriginHexKey = null;
           this.renderer.clearAllHighlights("selected");
           this.renderer.highlightHex(contact.locationHexKey, "selected");
+          const center = this.renderer.getHexCenter(contact.locationHexKey);
+          if (center) this.viewport?.centerOn(center.cx, center.cy);
           this.renderSelection();
+          this.commandInterface?.revealInspector({ kind: "contact", id: contact.id });
+          this.intelDrawer?.classList.add("hidden");
+          toggle?.setAttribute("aria-expanded", "false");
         }
         return;
       }
@@ -2265,7 +2466,16 @@ export class CampaignScreen {
         status: objectiveStatusLabel(objective.status),
         category: objective.category,
         progress: objective.progress,
-        detail: objective.progressLabel,
+        detail: objective.description,
+        progressLabel: objective.progressLabel,
+        progressCurrent: objective.progressCurrent,
+        progressTarget: objective.progressTarget,
+        conditionLabels: objective.conditionLabels,
+        nextAction: objective.status === "active"
+          ? "Keep this objective's conditions satisfied, then advance to the next report."
+          : objective.status === "locked"
+            ? "Complete the listed dependencies before issuing orders here."
+            : "Review the recorded result and its effect on the campaign.",
         deadline: objective.deadlineSegment === null
           ? null
           : `Deadline ${this.campaignState.segmentToTimeDisplay(objective.deadlineSegment)}`,
@@ -2554,14 +2764,23 @@ export class CampaignScreen {
         (entry.targetKind === "objective" && entry.targetId && relatedObjectiveIds.has(entry.targetId))
         || (entry.targetKind === "formation" && entry.targetId && relatedFormationIds.has(entry.targetId))
       ));
+      const playerAssessment = front.initiative === "Player" ? this.getPlayerFrontAssessment(front.key) : null;
+      const engagementTarget = playerAssessment?.target ?? null;
       return {
         key: front.key,
         label: front.label,
         hexKeys: front.hexKeys.slice(),
         initiativeLabel: front.initiative === "Player" ? "Friendly initiative" : "Opposing initiative",
-        pressureLabel: assessedContacts.length === 0
+        pressureLabel: playerAssessment?.pressureLabel ?? (assessedContacts.length === 0
           ? "No assessed hostile contact in this mapped sector."
-          : `${assessedContacts.length} assessed contact${assessedContacts.length === 1 ? "" : "s"}${uncertainContacts > 0 ? ` · ${uncertainContacts} stale or disputed` : ""}.`,
+          : `${assessedContacts.length} assessed contact${assessedContacts.length === 1 ? "" : "s"}${uncertainContacts > 0 ? ` · ${uncertainContacts} stale or disputed` : ""}.`),
+        engagementLabel: engagementTarget ? `${engagementTarget.missionLabel} — Hex ${engagementTarget.targetHexKey}` : undefined,
+        targetHexKey: engagementTarget?.targetHexKey,
+        roleLabel: engagementTarget?.roleLabel,
+        intelligenceUnknowns: engagementTarget?.explicitUnknowns,
+        targetChoiceLabel: playerAssessment?.targetRequired
+          ? `${playerAssessment.targets.length} legal opposing targets require a command choice.`
+          : undefined,
         forcePosture: `${friendlyFormations.length} friendly formation${friendlyFormations.length === 1 ? "" : "s"} in sector`,
         objectivePosture: `${sectorObjectives.length} objective${sectorObjectives.length === 1 ? "" : "s"} in sector`,
         lastChange: lastChange ? `${lastChange.timeLabel} · ${lastChange.title}` : "No recent objective or formation change in this sector."

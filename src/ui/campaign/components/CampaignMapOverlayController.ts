@@ -28,12 +28,20 @@ export interface CampaignMapOverlayPerformanceSnapshot {
   readonly entityClassApplications: number;
 }
 
+export interface CampaignRedeploymentDestinationListEntry {
+  readonly hexKey: string;
+  readonly label: string;
+  readonly available: boolean;
+  readonly reason: string | null;
+}
+
 interface MapListEntry {
   readonly key: string;
   readonly marker: string;
   readonly label: string;
   readonly meta: string;
   readonly selection: Exclude<CampaignCommandSelection, null>;
+  readonly disabled?: boolean;
 }
 
 function createText(tag: keyof HTMLElementTagNameMap, className: string, value: string): HTMLElement {
@@ -68,6 +76,8 @@ export class CampaignMapOverlayController {
   private entityClassesDirty = true;
   private entityClassApplications = 0;
   private initialized = false;
+  private targetPickOriginHexKey: string | null = null;
+  private targetPickDestinations: readonly CampaignRedeploymentDestinationListEntry[] = [];
 
   private readonly onModeClick = (event: Event): void => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-map-overlay-id]");
@@ -87,6 +97,11 @@ export class CampaignMapOverlayController {
       return;
     }
     const button = target.closest<HTMLButtonElement>("[data-map-list-selection-kind]");
+    if (button?.getAttribute("aria-disabled") === "true") {
+      const reason = button.querySelector("small")?.textContent ?? "This destination is unavailable.";
+      if (this.listStatus) this.listStatus.textContent = reason;
+      return;
+    }
     const kind = button?.dataset.mapListSelectionKind as Exclude<CampaignCommandSelection, null>["kind"] | undefined;
     const id = button?.dataset.mapListSelectionId;
     if (kind && id) {
@@ -168,6 +183,16 @@ export class CampaignMapOverlayController {
   public setOverlay(overlay: CampaignOverlayId): void {
     if (overlay !== this.activeOverlay && this.listSearch) this.listSearch.value = "";
     this.activeOverlay = overlay;
+    this.apply();
+  }
+
+  public setRedeploymentTargetMode(
+    originHexKey: string | null,
+    destinations: readonly CampaignRedeploymentDestinationListEntry[] = []
+  ): void {
+    this.targetPickOriginHexKey = originHexKey;
+    this.targetPickDestinations = originHexKey ? destinations.map((entry) => ({ ...entry })) : [];
+    if (this.listSearch) this.listSearch.value = "";
     this.apply();
   }
 
@@ -281,8 +306,16 @@ export class CampaignMapOverlayController {
     if (this.coverageFilter) this.coverageFilter.hidden = effective.id !== "intelligence";
     if (this.listToggle) {
       const count = this.getListEntries(effective.id).length;
-      this.listToggle.textContent = `Map list (${count} hexes)`;
-      this.listToggle.setAttribute("aria-label", `${effective.label} map list, ${count} item${count === 1 ? "" : "s"}`);
+      const noun = this.targetPickOriginHexKey
+        ? "destination hex"
+        : effective.id === "objectives" ? "objective"
+          : effective.id === "forces" ? "formation"
+            : effective.id === "intelligence" ? "contact"
+              : effective.id === "orders" ? "order"
+                : "front";
+      const nounLabel = count === 1 ? noun : noun === "destination hex" ? "destination hexes" : `${noun}s`;
+      this.listToggle.textContent = `${this.targetPickOriginHexKey ? "Destinations" : "Map list"} (${count} ${nounLabel})`;
+      this.listToggle.setAttribute("aria-label", `${this.targetPickOriginHexKey ? "Redeployment destination" : effective.label} map list, ${count} ${nounLabel}`);
       if (requested.status === "featureGated") this.listToggle.textContent = `${requested.shortLabel} unavailable`;
     }
   }
@@ -344,8 +377,10 @@ export class CampaignMapOverlayController {
 
   private renderList(definition: CampaignMapOverlayDefinition): void {
     if (!this.listContent || !this.listTitle || !this.listSummary || !this.listSearch || !this.listStatus) return;
-    this.listTitle.textContent = `${definition.label} map list`;
-    this.listSummary.textContent = definition.status === "featureGated"
+    this.listTitle.textContent = this.targetPickOriginHexKey ? "Choose a redeployment destination" : `${definition.label} map list`;
+    this.listSummary.textContent = this.targetPickOriginHexKey
+      ? `Origin ${this.targetPickOriginHexKey}. Legal destinations can be selected without a pointer; unavailable ground includes the authoritative blocking reason.`
+      : definition.status === "featureGated"
       ? definition.unavailableReason ?? "This map layer is unavailable."
       : `${definition.description} Select any item to open the same context route used by the map.`;
     const allEntries = definition.status === "available" ? this.getListEntries(definition.id) : [];
@@ -371,6 +406,7 @@ export class CampaignMapOverlayController {
       button.className = "campaign-map-list-entry";
       button.dataset.mapListSelectionKind = entry.selection.kind;
       button.dataset.mapListSelectionId = entry.selection.id;
+      if (entry.disabled) button.setAttribute("aria-disabled", "true");
       button.append(
         createText("span", "campaign-map-list-entry__marker", entry.marker),
         createText("strong", "", entry.label),
@@ -382,6 +418,16 @@ export class CampaignMapOverlayController {
 
   private getListEntries(overlay: CampaignOverlayId): readonly MapListEntry[] {
     if (!this.view) return [];
+    if (this.targetPickOriginHexKey) {
+      return this.targetPickDestinations.map((entry) => ({
+        key: entry.hexKey,
+        marker: entry.available ? "→" : "×",
+        label: entry.label,
+        meta: entry.available ? "Available · select to review route" : `Unavailable · ${entry.reason ?? "Destination blocked"}`,
+        selection: { kind: "hex", id: entry.hexKey },
+        disabled: !entry.available
+      }));
+    }
     if (overlay === "objectives") return this.view.objectives.map((objective) => this.objectiveEntry(objective));
     if (overlay === "forces") return this.view.formations && this.view.formations.length > 0
       ? this.view.formations.map((formation) => this.formationEntry(formation))

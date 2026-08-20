@@ -293,6 +293,38 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       || !root.querySelector(".campaign-map-accessible-list__status")?.textContent?.includes("1 of 2")) {
       throw new Error("Large-roster map-list search did not filter with a live count.");
     }
+    screen.setRedeploymentTargetMode("4,5", [
+      { hexKey: "5,5", label: "Opposing ground · 5,5", available: false, reason: "Redeployment cannot enter opposing control." },
+      { hexKey: "4,6", label: "Friendly ground · 4,6", available: true, reason: null }
+    ]);
+    const destinationToggle = root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle");
+    const blockedDestination = root.querySelector<HTMLButtonElement>("[data-map-list-selection-id='5,5']");
+    const legalDestination = root.querySelector<HTMLButtonElement>("[data-map-list-selection-id='4,6']");
+    if (!destinationToggle?.textContent?.includes("2 destination hexes")
+      || blockedDestination?.getAttribute("aria-disabled") !== "true"
+      || blockedDestination?.disabled
+      || !blockedDestination.parentElement?.textContent?.includes("opposing control")
+      || !legalDestination) {
+      throw new Error("Redeployment target mode did not expose keyboard destinations and authoritative blocking copy.");
+    }
+    blockedDestination.focus();
+    blockedDestination.click();
+    if (document.activeElement !== blockedDestination
+      || !root.querySelector(".campaign-map-accessible-list__status")?.textContent?.includes("opposing control")) {
+      throw new Error("Blocked destination reason was not focusable and announced to keyboard users.");
+    }
+    legalDestination.click();
+    if (screen.getUIState().getSnapshot().selection?.kind !== "hex"
+      || screen.getUIState().getSnapshot().selection?.id !== "4,6") {
+      throw new Error("Keyboard destination selection did not use the shared hex route.");
+    }
+    screen.setRedeploymentTargetMode(null);
+    root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
+    const restoredSearch = root.querySelector<HTMLInputElement>("[aria-label='Search current map list']");
+    if (restoredSearch) {
+      restoredSearch.value = "Infantry";
+      restoredSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    }
     root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='formation']")?.click();
   });
 

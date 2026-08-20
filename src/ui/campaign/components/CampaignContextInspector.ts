@@ -123,12 +123,21 @@ function resolveInspectorRoute(
       facts: [
         { label: "Status", value: objective.status },
         ...(objective.hexKey ? [{ label: "Location", value: objective.hexKey }] : []),
+        ...(objective.progressLabel ? [{ label: "Progress", value: objective.progressLabel }] : []),
+        ...(objective.progressCurrent !== undefined && objective.progressTarget !== undefined
+          ? [{ label: "Current / required", value: `${objective.progressCurrent} / ${objective.progressTarget}` }]
+          : []),
+        ...(objective.conditionLabels?.length ? [{ label: "Conditions", value: objective.conditionLabels.join(" · ") }] : []),
+        ...(objective.nextAction ? [{ label: "Next action", value: objective.nextAction }] : []),
         ...(objective.deadline ? [{ label: "Deadline", value: objective.deadline }] : []),
         ...(objective.score ? [{ label: "Score", value: objective.score }] : []),
         ...(objective.dependencies ? [{ label: "Dependencies", value: objective.dependencies }] : []),
         ...(objective.failureEffect ? [{ label: "Failure effect", value: objective.failureEffect }] : [])
       ],
-      mode: "projected"
+      mode: "projected",
+      ...(objective.hexKey
+        ? { mapTarget: { hexKey: objective.hexKey, label: `Focus ${objective.hexKey} on the map` } }
+        : {})
     };
   }
   if (selection.kind === "order") {
@@ -246,6 +255,11 @@ function resolveInspectorRoute(
         { label: "Initiative", value: front.initiativeLabel },
         { label: "Sectors", value: front.hexKeys.length.toLocaleString() },
         ...(front.pressureLabel ? [{ label: "Assessed pressure", value: front.pressureLabel }] : []),
+        ...(front.engagementLabel ? [{ label: "Engagement", value: front.engagementLabel }] : []),
+        ...(front.targetHexKey ? [{ label: "Opposing target", value: front.targetHexKey }] : []),
+        ...(front.roleLabel ? [{ label: "Roles", value: front.roleLabel }] : []),
+        ...(front.intelligenceUnknowns?.length ? [{ label: "Intelligence unknowns", value: front.intelligenceUnknowns.join(" · ") }] : []),
+        ...(front.targetChoiceLabel ? [{ label: "Target decision", value: front.targetChoiceLabel }] : []),
         ...(front.forcePosture ? [{ label: "Friendly posture", value: front.forcePosture }] : []),
         ...(front.objectivePosture ? [{ label: "Objectives", value: front.objectivePosture }] : []),
         ...(front.lastChange ? [{ label: "Last material change", value: front.lastChange }] : [])

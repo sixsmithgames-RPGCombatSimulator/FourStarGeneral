@@ -138,29 +138,35 @@ function initializeApplication(): void {
   campaignScreen.initialize();
   // When an engagement is queued on the campaign map, proceed to precombat flow using the campaign mission.
   campaignScreen.setQueueEngagementHandler(() => {
-    const generalId = uiState.selectedGeneralId;
-    // Persist a bridge snapshot for downstream battle UI. Keep it defensive: missing state yields empty lists.
-    const campaignState = ensureCampaignState();
-    const bridge = {
-      scenario: campaignState.getScenario(),
-      turnState: campaignState.getTurnState(),
-      queuedDecisions: campaignState.getQueuedDecisions(),
-      pendingEngagements: campaignState.getPendingEngagements(),
-      battlePackage: campaignState.getActiveCampaignBattlePackage()
-    } as const;
-    battleState.setCampaignBridgeState(bridge);
-    // CampaignScreen bypasses LandingScreen, so promote the campaign mission explicitly before
-    // precombat. BattleScreen and mission-specific tactical services consume this shared key.
-    uiState.selectedMission = "campaign";
-    // Mark this mission as started from campaign screen
-    uiState.isFromCampaign = true;
-    try {
-      precombatScreen.setup("campaign", generalId, uiState.selectedDifficulty);
-      screenManager.showScreenById("precombat");
-    } catch (error) {
-      console.error("[CampaignBattleLaunch] Tactical handoff failed safely", error);
-      campaignScreen.reportBattleLaunchFailure(error instanceof Error ? error.message : String(error));
-    }
+    screenManager.beginTransition("Preparing the tactical engagement…");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          const generalId = uiState.selectedGeneralId;
+          // Persist a bridge snapshot for downstream battle UI. Keep it defensive: missing state yields empty lists.
+          const campaignState = ensureCampaignState();
+          const bridge = {
+            scenario: campaignState.getScenario(),
+            turnState: campaignState.getTurnState(),
+            queuedDecisions: campaignState.getQueuedDecisions(),
+            pendingEngagements: campaignState.getPendingEngagements(),
+            battlePackage: campaignState.getActiveCampaignBattlePackage()
+          } as const;
+          battleState.setCampaignBridgeState(bridge);
+          // CampaignScreen bypasses LandingScreen, so promote the campaign mission explicitly before
+          // precombat. BattleScreen and mission-specific tactical services consume this shared key.
+          uiState.selectedMission = "campaign";
+          // Mark this mission as started from campaign screen
+          uiState.isFromCampaign = true;
+          precombatScreen.setup("campaign", generalId, uiState.selectedDifficulty);
+          screenManager.showScreenById("precombat");
+        } catch (error) {
+          screenManager.endTransition();
+          console.error("[CampaignBattleLaunch] Tactical handoff failed safely", error);
+          campaignScreen.reportBattleLaunchFailure(error instanceof Error ? error.message : String(error));
+        }
+      });
+    });
   });
   // Render the campaign scenario immediately so entering the Campaign screen shows the map.
   // Patch the background image URL since JSON files can't use new URL() for asset bundling

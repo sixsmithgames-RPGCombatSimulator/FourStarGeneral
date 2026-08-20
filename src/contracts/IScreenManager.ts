@@ -3,6 +3,12 @@
  * Decouples screen implementations from the management logic.
  */
 export interface IScreenManager {
+  /** Shows an input-blocking, player-facing status while a heavyweight destination is prepared. */
+  beginTransition?(message: string): void;
+
+  /** Clears a transition status when preparation fails before a destination can be shown. */
+  endTransition?(): void;
+
   /**
    * Shows the specified screen element and hides all others.
    * @param screen - The HTMLElement representing the screen to display

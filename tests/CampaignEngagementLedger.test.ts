@@ -223,6 +223,71 @@ registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_REJECTS_STALE_OR_CONFLICTING_COMMITMENT
   });
 });
 
+registerTest("CAMPAIGN_STATE_DISCARDS_ONLY_UNCOMMITTED_PRECOMBAT_PLANS", async ({ Given, When, Then }) => {
+  const campaign = new CampaignState({ legacyStorage: null });
+  let beforeEconomy = "";
+  let discarded: ReturnType<CampaignState["discardActiveUncommittedEngagement"]>;
+
+  await Given("an active Player-created engagement with no frozen battle package", () => {
+    campaign.setScenario(buildLedgerScenario());
+    const context = buildContext();
+    campaign.setPendingEngagements([{
+      id: context.engagementId,
+      frontKey: context.frontKey,
+      objectiveKey: null,
+      attacker: context.attacker,
+      defender: context.defender,
+      hexKeys: [context.battleHexKey],
+      tags: ["ledger"],
+      context
+    }]);
+    campaign.setActiveEngagementId(context.engagementId);
+    beforeEconomy = computeCampaignContentHash(campaign.getRuntimeSnapshot()?.factions.Player?.economy ?? {});
+  });
+
+  await When("the commander returns from precombat before committing forces", () => {
+    discarded = campaign.discardActiveUncommittedEngagement();
+  });
+
+  await Then("the queue is removed atomically, its ledger is cancelled, and committed packages remain protected", () => {
+    const after = campaign.getRuntimeSnapshot();
+    if (!discarded.ok
+      || campaign.getActiveEngagementId() !== null
+      || campaign.getPendingEngagements().length !== 0
+      || after?.status !== "planning"
+      || after.engagementOrder.length !== 0
+      || after.engagementLedger["ledger-engagement"]?.status !== "cancelled"
+      || computeCampaignContentHash(after.factions.Player.economy) !== beforeEconomy) {
+      throw new Error("Discarding an uncommitted precombat plan left ghost state or changed resources.");
+    }
+
+    const context = { ...buildContext(), engagementId: "ledger-engagement-requeued" };
+    campaign.setPendingEngagements([{
+      id: context.engagementId,
+      frontKey: context.frontKey,
+      objectiveKey: null,
+      attacker: context.attacker,
+      defender: context.defender,
+      hexKeys: [context.battleHexKey],
+      tags: ["ledger"],
+      context
+    }]);
+    campaign.setActiveEngagementId(context.engagementId);
+    if (campaign.getPendingEngagements().length !== 1) throw new Error("A fresh queue did not create exactly one engagement.");
+    const runtime = campaign.getRuntimeSnapshot();
+    if (!runtime) throw new Error("Requeued runtime was unavailable.");
+    const commitment = campaign.commitCampaignEngagement({
+      ...commitmentRequest(runtime.revision),
+      engagementId: context.engagementId
+    });
+    if (!commitment.ok) throw new Error(commitment.reason);
+    const blocked = campaign.discardActiveUncommittedEngagement();
+    if (blocked.ok || !/committed battle packages cannot be discarded/i.test(blocked.reason)) {
+      throw new Error("Committed precombat package was not protected from discard.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_PERSISTS_AND_ACCEPTS_RESULT_ONCE", async ({ Given, When, Then }) => {
   const { runtime: committed, pkg } = commitRuntime(planRuntime(createLedgerRuntime()));
   let resolved: CampaignRuntimeState;

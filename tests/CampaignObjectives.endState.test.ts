@@ -116,6 +116,30 @@ function objectiveFixture() {
   return { scenario, definition, runtime };
 }
 
+registerTest("CAMPAIGN_OBJECTIVES_PROJECT_TRUTHFUL_INITIAL_PROGRESS", async ({ Given, When, Then }) => {
+  const { definition, runtime } = objectiveFixture();
+  let projected: ReturnType<typeof projectCampaignObjectives>;
+
+  await Given("a fresh campaign whose opening hold objective is already on controlled operational ground", () => {});
+  await When("the command UI projects the objective before the first segment resolves", () => {
+    projected = projectCampaignObjectives(runtime, definition);
+  });
+  await Then("the presentation reports the live hold and infrastructure requirement without resolving campaign truth", () => {
+    const hold = projected.find((objective) => objective.key === "hold-beach");
+    if (!hold
+      || hold.progressLabel !== "Hold for 2 more segments · installation 100% / 50% required"
+      || hold.progressCurrent !== 0
+      || hold.progressTarget !== 2
+      || hold.conditionLabels.join("|") !== hold.progressLabel
+      || /awaiting evaluation/i.test(hold.progressLabel)
+      || runtime.objectives["hold-beach"].status !== "active"
+      || runtime.objectives["hold-beach"].rewardApplied
+      || runtime.revision !== 0) {
+      throw new Error(`Fresh objective projection was incomplete or mutated truth: ${JSON.stringify(hold)}`);
+    }
+  });
+});
+
 registerTest("CAMPAIGN_OBJECTIVES_PHASE_REWARD_SCORE_AND_VICTORY", async ({ Given, When, Then }) => {
   const { definition, runtime } = objectiveFixture();
   const first = resolveCampaignSegment(runtime, definition);

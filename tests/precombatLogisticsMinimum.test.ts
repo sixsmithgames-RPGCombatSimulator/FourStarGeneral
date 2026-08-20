@@ -3,8 +3,9 @@ import { registerTest } from "./harness.js";
 import { PrecombatScreen } from "../src/ui/screens/PrecombatScreen";
 import type { IScreenManager } from "../src/contracts/IScreenManager";
 import { BattleState } from "../src/state/BattleState";
+import { ensureCampaignState } from "../src/state/CampaignState";
 import { ensureTutorialState } from "../src/state/TutorialState";
-import { getAllMissionKeys } from "../src/data/missions";
+import { getAllMissionKeys, getMissionSummaryPackage } from "../src/data/missions";
 
 function mountPrecombatDom(): void {
   document.body.innerHTML = `
@@ -13,6 +14,7 @@ function mountPrecombatDom(): void {
       <p id="precombatMissionBriefing"></p>
       <ul id="objectiveList"></ul>
       <span id="missionTurnLimit"></span>
+      <p id="missionClockNote"></p>
       <ul id="baselineSupplyList"></ul>
       <p id="missionDoctrineNotes"></p>
       <button id="returnToLanding"></button>
@@ -66,6 +68,8 @@ registerTest("PRECOMBAT_ENFORCES_A_CONVOY_MINIMUM_FOR_RIVER_WATCH", async ({ Giv
   let screen: PrecombatScreen;
   let convoyCount = 0;
   let convoyVisible = false;
+  let objectiveCount = 0;
+  let objectiveText = "";
 
   await Given("River Watch precombat loads with mission defaults", async () => {
     screen = createScreen();
@@ -81,6 +85,9 @@ registerTest("PRECOMBAT_ENFORCES_A_CONVOY_MINIMUM_FOR_RIVER_WATCH", async ({ Giv
 
     convoyCount = internals.allocationCounts.get("supplyConvoy") ?? 0;
     convoyVisible = internals.allocationLogisticsList.innerHTML.includes('data-key="supplyConvoy"');
+    const objectiveList = document.getElementById("objectiveList");
+    objectiveCount = objectiveList?.children.length ?? 0;
+    objectiveText = objectiveList?.textContent ?? "";
     internals.handleAllocationAdjustment("supplyConvoy", -1);
     internals.handleAllocationAdjustment("supplyConvoy", -1);
     convoyCount = internals.allocationCounts.get("supplyConvoy") ?? 0;
@@ -93,7 +100,59 @@ registerTest("PRECOMBAT_ENFORCES_A_CONVOY_MINIMUM_FOR_RIVER_WATCH", async ({ Giv
     if (convoyCount !== 1) {
       throw new Error(`Expected River Watch to enforce a convoy floor of 1, saw ${convoyCount}.`);
     }
+    const authoredObjectiveCount = getMissionSummaryPackage("patrol_river_watch", "Normal").objectives.length;
+    if (objectiveCount !== authoredObjectiveCount
+      || /forces already in theater|make contact with|RP value/i.test(objectiveText)) {
+      throw new Error(`Predeployed roster data was misrepresented as a mission objective: ${objectiveText}`);
+    }
     document.body.innerHTML = "";
+  });
+});
+
+registerTest("PRECOMBAT_CAMPAIGN_RETURN_DISCARDS_ONLY_UNCOMMITTED_PLAN", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  const originalDiscard = campaignState.discardActiveUncommittedEngagement.bind(campaignState);
+  const destinations: string[] = [];
+  let discardCalls = 0;
+  const screen = Object.create(PrecombatScreen.prototype) as PrecombatScreen;
+
+  await Given("campaign precombat with an uncommitted engagement and a visible recovery message", () => {
+    const internals = screen as any;
+    internals.activeMissionKey = "campaign";
+    internals.campaignBattlePackage = null;
+    internals.allocationFeedbackElement = document.createElement("div");
+    internals.screenManager = {
+      showScreenById: (id: string) => destinations.push(id),
+      showScreen() {},
+      getCurrentScreen: () => null
+    } satisfies IScreenManager;
+    campaignState.discardActiveUncommittedEngagement = () => {
+      discardCalls += 1;
+      return { ok: true };
+    };
+  });
+
+  await When("the commander returns before commitment, retries after a discard failure, and reviews a committed defense", () => {
+    const internals = screen as any;
+    internals.handleReturnToLanding();
+    campaignState.discardActiveUncommittedEngagement = () => ({ ok: false, reason: "The engagement is already committed." });
+    internals.handleReturnToLanding();
+    internals.campaignBattlePackage = { id: "committed-package" };
+    internals.handleReturnToLanding();
+  });
+
+  await Then("only the uncommitted plan is discarded and failed cleanup cannot navigate", () => {
+    try {
+      const feedback = (screen as any).allocationFeedbackElement as HTMLElement;
+      if (discardCalls !== 1 || destinations.join("|") !== "campaign|campaign") {
+        throw new Error(`Return wiring diverged: discard ${discardCalls}, destinations ${destinations.join("|")}.`);
+      }
+      if (!feedback.textContent?.includes("already committed")) {
+        throw new Error("Failed discard did not keep precombat visible with a corrective warning.");
+      }
+    } finally {
+      campaignState.discardActiveUncommittedEngagement = originalDiscard;
+    }
   });
 });
 
@@ -133,6 +192,7 @@ registerTest("PRECOMBAT_CAMPAIGN_COPY_HAS_NO_HIDDEN_TACTICAL_DEADLINE", async ({
   let attackBriefing = "";
   let defenseBriefing = "";
   let turnLimit = "";
+  let clockNote = "";
 
   await Given("campaign attack and defense briefings using no-fixed-limit mission rules", () => {});
 
@@ -149,7 +209,7 @@ registerTest("PRECOMBAT_CAMPAIGN_COPY_HAS_NO_HIDDEN_TACTICAL_DEADLINE", async ({
       };
       internals.miniMapScenario = {
         name: "Meeting Engagement",
-        turnLimit: 0,
+        turnLimit: 25,
         campaignPlayerRole: playerDefense ? "defender" : "attacker",
         campaignBattleHexKey: "28,38",
         objectives: [{ hex: { q: 2, r: 1 }, owner: "Bot", vp: 1 }],
@@ -160,15 +220,17 @@ registerTest("PRECOMBAT_CAMPAIGN_COPY_HAS_NO_HIDDEN_TACTICAL_DEADLINE", async ({
       if (playerDefense) defenseBriefing = briefing;
       else attackBriefing = briefing;
       turnLimit = document.getElementById("missionTurnLimit")?.textContent ?? "";
+      clockNote = document.getElementById("missionClockNote")?.textContent ?? "";
     }
   });
 
   await Then("briefing and timeline agree that battlefield conditions decide the engagement", () => {
-    const combined = `${attackBriefing} ${defenseBriefing}`;
+    const combined = `${attackBriefing} ${defenseBriefing} ${clockNote}`;
     if (turnLimit !== "No fixed turn limit"
+      || clockNote !== "Battle continues until objective control or force collapse decides the result."
       || !attackBriefing.includes("objective control or force collapse")
       || !defenseBriefing.includes("objective control or force collapse")
-      || /window closes|turns? remain/i.test(combined)) {
+      || /window closes|turns? remain|deadline/i.test(combined)) {
       throw new Error(`Campaign precombat retained contradictory deadline copy: ${combined}`);
     }
   });

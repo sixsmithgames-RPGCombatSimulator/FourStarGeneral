@@ -10,6 +10,11 @@ export function createCampaignCommandBar(root: HTMLElement): HTMLElement {
       <span class="campaign-command-eyebrow">Theater command</span>
       <h1 id="campaignCommandTitle">Campaign</h1>
       <span id="campaignCommandPhase" class="campaign-command-phase">Opening phase</span>
+      <span class="campaign-command-compact-status" aria-label="Operational status">
+        <span id="campaignCommandCompactClock">Day 1, 00:00-03:00</span>
+        <span id="campaignCommandCompactState">Planning</span>
+        <span id="campaignCommandCompactSave">Unsaved</span>
+      </span>
     </div>
     <div class="campaign-command-clock-block">
       <span>Operational time</span>

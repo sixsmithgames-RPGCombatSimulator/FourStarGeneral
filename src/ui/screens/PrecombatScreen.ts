@@ -435,6 +435,7 @@ export class PrecombatScreen {
   private missionBriefingElement!: HTMLElement;
   private objectiveListElement!: HTMLUListElement;
   private missionTurnLimitElement!: HTMLElement;
+  private missionClockNoteElement!: HTMLElement;
   private baselineSupplyListElement!: HTMLUListElement;
   private baselineSupplySectionElement: HTMLElement | null = null;
   private doctrineNotesElement!: HTMLElement;
@@ -555,6 +556,7 @@ export class PrecombatScreen {
     this.missionBriefingElement = this.requireElement<HTMLElement>("#precombatMissionBriefing");
     this.objectiveListElement = this.requireElement<HTMLUListElement>("#objectiveList");
     this.missionTurnLimitElement = this.requireElement<HTMLElement>("#missionTurnLimit");
+    this.missionClockNoteElement = this.requireElement<HTMLElement>("#missionClockNote");
     this.baselineSupplyListElement = this.requireElement<HTMLUListElement>("#baselineSupplyList");
     this.baselineSupplySectionElement = this.element.querySelector<HTMLElement>("#baselineSupplySection");
     this.doctrineNotesElement = this.requireElement<HTMLElement>("#missionDoctrineNotes");
@@ -640,7 +642,6 @@ export class PrecombatScreen {
     this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();
-    this.appendAlliedForcesObjective();
     // Persist the command assignment so battle overlays reference the same general profile as precombat.
     this.battleState.setAssignedCommanderId(selectedGeneralId);
     this.rerenderAllocations();
@@ -792,7 +793,14 @@ export class PrecombatScreen {
     if (this.activeMissionKey === "campaign") {
       // A committed defensive package is a mandatory interruption. The commander may inspect the
       // campaign, but cannot discard the attack by backing out of precombat.
-      if (!this.campaignBattlePackage) ensureCampaignState().setActiveEngagementId(null);
+      if (!this.campaignBattlePackage) {
+        const discarded = ensureCampaignState().discardActiveUncommittedEngagement();
+        if (!discarded.ok) {
+          this.allocationFeedbackElement.textContent = discarded.reason;
+          this.allocationFeedbackElement.dataset.tone = "warning";
+          return;
+        }
+      }
       this.screenManager.showScreenById("campaign");
       return;
     }
@@ -1966,45 +1974,6 @@ export class PrecombatScreen {
   }
 
   /**
-   * Appends allied in-theater forces as a compact Secondary objective line so the objectives list
-   * remains the single source of mission context without a separate panel.
-   */
-  private appendAlliedForcesObjective(): void {
-    const playerEntries = Array.from(this.predeployedRoster.entries())
-      .filter(([key]) => key.startsWith("Player:"))
-      .map(([, entry]) => entry);
-    const alliedEntries = Array.from(this.predeployedRoster.entries())
-      .filter(([key]) => key.startsWith("Ally:"))
-      .map(([, entry]) => entry);
-    const allEntries = [...playerEntries, ...alliedEntries];
-    if (allEntries.length === 0) {
-      return;
-    }
-
-    // Build a compact RP-value summary so the player understands the balance context without
-    // confusing predeployed forces for requisitioned ones.
-    let totalRpValue = 0;
-    const unitDescriptions: string[] = [];
-    allEntries.forEach((entry) => {
-      const option = getAllocationOption(this.resolveAllocationKeyFromLabel(entry.scenarioType));
-      const rpPerUnit = option?.costPerUnit ?? 0;
-      totalRpValue += rpPerUnit * entry.count;
-      const displayLabel = entry.label.replace(/^Allied\s+/i, "");
-      unitDescriptions.push(entry.count > 1 ? `${entry.count}× ${displayLabel}` : displayLabel);
-    });
-
-    const rpNote = totalRpValue > 0 ? ` (RP value: ${totalRpValue.toLocaleString()})` : "";
-    const alliedPrefix = alliedEntries.length > 0 && playerEntries.length === 0
-      ? "Make contact with and take command of allied forces in theater"
-      : "Forces already in theater";
-    const objectiveText = `${alliedPrefix}: ${unitDescriptions.join(", ")}${rpNote}.`;
-    const li = document.createElement("li");
-    li.className = "mission-order-item mission-order-item--secondary";
-    li.innerHTML = `<strong>Secondary:</strong> <span class="mission-order-copy">${objectiveText}</span>`;
-    this.objectiveListElement.appendChild(li);
-  }
-
-  /**
    * Resolves an allocation key from a scenario unit type string for RP cost lookups.
    */
   private resolveAllocationKeyFromLabel(scenarioType: string): string {
@@ -2047,7 +2016,7 @@ export class PrecombatScreen {
       : null;
     const authoredTurnLimit = getMissionTurnLimit(missionKey, selectedDifficulty);
     const effectiveTurnLimit = campaignContext
-      ? scenarioTurnLimit
+      ? null
       : authoredTurnLimit > 0 ? authoredTurnLimit : scenarioTurnLimit;
     const doctrine = campaignContext
       ? campaignPlayerDefense
@@ -2070,6 +2039,11 @@ export class PrecombatScreen {
       })
       .join("");
     this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "No fixed turn limit";
+    this.missionClockNoteElement.textContent = campaignContext
+      ? "Battle continues until objective control or force collapse decides the result."
+      : effectiveTurnLimit !== null
+        ? "Complete the mission before the tactical deadline."
+        : "Battle continues until the mission conditions decide the result.";
     const visibleMissionAssets = this.filterMissionAssetsForBriefing(summary.supplies);
     if (this.baselineSupplySectionElement) {
       this.baselineSupplySectionElement.classList.toggle("hidden", visibleMissionAssets.length === 0);

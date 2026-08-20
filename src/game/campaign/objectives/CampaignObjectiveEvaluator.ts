@@ -51,6 +51,9 @@ export interface CampaignObjectivePresentation {
   readonly status: CampaignObjectiveRuntime["status"];
   readonly progress: number;
   readonly progressLabel: string;
+  readonly progressCurrent: number;
+  readonly progressTarget: number;
+  readonly conditionLabels: readonly string[];
   readonly deadlineSegment: number | null;
   readonly score: number;
   readonly scoreAwarded: number;
@@ -646,6 +649,10 @@ export function projectCampaignObjectives(
   reconcileCampaignObjectiveRuntime(runtime, definition);
   return definition.objectives.map((objective) => {
     const state = runtime.objectives[objective.key];
+    const liveEvaluations = state?.status === "active"
+      ? objectiveConditions(objective).map((condition) => evaluateCondition(condition, objective, runtime))
+      : [];
+    const liveAssessment = liveEvaluations.length > 0 ? combineConditions(objective, liveEvaluations) : null;
     const visibility = objective.visibility ?? "briefed";
     const resolved = state?.status === "completed" || state?.status === "failed";
     const visible = visibility === "briefed" || resolved || (visibility === "revealedByEvent" && state?.status === "active");
@@ -655,8 +662,13 @@ export function projectCampaignObjectives(
       description: objective.description,
       category: objectiveCategory(objective),
       status: state?.status ?? "locked",
-      progress: clamp01(state?.progress ?? 0),
-      progressLabel: state?.progressLabel ?? "Awaiting evaluation",
+      progress: clamp01(liveAssessment?.progress ?? state?.progress ?? 0),
+      progressLabel: liveAssessment?.label ?? state?.progressLabel ?? "Awaiting evaluation",
+      progressCurrent: liveAssessment?.current ?? state?.progressCurrent ?? state?.progress ?? 0,
+      progressTarget: liveAssessment?.target ?? state?.progressTarget ?? 1,
+      conditionLabels: liveEvaluations.length > 0
+        ? liveEvaluations.map((entry) => entry.label)
+        : [...(state?.conditionLabels ?? [])],
       deadlineSegment: objective.deadlineSegment ?? null,
       score: objectiveScore(objective),
       scoreAwarded: state?.scoreAwarded ?? 0,

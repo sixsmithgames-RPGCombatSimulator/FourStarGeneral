@@ -5789,7 +5789,7 @@
     }
     .redeploy-actions .primary-button:disabled { opacity: 0.45; cursor: not-allowed; }
     /* ===== Campaign War Production ===== */
-    .production-modal { display: flex; flex-direction: column; gap: 0.75rem; overflow-y: auto; }
+    .production-modal { display: flex; flex-direction: column; gap: 0.75rem; overflow: visible; }
     .production-capacity-banner {
       padding: 0.6rem 0.75rem; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08);
       border-radius: 10px; font-size: 0.88rem; color: rgba(200,210,225,0.9);
@@ -5810,7 +5810,7 @@
     .alloc-total { font-weight: 400; text-transform: none; letter-spacing: normal; }
     .alloc-total.alloc-total-off { color: #ffc06d; }
     .production-alloc-note { font-size: 0.72rem; color: rgba(180,190,205,0.55); }
-    .production-sources { display: flex; flex-direction: column; gap: 0.25rem; max-height: 160px; overflow-y: auto; }
+    .production-sources { display: flex; flex-direction: column; gap: 0.25rem; max-height: none; overflow: visible; }
     .production-source-row {
       display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: center;
       padding: 0.3rem 0.6rem; background: rgba(0,0,0,0.18); border-radius: 6px; font-size: 0.8rem;
@@ -8976,6 +8976,7 @@
       text-transform: uppercase;
       white-space: nowrap;
     }
+    .campaign-command-compact-status { display: none; }
     .campaign-command-clock-block,
     .campaign-command-state-block,
     .campaign-command-save-state {
@@ -9179,6 +9180,11 @@
     .campaign-objective-row__header { display: flex; align-items: start; justify-content: space-between; gap: 0.6rem; }
     .campaign-objective-row__header .campaign-objective-row__status { flex: 0 0 auto; color: #d9bd79; }
     .campaign-objective-row__detail { margin: 0; color: rgba(224, 217, 195, 0.72); font-size: 0.68rem; line-height: 1.4; }
+    .campaign-objective-row__condition { margin: 0; color: #d5bd7f; font-size: 0.64rem; line-height: 1.4; }
+    .campaign-front-assessment { display: grid; gap: 0.5rem; }
+    .campaign-front-assessment p { margin: 0; line-height: 1.4; }
+    .campaign-front-target-choice { display: grid; gap: 0.3rem; color: #d8c58d; font-size: 0.7rem; font-weight: 700; }
+    .campaign-front-target-choice select { width: 100%; min-height: 2.4rem; border: 1px solid rgba(219, 191, 116, 0.3); border-radius: 0.35rem; background: #111711; color: #f0e5c7; }
     .campaign-objective-row__progress { height: 4px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,0.08); }
     .campaign-objective-row__progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #8d733d, #ddbd6d); }
     .campaign-objective-row__meta { color: rgba(211, 203, 180, 0.55); font-size: 0.61rem; text-transform: capitalize; }
@@ -9446,7 +9452,14 @@
     .campaign-infrastructure-card small { color: #d99a82; line-height: 1.35; }
     .campaign-infrastructure-meter { overflow: hidden; height: 7px; border: 1px solid rgba(225, 208, 159, 0.18); border-radius: 999px; background: rgba(0,0,0,0.32); }
     .campaign-infrastructure-meter > span { display: block; height: 100%; background: linear-gradient(90deg, #b55e49, #d5b460); transition: width 180ms ease; }
-    .campaign-context-inspector .action-section { padding: 0 0.8rem 0.8rem; }
+    .campaign-context-inspector .action-section {
+      position: sticky;
+      z-index: 3;
+      bottom: 0;
+      padding: 0.7rem 0.8rem 0.8rem;
+      border-top: 1px solid rgba(219, 202, 152, 0.13);
+      background: linear-gradient(180deg, rgba(20, 25, 20, 0.92), rgba(12, 16, 14, 0.99) 24%);
+    }
     .campaign-order-tray {
       grid-area: tray;
       z-index: 32;
@@ -10046,6 +10059,33 @@
       .tactical-save-slot { grid-template-columns: 2.3rem minmax(0, 1fr); }
       .tactical-save-slot__type { grid-column: 2; }
     }
+    @media (max-width: 700px) {
+      .campaign-command-shell {
+        --campaign-shell-bar: 52px;
+        --campaign-shell-tray: 76px;
+        grid-template-rows: var(--campaign-shell-bar) minmax(0, 1fr) var(--campaign-shell-tray) 48px;
+      }
+      .campaign-command-bar { grid-template-columns: minmax(0, 1fr) auto auto; }
+      .campaign-command-clock-block { display: none; }
+      .campaign-command-identity { align-content: center; padding: 0.2rem 0.5rem; }
+      .campaign-command-identity h1 { grid-row: 1; font-size: 0.72rem; line-height: 1.05; }
+      .campaign-command-eyebrow, .campaign-command-phase { display: none; }
+      .campaign-command-compact-status { display: flex; grid-column: 1 / -1; grid-row: 2; gap: 0.35rem; color: rgba(222, 211, 179, 0.72); font-size: 0.48rem; white-space: nowrap; }
+      .campaign-command-compact-status span + span::before { content: "·"; margin-right: 0.35rem; color: #cba95a; }
+      .campaign-command-session { gap: 0.12rem; padding-inline: 0.2rem; }
+      .campaign-command-session .session-btn { min-width: 32px; min-height: 34px; padding: 0.28rem 0.32rem; font-size: 0.54rem; }
+      .campaign-command-report-button { min-width: 38px; padding-inline: 0.25rem; }
+      .campaign-workspace-panel.campaign-sidebar { bottom: calc(var(--campaign-shell-tray) + 48px); max-height: min(64vh, 480px); }
+      .campaign-context-inspector, .campaign-command-shell .campaign-intel-drawer { bottom: calc(var(--campaign-shell-tray) + 48px); }
+      .campaign-workspace-rail { padding: 0.2rem 0.3rem; }
+      .campaign-workspace-tab { min-width: 72px; min-height: 40px; padding: 0.2rem; }
+      .campaign-workspace-tab__mark { display: none; }
+      .campaign-order-tray { grid-template-columns: 70px minmax(0, 1fr) auto; gap: 0.25rem; padding: 0.25rem; }
+      .campaign-order-tray__heading strong, .campaign-order-tray__heading small { display: none; }
+      .campaign-order-tray__actions button { min-width: 72px; min-height: 34px; padding: 0.25rem 0.4rem; }
+      .campaign-advance-control { min-width: 100px; padding: 0.2rem; }
+      #campaignTimelineToggle { min-width: 58px; }
+    }
 
     .app-boot-status {
       position: fixed;
@@ -10076,6 +10116,18 @@
     .app-boot-status__surface strong { font-family: var(--font-heading); letter-spacing: 0.08em; text-transform: uppercase; }
     .app-boot-status__surface span { color: rgba(224, 214, 187, 0.72); font-size: 0.78rem; line-height: 1.4; }
     .app-boot-status__mark { color: #dfbd6a; font-size: 1.7rem; animation: app-boot-pulse 1.2s ease-in-out infinite alternate; }
+    .screen-transition-status {
+      position: fixed;
+      z-index: 19990;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 1rem;
+      background: rgba(6, 9, 7, 0.9);
+      color: #f0e5c7;
+      cursor: progress;
+    }
+    .screen-transition-status .app-boot-status__surface { width: min(26rem, calc(100vw - 2rem)); }
     @keyframes app-boot-pulse { to { opacity: 0.42; transform: scale(0.92); } }
     @media (prefers-reduced-motion: reduce) { .app-boot-status__mark { animation: none; } }
   </style>
@@ -10087,6 +10139,15 @@
       <div>
         <strong>Preparing command systems</strong>
         <span>Loading the operational map, roster, and battle engine…</span>
+      </div>
+    </div>
+  </div>
+  <div id="screenTransitionStatus" class="screen-transition-status hidden" role="status" aria-live="polite" aria-hidden="true">
+    <div class="app-boot-status__surface">
+      <span class="app-boot-status__mark" aria-hidden="true">★</span>
+      <div>
+        <strong>Command transition</strong>
+        <span data-screen-transition-copy>Preparing the next command view…</span>
       </div>
     </div>
   </div>
@@ -10524,7 +10585,7 @@
               <div class="info-block info-block--turn-limit">
                 <strong>Time Limit</strong>
                 <p id="missionTurnLimit" class="mission-clock">Pending</p>
-                <p class="mission-clock-note">Finish the operation before the window closes.</p>
+                <p id="missionClockNote" class="mission-clock-note">Complete the mission before the tactical deadline.</p>
               </div>
               <div class="info-block info-block--doctrine">
                 <strong>Command Notes</strong>

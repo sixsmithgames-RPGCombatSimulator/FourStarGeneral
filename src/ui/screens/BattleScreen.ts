@@ -8936,7 +8936,7 @@ export class BattleScreen {
       if (enforceAllocations) {
         throw new Error("Commander allocations missing. Return to precombat and lock requisitions before battle.");
       }
-      console.warn("[BattleScreen] prepareBattleState skipped: committed allocations not available yet.");
+      console.debug("[BattleScreen] battle preparation deferred until commander allocations are committed.");
       return engine;
     }
 
