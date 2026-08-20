@@ -1106,7 +1106,10 @@ export class CampaignCommandShell {
         createTextElement("span", "campaign-objective-row__status", objective.status)
       );
       row.append(header);
-      if (objective.progressLabel) row.append(createTextElement("p", "campaign-objective-row__condition", objective.progressLabel));
+      const progressLabel = objective.status === "Upcoming" && objective.progressLabel === "Awaiting evaluation"
+        ? ""
+        : objective.progressLabel;
+      if (progressLabel) row.append(createTextElement("p", "campaign-objective-row__condition", progressLabel));
       if (objective.progress !== undefined) {
         const progress = document.createElement("div");
         progress.className = "campaign-objective-row__progress";

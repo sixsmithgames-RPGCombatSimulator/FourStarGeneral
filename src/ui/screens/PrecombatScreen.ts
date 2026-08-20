@@ -802,6 +802,10 @@ export class PrecombatScreen {
         }
       }
       this.screenManager.showScreenById("campaign");
+      const workspacePanel = document.getElementById("campaignWorkspacePanel");
+      const contextInspector = document.getElementById("campaignContextInspector");
+      if (workspacePanel) workspacePanel.scrollTop = 0;
+      if (contextInspector) contextInspector.scrollTop = 0;
       return;
     }
     this.screenManager.showScreenById("landing");
@@ -1763,7 +1767,6 @@ export class PrecombatScreen {
     const assessedDanger = briefing
       ? briefing.resistanceBand === "heavy" || briefing.resistanceBand === "overwhelming"
       : legacyRatio.outgunned;
-    const assessmentLabel = briefing?.summary ?? legacyRatio.label;
     const playerDefense = this.isPlayerDefensiveEngagement();
     const banner = existing ?? document.createElement("div");
     banner.id = "engagementContextBanner";
@@ -1783,8 +1786,8 @@ export class PrecombatScreen {
       ? Object.values(this.getPlayerDefensiveCommitmentCaps()).reduce((sum, count) => sum + count, 0)
       : context.availableForces.reduce((sum, group) => sum + group.count, 0);
     const intelligenceLine = briefing
-      ? `${assessmentLabel} · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
-      : assessmentLabel;
+      ? `${briefing.resistanceBand.charAt(0).toUpperCase()}${briefing.resistanceBand.slice(1)} resistance · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
+      : legacyRatio.label;
     const unknowns = briefing?.explicitUnknowns ?? [];
     banner.innerHTML = playerDefense ? `
       <span style="display:block;"><strong>Committed defense</strong> · ${committedGroups} formation${committedGroups === 1 ? "" : "s"} locked to this battle</span>

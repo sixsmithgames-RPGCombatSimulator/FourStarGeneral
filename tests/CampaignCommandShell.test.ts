@@ -87,6 +87,13 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
         deadline: "Deadline Day 2",
         failureEffect: "Lose access to heavy equipment.",
         hexKey: "27,37"
+      }, {
+        key: "obj-2",
+        label: "Capture the airfield",
+        status: "Upcoming",
+        progressLabel: "Awaiting evaluation",
+        deadline: "Day 4",
+        hexKey: "29,39"
       }],
       forces: [{ hexKey: "2,3", label: "1st <Division>", count: 3 }],
       airPower: 8,
@@ -171,6 +178,9 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
     }
     if (root.querySelector<HTMLElement>("#campaignWorkspacePanel")?.scrollTop !== 0) {
       throw new Error("Changing campaign workspaces retained a stale panel scroll position.");
+    }
+    if (root.querySelector<HTMLElement>("[data-objective-key='obj-2']")?.textContent?.includes("Awaiting evaluation")) {
+      throw new Error("An upcoming objective repeated a non-actionable evaluation placeholder.");
     }
     const intelligence = root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='intelligence']");
     if (intelligence?.getAttribute("aria-selected") !== "true" || shell.getActiveWorkspace() !== "intelligence") {

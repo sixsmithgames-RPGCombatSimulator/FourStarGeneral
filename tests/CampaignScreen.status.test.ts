@@ -313,6 +313,7 @@ registerTest("CAMPAIGNSCREEN_FORMATS_INTERNAL_CAMPAIGN_LABELS_FOR_PLAYERS", asyn
 registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Given, When, Then }) => {
   const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
   let markup = "";
+  let selectedMarkup = "";
 
   await Given("intelligence assets may be unavailable but the commander has not chosen an operation", () => {
     const rules = ensureCampaignState().getIntelOperationRules();
@@ -322,7 +323,15 @@ registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Gi
     (screen as any).selectedHexKey = "27,37";
     (screen as any).campaignState = {
       getIntelOperationRules: () => rules,
-      getCampaignDraftReservations: () => ({ intelligenceCapacity: 0 })
+      getCampaignDraftReservations: () => ({ intelligenceCapacity: 0 }),
+      previewIntelOperationDraft: () => ({
+        eligibleAssets: [],
+        capacityAvailable: 3,
+        suppliesAvailable: 200000,
+        fuelAvailable: 1000000,
+        resolveSegment: null
+      }),
+      segmentToTimeDisplay: () => "Day 1, 03:00-06:00"
     };
     (screen as any).campaignActionRegistry = {
       resolve: () => ({
@@ -338,6 +347,11 @@ registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Gi
     markup = (screen as any).composeIntelOperationsMarkup({
       capacity: { total: 3, committed: 0, available: 3 }
     }, []);
+    (screen as any).intelOperationType = "groundRecon";
+    (screen as any).selectedHexKey = null;
+    selectedMarkup = (screen as any).composeIntelOperationsMarkup({
+      capacity: { total: 3, committed: 0, available: 3 }
+    }, []);
   });
 
   await Then("operation choices appear without a default failure, composer, or generic stage strip", () => {
@@ -349,6 +363,15 @@ registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Gi
       || /ASSET UNAVAILABLE|ORDER_ASSET_UNAVAILABLE/i.test(host.textContent ?? "")
       || !host.textContent?.includes("Choose an operation")) {
       throw new Error(`Intelligence planning did not begin in a neutral, concise state: ${host.textContent}`);
+    }
+    const selectedHost = document.createElement("div");
+    selectedHost.innerHTML = selectedMarkup;
+    const nextStepCount = (selectedHost.textContent?.match(/Select a map hex to see eligible assets and complete this draft\./g) ?? []).length;
+    if (nextStepCount !== 1
+      || selectedHost.querySelector(".redeploy-issue")
+      || selectedHost.querySelector("#campaignIntelAsset")
+      || /NO ELIGIBLE ASSET|TARGET INVALID|Choose a valid campaign target/i.test(selectedHost.textContent ?? "")) {
+      throw new Error(`A chosen intelligence operation repeated premature target or asset failures: ${selectedHost.textContent}`);
     }
   });
 });

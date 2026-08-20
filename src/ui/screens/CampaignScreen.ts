@@ -1988,6 +1988,7 @@ export class CampaignScreen {
       excludeOrderId: this.editingIntelOrderId
     });
     const requiresAsset = rule.requiresAsset !== "none";
+    const hasTarget = Boolean(this.selectedHexKey);
     return `
       <div class="campaign-intel-capacity"><span>Capacity</span><strong>${draftAwareCapacity}/${view.capacity.total} free</strong><small>${view.capacity.committed} committed · ${heldCapacity} held</small></div>
       <div class="campaign-intel-operation-grid">${operationButtons}</div>
@@ -1999,14 +2000,16 @@ export class CampaignScreen {
           <span>${rule.capacityCost} of ${selectedPreview.capacityAvailable} free capacity</span><span>${rule.durationSegments * 3} hours</span><span>${rule.suppliesCost} of ${selectedPreview.suppliesAvailable} supply</span><span>${rule.fuelCost} of ${selectedPreview.fuelAvailable} fuel</span>${requiresAsset && rule.assetRangeHex !== undefined ? `<span>${rule.assetRangeHex} hex range</span>` : ""}
         </div>
         <label>Target <strong>${this.escapeHtml(this.selectedHexKey ?? "Select a map hex")}</strong></label>
-        ${requiresAsset ? `
+        ${requiresAsset && hasTarget ? `
           <label for="campaignIntelAsset">Assigned asset</label>
           <select id="campaignIntelAsset" ${assets.length === 0 ? "disabled" : ""}>
             ${assets.length === 0 ? `<option value="">No eligible asset</option>` : assets.map((asset) => `<option value="${this.escapeHtml(asset.assetKey)}" ${asset.assetKey === selectedAssetKey ? "selected" : ""}>${this.escapeHtml(asset.label)}</option>`).join("")}
           </select>
-        ` : `<p class="campaign-intel-doctrine">This operation uses headquarters deception capacity and does not require a formation assignment.</p>`}
-        <p class="campaign-intel-order-summary">${selectedPreview.resolveSegment === null ? "Timing unavailable" : `Starts next segment · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedPreview.resolveSegment))}`} · reserves ${rule.capacityCost} capacity, ${rule.suppliesCost} supply, and ${rule.fuelCost} fuel.</p>
-        ${selectedAction.availability === "available"
+        ` : !requiresAsset ? `<p class="campaign-intel-doctrine">This operation uses headquarters deception capacity and does not require a formation assignment.</p>` : ""}
+        ${hasTarget
+          ? `<p class="campaign-intel-order-summary">${selectedPreview.resolveSegment === null ? "Timing unavailable" : `Starts next segment · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedPreview.resolveSegment))}`} · reserves ${rule.capacityCost} capacity, ${rule.suppliesCost} supply, and ${rule.fuelCost} fuel.</p>`
+          : `<p class="campaign-intel-order-summary">Select a map hex to see eligible assets and complete this draft.</p>`}
+        ${!hasTarget || selectedAction.availability === "available"
           ? ""
           : `<div class="redeploy-issue" data-reason-code="${selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID"}"><strong>${(selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(selectedAction.reason ?? "The operation is unavailable.")}</span><small>${this.escapeHtml(selectedAction.correctiveAction ?? "Review the target and assigned asset.")}</small></div>`}
         ${this.intelFeedback ? `<div class="campaign-intel-feedback" aria-live="polite">${this.escapeHtml(this.intelFeedback)}</div>` : ""}

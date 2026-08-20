@@ -120,6 +120,12 @@ registerTest("PRECOMBAT_CAMPAIGN_RETURN_DISCARDS_ONLY_UNCOMMITTED_PLAN", async (
   const screen = Object.create(PrecombatScreen.prototype) as PrecombatScreen;
 
   await Given("campaign precombat with an uncommitted engagement and a visible recovery message", () => {
+    document.body.innerHTML = `
+      <aside id="campaignWorkspacePanel"></aside>
+      <aside id="campaignContextInspector"></aside>
+    `;
+    document.getElementById("campaignWorkspacePanel")!.scrollTop = 220;
+    document.getElementById("campaignContextInspector")!.scrollTop = 80;
     const internals = screen as any;
     internals.activeMissionKey = "campaign";
     internals.campaignBattlePackage = null;
@@ -153,8 +159,13 @@ registerTest("PRECOMBAT_CAMPAIGN_RETURN_DISCARDS_ONLY_UNCOMMITTED_PLAN", async (
       if (!feedback.textContent?.includes("already committed")) {
         throw new Error("Failed discard did not keep precombat visible with a corrective warning.");
       }
+      if (document.getElementById("campaignWorkspacePanel")?.scrollTop !== 0
+        || document.getElementById("campaignContextInspector")?.scrollTop !== 0) {
+        throw new Error("Returning to headquarters retained stale campaign reading positions.");
+      }
     } finally {
       campaignState.discardActiveUncommittedEngagement = originalDiscard;
+      document.body.innerHTML = "";
     }
   });
 });
@@ -173,7 +184,14 @@ registerTest("PRECOMBAT_CAMPAIGN_CONTEXT_STAYS_OUTSIDE_BUDGET_GRID", async ({ Gi
       forceRatio: 1,
       availableForces: [{ hexKey: "3,4", unitType: "Infantry_42", count: 2 }],
       airSorties: 0,
-      rpReserve: 100
+      rpReserve: 100,
+      intelligenceBriefing: {
+        summary: "Enemy resistance is assessed as light, with medium confidence.",
+        resistanceBand: "light",
+        confidenceBand: "medium",
+        contacts: [{ contactId: "contact-1" }],
+        explicitUnknowns: ["Reserve strength"]
+      }
     };
   });
 
@@ -189,7 +207,8 @@ registerTest("PRECOMBAT_CAMPAIGN_CONTEXT_STAYS_OUTSIDE_BUDGET_GRID", async ({ Gi
     if (budget.contains(banner)
       || header?.contains(banner)
       || banner.parentElement?.id !== "engagementContextMount"
-      || /meeting engagement|hex 4,4/i.test(banner.textContent ?? "")) {
+      || /meeting engagement|hex 4,4/i.test(banner.textContent ?? "")
+      || ((banner.textContent ?? "").match(/medium confidence/gi)?.length ?? 0) !== 1) {
       throw new Error("Campaign context repeated mission identity or occupied the sticky header/budget grid.");
     }
   });
