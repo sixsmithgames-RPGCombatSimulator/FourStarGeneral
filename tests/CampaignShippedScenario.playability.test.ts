@@ -11,6 +11,50 @@ function buildShippedScenario(): CampaignScenarioData {
   return structuredClone(campaignScenarioData) as CampaignScenarioData;
 }
 
+registerTest("CAMPAIGN_SHIPPED_OPENING_GEOGRAPHY_MATCHES_ITS_BRIEF", async ({ Given, When, Then }) => {
+  const scenario = buildShippedScenario();
+  let channelRole = "";
+
+  await Given("the shipped campaign at its first player-visible command frame", () => {
+    const channelTile = scenario.tiles.find((tile) => tile.hex.q === 20 && tile.hex.r === 18);
+    if (!channelTile) throw new Error("The shipped campaign is missing its Channel assault-group marker.");
+    channelRole = scenario.tilePalette[channelTile.tile]?.role ?? "";
+  });
+
+  await When("the authored water marker, shore lodgment, objective, and phase premise are reconciled", () => {});
+
+  await Then("the Channel contains a task force while the established beachhead is held on the French shore", () => {
+    const channelTile = scenario.tiles.find((tile) => tile.hex.q === 20 && tile.hex.r === 18);
+    const beachheadTile = scenario.tiles.find((tile) => tile.hex.q === 27 && tile.hex.r === 24);
+    const beachhead = scenario.objectives.find((objective) => objective.key === "secure_beachhead");
+    const beachheadPhase = scenario.campaignArc?.phases.find((phase) => phase.key === "beachhead");
+    const beachheadForces = beachheadTile?.forces?.filter((group) => group.label === "Beachhead Reserve") ?? [];
+    if (channelRole !== "taskForce"
+      || channelTile?.forces?.length
+      || scenario.tilePalette[channelTile?.tile ?? ""]?.spriteKey !== "taskForce") {
+      throw new Error("The English Channel still contains a shore installation or projected ground force.");
+    }
+    if (scenario.tilePalette[beachheadTile?.tile ?? ""]?.role !== "fortificationLight"
+      || beachheadForces.length !== 1
+      || beachheadForces[0].unitType !== "Infantry_42"
+      || beachheadForces[0].count !== 2) {
+      throw new Error("The established shore lodgment does not contain its persistent beachhead reserve.");
+    }
+    if (!beachhead
+      || beachhead.label !== "Hold the Beachhead"
+      || beachhead.hex.q !== 27
+      || beachhead.hex.r !== 24
+      || !beachhead.description.includes("established lodgment")) {
+      throw new Error("The first objective still describes a landing that has already happened or targets water.");
+    }
+    if (!scenario.description.includes("initial landings have secured")
+      || beachheadPhase?.label !== "Beachhead Consolidation"
+      || !beachheadPhase.description.includes("established lodgment")) {
+      throw new Error("The opening brief does not explain why Allied formations already occupy the French shore.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_SHIPPED_FRONTS_SURVIVE_THE_FIRST_SEGMENT", async ({ Given, When, Then }) => {
   const state = new CampaignState({ legacyStorage: null });
   let advanced: ReturnType<CampaignState["advanceCampaign"]>;

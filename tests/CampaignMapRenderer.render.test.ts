@@ -4,6 +4,7 @@ import { CampaignMapRenderer } from "../src/rendering/CampaignMapRenderer";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import type { CampaignMapViewModel } from "../src/core/campaignIntelTypes";
+import campaignScenarioData from "../src/data/campaign01.json";
 
 registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
@@ -135,6 +136,38 @@ registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_ON_SHARED_HEX_BORDERS", asy
       || !edge.hasAttribute("x2") || !edge.hasAttribute("y2")
       || svg.querySelector("polyline.front-derived-front")) {
       throw new Error("The derived front did not render as one exact shared-border segment.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANNEL", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const renderer = new CampaignMapRenderer();
+
+  await Given("the shipped post-landing campaign opening", () => {
+    renderer.render(svg, canvas as HTMLDivElement, {
+      observerFaction: "Player",
+      scenario,
+      enemyContacts: [],
+      coverage: [],
+      capacity: { total: 0, committed: 0, available: 0 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+  });
+
+  await When("the English Channel marker is painted", () => {});
+
+  await Then("the player sees an assault task force and no infantry counter at that water hex", () => {
+    const channelOffsetKey = "20,28";
+    const sprite = svg.querySelector<SVGImageElement>(`.campaign-sprite[data-hex="${channelOffsetKey}"]`);
+    const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
+    if (!sprite || !sprite.getAttribute("href")?.includes("task_force.svg") || groundCounters.length !== 0) {
+      throw new Error("The Channel marker still renders as a shore base or projects a ground formation.");
     }
   });
 });

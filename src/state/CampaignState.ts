@@ -109,6 +109,7 @@ import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../gam
 import { migrateLegacyCampaignSave } from "../game/campaign/persistence/CampaignSaveMigration";
 import {
   CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+  CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
   migrateCampaignRuntimeContent
 } from "../game/campaign/persistence/CampaignContentMigration";
@@ -1754,8 +1755,13 @@ export class CampaignState {
       scenarioKey: this.scenarioDefinition.key,
       scenarioContentHash,
       ...(this.scenarioDefinition.key === "central_channel"
-        && scenarioContentHash === CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH
-        ? { compatiblePriorContentHashes: [CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH] }
+        && scenarioContentHash === CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH
+        ? {
+            compatiblePriorContentHashes: [
+              CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
+              CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH
+            ]
+          }
         : {})
     };
   }

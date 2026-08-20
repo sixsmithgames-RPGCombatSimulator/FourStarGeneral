@@ -149,7 +149,7 @@ registerTest("CAMPAIGN_STATE_REJECTS_INVALID_SCENARIO_ATOMICALLY", async ({ Give
 
   await When("the invalid replacement is submitted through the authored scenario boundary", async () => {
     const invalid = buildCampaign01Scenario();
-    invalid.tiles = invalid.tiles.filter((tile) => tile.hex.q !== 20 || tile.hex.r !== 18);
+    invalid.tiles = invalid.tiles.filter((tile) => tile.hex.q !== 27 || tile.hex.r !== 24);
     try {
       state.setScenario(invalid);
     } catch (error) {
@@ -333,7 +333,7 @@ registerTest("CAMPAIGN_STATE_RECOVERY_REQUIRES_EXPLICIT_ACCEPTANCE", async ({ Gi
     legacyStorage: createLegacyStorage()
   });
   restored.setScenario(buildCampaignSaveCanonicalScenario());
-  let load = await restored.loadPrimaryCampaign(buildPersistenceRequest("2026-08-02T15:02:00.000Z"));
+  const load = await restored.loadPrimaryCampaign(buildPersistenceRequest("2026-08-02T15:02:00.000Z"));
 
   await Given("a corrupt current primary save with one verified earlier record", async () => {});
 

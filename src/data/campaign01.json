@@ -1,7 +1,7 @@
 {
   "key": "central_channel",
   "title": "Operation Overlord - Central Channel Sector",
-  "description": "Command the invasion forces across the English Channel. Secure airbases, establish supply lines, and coordinate the largest amphibious operation in history.",
+  "description": "The initial landings have secured two narrow footholds on the French shore. Hold the lodgment, open a working port, and expand Allied air cover before the enemy counterattack can contain the invasion.",
   "hexScaleKm": 10,
   "dimensions": {
     "cols": 50,
@@ -47,6 +47,14 @@
       "navalCapacity": 12,
       "intelConfirmed": true,
       "notes": "Naval staging port"
+    },
+    "playerAssaultTaskForce": {
+      "role": "taskForce",
+      "factionControl": "Player",
+      "spriteKey": "taskForce",
+      "navalCapacity": 12,
+      "intelConfirmed": true,
+      "notes": "Allied assault fleet supporting the established lodgment"
     },
     "playerLogistics": {
       "role": "logisticsHub",
@@ -2000,18 +2008,11 @@
       "rotation": 0
     },
     {
-      "tile": "playerNavalBase",
+      "tile": "playerAssaultTaskForce",
       "hex": {
         "q": 20,
         "r": 18
       },
-      "forces": [
-        {
-          "unitType": "Infantry_42",
-          "count": 2,
-          "label": "Beachhead Garrison"
-        }
-      ],
       "controlSinceDay": 1,
       "controlSinceSegment": 0
     },
@@ -2031,6 +2032,11 @@
           "unitType": "Artillery_105mm",
           "count": 1,
           "label": "Port Approach Battery"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 2,
+          "label": "Beachhead Reserve"
         }
       ],
       "controlSinceDay": 1,
@@ -2112,11 +2118,11 @@
   "objectives": [
     {
       "key": "secure_beachhead",
-      "label": "Establish Beachhead",
-      "description": "Capture and hold the coastal positions to allow reinforcements to land",
+      "label": "Hold the Beachhead",
+      "description": "Hold the established lodgment and keep its beach exits open for follow-on forces",
       "hex": {
-        "q": 20,
-        "r": 18
+        "q": 27,
+        "r": 24
       },
       "owner": "Player",
       "category": "primary",
@@ -2254,8 +2260,8 @@
     "phases": [
       {
         "key": "beachhead",
-        "label": "Beachhead phase",
-        "description": "Secure the lodgment and open the reinforcement route.",
+        "label": "Beachhead Consolidation",
+        "description": "Hold the established lodgment and open the reinforcement route before the enemy counterattack gathers strength.",
         "objectiveKeys": [
           "secure_beachhead"
         ]

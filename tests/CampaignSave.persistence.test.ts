@@ -35,6 +35,7 @@ import {
 import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
 import {
   CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+  CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH
 } from "../src/game/campaign/persistence/CampaignContentMigration";
 import {
@@ -53,8 +54,30 @@ import { CampaignState, type CampaignStatePersistenceRequest } from "../src/stat
 const CREATED_AT = "2026-08-02T12:00:00.000Z";
 const UPDATED_AT = "2026-08-02T12:03:00.000Z";
 
-function buildPreContactCentralChannelScenario(): CampaignScenarioData {
+function buildContactRepairCentralChannelScenario(): CampaignScenarioData {
   const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  scenario.description = "Command the invasion forces across the English Channel. Secure airbases, establish supply lines, and coordinate the largest amphibious operation in history.";
+  delete scenario.tilePalette.playerAssaultTaskForce;
+  const channelBase = scenario.tiles.find((tile) => tile.hex.q === 20 && tile.hex.r === 18);
+  const beachheadTile = scenario.tiles.find((tile) => tile.hex.q === 27 && tile.hex.r === 24);
+  const beachheadObjective = scenario.objectives.find((objective) => objective.key === "secure_beachhead");
+  const beachheadPhase = scenario.campaignArc?.phases.find((phase) => phase.key === "beachhead");
+  if (!channelBase || !beachheadTile?.forces || !beachheadObjective || !beachheadPhase) {
+    throw new Error("Current Central Channel fixture is missing opening-repair source records.");
+  }
+  channelBase.tile = "playerNavalBase";
+  channelBase.forces = [{ unitType: "Infantry_42", count: 2, label: "Beachhead Garrison" }];
+  beachheadTile.forces = beachheadTile.forces.filter((group) => group.label !== "Beachhead Reserve");
+  beachheadObjective.label = "Establish Beachhead";
+  beachheadObjective.description = "Capture and hold the coastal positions to allow reinforcements to land";
+  beachheadObjective.hex = { q: 20, r: 18 };
+  beachheadPhase.label = "Beachhead phase";
+  beachheadPhase.description = "Secure the lodgment and open the reinforcement route.";
+  return scenario;
+}
+
+function buildPreContactCentralChannelScenario(): CampaignScenarioData {
+  const scenario = buildContactRepairCentralChannelScenario();
   scenario.tiles = scenario.tiles.filter((tile) => !(
     (tile.hex.q === 27 && tile.hex.r === 24)
     || (tile.hex.q === 29 && tile.hex.r === 25)
@@ -411,7 +434,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_PRE_CONTACT_GEOMETRY_WITHOUT_LOSING_PROGRES
 
   await Given("a verified production save from the exact campaign content before actionable contact geometry", async () => {
     if (legacyHash !== CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH
-      || currentHash !== CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH) {
+      || currentHash !== CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH) {
       throw new Error(`Campaign content migration hashes drifted (${legacyHash} -> ${currentHash}).`);
     }
   });
@@ -425,16 +448,28 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_PRE_CONTACT_GEOMETRY_WITHOUT_LOSING_PROGRES
 
   await Then("existing identity and progress survive while persistent contact forces and exact fronts are added once", async () => {
     const runtime = restored?.getRuntimeSnapshot();
-    if (!runtime || runtime.scenarioContentHash !== CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH) {
+    if (!runtime || runtime.scenarioContentHash !== CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH) {
       throw new Error("Migrated campaign did not adopt the repaired authored-content identity.");
     }
     if (runtime.campaignId !== before.campaignId || runtime.revision !== before.revision
       || runtime.currentSegment !== before.currentSegment) {
       throw new Error("Content migration changed campaign identity, revision, or elapsed time.");
     }
+    const priorChannelFormationIds = new Set(before.tiles["20,18"].formationIds);
     before.formationOrder.forEach((formationId) => {
-      if (computeCampaignContentHash(runtime.formations[formationId])
-        !== computeCampaignContentHash(before.formations[formationId])) {
+      const migratedFormation = runtime.formations[formationId];
+      const priorFormation = before.formations[formationId];
+      if (priorChannelFormationIds.has(formationId)) {
+        if (migratedFormation.locationHexKey !== "27,24"
+          || !migratedFormation.name.includes("Beachhead Reserve")
+          || migratedFormation.faction !== priorFormation.faction
+          || computeCampaignContentHash(migratedFormation.personnel) !== computeCampaignContentHash(priorFormation.personnel)
+          || computeCampaignContentHash(migratedFormation.equipment) !== computeCampaignContentHash(priorFormation.equipment)
+          || computeCampaignContentHash(migratedFormation.experience) !== computeCampaignContentHash(priorFormation.experience)) {
+          throw new Error(`Existing Channel formation ${formationId} did not retain identity and condition on the shore.`);
+        }
+      } else if (computeCampaignContentHash(migratedFormation)
+        !== computeCampaignContentHash(priorFormation)) {
         throw new Error(`Existing formation ${formationId} changed during content migration.`);
       }
     });
@@ -443,11 +478,66 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_PRE_CONTACT_GEOMETRY_WITHOUT_LOSING_PROGRES
         throw new Error(`Repaired contact tile ${hexKey} lacks persistent campaign formations.`);
       }
     }
+    if (runtime.tiles["20,18"].tileKey !== "playerAssaultTaskForce"
+      || runtime.tiles["20,18"].formationIds.length !== 0
+      || runtime.tiles["20,18"].forces.length !== 0) {
+      throw new Error("Migrated campaign retained the infantry base in the English Channel.");
+    }
     const normandy = runtime.compatibility.initialFronts.find((front) => front.key === "normandy_coast");
     const eastern = runtime.compatibility.initialFronts.find((front) => front.key === "eastern_flank");
     if (normandy?.edges?.[0]?.friendlyHexKey !== "27,37" || normandy.edges[0].opposingHexKey !== "28,38"
       || eastern?.edges?.[0]?.friendlyHexKey !== "30,40" || eastern.edges[0].opposingHexKey !== "29,39") {
       throw new Error("Migrated campaign did not derive both repaired exact contact fronts.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_SAVE_MIGRATES_CONTACT_REPAIR_TO_COHERENT_OPENING", async ({ Given, When, Then }) => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const contactScenario = buildContactRepairCentralChannelScenario();
+  const contactHash = computeCampaignContentHash(splitLegacyCampaignScenario(contactScenario));
+  const currentScenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const currentHash = computeCampaignContentHash(splitLegacyCampaignScenario(currentScenario));
+  const source = new CampaignState({ saveBackend: backend });
+  source.setScenario(contactScenario);
+  const advanced = source.advanceCampaign({ mode: "segment" });
+  if (!advanced.ok) throw new Error(advanced.error.message);
+  const before = source.getRuntimeSnapshot();
+  if (!before) throw new Error("Contact-repair campaign fixture did not create a runtime.");
+  const priorChannelFormationIds = [...before.tiles["20,18"].formationIds];
+  const priorObjective = structuredClone(before.objectives.secure_beachhead);
+  await source.savePrimaryCampaign(statePersistenceRequest("2026-08-20T12:00:00.000Z"));
+  let restored: CampaignState | null = null;
+
+  await Given("a progressed save from the exact contact-repair production content", async () => {
+    if (contactHash !== CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH
+      || currentHash !== CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH
+      || priorChannelFormationIds.length !== 2) {
+      throw new Error(`Opening migration identities drifted (${contactHash} -> ${currentHash}).`);
+    }
+  });
+
+  await When("the save loads against the coherent post-landing opening", async () => {
+    restored = new CampaignState({ saveBackend: backend });
+    restored.setScenario(currentScenario);
+    const result = await restored.loadPrimaryCampaign(statePersistenceRequest("2026-08-20T12:01:00.000Z"));
+    if (!result.ok) throw new Error(`Certified opening migration failed: ${result.error.message}`);
+  });
+
+  await Then("elapsed progress and formation condition survive while the water base becomes a task force", async () => {
+    const runtime = restored?.getRuntimeSnapshot();
+    if (!runtime || runtime.scenarioContentHash !== CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH
+      || runtime.campaignId !== before.campaignId
+      || runtime.revision !== before.revision
+      || runtime.currentSegment !== before.currentSegment
+      || computeCampaignContentHash(runtime.objectives.secure_beachhead) !== computeCampaignContentHash(priorObjective)) {
+      throw new Error("Opening migration changed campaign identity, time, revision, or objective progress.");
+    }
+    if (runtime.tiles["20,18"].tileKey !== "playerAssaultTaskForce"
+      || runtime.tiles["20,18"].formationIds.length !== 0
+      || priorChannelFormationIds.some((formationId) => runtime.formations[formationId]?.locationHexKey !== "27,24")
+      || priorChannelFormationIds.some((formationId) => !runtime.tiles["27,24"].formationIds.includes(formationId))) {
+      throw new Error("Opening migration did not reconcile the Channel task force and shore reserve exactly once.");
     }
   });
 });

@@ -927,6 +927,52 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Run all six command-board briefs and verify their real interactions at desktop and mobile sizes.
 
 ---
+
+## Campaign Opening Geography and Premise Repair Plan
+
+### Intended behavior
+- The Central Channel campaign opens after the first Allied landings, with that operational moment stated in player-facing briefing and phase copy.
+- A water hex may represent a naval task force, but never a shore installation or an unexplained land garrison.
+- The first primary objective is to hold the established lodgment on a real Player-controlled French-shore tile; the two exact opening fronts remain playable.
+- Saves from both immediately preceding Central Channel content identities migrate without discarding campaign identity, elapsed time, formations, or objective progress.
+
+### Current behavior
+- The opening badge and objective imply the beachhead has not yet been established while Player fortifications and formations already occupy two French-shore tiles.
+- Hex `20,18`, declared as English Channel water, is a `navalBase` containing infantry and is also the already-controlled target of “Establish Beachhead.”
+- The objective therefore completes automatically after two quiet segments without requiring the situation described by its copy.
+
+### Expected new behavior
+- Scenario and phase copy identify an established but vulnerable lodgment and the primary objective reads “Hold the Beachhead.”
+- The objective targets the Player fortification at axial `27,24`; its uninterrupted-control and infrastructure requirements remain mechanical and visible.
+- Axial `20,18` becomes an Allied task-force marker with no land-force projection, while its existing beachhead formations are authored at `27,24`.
+- Exact old saves move any still-placed `20,18` garrison formations to `27,24`, preserve their records, replace only the obsolete water installation, and revalidate the full runtime.
+
+### Edge cases
+- A garrison formation already destroyed, captured, or moved away is not recreated.
+- A garrison with an active order causes migration to fail closed instead of silently changing an in-flight order.
+- Already completed or failed objective state is preserved; only the authored location and player-facing premise change.
+- Pre-contact saves still receive the exact two contact tiles once before the opening-state repair is applied.
+
+### Impact analysis
+- Systems consuming this output:
+  - shipped scenario creation, objective evaluation, map/inspector presentation, formation placement, and campaign save loading
+- Events depending on this structure:
+  - first-segment objective progress, first Player port assault, first Bot airfield offensive, save resume, and subsequent AAR/control consequences
+- Visual behaviors that shift:
+  - the Channel shows a naval task-force symbol instead of a floating base and infantry marker
+  - briefing, phase, objective marker, and visible shore formations describe the same post-landing situation
+
+### Risk assessment
+- The authored coordinate math and the two battle edges do not change.
+- Persistence accepts only the two exact known prior hashes and the exact repaired current hash; unknown content remains read-only.
+- Formation relocation is limited to records still placed on the one obsolete Channel tile and is invariant-checked before hydration.
+
+### Verification
+- Add a shipped-scenario semantic regression for water-role/force legality, objective location, opening premise, and both exact fronts.
+- Add migrations from both known prior hashes and prove formation identity, revision, elapsed time, objective state, and map repair survive.
+- Run `npm run test:campaign`, `npm test`, `npm run build`, zero-warning lint, skill validation, and `git diff --check` before one deployment-triggering push.
+
+---
 ## Campaign Tactical Save Rule-Migration Plan
 
 ### Intended behavior
