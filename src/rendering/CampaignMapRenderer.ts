@@ -674,9 +674,9 @@ export class CampaignMapRenderer {
       return ship;
     };
 
-    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 0.28, -iconSize * 0.24, "campaign-task-force__transport");
-    addShip(destroyer, iconSize * 0.76, iconSize * 0.54, iconSize * 0.28, iconSize * 0.23, "campaign-task-force__destroyer");
-    const primaryShip = addShip(battleship, iconSize * 1.22, iconSize * 0.86, 0, 0, "campaign-task-force__battleship");
+    const primaryShip = addShip(battleship, iconSize * 1.12, iconSize * 0.79, 0, 0, "campaign-task-force__battleship");
+    addShip(transport, iconSize * 0.86, iconSize * 0.61, -iconSize * 0.72, -iconSize * 0.52, "campaign-task-force__transport");
+    addShip(destroyer, iconSize * 0.88, iconSize * 0.41, iconSize * 0.72, iconSize * 0.52, "campaign-task-force__destroyer");
     if (facing.endsWith("W")) {
       marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
     }

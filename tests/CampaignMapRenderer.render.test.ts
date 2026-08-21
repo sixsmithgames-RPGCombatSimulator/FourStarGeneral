@@ -167,6 +167,30 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     const fleet = svg.querySelector<SVGGElement>(`.campaign-task-force[data-hex="${channelOffsetKey}"]`);
     const ships = fleet?.querySelectorAll<SVGImageElement>(".campaign-task-force__ship") ?? [];
     const shipAssets = Array.from(ships).map((ship) => ship.getAttribute("href") ?? "");
+    const battleship = fleet?.querySelector<SVGImageElement>(".campaign-task-force__battleship") ?? null;
+    const escorts = [
+      fleet?.querySelector<SVGImageElement>(".campaign-task-force__transport") ?? null,
+      fleet?.querySelector<SVGImageElement>(".campaign-task-force__destroyer") ?? null
+    ];
+    const overlapFraction = (first: SVGImageElement, second: SVGImageElement): number => {
+      const firstRect = {
+        x: Number(first.getAttribute("x")),
+        y: Number(first.getAttribute("y")),
+        width: Number(first.getAttribute("width")),
+        height: Number(first.getAttribute("height"))
+      };
+      const secondRect = {
+        x: Number(second.getAttribute("x")),
+        y: Number(second.getAttribute("y")),
+        width: Number(second.getAttribute("width")),
+        height: Number(second.getAttribute("height"))
+      };
+      const overlapWidth = Math.max(0, Math.min(firstRect.x + firstRect.width, secondRect.x + secondRect.width) - Math.max(firstRect.x, secondRect.x));
+      const overlapHeight = Math.max(0, Math.min(firstRect.y + firstRect.height, secondRect.y + secondRect.height) - Math.max(firstRect.y, secondRect.y));
+      return (overlapWidth * overlapHeight) / (firstRect.width * firstRect.height);
+    };
+    const supportSilhouettesRemainVisible = battleship !== null
+      && escorts.every((escort) => escort !== null && overlapFraction(escort, battleship) < 0.25);
     const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
     if (!fleet
       || ships.length !== 3
@@ -177,8 +201,9 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
       || fleet.dataset.facing !== "SE"
       || fleet.getAttribute("role") !== "img"
       || fleet.getAttribute("aria-label") !== "Allied assault fleet on station supporting the Normandy lodgment · hex 20,28"
+      || !supportSilhouettesRemainVisible
       || groundCounters.length !== 0) {
-      throw new Error("The Channel fleet still uses an abstract marker, wrong facing, or ground formation projection.");
+      throw new Error("The Channel fleet still uses an abstract marker, hides its support vessels, uses the wrong facing, or projects a ground formation.");
     }
   });
 });
