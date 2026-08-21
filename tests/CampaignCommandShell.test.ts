@@ -731,6 +731,53 @@ registerTest("CAMPAIGN_MAP_CLICK_IS_SELECTION_ONLY", async ({ Given, When, Then 
   });
 });
 
+registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_ACTION_CLUTTER", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let onHexClick: ((hexKey: string) => void) | null = null;
+  let root: HTMLElement;
+
+  await Given("the shipped Allied assault fleet marker in the English Channel", () => {
+    campaignState.reset();
+    root = mountCommandShellFixture();
+    const renderer = {
+      render() {},
+      setTerrainOverlayVisible() {},
+      setIntelCoverageVisible() {},
+      getViewportRoot() { return null; },
+      onHexClick(handler: (hexKey: string) => void) { onHexClick = handler; },
+      clearAllHighlights() {},
+      highlightHex() {}
+    };
+    const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+    screen.initialize();
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    if (!onHexClick) throw new Error("Campaign map click handling was not connected.");
+  });
+
+  await When("the player selects the fleet symbol", () => {
+    if (!onHexClick) throw new Error("Campaign map click handling is unavailable.");
+    onHexClick("20,28");
+  });
+
+  await Then("the inspector names its naval purpose and omits unrelated ground actions", () => {
+    const inspector = root.querySelector<HTMLElement>("#campaignContextInspector");
+    const route = root.querySelector<HTMLElement>("#campaignContextInspectorRoute");
+    const compatibilitySelection = root.querySelector<HTMLElement>(".selection-section");
+    const compatibilityActions = root.querySelector<HTMLElement>(".action-section");
+    const hiddenSelectionCopy = root.querySelector<HTMLElement>("#campaignSelectionInfo")?.textContent ?? "";
+    if (inspector?.dataset.routeMode !== "projected"
+      || inspector.querySelector("h2")?.textContent !== "Allied Assault Fleet"
+      || !route?.textContent?.includes("English Channel")
+      || !route.textContent.includes("Naval task force")
+      || compatibilitySelection?.hidden !== true
+      || compatibilityActions?.hidden !== true
+      || hiddenSelectionCopy.includes("ORDER_FORCE_UNAVAILABLE")) {
+      throw new Error(`The fleet marker remained ambiguous or exposed ground-action clutter: '${inspector?.textContent ?? ""}'.`);
+    }
+    campaignState.reset();
+  });
+});
+
 registerTest("CAMPAIGN_FCI4_TRAY_EXPLAINS_PREVIEW_CONFLICT_PRIORITY_EDIT_AND_CANCEL", async ({ Given, When, Then }) => {
   let root: HTMLElement;
   let edited = "";

@@ -1563,7 +1563,6 @@ export class CampaignScreen {
     }
     const view = this.campaignState.getCampaignMapView("Player");
     let selectedIsFriendlyOccupied = false;
-    let selectedIsFriendlyControlled = false;
     const selectedInfrastructure = this.selectedHexKey
       ? this.campaignState.getCampaignInfrastructureStatus(this.selectedHexKey, "Player")
       : null;
@@ -1573,11 +1572,13 @@ export class CampaignScreen {
       const tile = axial ? view.scenario.tiles.find((entry) => entry.hex.q === axial.q && entry.hex.r === axial.r) : null;
       const palette = tile ? view.scenario.tilePalette[tile.tile] : null;
       const owner = tile ? tile.factionControl ?? palette?.factionControl ?? "Neutral" : "Unknown";
-      selectedIsFriendlyControlled = owner === "Player";
       selectedIsFriendlyOccupied = owner === "Player" && Boolean(tile?.forces?.some((force) => force.count > 0));
+      const selectionLabel = palette?.role === "taskForce"
+        ? "Allied Assault Fleet"
+        : this.formatCampaignLabel(palette?.role ?? "Operational hex");
       items.push(`
         <div class="campaign-selection-identity">
-          <strong>${this.escapeHtml(palette?.role?.replace(/([A-Z])/g, " $1").trim() ?? "Operational hex")}</strong>
+          <strong>${this.escapeHtml(selectionLabel)}</strong>
           <span>${this.escapeHtml(this.selectedHexKey)} · ${this.escapeHtml(String(owner))} control</span>
         </div>
       `);
@@ -1618,7 +1619,7 @@ export class CampaignScreen {
             <p>${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${integrityPercent}% operational capacity${this.escapeHtml(disruption)}</p>
             <p>${this.escapeHtml(repairStatus)}</p>
             ${selectedInfrastructure.repairPoints > 0 ? `<p>${selectedInfrastructure.suppliesCost} supply · ${selectedInfrastructure.manpowerCost} personnel${infrastructure.activeRepairOrderId ? " committed" : ""} · ETA ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedInfrastructure.completeSegment))}${selectedInfrastructure.engineerFormationName ? ` · ${this.escapeHtml(selectedInfrastructure.engineerFormationName)}` : ""}</p>` : ""}
-            ${repairDescriptor.reason ? `<small><strong>${repairDescriptor.reasonCode ?? "Blocked"}</strong> · ${this.escapeHtml(repairDescriptor.reason)} ${this.escapeHtml(repairDescriptor.correctiveAction ?? "")}</small>` : ""}
+            ${repairDescriptor.reason ? `<small><strong>Reconstruction unavailable.</strong> ${this.escapeHtml(repairDescriptor.reason)} ${this.escapeHtml(repairDescriptor.correctiveAction ?? "")}</small>` : ""}
             ${repairAction ? `<div class="campaign-context-actions">${repairAction}</div>` : ""}
           </section>
         `);
@@ -1657,7 +1658,7 @@ export class CampaignScreen {
           </div>
         </div>
       `);
-    } else if (selectedIsFriendlyControlled) {
+    } else if (selectedIsFriendlyOccupied) {
       const redeployDescriptor = this.campaignActionRegistry.resolve("redeploy", {
         selectionKind: "hex",
         selectionId: this.selectedHexKey
@@ -1665,7 +1666,7 @@ export class CampaignScreen {
       items.push(`
         <div class="campaign-context-actions">
           <button type="button" data-plan-campaign-redeploy data-reason-code="${redeployDescriptor.reasonCode ?? ""}" ${redeployDescriptor.availability === "available" ? "" : "disabled"} title="${this.escapeHtml(redeployDescriptor.availability === "available" ? "Choose a destination and review the movement plan." : `${redeployDescriptor.reason ?? "Redeployment is unavailable."} ${redeployDescriptor.correctiveAction ?? ""}`.trim())}">Plan redeployment</button>
-          ${redeployDescriptor.reason ? `<small><strong>${redeployDescriptor.reasonCode ?? "Blocked"}</strong> · ${this.escapeHtml(redeployDescriptor.reason)} ${this.escapeHtml(redeployDescriptor.correctiveAction ?? "")}</small>` : ""}
+          ${redeployDescriptor.reason ? `<small><strong>Redeployment unavailable.</strong> ${this.escapeHtml(redeployDescriptor.reason)} ${this.escapeHtml(redeployDescriptor.correctiveAction ?? "")}</small>` : ""}
         </div>
       `);
     }
@@ -2530,10 +2531,18 @@ export class CampaignScreen {
       const roleLabel = this.formatCampaignLabel(palette?.role ?? "region");
       const infrastructureRole = infrastructure ? this.formatCampaignLabel(infrastructure.role) : "";
       const damageState = infrastructure ? this.formatCampaignLabel(infrastructure.damageState) : "";
+      const isAlliedAssaultFleet = controller === "Player" && palette?.role === "taskForce";
+      const hasPresentForces = groups.some((force) => force.count > 0);
       return {
         hexKey,
-        roleLabel,
+        roleLabel: isAlliedAssaultFleet ? "Naval task force" : roleLabel,
         controlLabel,
+        ...(isAlliedAssaultFleet ? {
+          displayLabel: "Allied Assault Fleet",
+          summary: "Naval support group sustaining the established Normandy lodgment from the English Channel.",
+          locationLabel: `English Channel · hex ${hexKey}`
+        } : {}),
+        hasContextActions: controller === "Player" && (hasPresentForces || Boolean(infrastructure)),
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
         infrastructure: infrastructure
           ? `${infrastructureRole} · ${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`

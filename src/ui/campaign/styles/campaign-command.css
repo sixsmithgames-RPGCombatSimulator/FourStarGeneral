@@ -803,13 +803,13 @@
 @media (max-width: 1380px) {
   .campaign-map-overlay-button__label { display: none; }
   .campaign-map-overlay-button__short { display: inline; }
-  #campaignScreen[data-campaign-command-ui="v2"] .campaign-map-legend > span:nth-of-type(n+2) { display: none; }
+  #campaignScreen[data-campaign-command-ui="v2"] .campaign-map-legend > span:nth-of-type(n+3) { display: none; }
 }
 
 @container (max-width: 900px) {
   .campaign-map-overlay-button__label { display: none; }
   .campaign-map-overlay-button__short { display: inline; }
-  .campaign-map-legend > span:nth-of-type(n+2) { display: none; }
+  .campaign-map-legend > span:nth-of-type(n+3) { display: none; }
 }
 
 @container (max-width: 620px) {

@@ -85,6 +85,10 @@ export interface CampaignCommandHexView {
   readonly hexKey: string;
   readonly roleLabel: string;
   readonly controlLabel: string;
+  readonly displayLabel?: string;
+  readonly summary?: string;
+  readonly locationLabel?: string;
+  readonly hasContextActions?: boolean;
   readonly forces: readonly string[];
   readonly infrastructure: string | null;
   readonly objectives: readonly string[];

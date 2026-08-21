@@ -28,6 +28,7 @@ const OVERLAYS: readonly CampaignMapOverlayDefinition[] = Object.freeze([
     status: "available",
     legend: [
       { key: "friendly", symbol: "■", label: "Friendly control", tone: "friendly" },
+      { key: "taskForce", symbol: "⚓", label: "Naval task force", tone: "friendly" },
       { key: "contact", symbol: "◇", label: "Assessed contact", tone: "enemy" },
       { key: "front", symbol: "━", label: "Front", tone: "warning" }
     ]

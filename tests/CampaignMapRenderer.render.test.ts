@@ -166,7 +166,11 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     const channelOffsetKey = "20,28";
     const sprite = svg.querySelector<SVGImageElement>(`.campaign-sprite[data-hex="${channelOffsetKey}"]`);
     const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
-    if (!sprite || !sprite.getAttribute("href")?.includes("task_force.svg") || groundCounters.length !== 0) {
+    if (!sprite
+      || !sprite.getAttribute("href")?.includes("task_force.svg")
+      || sprite.getAttribute("role") !== "img"
+      || sprite.getAttribute("aria-label") !== "Allied assault fleet supporting the established lodgment · hex 20,28"
+      || groundCounters.length !== 0) {
       throw new Error("The Channel marker still renders as a shore base or projects a ground formation.");
     }
   });

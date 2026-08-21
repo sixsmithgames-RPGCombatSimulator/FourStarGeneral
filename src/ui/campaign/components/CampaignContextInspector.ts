@@ -94,22 +94,22 @@ function resolveInspectorRoute(
     const hex = view?.hexes?.find((entry) => entry.hexKey === selection.id);
     return {
       kind: "hex",
-      title: `Operational hex ${selection.id}`,
+      title: hex?.displayLabel ?? `Operational hex ${selection.id}`,
       summary: hex
-        ? `${hex.roleLabel} under ${hex.controlLabel.toLowerCase()}.`
+        ? hex.summary ?? `${hex.roleLabel} under ${hex.controlLabel.toLowerCase()}.`
         : "No projected installation or force record is present at this location.",
       facts: [
-        { label: "Location", value: selection.id },
+        { label: "Location", value: hex?.locationLabel ?? selection.id },
         ...(hex ? [
           { label: "Control", value: hex.controlLabel },
-          { label: "Role", value: hex.roleLabel },
+          { label: "Type", value: hex.roleLabel },
           ...(hex.forces.length > 0 ? [{ label: "Projected forces", value: hex.forces.join("; ") }] : []),
           ...(hex.infrastructure ? [{ label: "Infrastructure", value: hex.infrastructure }] : []),
           ...(hex.objectives.length > 0 ? [{ label: "Objectives", value: hex.objectives.join(", ") }] : []),
           ...(hex.fronts.length > 0 ? [{ label: "Fronts", value: hex.fronts.join(", ") }] : [])
         ] : [])
       ],
-      mode: "projectedWithActions"
+      mode: hex && hex.hasContextActions !== false ? "projectedWithActions" : "projected"
     };
   }
   if (!view) return emptyRoute(selection.kind, selection.id);

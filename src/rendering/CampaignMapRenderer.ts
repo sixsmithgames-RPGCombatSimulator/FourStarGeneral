@@ -164,7 +164,7 @@ export class CampaignMapRenderer {
    * Determines how many overscan rings we need so the parallelogram grid fully covers the rectangular map.
    * Since odd-q creates a parallelogram, we need significant padding to ensure full coverage.
    */
-  private resolveGridPadding(scenario: CampaignScenarioData, margin: number, density: number): number {
+  private resolveGridPadding(scenario: CampaignScenarioData, _margin: number, _density: number): number {
     const { cols, rows } = scenario.dimensions;
 
     // For a parallelogram grid to cover a rectangle, we need padding roughly equal to
@@ -603,11 +603,16 @@ export class CampaignMapRenderer {
       }
 
       const image = document.createElementNS(SVG_NS, "image");
+      const markerLabel = paletteEntry?.notes && (paletteEntry.factionControl === "Player" || paletteEntry.intelConfirmed)
+        ? paletteEntry.notes.trim()
+        : this.formatMarkerLabel(paletteEntry?.role ?? spriteKey);
       image.setAttribute("href", asset);
       image.setAttribute("width", String(iconSize));
       image.setAttribute("height", String(iconSize));
       image.setAttribute("x", String(cx - iconSize / 2));
       image.setAttribute("y", String(cy - iconSize / 2));
+      image.setAttribute("role", "img");
+      image.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
       image.classList.add("campaign-sprite");
 
       // Apply rotation if specified
@@ -622,6 +627,15 @@ export class CampaignMapRenderer {
       layer.appendChild(image);
       this.spriteIndex.set(hexKey, image);
     });
+  }
+
+  private formatMarkerLabel(value: string): string {
+    return value
+      .replace(/_/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/^./, (character) => character.toUpperCase());
   }
 
   /** Renders aggregated force icons using tactical sprites scaled for the campaign map. */
