@@ -676,6 +676,10 @@ export class CampaignMapRenderer {
       ship.setAttribute("x", String(cx + dx - width / 2));
       ship.setAttribute("y", String(cy + dy - height / 2));
       ship.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      ship.setAttribute(
+        "style",
+        "filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 3px rgba(175, 225, 245, 0.9));"
+      );
       ship.setAttribute("aria-hidden", "true");
       ship.setAttribute("data-hex", hexKey);
       ship.classList.add("campaign-task-force__ship", className);
@@ -686,21 +690,21 @@ export class CampaignMapRenderer {
     const station = document.createElementNS(SVG_NS, "circle");
     station.setAttribute("cx", String(cx));
     station.setAttribute("cy", String(cy));
-    station.setAttribute("r", String(iconSize * 0.58));
-    station.setAttribute("fill", "rgba(8, 23, 34, 0.34)");
-    station.setAttribute("stroke", "rgba(216, 190, 118, 0.9)");
-    station.setAttribute("stroke-width", String(Math.max(1, iconSize * 0.055)));
+    station.setAttribute("r", String(iconSize * 0.42));
+    station.setAttribute("fill", "rgba(7, 25, 38, 0.5)");
+    station.setAttribute("stroke", "rgba(120, 210, 235, 0.78)");
+    station.setAttribute("stroke-width", String(Math.max(0.9, iconSize * 0.035)));
     station.setAttribute("data-hex", hexKey);
     station.setAttribute("data-authoritative-anchor", "true");
     station.setAttribute("aria-hidden", "true");
     station.classList.add("campaign-task-force__station");
     marker.appendChild(station);
 
-    const primaryShip = addShip(battleship, iconSize * 1.12, iconSize * 0.79, 0, 0, "campaign-task-force__battleship");
-    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 1.22, -iconSize * 0.58, "campaign-task-force__transport");
-    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 0.92, iconSize * 0.72, "campaign-task-force__transport");
-    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 0.92, -iconSize * 0.72, "campaign-task-force__destroyer");
-    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 1.22, iconSize * 0.58, "campaign-task-force__destroyer");
+    const primaryShip = addShip(battleship, iconSize * 1.34, iconSize * 0.94, 0, 0, "campaign-task-force__battleship");
+    addShip(transport, iconSize * 0.96, iconSize * 0.68, -iconSize * 1.38, -iconSize * 0.66, "campaign-task-force__transport");
+    addShip(transport, iconSize * 0.96, iconSize * 0.68, -iconSize * 1.06, iconSize * 0.82, "campaign-task-force__transport");
+    addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.06, -iconSize * 0.82, "campaign-task-force__destroyer");
+    addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.38, iconSize * 0.66, "campaign-task-force__destroyer");
     if (facing.endsWith("W")) {
       marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
     }

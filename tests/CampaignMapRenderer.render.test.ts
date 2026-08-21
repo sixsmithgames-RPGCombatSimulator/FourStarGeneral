@@ -201,6 +201,7 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
       ? Math.max(...shipRects.map((rect) => rect.x + rect.width)) - Math.min(...shipRects.map((rect) => rect.x))
       : 0;
     const stationDiameter = station ? Number(station.getAttribute("r")) * 2 : 0;
+    const fleetSilhouetteContrast = Array.from(ships).every((ship) => ship.getAttribute("style")?.includes("drop-shadow"));
     const channelHex = svg.querySelector<SVGGElement>(`.campaign-hex[data-hex="${channelOffsetKey}"]`);
     const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
     if (!fleet
@@ -215,6 +216,7 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
       || station?.getAttribute("data-authoritative-anchor") !== "true"
       || station?.getAttribute("cx") !== channelHex?.dataset.cx
       || station?.getAttribute("cy") !== channelHex?.dataset.cy
+      || !fleetSilhouetteContrast
       || formationWidth <= stationDiameter * 2
       || !supportSilhouettesRemainVisible
       || groundCounters.length !== 0) {
