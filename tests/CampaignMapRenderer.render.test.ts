@@ -170,7 +170,8 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
     if (!fleet
       || ships.length !== 3
-      || shipAssets.filter((asset) => asset.includes("Transport_Ship_USA_Southview")).length !== 2
+      || shipAssets.filter((asset) => asset.includes("Transport_Ship_USA_Southview")).length !== 1
+      || shipAssets.filter((asset) => asset.includes("Destroyer_USA_Southview")).length !== 1
       || shipAssets.filter((asset) => asset.includes("Battleship_USA_Southview")).length !== 1
       || shipAssets.some((asset) => asset.includes("task_force.svg"))
       || fleet.dataset.facing !== "SE"

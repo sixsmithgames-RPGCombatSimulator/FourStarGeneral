@@ -30,6 +30,9 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
     resolved.playerBattleshipNorth = getSpriteForScenarioType("Battleship", "Player", "NE");
     resolved.playerBattleshipEast = getSpriteForScenarioType("Battleship", "Player", "E");
     resolved.playerBattleshipSouth = getSpriteForScenarioType("Battleship", "Player", "SE");
+    resolved.playerDestroyerNorth = getSpriteForScenarioType("Destroyer", "Player", "NE");
+    resolved.playerDestroyerEast = getSpriteForScenarioType("Destroyer", "Player", "E");
+    resolved.playerDestroyerSouth = getSpriteForScenarioType("Destroyer", "Player", "SE");
   });
 
   await Then("the catalog should resolve faction-specific aircraft and directional ground sprites", async () => {
@@ -115,7 +118,10 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
       ["playerTransportSouth", "Transport_Ship_USA_Southview"],
       ["playerBattleshipNorth", "Battleship_USA_Northview"],
       ["playerBattleshipEast", "Battleship_USA_Sideview"],
-      ["playerBattleshipSouth", "Battleship_USA_Southview"]
+      ["playerBattleshipSouth", "Battleship_USA_Southview"],
+      ["playerDestroyerNorth", "Destroyer_USA_Northview"],
+      ["playerDestroyerEast", "Destroyer_USA_Sideview"],
+      ["playerDestroyerSouth", "Destroyer_USA_Southview"]
     ];
     navalExpectations.forEach(([key, asset]) => {
       if (!resolved[key]?.includes(asset)) {

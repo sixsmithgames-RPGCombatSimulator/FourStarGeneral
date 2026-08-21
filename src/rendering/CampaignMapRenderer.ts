@@ -646,7 +646,8 @@ export class CampaignMapRenderer {
     const facing = this.campaignFacingForRotation(rotation);
     const battleship = getSpriteForScenarioType("Battleship", "Player", facing);
     const transport = getSpriteForScenarioType("Transport_Ship", "Player", facing);
-    if (!battleship || !transport) {
+    const destroyer = getSpriteForScenarioType("Destroyer", "Player", facing);
+    if (!battleship || !transport || !destroyer) {
       console.error("[CampaignMapRenderer] Naval task force sprites are unavailable.", { facing, hexKey });
       return;
     }
@@ -674,7 +675,7 @@ export class CampaignMapRenderer {
     };
 
     addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 0.28, -iconSize * 0.24, "campaign-task-force__transport");
-    addShip(transport, iconSize * 0.76, iconSize * 0.54, iconSize * 0.28, iconSize * 0.23, "campaign-task-force__transport");
+    addShip(destroyer, iconSize * 0.76, iconSize * 0.54, iconSize * 0.28, iconSize * 0.23, "campaign-task-force__destroyer");
     const primaryShip = addShip(battleship, iconSize * 1.22, iconSize * 0.86, 0, 0, "campaign-task-force__battleship");
     if (facing.endsWith("W")) {
       marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
