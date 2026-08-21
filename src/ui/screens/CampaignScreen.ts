@@ -256,6 +256,19 @@ export class CampaignScreen {
     this.syncViewportAfterRender();
   }
 
+  /** Opens a fresh campaign on its current primary objective instead of an empty corner of the theater. */
+  private focusOpeningObjective(scenario: CampaignScenarioData): void {
+    if (this.selectedHexKey || !this.viewport) return;
+    const objective = scenario.objectives.find((candidate) => candidate.category === "primary")
+      ?? scenario.objectives[0];
+    if (!objective) return;
+    const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+    const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+    const center = (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>).getHexCenter?.(hexKey);
+    if (!center) return;
+    requestAnimationFrame(() => this.viewport?.centerOn(center.cx, center.cy));
+  }
+
   /** Binds campaign zoom/pan buttons present in the sidebar to MapViewport operations. */
   private bindCampaignControls(): void {
     if (!this.viewport) return;
@@ -1070,6 +1083,8 @@ export class CampaignScreen {
       this.renderCampaignIntel();
       this.commandInterface?.revealInspector({ kind: "hex", id: hexKey });
     });
+
+    this.focusOpeningObjective(scenario);
 
     // Initial sidebar render
     this.renderTimeDisplay();
