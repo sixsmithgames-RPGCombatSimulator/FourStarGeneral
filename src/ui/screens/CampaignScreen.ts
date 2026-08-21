@@ -521,14 +521,13 @@ export class CampaignScreen {
         bad ? `${fmt(cost)} needed · ${fmt(available)} available` : fmt(cost);
 
       summaryEl.innerHTML = `
-        <div class="summary-eta"><span>Arrival</span><strong>${etaDisplay}</strong><em>${preview.timeSegments} segment${preview.timeSegments !== 1 ? "s" : ""} in transit</em></div>
+        <div class="summary-eta"><span>Arrival:</span><strong>${etaDisplay}</strong><em>· ${preview.timeSegments} segment${preview.timeSegments !== 1 ? "s" : ""} in transit</em></div>
         <div class="summary-costs" aria-label="Redeployment cost">
-          <span class="summary-cost${fuelBad ? " cost-bad" : ""}">Fuel <strong>${availability(preview.fuelCost, preview.fuelAvailable, fuelBad)}</strong></span>
-          <span class="summary-cost${supBad ? " cost-bad" : ""}">Supplies <strong>${availability(preview.suppliesCost, preview.suppliesAvailable, supBad)}</strong></span>
-          ${mode?.capacityType ? `<span class="summary-cost${capBad ? " cost-bad" : ""}">${capLabel} <strong>${capBad ? `${preview.capacityNeeded} needed · ${preview.capacityAvailable ?? 0} available` : preview.capacityNeeded}</strong></span>` : ""}
-          ${preview.manpowerLoss > 0 ? `<span class="summary-cost cost-warn">Estimated losses <strong>${fmt(preview.manpowerLoss)}</strong></span>` : ""}
+          <span class="summary-cost${fuelBad ? " cost-bad" : ""}">Fuel: <strong>${availability(preview.fuelCost, preview.fuelAvailable, fuelBad)}</strong></span>
+          <span class="summary-cost${supBad ? " cost-bad" : ""}">Supplies: <strong>${availability(preview.suppliesCost, preview.suppliesAvailable, supBad)}</strong></span>
+          ${mode?.capacityType ? `<span class="summary-cost${capBad ? " cost-bad" : ""}">${capLabel}: <strong>${capBad ? `${preview.capacityNeeded} needed · ${preview.capacityAvailable ?? 0} available` : preview.capacityNeeded}</strong></span>` : ""}
+          ${preview.manpowerLoss > 0 ? `<span class="summary-cost cost-warn">Estimated losses: <strong>${fmt(preview.manpowerLoss)}</strong></span>` : ""}
         </div>
-        <p class="redeploy-draft-note">Units move only after Commit Orders.</p>
       `;
 
       const uniqueDiagnostics = Array.from(new Map(preview.diagnostics.map((issue) => [

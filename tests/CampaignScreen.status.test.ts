@@ -391,7 +391,7 @@ registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_A
       || confirm.textContent !== "Resolve conflict to continue"
       || popupBody.querySelector(".campaign-order-composer__guide")
       || popupBody.querySelector(".campaign-order-preview-contract")
-      || !popupBody.textContent?.includes("Units move only after Commit Orders.")
+      || popupBody.querySelector(".redeploy-draft-note")
       || /[\u2600-\u27BF\u{1F300}-\u{1FAFF}]/u.test(popupBody.textContent ?? "")) {
       throw new Error(`Redeployment planner remains cluttered or ambiguous: modes=${modeKeys}, issues=${issues.length}, text='${popupBody.textContent}'.`);
     }
