@@ -771,6 +771,13 @@ export class CampaignScreen {
           this.selectedFrontKey = null;
           this.selectedFrontTargetHexKey = null;
           selectedHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+        } else if (selection.kind === "contact") {
+          const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts
+            .find((entry) => entry.id === selection.id);
+          if (!contact) return;
+          this.selectedFrontKey = null;
+          this.selectedFrontTargetHexKey = null;
+          selectedHexKey = contact.locationHexKey;
         } else {
           return;
         }
@@ -1032,7 +1039,8 @@ export class CampaignScreen {
     this.renderCampaignMap();
     this.bindTerrainEditDragHandlers(svg);
     // Map clicks are selection-only. Every campaign action requires a separate inspector or tray control.
-    this.renderer.onHexClick((hexKey) => {
+    this.renderer.onHexClick((hexKey, _tile, contactId) => {
+      if (contactId && this.focusCampaignContact(contactId)) return;
       const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
       if (this.campaignStatusMessage) {
         this.campaignStatusMessage = null;
@@ -1756,17 +1764,7 @@ export class CampaignScreen {
       }
       const focusId = target.closest<HTMLButtonElement>("[data-intel-focus]")?.dataset.intelFocus;
       if (focusId) {
-        const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts.find((entry) => entry.id === focusId);
-        if (contact) {
-          this.selectedHexKey = contact.locationHexKey;
-          this.selectedFrontKey = null;
-          this.moveOriginHexKey = null;
-          this.renderer.clearAllHighlights("selected");
-          this.renderer.highlightHex(contact.locationHexKey, "selected");
-          const center = this.renderer.getHexCenter(contact.locationHexKey);
-          if (center) this.viewport?.centerOn(center.cx, center.cy);
-          this.renderSelection();
-          this.commandInterface?.revealInspector({ kind: "contact", id: contact.id });
+        if (this.focusCampaignContact(focusId)) {
           this.intelDrawer?.classList.add("hidden");
           toggle?.setAttribute("aria-expanded", "false");
         }
@@ -1805,6 +1803,26 @@ export class CampaignScreen {
       const select = (event.target as Element).closest<HTMLSelectElement>("#campaignIntelAsset");
       if (select) this.editingIntelAssetKey = select.value || null;
     });
+  }
+
+  /** Keeps every contact-entry path aligned on the same player-safe map and inspector result. */
+  private focusCampaignContact(contactId: string): boolean {
+    const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts
+      .find((entry) => entry.id === contactId);
+    if (!contact) return false;
+    this.selectedHexKey = contact.locationHexKey;
+    this.selectedFrontKey = null;
+    this.selectedFrontTargetHexKey = null;
+    this.moveOriginHexKey = null;
+    this.renderer.clearAllHighlights("selected");
+    this.renderer.clearAllHighlights("origin");
+    this.renderer.highlightHex(contact.locationHexKey, "selected");
+    const center = this.renderer.getHexCenter(contact.locationHexKey);
+    if (center) this.viewport?.centerOn(center.cx, center.cy);
+    this.renderSelection();
+    this.renderCampaignIntel();
+    this.commandInterface?.revealInspector({ kind: "contact", id: contact.id });
+    return true;
   }
 
   private scheduleSelectedIntelOperation(): void {
@@ -2544,15 +2562,20 @@ export class CampaignScreen {
       const infrastructureRole = infrastructure ? this.formatCampaignLabel(infrastructure.role) : "";
       const damageState = infrastructure ? this.formatCampaignLabel(infrastructure.damageState) : "";
       const isAlliedAssaultFleet = controller === "Player" && palette?.role === "taskForce";
+      const authoredMapLabel = palette?.mapLabel?.trim();
       const hasPresentForces = groups.some((force) => force.count > 0);
       return {
         hexKey,
         roleLabel: isAlliedAssaultFleet ? "Naval task force" : roleLabel,
         controlLabel,
-        ...(isAlliedAssaultFleet ? {
-          displayLabel: "Allied Assault Fleet",
-          summary: "Naval gunfire, transport, and logistics group on station supporting the established Normandy lodgment.",
-          locationLabel: `English Channel · offshore support station · hex ${hexKey}`
+        ...(authoredMapLabel || isAlliedAssaultFleet ? {
+          displayLabel: authoredMapLabel ?? "Allied Assault Fleet",
+          summary: palette?.notes ?? (isAlliedAssaultFleet
+            ? "Naval gunfire, transport, and logistics group on station supporting the established Normandy lodgment."
+            : `${roleLabel} under ${controlLabel.toLowerCase()}.`),
+          locationLabel: isAlliedAssaultFleet
+            ? `English Channel · offshore support station · hex ${hexKey}`
+            : `${authoredMapLabel ?? roleLabel} · hex ${hexKey}`
         } : {}),
         hasContextActions: controller === "Player" && (hasPresentForces || Boolean(infrastructure)),
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),

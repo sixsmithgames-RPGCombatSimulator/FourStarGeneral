@@ -15,6 +15,7 @@ const FRONT_LAYER_ID = "campaign-map-fronts";
 const FORCE_LAYER_ID = "campaign-map-forces";
 const INTEL_COVERAGE_LAYER_ID = "campaign-map-intel-coverage";
 const INTEL_CONTACT_LAYER_ID = "campaign-map-intel-contacts";
+const LOCATION_LABEL_LAYER_ID = "campaign-map-location-labels";
 const MAX_CAMPAIGN_FORCE_ACTORS = 4;
 const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
 
@@ -27,7 +28,11 @@ const CAMPAIGN_SPRITES: Record<string, string> = {
   fortificationLight: new URL("../assets/campaign/Fortifications -- Light -- Land -- small.png", import.meta.url).href
 };
 
-export type CampaignHexClickHandler = (hexKey: string, tile: CampaignTileInstance | null) => void;
+export type CampaignHexClickHandler = (
+  hexKey: string,
+  tile: CampaignTileInstance | null,
+  contactId?: string
+) => void;
 
 /**
  * Responsible for rendering the strategic campaign map on top of a static background illustration.
@@ -43,6 +48,7 @@ export class CampaignMapRenderer {
   private spriteIndex = new Map<string, SVGImageElement>();
   private hexClickHandler: CampaignHexClickHandler | null = null;
   private boundClickListener: ((event: MouseEvent) => void) | null = null;
+  private boundKeydownListener: ((event: KeyboardEvent) => void) | null = null;
   /** Single pan/zoom transform owner recreated on each render (see MapViewport). */
   private viewportRoot: SVGGElement | null = null;
   private gridBounds: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
@@ -212,6 +218,7 @@ export class CampaignMapRenderer {
     const terrainOverlayGroup = this.ensureLayer(viewportRoot, TERRAIN_OVERLAY_LAYER_ID);
     const spriteGroup = this.ensureLayer(viewportRoot, SPRITE_LAYER_ID);
     const frontGroup = this.ensureLayer(viewportRoot, FRONT_LAYER_ID);
+    const locationLabelGroup = this.ensureLayer(viewportRoot, LOCATION_LABEL_LAYER_ID);
     const forceGroup = this.ensureLayer(viewportRoot, FORCE_LAYER_ID);
     const coverageGroup = this.ensureLayer(viewportRoot, INTEL_COVERAGE_LAYER_ID);
     const contactGroup = this.ensureLayer(viewportRoot, INTEL_CONTACT_LAYER_ID);
@@ -228,6 +235,7 @@ export class CampaignMapRenderer {
     this.renderForceGroups(forceGroup, scenario);
     this.renderIntelCoverage(coverageGroup, viewModel);
     this.renderIntelContacts(contactGroup, viewModel);
+    this.renderNamedLocations(locationLabelGroup, scenario);
 
     const bounds = this.gridBounds;
     if (!bounds) {
@@ -254,6 +262,7 @@ export class CampaignMapRenderer {
     forceGroup.setAttribute("transform", transform);
     coverageGroup.setAttribute("transform", transform);
     contactGroup.setAttribute("transform", transform);
+    locationLabelGroup.setAttribute("transform", transform);
     this.bindInteraction();
   }
 
@@ -779,7 +788,7 @@ export class CampaignMapRenderer {
     scenario.tiles.forEach((instance) => {
       const paletteEntry = scenario.tilePalette[instance.tile];
       const controller = instance.factionControl ?? paletteEntry?.factionControl;
-      if (!controller || controller !== this.viewModel?.observerFaction) {
+      if (!controller || controller !== this.viewModel?.observerFaction || paletteEntry?.role === "taskForce") {
         return;
       }
 
@@ -864,6 +873,44 @@ export class CampaignMapRenderer {
     });
   }
 
+  /** Renders only explicitly authored geographic names as lightweight map annotations. */
+  private renderNamedLocations(layer: SVGGElement, scenario: CampaignScenarioData): void {
+    layer.style.pointerEvents = "none";
+    const density = this.getHexDensityScalar();
+    const fontSize = Math.max(5.5, density * 40);
+    const verticalInset = HEX_RADIUS * density * 0.72;
+    scenario.tiles.forEach((instance) => {
+      const label = scenario.tilePalette[instance.tile]?.mapLabel?.trim();
+      if (!label) return;
+      const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(col, row);
+      const center = this.getHexCenter(hexKey);
+      if (!center) return;
+
+      const marker = document.createElementNS(SVG_NS, "g");
+      marker.classList.add("campaign-map-location-label");
+      marker.setAttribute("data-hex", hexKey);
+      marker.setAttribute("aria-hidden", "true");
+
+      const text = document.createElementNS(SVG_NS, "text");
+      text.textContent = label;
+      const isWesternEdge = col === 0;
+      const isEasternEdge = col === scenario.dimensions.cols - 1;
+      text.setAttribute("x", String(center.cx + (isWesternEdge ? fontSize * 0.3 : isEasternEdge ? -fontSize * 0.3 : 0)));
+      text.setAttribute("y", String(center.cy + verticalInset));
+      text.setAttribute("text-anchor", isWesternEdge ? "start" : isEasternEdge ? "end" : "middle");
+      text.setAttribute("font-size", String(fontSize));
+      text.setAttribute("font-weight", "800");
+      text.setAttribute("letter-spacing", String(Math.max(0.15, density * 1.1)));
+      text.setAttribute("fill", "#fff1bd");
+      text.setAttribute("stroke", "rgba(10, 16, 17, 0.96)");
+      text.setAttribute("stroke-width", String(Math.max(0.9, density * 5)));
+      text.setAttribute("paint-order", "stroke");
+      marker.appendChild(text);
+      layer.appendChild(marker);
+    });
+  }
+
   /** Renders the observing faction's collection footprint. Hidden by default and safe by construction. */
   private renderIntelCoverage(layer: SVGGElement, viewModel: CampaignMapViewModel): void {
     layer.style.display = "none";
@@ -907,8 +954,13 @@ export class CampaignMapRenderer {
       marker.classList.add("campaign-intel-contact", `intel-level-${contact.level}`, `intel-state-${contact.state}`);
       marker.setAttribute("data-contact-id", contact.id);
       marker.setAttribute("data-hex", contact.locationHexKey);
-      marker.setAttribute("role", "img");
-      marker.setAttribute("aria-label", this.describeContactForAccessibility(contact));
+      marker.setAttribute("role", "button");
+      marker.setAttribute("tabindex", "0");
+      marker.setAttribute("aria-label", `${this.describeContactForAccessibility(contact)}. Select to review the assessment.`);
+
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = `${this.describeContactForAccessibility(contact)}. Select to review the assessment.`;
+      marker.appendChild(title);
 
       if (contact.uncertaintyRadius > 0) {
         const uncertainty = document.createElementNS(SVG_NS, "circle");
@@ -920,73 +972,83 @@ export class CampaignMapRenderer {
         uncertainty.setAttribute("stroke", "rgba(238, 190, 85, 0.65)");
         uncertainty.setAttribute("stroke-width", contact.state === "disputed" ? "2.5" : "1.5");
         uncertainty.setAttribute("stroke-dasharray", contact.state === "current" ? "4 3" : "7 5");
+        uncertainty.setAttribute("pointer-events", "none");
+        uncertainty.setAttribute("aria-hidden", "true");
         uncertainty.classList.add("campaign-intel-uncertainty");
         marker.appendChild(uncertainty);
       }
 
-      const plateWidth = contact.level === "reported" ? 24 : 44;
-      const plateHeight = contact.level === "reported" ? 24 : 18;
-      const plate = document.createElementNS(SVG_NS, contact.level === "reported" ? "circle" : "rect");
-      if (plate.tagName.toLowerCase() === "circle") {
-        plate.setAttribute("cx", String(cx));
-        plate.setAttribute("cy", String(cy));
-        plate.setAttribute("r", String(plateWidth / 2));
+      const tokenRadius = HEX_RADIUS * density * 0.54;
+      const token = document.createElementNS(SVG_NS, "circle");
+      token.setAttribute("cx", String(cx));
+      token.setAttribute("cy", String(cy));
+      token.setAttribute("r", String(tokenRadius));
+      token.setAttribute("fill", contact.state === "stale"
+        ? "rgba(35, 40, 47, 0.76)"
+        : contact.state === "disputed"
+          ? "rgba(77, 48, 88, 0.78)"
+          : "rgba(44, 28, 24, 0.72)");
+      token.setAttribute("stroke", contact.confidenceBand === "high" ? "#ffe1a0" : contact.confidenceBand === "medium" ? "#e6bd68" : "#c99a55");
+      token.setAttribute("stroke-width", String(Math.max(0.9, density * (contact.level === "assessed" ? 7 : 5))));
+      if (contact.state !== "current") token.setAttribute("stroke-dasharray", `${Math.max(1.5, density * 12)} ${Math.max(1, density * 8)}`);
+      token.setAttribute("data-hex", contact.locationHexKey);
+      token.setAttribute("aria-hidden", "true");
+      marker.appendChild(token);
+
+      const spriteUrl = this.resolveContactSprite(contact);
+      if (spriteUrl) {
+        const iconSize = tokenRadius * 1.55;
+        const icon = document.createElementNS(SVG_NS, "image");
+        icon.setAttribute("href", spriteUrl);
+        icon.setAttribute("x", String(cx - iconSize / 2));
+        icon.setAttribute("y", String(cy - iconSize / 2));
+        icon.setAttribute("width", String(iconSize));
+        icon.setAttribute("height", String(iconSize));
+        icon.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        icon.setAttribute("opacity", contact.state === "stale" ? "0.58" : "0.88");
+        icon.setAttribute("data-hex", contact.locationHexKey);
+        icon.setAttribute("aria-hidden", "true");
+        icon.classList.add("campaign-intel-contact__sprite");
+        marker.appendChild(icon);
       } else {
-        plate.setAttribute("x", String(cx - plateWidth / 2));
-        plate.setAttribute("y", String(cy - plateHeight / 2));
-        plate.setAttribute("width", String(plateWidth));
-        plate.setAttribute("height", String(plateHeight));
-        plate.setAttribute("rx", String(plateHeight / 2));
+        const diamond = document.createElementNS(SVG_NS, "polygon");
+        const inset = tokenRadius * 0.46;
+        diamond.setAttribute("points", [
+          `${cx},${cy - inset}`,
+          `${cx + inset},${cy}`,
+          `${cx},${cy + inset}`,
+          `${cx - inset},${cy}`
+        ].join(" "));
+        diamond.setAttribute("fill", "#e6bd68");
+        diamond.setAttribute("opacity", "0.9");
+        diamond.setAttribute("data-hex", contact.locationHexKey);
+        diamond.setAttribute("aria-hidden", "true");
+        marker.appendChild(diamond);
       }
-      plate.setAttribute("fill", contact.state === "stale" ? "rgba(68, 70, 78, 0.88)" : contact.state === "disputed" ? "rgba(121, 75, 132, 0.92)" : "rgba(104, 55, 45, 0.94)");
-      plate.setAttribute("stroke", contact.confidenceBand === "high" ? "#ffe1a0" : contact.confidenceBand === "medium" ? "#e6bd68" : "#c99a55");
-      plate.setAttribute("stroke-width", contact.level === "assessed" ? "3" : "2");
-      if (contact.state !== "current") plate.setAttribute("stroke-dasharray", "4 2");
-      marker.appendChild(plate);
-
-      const glyph = document.createElementNS(SVG_NS, "text");
-      glyph.textContent = contact.level === "reported" ? "?" : "ENEMY";
-      glyph.setAttribute("x", String(cx));
-      glyph.setAttribute("y", String(cy + 3));
-      glyph.setAttribute("text-anchor", "middle");
-      glyph.setAttribute("font-size", contact.level === "reported" ? "16" : "8");
-      glyph.setAttribute("font-weight", "800");
-      glyph.setAttribute("fill", "#fff7df");
-      glyph.setAttribute("pointer-events", "none");
-      marker.appendChild(glyph);
-
-      const detail = document.createElementNS(SVG_NS, "text");
-      const ageLabel = contact.ageSegments === 0 ? "current intel" : `${contact.ageSegments * 3}h old`;
-      detail.textContent = `${this.contactDomainLabel(contact)} · ${ageLabel}`;
-      detail.setAttribute("x", String(cx));
-      detail.setAttribute("y", String(cy + plateHeight / 2 + 10));
-      detail.setAttribute("text-anchor", "middle");
-      detail.setAttribute("font-size", "7");
-      detail.setAttribute("font-weight", "700");
-      detail.setAttribute("fill", "#fff1c6");
-      detail.setAttribute("stroke", "#1b1720");
-      detail.setAttribute("stroke-width", "1.5");
-      detail.setAttribute("paint-order", "stroke");
-      detail.setAttribute("pointer-events", "none");
-      marker.appendChild(detail);
       layer.appendChild(marker);
     });
   }
 
-  private contactDomainLabel(contact: CampaignEnemyContactView): string {
-    switch (contact.domain) {
-      case "air": return "Air contact";
-      case "naval": return "Naval contact";
-      case "logistics": return "Logistics contact";
-      case "ground": return "Ground contact";
-      default: return "Unknown contact";
-    }
+  /** Resolves a broad assessed silhouette without receiving authoritative enemy unit truth. */
+  private resolveContactSprite(contact: CampaignEnemyContactView): string | undefined {
+    if (contact.level !== "identified" && contact.level !== "assessed") return undefined;
+    const classification = contact.classificationBand?.toLowerCase() ?? "";
+    if (!classification) return undefined;
+    if (contact.domain === "air") return getSpriteForScenarioType("Interceptor", "Bot", "W");
+    if (contact.domain === "naval") return getSpriteForScenarioType("Destroyer", "Bot", "W");
+    if (contact.domain === "logistics") return getSpriteForScenarioType("Supply_Truck", "Bot", "W");
+    if (classification.includes("armor")) return getSpriteForScenarioType("Medium_Tank", "Bot", "W");
+    if (classification.includes("artillery")) return getSpriteForScenarioType("Artillery_105mm", "Bot", "W");
+    if (classification.includes("infantry")) return getSpriteForScenarioType("Infantry_42", "Bot", "W");
+    return undefined;
   }
 
   private describeContactForAccessibility(contact: CampaignEnemyContactView): string {
     const age = contact.ageSegments === 0 ? "current observation" : `${contact.ageSegments * 3} hours old`;
     const strength = contact.strengthBand ? `, ${contact.strengthBand} strength` : "";
-    const radius = contact.uncertaintyRadius > 0 ? `, within ${contact.uncertaintyRadius} hexes` : "";
+    const radius = contact.uncertaintyRadius > 0
+      ? `, within ${contact.uncertaintyRadius} ${contact.uncertaintyRadius === 1 ? "hex" : "hexes"}`
+      : "";
     return `${contact.label}, ${contact.level}, ${contact.confidenceBand} confidence${strength}, ${age}, near ${contact.locationHexKey}${radius}`;
   }
 
@@ -1004,11 +1066,12 @@ export class CampaignMapRenderer {
       if (!group || typeof group.unitType !== "string") {
         return;
       }
-      const existing = merged.get(group.unitType);
+      const identity = `${group.unitType}\u0000${group.label ?? ""}`;
+      const existing = merged.get(identity);
       if (existing) {
         existing.count += group.count;
       } else {
-        merged.set(group.unitType, { unitType: group.unitType, count: group.count, label: group.label });
+        merged.set(identity, { unitType: group.unitType, count: group.count, label: group.label });
       }
     };
 
@@ -1096,16 +1159,20 @@ export class CampaignMapRenderer {
       svg.removeEventListener("click", this.boundClickListener);
       this.boundClickListener = null;
     }
+    if (this.boundKeydownListener) {
+      svg.removeEventListener("keydown", this.boundKeydownListener);
+      this.boundKeydownListener = null;
+    }
 
     if (!handler) {
       return;
     }
 
-    const listener = (event: MouseEvent): void => {
-      const target = event.target as HTMLElement | null;
+    const activateTarget = (target: Element | null): void => {
       if (!target) {
         return;
       }
+      const contact = target.closest<SVGGElement>(".campaign-intel-contact[data-contact-id]");
       // First prefer the dedicated hex group when the click lands on the polygon.
       const group = target.closest<SVGGElement>(".campaign-hex");
       // Otherwise, try any element carrying a data-hex attribute (sprites, force icons, labels).
@@ -1116,10 +1183,23 @@ export class CampaignMapRenderer {
         return;
       }
       const tile = this.tileIndex.get(hexKey) ?? null;
-      handler(hexKey, tile);
+      handler(hexKey, tile, contact?.dataset.contactId);
+    };
+
+    const listener = (event: MouseEvent): void => {
+      activateTarget(event.target as Element | null);
+    };
+    const keydownListener = (event: KeyboardEvent): void => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const target = event.target as Element | null;
+      if (!target?.closest(".campaign-intel-contact[data-contact-id]")) return;
+      event.preventDefault();
+      activateTarget(target);
     };
 
     svg.addEventListener("click", listener);
+    svg.addEventListener("keydown", keydownListener);
     this.boundClickListener = listener;
+    this.boundKeydownListener = keydownListener;
   }
 }

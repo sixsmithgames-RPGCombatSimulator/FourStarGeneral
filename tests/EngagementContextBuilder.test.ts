@@ -194,11 +194,15 @@ registerTest("ENGAGEMENT_CONTEXT_MAPPING_COMPLETENESS", async ({ Given, When, Th
     "Artillery_155mm",
     "Battleship",
     "Bomber",
+    "Engineer",
     "Fighter",
     "Infantry_42",
     "Infantry_Elite",
     "Interceptor",
+    "Light_Tank",
+    "Medium_Tank",
     "Panzer_IV",
+    "Paratrooper",
     "Supply_Truck",
     "Transport_Ship"
   ];

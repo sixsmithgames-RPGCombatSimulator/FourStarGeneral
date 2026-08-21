@@ -19,8 +19,8 @@ import {
   type CampaignStatePersistenceRequest
 } from "../src/state/CampaignState";
 
-const ORIGIN = "26,25";
-const DESTINATION = "37,17";
+const ORIGIN = "4,20";
+const DESTINATION = "6,20";
 
 function buildState(backend = new InMemoryCampaignSaveBackend()): CampaignState {
   const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
@@ -52,8 +52,10 @@ registerTest("CAMPAIGN_TYPED_ORDERS_RESERVE_AND_CONFLICT_WITHOUT_SPENDING", asyn
   let secondId = "";
 
   await Given("a player economy and twelve infantry available at one origin", async () => {
-    const forces = initial.tiles["26,12"]?.forces.find((force) => force.unitType === "Infantry_42")?.count;
-    if (forces !== 12) throw new Error(`Expected twelve origin infantry, received ${String(forces)}.`);
+    const forces = initial.tiles["4,18"]?.forces
+      .filter((force) => force.unitType === "Infantry_42")
+      .reduce((total, force) => total + force.count, 0);
+    if (forces !== 12) throw new Error(`Expected twelve Omaha infantry battalions, received ${String(forces)}.`);
   });
 
   await When("two drafts each claim eight of the same infantry before either is committed", async () => {
@@ -283,8 +285,8 @@ registerTest("CAMPAIGN_FCI4_PREVIEW_PRIORITY_REPLACE_AND_CANCEL_PARITY", async (
 
 registerTest("CAMPAIGN_REDEPLOY_PREVIEW_REJECTS_MISSING_MAP_DESTINATION", async ({ Given, When, Then }) => {
   const state = buildState();
-  const missingDestination = "26,24";
-  const hostileDestination = "28,38";
+  const missingDestination = "3,20";
+  const hostileDestination = "5,20";
 
   await Given("a selected destination inside the rendered grid but absent from the authoritative theater tiles", async () => {});
   await When("the player previews and attempts to draft a redeployment to that location", async () => {});

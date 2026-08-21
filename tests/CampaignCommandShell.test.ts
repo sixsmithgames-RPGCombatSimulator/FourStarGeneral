@@ -756,7 +756,7 @@ registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_AC
 
   await When("the player selects the fleet symbol", () => {
     if (!onHexClick) throw new Error("Campaign map click handling is unavailable.");
-    onHexClick("20,28");
+    onHexClick("3,18");
   });
 
   await Then("the inspector names its naval purpose and omits unrelated ground actions", () => {
@@ -766,7 +766,7 @@ registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_AC
     const compatibilityActions = root.querySelector<HTMLElement>(".action-section");
     const hiddenSelectionCopy = root.querySelector<HTMLElement>("#campaignSelectionInfo")?.textContent ?? "";
     if (inspector?.dataset.routeMode !== "projected"
-      || inspector.querySelector("h2")?.textContent !== "Allied Assault Fleet"
+      || inspector.querySelector("h2")?.textContent !== "Western Fleet"
       || !route?.textContent?.includes("English Channel")
       || !route.textContent.includes("Naval task force")
       || compatibilitySelection?.hidden !== true

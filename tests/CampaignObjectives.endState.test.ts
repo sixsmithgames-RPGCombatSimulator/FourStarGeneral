@@ -20,7 +20,7 @@ function objectiveScenario(): CampaignScenarioData {
     title: "Objective End State",
     description: "Compact phase, score, victory, and defeat fixture.",
     hexScaleKm: 10,
-    dimensions: { cols: 3, rows: 1 },
+    dimensions: { cols: 3, rows: 2 },
     background: { imageUrl: "about:blank", stretchMode: "contain" },
     tilePalette: {
       beach: { role: "navalBase", factionControl: "Player", supplyValue: 0 },

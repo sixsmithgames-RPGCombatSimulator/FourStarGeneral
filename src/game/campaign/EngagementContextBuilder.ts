@@ -129,7 +129,7 @@ function isCoastal(scenario: CampaignScenarioData, q: number, r: number): boolea
   if (water.size === 0) {
     return false;
   }
-  return neighborAxials(q, r).some((n) => water.has(axialToOffsetKey(n.q, n.r)));
+  return neighborAxials(q, r).some((n) => water.has(`${n.q},${n.r}`));
 }
 
 /**
