@@ -224,6 +224,27 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     if (svg.querySelectorAll(".campaign-task-force").length !== 2) {
       throw new Error("The D+1 map did not retain distinct Western and Eastern naval support forces.");
     }
+    const mapLabels = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-map-location-label"));
+    const mapLabelText = mapLabels.map((label) => label.textContent?.trim() ?? "");
+    const estimatedBoxes = mapLabels.map((label) => {
+      const text = label.querySelector<SVGTextElement>("text");
+      const fontSize = Number(text?.getAttribute("font-size"));
+      const width = fontSize * ((text?.textContent?.length ?? 0) * 0.61 + 0.8);
+      const anchor = text?.getAttribute("text-anchor");
+      const x = Number(text?.getAttribute("x"));
+      const y = Number(text?.getAttribute("y"));
+      const left = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+      return { label: text?.textContent ?? "", left, right: left + width, top: y - fontSize * 1.2, bottom: y };
+    });
+    const overlap = estimatedBoxes.some((box, index) => estimatedBoxes.slice(index + 1).some((other) => (
+      box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top
+    )));
+    if (mapLabelText.some((label) => /Fleet/i.test(label))
+      || !mapLabelText.includes("Sword")
+      || !mapLabelText.includes("Orne")
+      || overlap) {
+      throw new Error(`Formation names leaked into geographic labels or map labels still collide: ${JSON.stringify(estimatedBoxes)}.`);
+    }
   });
 });
 
@@ -372,6 +393,11 @@ registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_E
     sprite?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     const keyboardActivation = new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     marker?.dispatchEvent(keyboardActivation);
+    renderer.setIntelContactsVisible(false);
+    const contactLayer = svg.querySelector<SVGGElement>("#campaign-map-intel-contacts");
+    const hiddenOutsideIntel = contactLayer?.style.display === "none";
+    renderer.setIntelContactsVisible(true);
+    const visibleInIntel = contactLayer?.style.display === "block";
     if (!marker
       || visibleText.trim() !== ""
       || /ENEMY|Ground contact|\bGRD\b|\bNOW\b/i.test(visibleText)
@@ -386,6 +412,8 @@ registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_E
       || uncertainty.getAttribute("aria-hidden") !== "true"
       || clickedContact !== "contact-1"
       || !keyboardActivation.defaultPrevented
+      || !hiddenOutsideIntel
+      || !visibleInIntel
       || !accessibleName.includes("Infantry formation, identified, medium confidence, light strength, current observation")
       || !accessibleName.includes("within 1 hex")
       || !accessibleName.includes("Select to review")) {
