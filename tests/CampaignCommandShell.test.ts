@@ -775,6 +775,46 @@ registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", as
   });
 });
 
+registerTest("CAMPAIGN_RESET_RESTORES_THE_NORMANDY_COMMAND_FRAME", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let centered: { x: number; y: number } | null = null;
+  let resetCount = 0;
+  let root: HTMLElement;
+
+  await Given("a commander who has panned away from the active lodgment", () => {
+    campaignState.reset();
+    root = mountCommandShellFixture();
+  });
+
+  await When("Reset is used on the campaign map", async () => {
+    const renderer = {
+      render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {}, setIntelContactsVisible() {},
+      getViewportRoot() { return null; },
+      getHexCenter(hexKey: string) { return hexKey === "6,20" ? { cx: 640, cy: 980 } : null; },
+      onHexClick() {}, clearAllHighlights() {}, highlightHex() {}
+    };
+    const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+    screen.initialize();
+    (screen as any).viewport = {
+      reset() { resetCount += 1; },
+      centerOn(x: number, y: number) { centered = { x, y }; },
+      getTransform() { return { zoom: 1, panX: 0, panY: 0 }; },
+      setTransform() {}
+    };
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    root.querySelector<HTMLButtonElement>("#campaignResetView")?.click();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+
+  await Then("the default zoom is followed by a return to the primary Normandy objective", () => {
+    const actual = centered as { x: number; y: number } | null;
+    if (resetCount !== 1 || !actual || actual.x !== 640 || actual.y !== 980) {
+      throw new Error(`Campaign Reset did not restore the command area: ${JSON.stringify({ resetCount, actual })}.`);
+    }
+    campaignState.reset();
+  });
+});
+
 registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_ACTION_CLUTTER", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let onHexClick: ((hexKey: string) => void) | null = null;
