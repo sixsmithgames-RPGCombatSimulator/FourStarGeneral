@@ -5827,7 +5827,10 @@
     .redeploy-mode-card:hover:not(:disabled) { border-color: rgba(245,196,109,0.5); background: rgba(245,196,109,0.08); }
     .redeploy-mode-card.selected { border-color: #f5c46d; background: rgba(245,196,109,0.14); box-shadow: 0 0 0 1px #f5c46d inset; }
     .redeploy-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
-    .redeploy-mode-card .mode-icon { font-size: 1.3rem; }
+    .redeploy-mode-card .mode-sprite {
+      width: 3.4rem; height: 2.25rem; object-fit: contain; pointer-events: none;
+      filter: drop-shadow(0 2px 2px rgba(0,0,0,0.55));
+    }
     .redeploy-mode-card .mode-name { font-weight: 700; font-size: 0.82rem; }
     .redeploy-mode-card .mode-speed { font-size: 0.7rem; color: rgba(180,190,205,0.8); }
     .redeploy-mode-card .mode-note { font-size: 0.66rem; color: rgba(180,190,205,0.6); line-height: 1.25; }
@@ -5873,8 +5876,16 @@
     .redeploy-summary-panel .summary-cell.cost-bad strong { color: #ff7b7b; }
     .redeploy-summary-panel .summary-cell.cost-bad { border: 1px solid rgba(255,120,120,0.4); }
     .redeploy-summary-panel .summary-cell.cost-warn strong { color: #ffc06d; }
+    .redeploy-draft-note { margin: 0.55rem 0 0; color: rgba(200,210,225,0.72); font-size: 0.72rem; }
     .redeploy-issues:empty { display: none; }
-    .redeploy-issue { color: #ffb086; font-size: 0.8rem; padding: 0.15rem 0; }
+    .redeploy-issues { display: grid; gap: 0.45rem; }
+    .redeploy-issue {
+      display: grid; gap: 0.18rem; padding: 0.55rem 0.65rem;
+      border: 1px solid rgba(219, 92, 68, 0.55); border-left: 3px solid #db5c44;
+      border-radius: 5px; background: rgba(92, 35, 30, 0.22); color: #ffb086; font-size: 0.8rem;
+    }
+    .redeploy-issue strong { color: #ffd0b9; font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; }
+    .redeploy-issue small { color: rgba(240, 207, 190, 0.74); line-height: 1.35; }
     .redeploy-actions {
       position: sticky; z-index: 4; bottom: -0.1rem;
       display: flex; gap: 0.6rem; margin-top: 0.1rem; padding: 0.65rem 0 0.15rem;
@@ -9484,6 +9495,7 @@
     .campaign-map-legend i[data-legend="friendly"] { background: #617b68; }
     .campaign-map-legend i[data-legend="contact"] { border-style: dashed; background: #a47d54; }
     .campaign-map-legend i[data-legend="front"] { height: 2px; border: 0; background: #d2aa5a; }
+    .campaign-map-legend__sprite { width: 24px; height: 13px; object-fit: contain; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.7)); }
     .campaign-context-inspector {
       grid-area: inspector;
       z-index: 14;
@@ -10995,7 +11007,6 @@
               </h3>
               <div id="campaignProductionSummary"></div>
               <button id="campaignProductionManage" type="button" class="session-btn" style="width:100%;margin-top:0.5rem;" title="Adjust industrial allocation">
-                <span class="btn-icon">⚙</span>
                 <span>Adjust Production</span>
               </button>
             </section>
@@ -11170,7 +11181,7 @@
                       <input id="editorAirPower" type="number" min="0" step="1" style="width: 100%;" />
                     </div>
                     <div>
-                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">⚓ Naval Power:</label>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">Naval Power:</label>
                       <input id="editorNavalPower" type="number" min="0" step="1" style="width: 100%;" />
                     </div>
                     <div>

@@ -2,6 +2,10 @@
   "key": "central_channel",
   "title": "Operation Overlord - Central Channel Sector",
   "description": "The initial landings have secured two narrow footholds on the French shore. Hold the lodgment, open a working port, and expand Allied air cover before the enemy counterattack can contain the invasion.",
+  "historicalCalendar": {
+    "startDateIso": "1944-06-07",
+    "operationDayOffset": 1
+  },
   "hexScaleKm": 10,
   "dimensions": {
     "cols": 50,
@@ -54,7 +58,7 @@
       "spriteKey": "taskForce",
       "navalCapacity": 12,
       "intelConfirmed": true,
-      "notes": "Allied assault fleet supporting the established lodgment"
+      "notes": "Allied assault fleet on station supporting the Normandy lodgment"
     },
     "playerLogistics": {
       "role": "logisticsHub",
@@ -2013,6 +2017,7 @@
         "q": 20,
         "r": 18
       },
+      "rotation": 60,
       "controlSinceDay": 1,
       "controlSinceSegment": 0
     },

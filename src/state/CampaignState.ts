@@ -108,6 +108,7 @@ import { IndexedDbCampaignSaveBackend } from "../game/campaign/persistence/Campa
 import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../game/campaign/persistence/CampaignSaveEnvelope";
 import { migrateLegacyCampaignSave } from "../game/campaign/persistence/CampaignSaveMigration";
 import {
+  CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
@@ -1796,11 +1797,12 @@ export class CampaignState {
       scenarioKey: this.scenarioDefinition.key,
       scenarioContentHash,
       ...(this.scenarioDefinition.key === "central_channel"
-        && scenarioContentHash === CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH
+        && scenarioContentHash === CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
         ? {
             compatiblePriorContentHashes: [
               CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
-              CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH
+              CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+              CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH
             ]
           }
         : {})
@@ -2599,17 +2601,49 @@ export class CampaignState {
     return this.currentSegment % 8;
   }
 
+  /** Formats one deterministic campaign segment using authored historical context when available. */
+  private formatSegmentTimeDisplay(segment: number): string {
+    const dayIndex = Math.floor(segment / 8);
+    const day = dayIndex + 1;
+    const segmentOfDay = segment % 8;
+    const hourStart = segmentOfDay * 3;
+    const hourEnd = hourStart + 3;
+    const formatHour = (hour: number): string => hour.toString().padStart(2, "0");
+    const calendar = this.scenario?.historicalCalendar;
+    if (!calendar) {
+      return `Day ${day}, ${formatHour(hourStart)}:00-${formatHour(hourEnd)}:00`;
+    }
+
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(calendar.startDateIso);
+    if (!match) {
+      throw new Error(`[CampaignState] Invalid historical start date: ${calendar.startDateIso}. Use YYYY-MM-DD.`);
+    }
+    const startYear = Number(match[1]);
+    const startMonth = Number(match[2]) - 1;
+    const startDay = Number(match[3]);
+    const startDate = new Date(Date.UTC(startYear, startMonth, startDay));
+    if (startDate.getUTCFullYear() !== startYear
+      || startDate.getUTCMonth() !== startMonth
+      || startDate.getUTCDate() !== startDay) {
+      throw new Error(`[CampaignState] Historical start date does not exist: ${calendar.startDateIso}.`);
+    }
+    const displayDate = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+    const monthNames = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ] as const;
+    const operationDay = calendar.operationDayOffset + dayIndex;
+    const operationDayLabel = operationDay === 0 ? "D-Day" : operationDay > 0 ? `D+${operationDay}` : `D${operationDay}`;
+    const dateLabel = `${displayDate.getUTCDate()} ${monthNames[displayDate.getUTCMonth()]} ${displayDate.getUTCFullYear()}`;
+    return `${operationDayLabel} · ${dateLabel}, ${formatHour(hourStart)}:00–${formatHour(hourEnd)}:00`;
+  }
+
   /**
    * Returns a human-readable time string for the current segment.
    * Example: "Day 5, 09:00-12:00"
    */
   getCurrentTimeDisplay(): string {
-    const day = this.getCurrentDay();
-    const segmentOfDay = this.getSegmentOfDay();
-    const hourStart = segmentOfDay * 3;
-    const hourEnd = hourStart + 3;
-    const formatHour = (h: number) => h.toString().padStart(2, '0');
-    return `Day ${day}, ${formatHour(hourStart)}:00-${formatHour(hourEnd)}:00`;
+    return this.formatSegmentTimeDisplay(this.currentSegment);
   }
 
   /**
@@ -2617,12 +2651,7 @@ export class CampaignState {
    * Example: segmentToTimeDisplay(16) = "Day 3, 00:00-03:00"
    */
   segmentToTimeDisplay(segment: number): string {
-    const day = Math.floor(segment / 8) + 1;
-    const segmentOfDay = segment % 8;
-    const hourStart = segmentOfDay * 3;
-    const hourEnd = hourStart + 3;
-    const formatHour = (h: number) => h.toString().padStart(2, '0');
-    return `Day ${day}, ${formatHour(hourStart)}:00-${formatHour(hourEnd)}:00`;
+    return this.formatSegmentTimeDisplay(segment);
   }
 
   /**

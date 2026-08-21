@@ -31,7 +31,9 @@ registerTest("CAMPAIGN_SHIPPED_OPENING_GEOGRAPHY_MATCHES_ITS_BRIEF", async ({ Gi
     const beachheadForces = beachheadTile?.forces?.filter((group) => group.label === "Beachhead Reserve") ?? [];
     if (channelRole !== "taskForce"
       || channelTile?.forces?.length
-      || scenario.tilePalette[channelTile?.tile ?? ""]?.spriteKey !== "taskForce") {
+      || scenario.tilePalette[channelTile?.tile ?? ""]?.spriteKey !== "taskForce"
+      || channelTile?.rotation !== 60
+      || !scenario.tilePalette[channelTile?.tile ?? ""]?.notes?.includes("on station")) {
       throw new Error("The English Channel still contains a shore installation or projected ground force.");
     }
     if (scenario.tilePalette[beachheadTile?.tile ?? ""]?.role !== "fortificationLight"
@@ -49,8 +51,32 @@ registerTest("CAMPAIGN_SHIPPED_OPENING_GEOGRAPHY_MATCHES_ITS_BRIEF", async ({ Gi
     }
     if (!scenario.description.includes("initial landings have secured")
       || beachheadPhase?.label !== "Beachhead Consolidation"
-      || !beachheadPhase.description.includes("established lodgment")) {
+      || !beachheadPhase.description.includes("established lodgment")
+      || scenario.historicalCalendar?.startDateIso !== "1944-06-07"
+      || scenario.historicalCalendar.operationDayOffset !== 1) {
       throw new Error("The opening brief does not explain why Allied formations already occupy the French shore.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_SHIPPED_CLOCK_ANCHORS_THE_POST_DDAY_OPENING", async ({ Given, When, Then }) => {
+  const state = new CampaignState({ legacyStorage: null });
+  let opening = "";
+  let nextDay = "";
+
+  await Given("the shipped beachhead-consolidation campaign", () => {
+    state.setScenario(buildShippedScenario());
+  });
+
+  await When("the opening and following-day command times are rendered", () => {
+    opening = state.getCurrentTimeDisplay();
+    nextDay = state.segmentToTimeDisplay(8);
+  });
+
+  await Then("the commander sees the exact date and D-day-relative day rather than an ambiguous Day 1", () => {
+    if (opening !== "D+1 · 7 June 1944, 00:00–03:00"
+      || nextDay !== "D+2 · 8 June 1944, 00:00–03:00") {
+      throw new Error(`Historical campaign clock is ambiguous: '${opening}' / '${nextDay}'.`);
     }
   });
 });

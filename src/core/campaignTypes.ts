@@ -102,7 +102,7 @@ export interface CampaignTileInstance {
   factionControl?: CampaignFactionKey;
   /** Optional sprite override so designers can swap icons without duplicating palette entries. */
   spriteKey?: string;
-  /** Rotation angle in degrees (0, 90, 180, 270) for the sprite. */
+  /** Clockwise facing angle in degrees. Directional sprites select their nearest authored view. */
   rotation?: number;
   /** Axial hex coordinate that this entry occupies. */
   hex: Axial;
@@ -402,12 +402,25 @@ export interface CampaignMapExtents {
 }
 
 /**
+ * Anchors abstract campaign segments to the operation's historical calendar.
+ * The offset keeps familiar D-day notation coherent without changing deterministic segment math.
+ */
+export interface CampaignHistoricalCalendar {
+  /** ISO calendar date represented by campaign segment zero. */
+  startDateIso: string;
+  /** D-day-relative day number represented by segment zero (for example, 1 renders as D+1). */
+  operationDayOffset: number;
+}
+
+/**
  * Full campaign scenario payload the engine loads for the strategic layer before spawning tactical engagements.
  */
 export interface CampaignScenarioData {
   key: string;
   title: string;
   description: string;
+  /** Optional historical anchor used by player-facing campaign clocks. */
+  historicalCalendar?: CampaignHistoricalCalendar;
   /** Allows future variants to tweak the hex scale without editing code. Defaults to CAMPAIGN_HEX_SCALE_KM. */
   hexScaleKm?: number;
   dimensions: { cols: number; rows: number };

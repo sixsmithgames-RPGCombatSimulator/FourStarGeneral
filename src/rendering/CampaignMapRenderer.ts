@@ -30,7 +30,6 @@ const CAMPAIGN_SPRITES: Record<string, string> = {
   airbase: new URL("../assets/campaign/Airbase_Land_Large.png", import.meta.url).href,
   navalBase: new URL("../assets/campaign/Naval_base_large.png", import.meta.url).href,
   logisticsHub: new URL("../assets/campaign/Military_Base_Large.png", import.meta.url).href,
-  taskForce: new URL("../assets/campaign/task_force.svg", import.meta.url).href,
   fortificationHeavy: new URL("../assets/campaign/Fortifications -- Heavy -- Land -- small.png", import.meta.url).href,
   fortificationLight: new URL("../assets/campaign/Fortifications -- Light -- Land -- small.png", import.meta.url).href
 };
@@ -590,22 +589,27 @@ export class CampaignMapRenderer {
         return;
       }
 
-      const asset = CAMPAIGN_SPRITES[spriteKey];
-      if (!asset) {
-        console.warn("[CampaignMapRenderer] Unknown sprite key", { spriteKey, hexKey });
-        return;
-      }
-
       const cx = Number(group.dataset.cx ?? NaN);
       const cy = Number(group.dataset.cy ?? NaN);
       if (Number.isNaN(cx) || Number.isNaN(cy)) {
         return;
       }
 
-      const image = document.createElementNS(SVG_NS, "image");
       const markerLabel = paletteEntry?.notes && (paletteEntry.factionControl === "Player" || paletteEntry.intelConfirmed)
         ? paletteEntry.notes.trim()
         : this.formatMarkerLabel(paletteEntry?.role ?? spriteKey);
+      if (spriteKey === "taskForce") {
+        this.renderTaskForce(layer, hexKey, cx, cy, iconSize, instance.rotation ?? 0, markerLabel);
+        return;
+      }
+
+      const asset = CAMPAIGN_SPRITES[spriteKey];
+      if (!asset) {
+        console.warn("[CampaignMapRenderer] Unknown sprite key", { spriteKey, hexKey });
+        return;
+      }
+
+      const image = document.createElementNS(SVG_NS, "image");
       image.setAttribute("href", asset);
       image.setAttribute("width", String(iconSize));
       image.setAttribute("height", String(iconSize));
@@ -627,6 +631,67 @@ export class CampaignMapRenderer {
       layer.appendChild(image);
       this.spriteIndex.set(hexKey, image);
     });
+  }
+
+  /** Renders a naval formation with authored ship art instead of an abstract strategic emblem. */
+  private renderTaskForce(
+    layer: SVGGElement,
+    hexKey: string,
+    cx: number,
+    cy: number,
+    iconSize: number,
+    rotation: number,
+    markerLabel: string
+  ): void {
+    const facing = this.campaignFacingForRotation(rotation);
+    const battleship = getSpriteForScenarioType("Battleship", "Player", facing);
+    const transport = getSpriteForScenarioType("Transport_Ship", "Player", facing);
+    if (!battleship || !transport) {
+      console.error("[CampaignMapRenderer] Naval task force sprites are unavailable.", { facing, hexKey });
+      return;
+    }
+
+    const marker = document.createElementNS(SVG_NS, "g");
+    marker.classList.add("campaign-sprite", "campaign-task-force");
+    marker.setAttribute("data-hex", hexKey);
+    marker.setAttribute("data-facing", facing);
+    marker.setAttribute("role", "img");
+    marker.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
+
+    const addShip = (asset: string, width: number, height: number, dx: number, dy: number, className: string): SVGImageElement => {
+      const ship = document.createElementNS(SVG_NS, "image");
+      ship.setAttribute("href", asset);
+      ship.setAttribute("width", String(width));
+      ship.setAttribute("height", String(height));
+      ship.setAttribute("x", String(cx + dx - width / 2));
+      ship.setAttribute("y", String(cy + dy - height / 2));
+      ship.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      ship.setAttribute("aria-hidden", "true");
+      ship.setAttribute("data-hex", hexKey);
+      ship.classList.add("campaign-task-force__ship", className);
+      marker.appendChild(ship);
+      return ship;
+    };
+
+    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 0.28, -iconSize * 0.24, "campaign-task-force__transport");
+    addShip(transport, iconSize * 0.76, iconSize * 0.54, iconSize * 0.28, iconSize * 0.23, "campaign-task-force__transport");
+    const primaryShip = addShip(battleship, iconSize * 1.22, iconSize * 0.86, 0, 0, "campaign-task-force__battleship");
+    if (facing.endsWith("W")) {
+      marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
+    }
+    layer.appendChild(marker);
+    this.spriteIndex.set(hexKey, primaryShip);
+  }
+
+  /** Maps clockwise SVG rotation to the nearest six-direction unit-sprite facing. */
+  private campaignFacingForRotation(rotation: number): "NE" | "E" | "SE" | "SW" | "W" | "NW" {
+    const normalized = ((rotation % 360) + 360) % 360;
+    if (normalized >= 30 && normalized < 90) return "SE";
+    if (normalized >= 90 && normalized < 150) return "SW";
+    if (normalized >= 150 && normalized < 210) return "W";
+    if (normalized >= 210 && normalized < 270) return "NW";
+    if (normalized >= 270 && normalized < 330) return "NE";
+    return "E";
   }
 
   private formatMarkerLabel(value: string): string {
@@ -762,18 +827,19 @@ export class CampaignMapRenderer {
         marker.appendChild(uncertainty);
       }
 
-      const plateSize = contact.level === "assessed" ? 30 : 26;
+      const plateWidth = contact.level === "reported" ? 24 : 44;
+      const plateHeight = contact.level === "reported" ? 24 : 18;
       const plate = document.createElementNS(SVG_NS, contact.level === "reported" ? "circle" : "rect");
       if (plate.tagName.toLowerCase() === "circle") {
         plate.setAttribute("cx", String(cx));
         plate.setAttribute("cy", String(cy));
-        plate.setAttribute("r", String(plateSize / 2));
+        plate.setAttribute("r", String(plateWidth / 2));
       } else {
-        plate.setAttribute("x", String(cx - plateSize / 2));
-        plate.setAttribute("y", String(cy - plateSize / 2));
-        plate.setAttribute("width", String(plateSize));
-        plate.setAttribute("height", String(plateSize));
-        plate.setAttribute("rx", contact.level === "located" ? "13" : "3");
+        plate.setAttribute("x", String(cx - plateWidth / 2));
+        plate.setAttribute("y", String(cy - plateHeight / 2));
+        plate.setAttribute("width", String(plateWidth));
+        plate.setAttribute("height", String(plateHeight));
+        plate.setAttribute("rx", String(plateHeight / 2));
       }
       plate.setAttribute("fill", contact.state === "stale" ? "rgba(68, 70, 78, 0.88)" : contact.state === "disputed" ? "rgba(121, 75, 132, 0.92)" : "rgba(104, 55, 45, 0.94)");
       plate.setAttribute("stroke", contact.confidenceBand === "high" ? "#ffe1a0" : contact.confidenceBand === "medium" ? "#e6bd68" : "#c99a55");
@@ -782,41 +848,41 @@ export class CampaignMapRenderer {
       marker.appendChild(plate);
 
       const glyph = document.createElementNS(SVG_NS, "text");
-      glyph.textContent = this.contactGlyph(contact);
+      glyph.textContent = contact.level === "reported" ? "?" : "ENEMY";
       glyph.setAttribute("x", String(cx));
-      glyph.setAttribute("y", String(cy + 4));
+      glyph.setAttribute("y", String(cy + 3));
       glyph.setAttribute("text-anchor", "middle");
-      glyph.setAttribute("font-size", contact.level === "reported" ? "18" : "11");
+      glyph.setAttribute("font-size", contact.level === "reported" ? "16" : "8");
       glyph.setAttribute("font-weight", "800");
       glyph.setAttribute("fill", "#fff7df");
       glyph.setAttribute("pointer-events", "none");
       marker.appendChild(glyph);
 
-      const age = document.createElementNS(SVG_NS, "text");
-      age.textContent = contact.ageSegments === 0 ? "NOW" : `${contact.ageSegments * 3}H`;
-      age.setAttribute("x", String(cx));
-      age.setAttribute("y", String(cy + plateSize / 2 + 12));
-      age.setAttribute("text-anchor", "middle");
-      age.setAttribute("font-size", "9");
-      age.setAttribute("font-weight", "700");
-      age.setAttribute("fill", "#fff1c6");
-      age.setAttribute("stroke", "#1b1720");
-      age.setAttribute("stroke-width", "2");
-      age.setAttribute("paint-order", "stroke");
-      marker.appendChild(age);
+      const detail = document.createElementNS(SVG_NS, "text");
+      const ageLabel = contact.ageSegments === 0 ? "current intel" : `${contact.ageSegments * 3}h old`;
+      detail.textContent = `${this.contactDomainLabel(contact)} · ${ageLabel}`;
+      detail.setAttribute("x", String(cx));
+      detail.setAttribute("y", String(cy + plateHeight / 2 + 10));
+      detail.setAttribute("text-anchor", "middle");
+      detail.setAttribute("font-size", "7");
+      detail.setAttribute("font-weight", "700");
+      detail.setAttribute("fill", "#fff1c6");
+      detail.setAttribute("stroke", "#1b1720");
+      detail.setAttribute("stroke-width", "1.5");
+      detail.setAttribute("paint-order", "stroke");
+      detail.setAttribute("pointer-events", "none");
+      marker.appendChild(detail);
       layer.appendChild(marker);
     });
   }
 
-  private contactGlyph(contact: CampaignEnemyContactView): string {
-    if (contact.level === "reported") return "?";
-    if (contact.level === "located") return "●";
+  private contactDomainLabel(contact: CampaignEnemyContactView): string {
     switch (contact.domain) {
-      case "air": return "AIR";
-      case "naval": return "NAV";
-      case "logistics": return "LOG";
-      case "ground": return "GRD";
-      default: return "UNK";
+      case "air": return "Air contact";
+      case "naval": return "Naval contact";
+      case "logistics": return "Logistics contact";
+      case "ground": return "Ground contact";
+      default: return "Unknown contact";
     }
   }
 

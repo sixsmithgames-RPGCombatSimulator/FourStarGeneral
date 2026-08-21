@@ -370,7 +370,17 @@ export class CampaignMapOverlayController {
           const item = document.createElement("span");
           item.dataset.legend = entry.key;
           item.dataset.tone = entry.tone;
-          item.append(createText("i", "", entry.symbol), document.createTextNode(entry.label));
+          if (entry.spriteUrl) {
+            const image = document.createElement("img");
+            image.className = "campaign-map-legend__sprite";
+            image.src = entry.spriteUrl;
+            image.alt = "";
+            image.setAttribute("aria-hidden", "true");
+            item.append(image);
+          } else {
+            item.append(createText("i", "", entry.symbol ?? ""));
+          }
+          item.append(document.createTextNode(entry.label));
           return item;
         }))
     );

@@ -164,6 +164,7 @@ export function splitLegacyCampaignScenario(scenario: CampaignScenarioData): Cam
     key: scenario.key,
     title: scenario.title,
     description: scenario.description,
+    ...(scenario.historicalCalendar ? { historicalCalendar: structuredClone(scenario.historicalCalendar) } : {}),
     hexScaleKm: scenario.hexScaleKm ?? CAMPAIGN_HEX_SCALE_KM,
     map,
     objectives: structuredClone(scenario.objectives),
@@ -519,6 +520,9 @@ export function projectLegacyCampaignState(
     key: definition.key,
     title: definition.title,
     description: definition.description,
+    ...(definition.historicalCalendar
+      ? { historicalCalendar: cloneReadonlyCampaignData(definition.historicalCalendar) }
+      : {}),
     hexScaleKm: definition.hexScaleKm,
     dimensions: cloneReadonlyCampaignData(definition.map.dimensions),
     ...(definition.map.mapExtents

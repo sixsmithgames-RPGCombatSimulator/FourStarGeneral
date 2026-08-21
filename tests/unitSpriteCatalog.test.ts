@@ -24,6 +24,12 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
     resolved.playerSupplyNorth = getSpriteForScenarioType("Supply_Truck", "Player", "NE");
     resolved.botSupplyWest = getSpriteForScenarioType("Supply_Truck", "Bot", "W");
     resolved.playerSupplyAllocation = getSpriteForAllocationKey("supplyConvoy", "Player", "W");
+    resolved.playerTransportNorth = getSpriteForScenarioType("Transport_Ship", "Player", "NE");
+    resolved.playerTransportEast = getSpriteForScenarioType("Transport_Ship", "Player", "E");
+    resolved.playerTransportSouth = getSpriteForScenarioType("Transport_Ship", "Player", "SE");
+    resolved.playerBattleshipNorth = getSpriteForScenarioType("Battleship", "Player", "NE");
+    resolved.playerBattleshipEast = getSpriteForScenarioType("Battleship", "Player", "E");
+    resolved.playerBattleshipSouth = getSpriteForScenarioType("Battleship", "Player", "SE");
   });
 
   await Then("the catalog should resolve faction-specific aircraft and directional ground sprites", async () => {
@@ -102,5 +108,19 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
     if (!resolved.playerSupplyAllocation?.includes("Wheeled_Supply_USA_Sideview")) {
       throw new Error(`Expected supply allocation west view to use USA supply Sideview art, saw ${String(resolved.playerSupplyAllocation)}.`);
     }
+
+    const navalExpectations: Array<[string, string]> = [
+      ["playerTransportNorth", "Transport_Ship_USA_Northview"],
+      ["playerTransportEast", "Transport_Ship_USA_Sideview"],
+      ["playerTransportSouth", "Transport_Ship_USA_Southview"],
+      ["playerBattleshipNorth", "Battleship_USA_Northview"],
+      ["playerBattleshipEast", "Battleship_USA_Sideview"],
+      ["playerBattleshipSouth", "Battleship_USA_Southview"]
+    ];
+    navalExpectations.forEach(([key, asset]) => {
+      if (!resolved[key]?.includes(asset)) {
+        throw new Error(`Expected ${key} to use ${asset}, saw ${String(resolved[key])}.`);
+      }
+    });
   });
 });

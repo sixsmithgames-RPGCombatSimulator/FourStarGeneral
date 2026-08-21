@@ -25,6 +25,9 @@ export const CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH = "fnv1a32-cb416131";
 /** Exact production identity after the Channel task-force and established-lodgment repair. */
 export const CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH = "fnv1a32-412d85f7";
 
+/** Exact production identity after the historical-clock and directional-fleet clarity repair. */
+export const CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH = "fnv1a32-e8f3d4b9";
+
 const NEW_CONTACT_TILE_KEYS = ["27,24", "29,25"] as const;
 const AIRFIELD_TILE_KEY = "30,25";
 const CHANNEL_TASK_FORCE_TILE_KEY = "20,18";
@@ -176,10 +179,22 @@ export function migrateCampaignRuntimeContent(
   if (source.scenarioContentHash === currentHash) {
     return { runtime: structuredClone(source), migrated: false };
   }
+
+  if (definition.key === "central_channel"
+    && currentHash === CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
+    && source.scenarioContentHash === CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH) {
+    const migrated = {
+      ...structuredClone(source),
+      scenarioContentHash: currentHash
+    };
+    assertCampaignRuntimeState(migrated);
+    return { runtime: migrated, migrated: true };
+  }
+
   const knownPriorHash = source.scenarioContentHash === CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH
     || source.scenarioContentHash === CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH;
   if (definition.key !== "central_channel"
-    || currentHash !== CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH
+    || currentHash !== CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
     || !knownPriorHash) {
     throw contentMismatch("Campaign save content has no certified migration to the current authored scenario.", source, currentHash);
   }

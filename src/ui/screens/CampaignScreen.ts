@@ -12,6 +12,7 @@ import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
 import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
 import { TRANSPORT_MODES, getDefaultTransportMode } from "../../data/transportModes";
+import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
 import { MapViewport } from "../controls/MapViewport";
 import { computeDailyProduction, ensureCampaignState } from "../../state/CampaignState";
 import { ensureUnlockState } from "../../state/UnlockState";
@@ -288,8 +289,8 @@ export class CampaignScreen {
   }
 
   /**
-   * Opens the redeployment planner. Transport modes render as selectable cards (invalid modes
-   * disabled with the reason), units use sliders with quick-pick buttons, and the summary is a
+   * Opens the redeployment planner. Only route- and force-relevant modes render as selectable cards,
+   * units use sliders with quick-pick buttons, and the summary is a
    * live engine-accurate preview via CampaignState.previewRedeploy. Add Draft never spends resources;
    * the authoritative validator rechecks every shared reservation before atomic commit.
    */
@@ -334,16 +335,34 @@ export class CampaignScreen {
     const originRole = scenario.tilePalette[originTile.tile]?.role ?? null;
     const destRole = destTile ? (scenario.tilePalette[destTile.tile]?.role ?? null) : null;
 
-    // Card presentation for each transport mode key (data source of truth stays TRANSPORT_MODES).
-    const MODE_PRESENTATION: Record<string, { icon: string; name: string; note: string }> = {
-      foot: { icon: "🥾", name: "March", note: "Infantry only" },
-      truck: { icon: "🚚", name: "Truck", note: "Infantry & towed guns" },
-      armor: { icon: "🛡️", name: "Motorized", note: "Vehicles move themselves" },
-      naval: { icon: "🚢", name: "Sea Lift", note: "Via transport ships" },
-      warship: { icon: "⚓", name: "Warship", note: "Combat vessels" },
-      fighter: { icon: "✈️", name: "Fighter Ferry", note: "Airbase to airbase" },
-      bomber: { icon: "🛩️", name: "Bomber Ferry", note: "Airbase to airbase" }
+    const requireModeSprite = (scenarioType: string): string => {
+      const sprite = getSpriteForScenarioType(scenarioType, "Player", "E");
+      if (!sprite) throw new Error(`[CampaignScreen] Missing redeployment mode sprite for ${scenarioType}.`);
+      return sprite;
     };
+    // Player-facing art uses the same authored unit language as the map and tactical layer.
+    const MODE_PRESENTATION: Record<string, { sprite: string; name: string; note: string }> = {
+      foot: { sprite: requireModeSprite("Infantry_42"), name: "March", note: "Infantry only" },
+      truck: { sprite: requireModeSprite("Supply_Truck"), name: "Truck", note: "Infantry and towed guns" },
+      armor: { sprite: requireModeSprite("APC_Halftrack"), name: "Motorized", note: "Vehicles move themselves" },
+      naval: { sprite: requireModeSprite("Transport_Ship"), name: "Sea Lift", note: "From a naval base" },
+      warship: { sprite: requireModeSprite("Battleship"), name: "Warship", note: "Combat vessels" },
+      fighter: { sprite: requireModeSprite("Fighter"), name: "Fighter Ferry", note: "Airbase to airbase" },
+      bomber: { sprite: requireModeSprite("Bomber"), name: "Bomber Ferry", note: "Airbase to airbase" }
+    };
+
+    const availableModeKeys = Object.keys(TRANSPORT_MODES).filter((key) => {
+      const mode = TRANSPORT_MODES[key];
+      if (mode.requiresNavalBase && originRole !== "navalBase" && destRole !== "navalBase") return false;
+      if (mode.requiresAirbase && (originRole !== "airbase" || destRole !== "airbase")) return false;
+      if (!mode.applicableUnitTypes || mode.applicableUnitTypes.length === 0) {
+        return key === "naval" && (originRole === "navalBase" || destRole === "navalBase");
+      }
+      return originForces.some((force) => mode.applicableUnitTypes?.includes(force.unitType));
+    });
+    if (availableModeKeys.length === 0) {
+      throw new Error(`[CampaignScreen] No redeployment mode can move forces from ${originOffsetKey} to ${destOffsetKey}.`);
+    }
 
     // Default mode: recommended mode of the largest usable force group, else first usable mode.
     const sortedForces = [...originForces].sort((x, y) => y.count - x.count);
@@ -352,27 +371,29 @@ export class CampaignScreen {
     if (!editingOrder) {
       for (const g of sortedForces) {
         const candidate = getDefaultTransportMode(g.unitType);
-        if (TRANSPORT_MODES[candidate]) {
+        if (availableModeKeys.includes(candidate)) {
           selectedModeKey = candidate;
           defaulted = true;
           break;
         }
       }
-      if (!defaulted) selectedModeKey = Object.keys(TRANSPORT_MODES)[0] ?? "foot";
+      if (!defaulted) selectedModeKey = availableModeKeys[0];
+    } else if (!availableModeKeys.includes(selectedModeKey)) {
+      selectedModeKey = availableModeKeys[0];
     }
 
     title.textContent = editingOrder ? "Edit Redeployment Draft" : "Plan Redeployment";
 
-    const modeCards = Object.keys(TRANSPORT_MODES)
+    const modeCards = availableModeKeys
       .map((key) => {
         const mode = TRANSPORT_MODES[key];
-        const p = MODE_PRESENTATION[key] ?? { icon: "•", name: mode.label, note: "" };
+        const presentation = MODE_PRESENTATION[key];
         return `
           <button type="button" class="redeploy-mode-card" data-mode="${key}" title="${this.escapeHtml(mode.description ?? mode.label)}">
-            <span class="mode-icon">${p.icon}</span>
-            <span class="mode-name">${p.name}</span>
+            <img class="mode-sprite" src="${this.escapeHtml(presentation.sprite)}" alt="" aria-hidden="true" />
+            <span class="mode-name">${presentation.name}</span>
             <span class="mode-speed">${mode.speedHexPerDay} hex / 3h</span>
-            <span class="mode-note">${this.escapeHtml(p.note)}</span>
+            <span class="mode-note">${this.escapeHtml(presentation.note)}</span>
           </button>`;
       })
       .join("");
@@ -427,8 +448,6 @@ export class CampaignScreen {
     const confirmBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployConfirm");
     const cancelBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployCancel");
     if (!form || !summaryEl || !issuesEl || !confirmBtn || !cancelBtn) return;
-    decorateCampaignOrderComposer(form, "redeploy", `${originOffsetKey} to ${destOffsetKey}`, Boolean(editingOrder));
-
     const numberInputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-index]"));
     const sliders = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-slider]"));
     const modeButtons = Array.from(body.querySelectorAll<HTMLButtonElement>(".redeploy-mode-card"));
@@ -479,32 +498,28 @@ export class CampaignScreen {
       const supBad = preview.suppliesCost > preview.suppliesAvailable;
       const capBad = preview.capacityAvailable !== null && preview.capacityNeeded > preview.capacityAvailable;
       const mode = TRANSPORT_MODES[selectedModeKey];
-      const capLabel = mode?.capacityType === "trucks" ? "🚛 Trucks" : mode?.capacityType === "transportShips" ? "🚢 Ships" : "✈️ Planes";
+      const capLabel = mode?.capacityType === "trucks" ? "Trucks" : mode?.capacityType === "transportShips" ? "Transport ships" : "Aircraft";
 
       summaryEl.innerHTML = `
         <div class="summary-eta">Arrives <strong>${etaDisplay}</strong> · ${preview.timeSegments} segment${preview.timeSegments !== 1 ? "s" : ""} in transit</div>
         <div class="summary-grid">
-          <div class="summary-cell${fuelBad ? " cost-bad" : ""}"><span>⛽ Fuel</span><strong>${fmt(preview.fuelCost)}</strong><em>of ${fmt(preview.fuelAvailable)}</em></div>
-          <div class="summary-cell${supBad ? " cost-bad" : ""}"><span>📦 Supplies</span><strong>${fmt(preview.suppliesCost)}</strong><em>of ${fmt(preview.suppliesAvailable)}</em></div>
+          <div class="summary-cell${fuelBad ? " cost-bad" : ""}"><span>Fuel</span><strong>${fmt(preview.fuelCost)}</strong><em>of ${fmt(preview.fuelAvailable)}</em></div>
+          <div class="summary-cell${supBad ? " cost-bad" : ""}"><span>Supplies</span><strong>${fmt(preview.suppliesCost)}</strong><em>of ${fmt(preview.suppliesAvailable)}</em></div>
           ${mode?.capacityType ? `<div class="summary-cell${capBad ? " cost-bad" : ""}"><span>${capLabel}</span><strong>${preview.capacityNeeded}</strong><em>of ${preview.capacityAvailable ?? 0}</em></div>` : ""}
-          ${preview.manpowerLoss > 0 ? `<div class="summary-cell cost-warn"><span>💀 Est. losses</span><strong>${fmt(preview.manpowerLoss)}</strong><em>men</em></div>` : ""}
+          ${preview.manpowerLoss > 0 ? `<div class="summary-cell cost-warn"><span>Estimated losses</span><strong>${fmt(preview.manpowerLoss)}</strong><em>personnel</em></div>` : ""}
         </div>
-        <dl class="campaign-order-preview-contract">
-          <div><dt>Route</dt><dd>${this.escapeHtml(originOffsetKey)} → ${this.escapeHtml(destOffsetKey)} · ${distance} hex</dd></div>
-          <div><dt>Reservations</dt><dd>Selected force quantities${preview.capacityNeeded > 0 ? ` · ${preview.capacityNeeded} ${this.escapeHtml(mode?.capacityType ?? "transport")} capacity` : ""} · ${fmt(preview.fuelCost)} fuel · ${fmt(preview.suppliesCost)} supply</dd></div>
-          <div><dt>Known risk</dt><dd>${preview.manpowerLoss > 0 ? `${fmt(preview.manpowerLoss)} estimated transit attrition` : "No modeled transit attrition"}; destination conditions may change before arrival.</dd></div>
-          <div><dt>Objective effect</dt><dd>No score changes until the force arrives and later campaign events resolve.</dd></div>
-          <div><dt>Cancellation</dt><dd>Before execution, committed costs and reservations are refunded exactly.</dd></div>
-        </dl>
+        <p class="redeploy-draft-note">Draft only · no force or resources are committed until you commit orders.</p>
       `;
 
-      issuesEl.innerHTML = preview.ok ? `<div class="campaign-order-preview-clear">No conflicts in the current command picture.</div>` : preview.diagnostics.map((issue) => `<div class="redeploy-issue" data-reason-code="${issue.code}"><strong>${issue.code.replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(issue.message)}</span><small>${this.escapeHtml(issue.correctiveAction)}</small></div>`).join("");
-      const canRetainConflict = preview.diagnostics.length > 0
-        && preview.diagnostics.every((issue) => issue.code === "ORDER_RESERVATION_CONFLICT");
-      confirmBtn.disabled = !preview.ok && !canRetainConflict;
-      confirmBtn.textContent = editingOrder
-        ? canRetainConflict ? "Replace with conflicted draft" : "Replace Draft"
-        : canRetainConflict ? "Add conflicted draft" : "Add Draft";
+      const uniqueDiagnostics = Array.from(new Map(preview.diagnostics.map((issue) => [
+        `${issue.code}|${issue.message}|${issue.correctiveAction}`,
+        issue
+      ])).values());
+      issuesEl.innerHTML = preview.ok ? "" : uniqueDiagnostics.map((issue) => `<div class="redeploy-issue" data-reason-code="${issue.code}"><strong>${this.escapeHtml(this.formatCampaignLabel(issue.code.replace(/^ORDER_/, "")))}</strong><span>${this.escapeHtml(issue.message)}</span><small>${this.escapeHtml(issue.correctiveAction)}</small></div>`).join("");
+      confirmBtn.disabled = !preview.ok;
+      confirmBtn.textContent = preview.ok
+        ? editingOrder ? "Replace Draft" : "Add Draft"
+        : uniqueDiagnostics.length === 1 ? "Resolve conflict to continue" : "Resolve conflicts to continue";
     };
 
     modeButtons.forEach((btnEl) =>
@@ -591,7 +606,7 @@ export class CampaignScreen {
     layer.addEventListener("keydown", onEscape);
     this.renderer.highlightHex(originOffsetKey, "order-preview-origin");
     this.renderer.highlightHex(destOffsetKey, "order-preview-target");
-    confirmBtn.focus({ preventScroll: true });
+    (modeButtons.find((button) => button.dataset.mode === selectedModeKey) ?? cancelBtn).focus({ preventScroll: true });
     close.onclick = () => {
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
@@ -641,7 +656,6 @@ export class CampaignScreen {
     overlay.id = "campaignLockOverlay";
     overlay.style.cssText = "position:absolute;inset:0;z-index:40;background:rgba(8,10,17,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem;text-align:center;";
     overlay.innerHTML = `
-      <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
       <h1 style="font-size:2rem;font-weight:800;margin-bottom:0.5rem;letter-spacing:0.08em;text-transform:uppercase;">Campaign Locked</h1>
       <p style="color:#f5c46d;margin-bottom:2rem;max-width:500px;line-height:1.6;">
         Campaign mode requires a full-game subscription. Unlock the Western Europe offensive by subscribing to Four Star General or the All-Access Bundle.
@@ -1127,42 +1141,28 @@ export class CampaignScreen {
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.85em;">
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0;">
-                <span style="color: rgba(200, 200, 200, 0.85); display: flex; align-items: center; gap: 0.4rem;">
-                  <span style="font-size: 1.1em;">👥</span>
-                  <span>Manpower</span>
-                </span>
+                <span style="color: rgba(200, 200, 200, 0.85);">Manpower</span>
                 <span style="font-weight: 600; color: ${getResourceColor(e.manpower, 10000)};">${fmt(e.manpower)}</span>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0;">
-                <span style="color: rgba(200, 200, 200, 0.85); display: flex; align-items: center; gap: 0.4rem;">
-                  <span style="font-size: 1.1em;">📦</span>
-                  <span>Supplies</span>
-                </span>
+                <span style="color: rgba(200, 200, 200, 0.85);">Supplies</span>
                 <span style="font-weight: 600; color: ${getResourceColor(e.supplies, 5000)};">${fmt(e.supplies)}</span>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0;">
-                <span style="color: rgba(200, 200, 200, 0.85); display: flex; align-items: center; gap: 0.4rem;">
-                  <span style="font-size: 1.1em;">⛽</span>
-                  <span>Fuel</span>
-                </span>
+                <span style="color: rgba(200, 200, 200, 0.85);">Fuel</span>
                 <span style="font-weight: 600; color: ${getResourceColor(e.fuel, 5000)};">${fmt(e.fuel)}</span>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0;">
-                <span style="color: rgba(200, 200, 200, 0.85); display: flex; align-items: center; gap: 0.4rem;">
-                  <span style="font-size: 1.1em;">💣</span>
-                  <span>Ammo</span>
-                </span>
+                <span style="color: rgba(200, 200, 200, 0.85);">Ammo</span>
                 <span style="font-weight: 600; color: ${getResourceColor(e.ammo ?? 0, 2000)};">${fmt(e.ammo ?? 0)}</span>
               </div>
               <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; font-size: 0.8em;">
                 <div style="text-align: center; padding: 0.35rem; background: rgba(60, 120, 200, 0.15); border-radius: 5px;">
-                  <div style="font-size: 1.2em;">✈️</div>
-                  <div style="color: rgba(180, 180, 180, 0.8); margin-top: 0.15rem;">Air</div>
+                  <div style="color: rgba(180, 180, 180, 0.8);">Air power</div>
                   <div style="font-weight: 600; color: rgba(220, 240, 255, 0.95); margin-top: 0.1rem;">${e.airPower}</div>
                 </div>
                 <div style="text-align: center; padding: 0.35rem; background: rgba(60, 120, 200, 0.15); border-radius: 5px;">
-                  <div style="font-size: 1.2em;">⚓</div>
-                  <div style="color: rgba(180, 180, 180, 0.8); margin-top: 0.15rem;">Naval</div>
+                  <div style="color: rgba(180, 180, 180, 0.8);">Naval power</div>
                   <div style="font-weight: 600; color: rgba(220, 240, 255, 0.95); margin-top: 0.1rem;">${e.navalPower}</div>
                 </div>
               </div>
@@ -1170,15 +1170,15 @@ export class CampaignScreen {
                 <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; font-size: 0.8em; line-height: 1.5; color: rgba(200, 200, 200, 0.85);">
                   <div style="font-weight: 600; color: rgba(220, 220, 220, 0.9); margin-bottom: 0.3rem;">Transport Capacity:</div>
                   <div style="display: flex; justify-content: space-between;">
-                    <span>🚛 Trucks:</span>
+                    <span>Trucks</span>
                     <span style="font-weight: 600; color: ${trucksAvail > 0 ? 'rgba(120, 200, 140, 0.95)' : 'rgba(255, 120, 120, 0.95)'};">${trucksAvail}/${transportCap.trucks}</span>
                   </div>
                   <div style="display: flex; justify-content: space-between;">
-                    <span>🚢 Ships:</span>
+                    <span>Transport ships</span>
                     <span style="font-weight: 600; color: ${shipsAvail > 0 ? 'rgba(120, 200, 140, 0.95)' : 'rgba(255, 120, 120, 0.95)'};">${shipsAvail}/${transportCap.transportShips}</span>
                   </div>
                   <div style="display: flex; justify-content: space-between;">
-                    <span>✈️ Planes:</span>
+                    <span>Transport aircraft</span>
                     <span style="font-weight: 600; color: ${planesAvail > 0 ? 'rgba(120, 200, 140, 0.95)' : 'rgba(255, 120, 120, 0.95)'};">${planesAvail}/${transportCap.transportPlanes}</span>
                   </div>
                 </div>
@@ -1207,9 +1207,9 @@ export class CampaignScreen {
     }
     const fmt = (n: number) => n.toLocaleString();
     const hoursUntil = report.segmentsUntilNextTick * 3;
-    const row = (icon: string, label: string, value: number) => `
+    const row = (label: string, value: number) => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:0.2rem 0;font-size:0.85em;">
-        <span style="color:rgba(200,200,200,0.85);">${icon} ${label}</span>
+        <span style="color:rgba(200,200,200,0.85);">${label}</span>
         <span style="font-weight:600;color:rgba(140,220,150,0.95);">+${fmt(value)}</span>
       </div>`;
     this.productionContainer.innerHTML = `
@@ -1219,10 +1219,10 @@ export class CampaignScreen {
           <span>${report.sources.length} site${report.sources.length !== 1 ? "s" : ""}</span>
         </div>
         <div style="font-size:0.72em;text-transform:uppercase;letter-spacing:0.05em;color:rgba(180,190,205,0.6);margin-bottom:0.25rem;">Daily output</div>
-        ${row("📦", "Supplies", report.daily.supplies)}
-        ${row("⛽", "Fuel", report.daily.fuel)}
-        ${row("💣", "Ammo", report.daily.ammo)}
-        ${row("👥", "Manpower", report.daily.manpower)}
+        ${row("Supplies", report.daily.supplies)}
+        ${row("Fuel", report.daily.fuel)}
+        ${row("Ammo", report.daily.ammo)}
+        ${row("Manpower", report.daily.manpower)}
         <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.1);font-size:0.78em;color:rgba(245,196,109,0.9);">
           Next delivery in ${report.segmentsUntilNextTick} segment${report.segmentsUntilNextTick !== 1 ? "s" : ""} (${hoursUntil}h)
         </div>
@@ -1256,18 +1256,18 @@ export class CampaignScreen {
     title.textContent = editingOrder ? "Edit Production Allocation" : "Production Allocation";
     const fmt = (n: number) => n.toLocaleString();
 
-    const RESOURCES: Array<{ key: keyof ProductionAllocation; icon: string; label: string; hint: string }> = [
-      { key: "supplies", icon: "📦", label: "Supplies", hint: "Rations, spares, consumables" },
-      { key: "fuel", icon: "⛽", label: "Fuel", hint: "Powers armor, ships, aircraft" },
-      { key: "ammo", icon: "💣", label: "Ammunition", hint: "Feeds tactical battles" },
-      { key: "manpower", icon: "👥", label: "Manpower", hint: "Replacements & new drafts" }
+    const RESOURCES: Array<{ key: keyof ProductionAllocation; label: string; hint: string }> = [
+      { key: "supplies", label: "Supplies", hint: "Rations, spares, consumables" },
+      { key: "fuel", label: "Fuel", hint: "Powers armor, ships, aircraft" },
+      { key: "ammo", label: "Ammunition", hint: "Feeds tactical battles" },
+      { key: "manpower", label: "Manpower", hint: "Replacements and new drafts" }
     ];
 
     const sliderRows = RESOURCES.map(
       (r) => `
       <div class="production-alloc-row">
         <div class="alloc-label">
-          <span class="alloc-name">${r.icon} ${r.label}</span>
+          <span class="alloc-name">${r.label}</span>
           <span class="alloc-hint">${r.hint}</span>
         </div>
         <input type="range" min="0" max="100" step="5" value="${editingOrder?.payload.allocation[r.key] ?? report.allocation[r.key]}" data-alloc-slider="${r.key}" aria-label="${r.label} allocation" />
@@ -2539,8 +2539,8 @@ export class CampaignScreen {
         controlLabel,
         ...(isAlliedAssaultFleet ? {
           displayLabel: "Allied Assault Fleet",
-          summary: "Naval support group sustaining the established Normandy lodgment from the English Channel.",
-          locationLabel: `English Channel · hex ${hexKey}`
+          summary: "Naval gunfire, transport, and logistics group on station supporting the established Normandy lodgment.",
+          locationLabel: `English Channel · offshore support station · hex ${hexKey}`
         } : {}),
         hasContextActions: controller === "Player" && (hasPresentForces || Boolean(infrastructure)),
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),

@@ -4,6 +4,7 @@ import campaignScenarioData from "../src/data/campaign01.json";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { CampaignScreen } from "../src/ui/screens/CampaignScreen";
 import { ensureCampaignState } from "../src/state/CampaignState";
+import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 
 function mountCampaignScreenRoot(): HTMLElement {
   document.body.innerHTML = "<div id=\"campaignScreen\"><div id=\"campaignSelectionInfo\"></div></div>";
@@ -285,6 +286,108 @@ registerTest("CAMPAIGNSCREEN_MULTI_EDGE_FRONT_REQUIRES_ONE_EXPLICIT_TARGET", asy
       || resolved.target?.missionLabel !== "Port Assault"
       || !resolved.pressureLabel.includes("2 assessed opposing contacts · heavy resistance · low confidence")) {
       throw new Error(`Explicit front target used blended or first-edge identity: ${JSON.stringify(resolved)}.`);
+    }
+  });
+});
+
+registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_AND_ONE_BLOCKER", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  const origin = "2,2";
+  const destination = "3,2";
+  const originAxial = CoordinateSystem.offsetToAxial(2, 2);
+  const destinationAxial = CoordinateSystem.offsetToAxial(3, 2);
+  let popupBody: HTMLElement;
+
+  await Given("a ground route with infantry, artillery, and one duplicated reservation conflict", () => {
+    document.body.innerHTML = `
+      <div id="battlePopupLayer" class="hidden" aria-hidden="true">
+        <section class="battle-popup">
+          <h2 data-popup-title></h2>
+          <button id="battlePopupClose" type="button">Close</button>
+          <div data-popup-body></div>
+        </section>
+      </div>`;
+    popupBody = document.querySelector<HTMLElement>("[data-popup-body]")!;
+    const duplicate = {
+      code: "ORDER_RESERVATION_CONFLICT",
+      message: "The selected infantry exceeds the uncommitted force at the origin.",
+      correctiveAction: "Reduce the quantity or remove an earlier movement draft."
+    };
+    (screen as any).campaignState = {
+      getCampaignMapView: () => ({
+        scenario: {
+          key: "planner-clarity",
+          title: "Planner clarity",
+          description: "Only relevant movement choices should be visible.",
+          dimensions: { cols: 5, rows: 5 },
+          hexScaleKm: 10,
+          background: { imageUrl: "about:blank" },
+          tilePalette: {
+            origin: { role: "fortificationLight", factionControl: "Player" },
+            destination: { role: "region", factionControl: "Player" }
+          },
+          tiles: [
+            {
+              tile: "origin",
+              hex: originAxial,
+              forces: [
+                { unitType: "Infantry_42", count: 2, label: "1st Infantry Division" },
+                { unitType: "Artillery_105mm", count: 1, label: "Field Artillery Battalion" }
+              ]
+            },
+            { tile: "destination", hex: destinationAxial }
+          ],
+          fronts: [],
+          objectives: [],
+          economies: []
+        }
+      }),
+      getCampaignFormationRoster: () => [],
+      previewRedeploy: () => ({
+        ok: false,
+        diagnostics: [duplicate, duplicate],
+        etaSegment: 1,
+        timeSegments: 1,
+        fuelCost: 0,
+        fuelAvailable: 100,
+        suppliesCost: 3,
+        suppliesAvailable: 100,
+        capacityNeeded: 0,
+        capacityAvailable: null,
+        manpowerLoss: 0
+      }),
+      segmentToTimeDisplay: () => "D+1 · 7 June 1944, 03:00–06:00",
+      createRedeployDraft: () => ({ ok: false, reason: "Not submitted in this presentation test." })
+    };
+    (screen as any).renderer = {
+      highlightHex() {},
+      clearAllHighlights() {}
+    };
+  });
+
+  await When("the commander opens the redeployment planner", () => {
+    (screen as any).openRedeployModal(origin, destination);
+  });
+
+  await Then("only applicable sprite-backed choices and one actionable blocker remain", () => {
+    const modes = Array.from(popupBody.querySelectorAll<HTMLButtonElement>(".redeploy-mode-card"));
+    const modeKeys = modes.map((mode) => mode.dataset.mode).join(",");
+    const issues = popupBody.querySelectorAll(".redeploy-issue");
+    const confirm = popupBody.querySelector<HTMLButtonElement>("#campaignRedeployConfirm");
+    if (modeKeys !== "foot,truck"
+      || modes.some((mode) => !mode.querySelector("img.mode-sprite"))
+      || issues.length !== 1
+      || !issues[0].textContent?.includes("Reduce the quantity or remove an earlier movement draft.")
+      || !confirm?.disabled
+      || confirm.textContent !== "Resolve conflict to continue"
+      || popupBody.querySelector(".campaign-order-composer__guide")
+      || popupBody.querySelector(".campaign-order-preview-contract")
+      || !popupBody.textContent?.includes("Draft only · no force or resources are committed until you commit orders.")
+      || /[\u2600-\u27BF\u{1F300}-\u{1FAFF}]/u.test(popupBody.textContent ?? "")) {
+      throw new Error(`Redeployment planner remains cluttered or ambiguous: modes=${modeKeys}, issues=${issues.length}, text='${popupBody.textContent}'.`);
+    }
+    if (document.activeElement !== modes[0]) {
+      throw new Error("The planner did not focus its first relevant movement choice.");
     }
   });
 });

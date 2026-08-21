@@ -1,12 +1,19 @@
 /** Stable, presentation-only registry for campaign map modes and truthful feature gates. */
 
 import type { CampaignOverlayId, CampaignWorkspaceId } from "./CampaignCommandUIState";
+import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
 
 export interface CampaignMapLegendEntry {
   readonly key: string;
-  readonly symbol: string;
+  readonly symbol?: string;
+  readonly spriteUrl?: string;
   readonly label: string;
   readonly tone: "friendly" | "enemy" | "warning" | "objective" | "neutral";
+}
+
+const taskForceSprite = getSpriteForScenarioType("Transport_Ship", "Player", "E");
+if (!taskForceSprite) {
+  throw new Error("[CampaignMapOverlayRegistry] The naval task-force legend sprite is unavailable.");
 }
 
 export interface CampaignMapOverlayDefinition {
@@ -28,7 +35,7 @@ const OVERLAYS: readonly CampaignMapOverlayDefinition[] = Object.freeze([
     status: "available",
     legend: [
       { key: "friendly", symbol: "■", label: "Friendly control", tone: "friendly" },
-      { key: "taskForce", symbol: "⚓", label: "Naval task force", tone: "friendly" },
+      { key: "taskForce", spriteUrl: taskForceSprite, label: "Naval task force", tone: "friendly" },
       { key: "contact", symbol: "◇", label: "Assessed contact", tone: "enemy" },
       { key: "front", symbol: "━", label: "Front", tone: "warning" }
     ]

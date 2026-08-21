@@ -93,6 +93,7 @@ export interface CampaignScenarioDefinition {
   readonly key: string;
   readonly title: string;
   readonly description: string;
+  readonly historicalCalendar?: CampaignReadonly<NonNullable<CampaignScenarioData["historicalCalendar"]>>;
   readonly hexScaleKm: number;
   readonly map: CampaignScenarioMapDefinition;
   readonly objectives: readonly CampaignReadonly<CampaignObjective>[];

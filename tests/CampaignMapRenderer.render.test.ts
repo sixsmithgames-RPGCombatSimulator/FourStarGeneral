@@ -162,16 +162,84 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
 
   await When("the English Channel marker is painted", () => {});
 
-  await Then("the player sees an assault task force and no infantry counter at that water hex", () => {
+  await Then("the player sees a directionally authored assault fleet and no infantry counter at that water hex", () => {
     const channelOffsetKey = "20,28";
-    const sprite = svg.querySelector<SVGImageElement>(`.campaign-sprite[data-hex="${channelOffsetKey}"]`);
+    const fleet = svg.querySelector<SVGGElement>(`.campaign-task-force[data-hex="${channelOffsetKey}"]`);
+    const ships = fleet?.querySelectorAll<SVGImageElement>(".campaign-task-force__ship") ?? [];
+    const shipAssets = Array.from(ships).map((ship) => ship.getAttribute("href") ?? "");
     const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
-    if (!sprite
-      || !sprite.getAttribute("href")?.includes("task_force.svg")
-      || sprite.getAttribute("role") !== "img"
-      || sprite.getAttribute("aria-label") !== "Allied assault fleet supporting the established lodgment · hex 20,28"
+    if (!fleet
+      || ships.length !== 3
+      || shipAssets.filter((asset) => asset.includes("Transport_Ship_USA_Southview")).length !== 2
+      || shipAssets.filter((asset) => asset.includes("Battleship_USA_Southview")).length !== 1
+      || shipAssets.some((asset) => asset.includes("task_force.svg"))
+      || fleet.dataset.facing !== "SE"
+      || fleet.getAttribute("role") !== "img"
+      || fleet.getAttribute("aria-label") !== "Allied assault fleet on station supporting the Normandy lodgment · hex 20,28"
       || groundCounters.length !== 0) {
-      throw new Error("The Channel marker still renders as a shore base or projects a ground formation.");
+      throw new Error("The Channel fleet still uses an abstract marker, wrong facing, or ground formation projection.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_ENTITIES", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario: CampaignScenarioData = {
+    key: "contact-clarity",
+    title: "Contact clarity",
+    description: "Enemy reports must look like intelligence.",
+    dimensions: { cols: 2, rows: 2 },
+    background: { imageUrl: "about:blank" },
+    tilePalette: { region: { role: "region", factionControl: "Neutral" } },
+    tiles: [],
+    fronts: [],
+    objectives: [],
+    economies: []
+  };
+  const renderer = new CampaignMapRenderer();
+
+  await Given("one current assessed ground contact", () => {
+    renderer.render(svg, canvas as HTMLDivElement, {
+      observerFaction: "Player",
+      scenario,
+      enemyContacts: [{
+        id: "contact-1",
+        subjectKind: "force",
+        level: "identified",
+        state: "current",
+        confidenceBand: "medium",
+        locationHexKey: "1,1",
+        uncertaintyRadius: 0,
+        domain: "ground",
+        label: "Infantry formation",
+        strengthBand: "light",
+        lastObservedSegment: 0,
+        ageSegments: 0,
+        sourceLabels: ["Recon patrol"],
+        analystNotes: []
+      }],
+      coverage: [],
+      capacity: { total: 1, committed: 0, available: 1 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+  });
+
+  await When("the intelligence overlay marker is painted", () => {});
+
+  await Then("plain-language domain and recency replace physical-looking shorthand", () => {
+    const marker = svg.querySelector<SVGGElement>('.campaign-intel-contact[data-contact-id="contact-1"]');
+    const visibleText = marker?.textContent ?? "";
+    const accessibleName = marker?.getAttribute("aria-label") ?? "";
+    if (!marker
+      || !visibleText.includes("ENEMY")
+      || !visibleText.includes("Ground contact · current intel")
+      || /\bGRD\b|\bNOW\b/.test(visibleText)
+      || !accessibleName.includes("Infantry formation, identified, medium confidence, light strength, current observation")) {
+      throw new Error(`Enemy contact presentation remained ambiguous: '${visibleText}' / '${accessibleName}'.`);
     }
   });
 });

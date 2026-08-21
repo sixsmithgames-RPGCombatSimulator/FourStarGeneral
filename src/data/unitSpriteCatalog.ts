@@ -225,8 +225,8 @@ const GROUND_UNIT_SPRITES: Record<string, SpriteCatalogEntry> = {
   }),
 
   // Naval and legacy assets
-  Transport_Ship: unitSprite("Transport_Ship.png"),
-  Battleship: unitSprite("Battleship.png")
+  Transport_Ship: directionalSprite("Transport_Ship_USA"),
+  Battleship: directionalSprite("Battleship_USA")
 };
 
 const AIRCRAFT_UNIT_SPRITES: Record<string, SpriteCatalogEntry> = {
