@@ -740,7 +740,7 @@ registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", as
     mountCommandShellFixture();
   });
 
-  await When("the opening campaign map is rendered", async () => {
+  await When("the pre-rendered campaign screen becomes visible", async () => {
     const renderer = {
       render() {},
       setTerrainOverlayVisible() {},
@@ -759,6 +759,10 @@ registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", as
       setTransform() {}
     };
     screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    if (centered !== null) {
+      throw new Error("The hidden startup render tried to center before the campaign had a measurable viewport.");
+    }
+    document.dispatchEvent(new CustomEvent("screen:shown", { detail: { id: "campaign" } }));
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   });
 

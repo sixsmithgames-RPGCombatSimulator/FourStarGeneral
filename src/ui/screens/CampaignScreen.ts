@@ -840,6 +840,16 @@ export class CampaignScreen {
     });
     this.commandInterface.initialize();
 
+    // The scenario is rendered during application startup while the campaign screen is hidden,
+    // so its viewport has no measurable size at that point. Center only after ScreenManager has
+    // revealed the campaign; the extra frame gives the browser a layout pass before centerOn.
+    document.addEventListener("screen:shown", (event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail;
+      if (detail?.id !== "campaign") return;
+      const scenario = this.campaignState.getCampaignMapView("Player")?.scenario;
+      if (scenario) this.focusOpeningObjective(scenario);
+    });
+
     // Capture hooks after shell composition. Existing IDs are moved, never duplicated.
     this.economyContainer = this.element.querySelector<HTMLElement>("#campaignEconomySummary");
     this.productionContainer = this.element.querySelector<HTMLElement>("#campaignProductionSummary");
@@ -1083,8 +1093,6 @@ export class CampaignScreen {
       this.renderCampaignIntel();
       this.commandInterface?.revealInspector({ kind: "hex", id: hexKey });
     });
-
-    this.focusOpeningObjective(scenario);
 
     // Initial sidebar render
     this.renderTimeDisplay();
