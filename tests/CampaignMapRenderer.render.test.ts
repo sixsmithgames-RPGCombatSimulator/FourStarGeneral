@@ -167,6 +167,7 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     const fleet = svg.querySelector<SVGGElement>(`.campaign-task-force[data-hex="${channelOffsetKey}"]`);
     const ships = fleet?.querySelectorAll<SVGImageElement>(".campaign-task-force__ship") ?? [];
     const shipAssets = Array.from(ships).map((ship) => ship.getAttribute("href") ?? "");
+    const station = fleet?.querySelector<SVGCircleElement>(".campaign-task-force__station") ?? null;
     const battleship = fleet?.querySelector<SVGImageElement>(".campaign-task-force__battleship") ?? null;
     const escorts = [
       fleet?.querySelector<SVGImageElement>(".campaign-task-force__transport") ?? null,
@@ -191,19 +192,110 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     };
     const supportSilhouettesRemainVisible = battleship !== null
       && escorts.every((escort) => escort !== null && overlapFraction(escort, battleship) < 0.25);
+    const shipRects = Array.from(ships).map((ship) => ({
+      x: Number(ship.getAttribute("x")),
+      width: Number(ship.getAttribute("width"))
+    }));
+    const formationWidth = shipRects.length > 0
+      ? Math.max(...shipRects.map((rect) => rect.x + rect.width)) - Math.min(...shipRects.map((rect) => rect.x))
+      : 0;
+    const stationDiameter = station ? Number(station.getAttribute("r")) * 2 : 0;
+    const channelHex = svg.querySelector<SVGGElement>(`.campaign-hex[data-hex="${channelOffsetKey}"]`);
     const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
     if (!fleet
-      || ships.length !== 3
-      || shipAssets.filter((asset) => asset.includes("Transport_Ship_USA_Southview")).length !== 1
-      || shipAssets.filter((asset) => asset.includes("Destroyer_USA_Southview")).length !== 1
+      || ships.length !== 5
+      || shipAssets.filter((asset) => asset.includes("Transport_Ship_USA_Southview")).length !== 2
+      || shipAssets.filter((asset) => asset.includes("Destroyer_USA_Southview")).length !== 2
       || shipAssets.filter((asset) => asset.includes("Battleship_USA_Southview")).length !== 1
       || shipAssets.some((asset) => asset.includes("task_force.svg"))
       || fleet.dataset.facing !== "SE"
       || fleet.getAttribute("role") !== "img"
       || fleet.getAttribute("aria-label") !== "Allied assault fleet on station supporting the Normandy lodgment · hex 20,28"
+      || station?.getAttribute("data-authoritative-anchor") !== "true"
+      || station?.getAttribute("cx") !== channelHex?.dataset.cx
+      || station?.getAttribute("cy") !== channelHex?.dataset.cy
+      || formationWidth <= stationDiameter * 2
       || !supportSilhouettesRemainVisible
       || groundCounters.length !== 0) {
-      throw new Error("The Channel fleet still uses an abstract marker, hides its support vessels, uses the wrong facing, or projects a ground formation.");
+      throw new Error("The Channel fleet still lacks a centered station, readable spread, authored vessel silhouettes, correct facing, or clean naval-only projection.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_RENDERER_CENTERS_STRENGTH_FORMATIONS_INSIDE_AUTHORITATIVE_HEXES", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const renderer = new CampaignMapRenderer();
+
+  await Given("the shipped campaign's player-visible operational forces", () => {
+    renderer.render(svg, canvas as HTMLDivElement, {
+      observerFaction: "Player",
+      scenario,
+      enemyContacts: [],
+      coverage: [],
+      capacity: { total: 0, committed: 0, available: 0 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+  });
+
+  await When("the campaign renderer composes each force as one strategic formation", () => {});
+
+  await Then("actors communicate broad strength inside one centered safe footprint without leaking opposing formations", () => {
+    const expectedActorCounts = new Map<string, number>([
+      ["29,39", 1],
+      ["27,37", 2],
+      ["26,25", 4]
+    ]);
+
+    expectedActorCounts.forEach((expectedActorCount, hexKey) => {
+      const hex = svg.querySelector<SVGGElement>(`.campaign-hex[data-hex="${hexKey}"]`);
+      const stack = svg.querySelector<SVGGElement>(`.campaign-force-stack[data-hex="${hexKey}"]`);
+      const footprint = stack?.querySelector<SVGCircleElement>(".campaign-force-stack__footprint") ?? null;
+      const actors = Array.from(stack?.querySelectorAll<SVGImageElement>(".campaign-force-stack__actor") ?? []);
+      const cx = Number(hex?.dataset.cx);
+      const cy = Number(hex?.dataset.cy);
+      const safeRadius = Number(footprint?.getAttribute("r"));
+      const allActorCornersStayInside = actors.every((actor) => {
+        const x = Number(actor.getAttribute("x"));
+        const y = Number(actor.getAttribute("y"));
+        const width = Number(actor.getAttribute("width"));
+        const height = Number(actor.getAttribute("height"));
+        return [
+          [x, y],
+          [x + width, y],
+          [x, y + height],
+          [x + width, y + height]
+        ].every(([cornerX, cornerY]) => Math.hypot(cornerX - cx, cornerY - cy) <= safeRadius + 0.001);
+      });
+
+      if (!hex
+        || !stack
+        || !footprint
+        || stack.getAttribute("role") !== "img"
+        || stack.dataset.actorCount !== String(expectedActorCount)
+        || actors.length !== expectedActorCount
+        || footprint.getAttribute("cx") !== hex.dataset.cx
+        || footprint.getAttribute("cy") !== hex.dataset.cy
+        || !allActorCornersStayInside) {
+        throw new Error(`Force formation at ${hexKey} did not remain centered and contained: ${stack?.outerHTML ?? "missing"}`);
+      }
+    });
+
+    const beachhead = svg.querySelector<SVGGElement>('.campaign-force-stack[data-hex="27,37"]');
+    const exactName = beachhead?.getAttribute("aria-label") ?? "";
+    const opposingTruth = svg.querySelector('.campaign-force-stack[data-hex="28,38"]');
+    const floatingCounts = svg.querySelectorAll(".campaign-force-count");
+    if (!exactName.includes("Friendly force · 6 formations · hex 27,37")
+      || !exactName.includes("5 Port Approach Battalion")
+      || !exactName.includes("1 Port Approach Battery")
+      || exactName.includes("Infantry_42")
+      || opposingTruth
+      || floatingCounts.length !== 0) {
+      throw new Error(`Force presentation lost its exact accessible composition, leaked Bot truth, or retained floating counts: '${exactName}'.`);
     }
   });
 });

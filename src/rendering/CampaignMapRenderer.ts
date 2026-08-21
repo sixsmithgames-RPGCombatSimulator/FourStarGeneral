@@ -15,15 +15,8 @@ const FRONT_LAYER_ID = "campaign-map-fronts";
 const FORCE_LAYER_ID = "campaign-map-forces";
 const INTEL_COVERAGE_LAYER_ID = "campaign-map-intel-coverage";
 const INTEL_CONTACT_LAYER_ID = "campaign-map-intel-contacts";
-const FORCE_ICON_SIZE = 34;
-const FORCE_POSITIONS: Array<{ dx: number; dy: number }> = [
-  { dx: -20, dy: -16 },
-  { dx: 12, dy: -16 },
-  { dx: -20, dy: 16 },
-  { dx: 12, dy: 16 },
-  { dx: -4, dy: 0 }
-];
-const FORCE_COUNT_FONT_SIZE = 13;
+const MAX_CAMPAIGN_FORCE_ACTORS = 4;
+const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
 
 /** Maps sprite keys declared in campaign data to asset URLs (PNG sprites). */
 const CAMPAIGN_SPRITES: Record<string, string> = {
@@ -674,9 +667,24 @@ export class CampaignMapRenderer {
       return ship;
     };
 
+    const station = document.createElementNS(SVG_NS, "circle");
+    station.setAttribute("cx", String(cx));
+    station.setAttribute("cy", String(cy));
+    station.setAttribute("r", String(iconSize * 0.58));
+    station.setAttribute("fill", "rgba(8, 23, 34, 0.34)");
+    station.setAttribute("stroke", "rgba(216, 190, 118, 0.9)");
+    station.setAttribute("stroke-width", String(Math.max(1, iconSize * 0.055)));
+    station.setAttribute("data-hex", hexKey);
+    station.setAttribute("data-authoritative-anchor", "true");
+    station.setAttribute("aria-hidden", "true");
+    station.classList.add("campaign-task-force__station");
+    marker.appendChild(station);
+
     const primaryShip = addShip(battleship, iconSize * 1.12, iconSize * 0.79, 0, 0, "campaign-task-force__battleship");
-    addShip(transport, iconSize * 0.86, iconSize * 0.61, -iconSize * 0.72, -iconSize * 0.52, "campaign-task-force__transport");
-    addShip(destroyer, iconSize * 0.88, iconSize * 0.41, iconSize * 0.72, iconSize * 0.52, "campaign-task-force__destroyer");
+    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 1.22, -iconSize * 0.58, "campaign-task-force__transport");
+    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 0.92, iconSize * 0.72, "campaign-task-force__transport");
+    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 0.92, -iconSize * 0.72, "campaign-task-force__destroyer");
+    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 1.22, iconSize * 0.58, "campaign-task-force__destroyer");
     if (facing.endsWith("W")) {
       marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
     }
@@ -704,10 +712,78 @@ export class CampaignMapRenderer {
       .replace(/^./, (character) => character.toUpperCase());
   }
 
-  /** Renders aggregated force icons using tactical sprites scaled for the campaign map. */
+  /** Resolves the broad 1–4 actor strength grammar shared with the tactical map. */
+  private resolveCampaignForceActorCount(totalFormations: number): number {
+    return Math.max(
+      1,
+      Math.min(MAX_CAMPAIGN_FORCE_ACTORS, Math.ceil(totalFormations / FORMATIONS_PER_CAMPAIGN_ACTOR))
+    );
+  }
+
+  /**
+   * Allocates the limited visual actors across authored force groups.
+   * Every represented type gets one actor before the remaining slots follow relative formation strength.
+   */
+  private resolveCampaignForceActors(forces: CampaignForceGroup[], actorCount: number): CampaignForceGroup[] {
+    const actors: CampaignForceGroup[] = [];
+    const assigned = new Map<string, number>();
+    const seedCount = Math.min(actorCount, forces.length);
+
+    for (let index = 0; index < seedCount; index += 1) {
+      const force = forces[index];
+      if (!force) continue;
+      actors.push(force);
+      assigned.set(force.unitType, 1);
+    }
+
+    while (actors.length < actorCount) {
+      const next = forces.reduce<CampaignForceGroup | null>((best, force) => {
+        if (!best) return force;
+        const forceShare = force.count / ((assigned.get(force.unitType) ?? 0) + 1);
+        const bestShare = best.count / ((assigned.get(best.unitType) ?? 0) + 1);
+        return forceShare > bestShare ? force : best;
+      }, null);
+      if (!next) break;
+      actors.push(next);
+      assigned.set(next.unitType, (assigned.get(next.unitType) ?? 0) + 1);
+    }
+
+    return actors;
+  }
+
+  /** Returns a compact centered formation that stays inside the operational hex's safe circular inset. */
+  private resolveCampaignForceLayout(actorCount: number, radius: number): Array<{ dx: number; dy: number }> {
+    const spread = radius * 0.43;
+    if (actorCount <= 1) return [{ dx: 0, dy: 0 }];
+    if (actorCount === 2) {
+      const pairSpread = radius * 0.34;
+      return [{ dx: -pairSpread, dy: 0 }, { dx: pairSpread, dy: 0 }];
+    }
+    if (actorCount === 3) {
+      return [
+        { dx: 0, dy: -spread },
+        { dx: -spread * 0.88, dy: spread * 0.55 },
+        { dx: spread * 0.88, dy: spread * 0.55 }
+      ];
+    }
+    return [
+      { dx: 0, dy: -spread },
+      { dx: spread, dy: 0 },
+      { dx: 0, dy: spread },
+      { dx: -spread, dy: 0 }
+    ];
+  }
+
+  /** Renders each occupied operational hex as one centered, accessible strength formation. */
   private renderForceGroups(layer: SVGGElement, scenario: CampaignScenarioData): void {
     scenario.tiles.forEach((instance) => {
-      const forces = this.resolveForces(instance, scenario);
+      const paletteEntry = scenario.tilePalette[instance.tile];
+      const controller = instance.factionControl ?? paletteEntry?.factionControl;
+      if (!controller || controller !== this.viewModel?.observerFaction) {
+        return;
+      }
+
+      const forces = this.resolveForces(instance, scenario)?.filter((force) => force.count > 0) ?? [];
       if (!forces || forces.length === 0) {
         return;
       }
@@ -725,46 +801,66 @@ export class CampaignMapRenderer {
         return;
       }
 
-      forces.slice(0, FORCE_POSITIONS.length).forEach((force, index) => {
-        const spriteFaction =
-          instance.factionControl === "Bot"
-            ? "Bot"
-            : instance.factionControl === "Player"
-              ? "Player"
-              : undefined;
+      const totalFormations = forces.reduce((total, force) => total + force.count, 0);
+      const actorCount = this.resolveCampaignForceActorCount(totalFormations);
+      const actors = this.resolveCampaignForceActors(forces, actorCount);
+      const density = this.getHexDensityScalar();
+      const safeRadius = (HEX_WIDTH / 2) * density * 0.85;
+      const actorScaleByCount: Record<number, number> = { 1: 1.18, 2: 0.96, 3: 0.82, 4: 0.82 };
+      const actorSize = safeRadius * (actorScaleByCount[actorCount] ?? 0.82);
+      const layout = this.resolveCampaignForceLayout(actorCount, safeRadius);
+      const composition = forces
+        .map((force) => `${force.count} ${this.formatMarkerLabel(force.label ?? force.unitType)}`)
+        .join(", ");
+      const accessibleName = `Friendly force · ${totalFormations} formations · hex ${hexKey} · ${composition}`;
+
+      const stack = document.createElementNS(SVG_NS, "g");
+      stack.classList.add("campaign-force-stack");
+      stack.setAttribute("data-hex", hexKey);
+      stack.setAttribute("data-faction", controller);
+      stack.setAttribute("data-formation-count", String(totalFormations));
+      stack.setAttribute("data-actor-count", String(actorCount));
+      stack.setAttribute("data-safe-radius", String(safeRadius));
+      stack.setAttribute("role", "img");
+      stack.setAttribute("aria-label", accessibleName);
+
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = accessibleName;
+      stack.appendChild(title);
+
+      const footprint = document.createElementNS(SVG_NS, "circle");
+      footprint.setAttribute("cx", String(cx));
+      footprint.setAttribute("cy", String(cy));
+      footprint.setAttribute("r", String(safeRadius));
+      footprint.setAttribute("fill", "rgba(7, 18, 24, 0.24)");
+      footprint.setAttribute("stroke", "rgba(137, 211, 169, 0.82)");
+      footprint.setAttribute("stroke-width", String(Math.max(0.9, density * 4)));
+      footprint.setAttribute("data-hex", hexKey);
+      footprint.setAttribute("aria-hidden", "true");
+      footprint.classList.add("campaign-force-stack__footprint");
+      stack.appendChild(footprint);
+
+      actors.forEach((force, index) => {
+        const spriteFaction = controller === "Bot" ? "Bot" : controller === "Player" ? "Player" : undefined;
         const spriteUrl = getSpriteForScenarioType(force.unitType, spriteFaction);
         if (!spriteUrl) {
           return;
         }
-        const { dx, dy } = FORCE_POSITIONS[index];
+        const position = layout[index] ?? { dx: 0, dy: 0 };
         const icon = document.createElementNS(SVG_NS, "image");
         icon.setAttribute("href", spriteUrl);
-        icon.setAttribute("width", String(FORCE_ICON_SIZE));
-        icon.setAttribute("height", String(FORCE_ICON_SIZE));
-        icon.setAttribute("x", String(cx + dx - FORCE_ICON_SIZE / 2));
-        icon.setAttribute("y", String(cy + dy - FORCE_ICON_SIZE / 2));
-        icon.classList.add("campaign-force-icon");
-        // Make force icons map back to the tile they represent so they are interactive.
+        icon.setAttribute("width", String(actorSize));
+        icon.setAttribute("height", String(actorSize));
+        icon.setAttribute("x", String(cx + position.dx - actorSize / 2));
+        icon.setAttribute("y", String(cy + position.dy - actorSize / 2));
+        icon.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        icon.setAttribute("aria-hidden", "true");
+        icon.classList.add("campaign-force-icon", "campaign-force-stack__actor");
         icon.setAttribute("data-hex", hexKey);
-        layer.appendChild(icon);
-
-        if (force.count > 1) {
-          const countLabel = document.createElementNS(SVG_NS, "text");
-          countLabel.textContent = `${force.count}`;
-          countLabel.setAttribute("x", String(cx + dx + FORCE_ICON_SIZE / 2 - 6));
-          countLabel.setAttribute("y", String(cy + dy + FORCE_ICON_SIZE / 2 - 4));
-          countLabel.setAttribute("font-size", String(FORCE_COUNT_FONT_SIZE));
-          countLabel.setAttribute("font-weight", "600");
-          countLabel.setAttribute("fill", "#f5f7ff");
-          countLabel.setAttribute("stroke", "#1b2231");
-          countLabel.setAttribute("stroke-width", "2");
-          countLabel.setAttribute("paint-order", "stroke");
-          countLabel.classList.add("campaign-force-count");
-          // Labels also carry the hex key so clicks on the number are handled identically.
-          countLabel.setAttribute("data-hex", hexKey);
-          layer.appendChild(countLabel);
-        }
+        stack.appendChild(icon);
       });
+
+      layer.appendChild(stack);
     });
   }
 
