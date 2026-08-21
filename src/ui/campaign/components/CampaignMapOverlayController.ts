@@ -396,25 +396,35 @@ export class CampaignMapOverlayController {
       : definition.status === "featureGated"
       ? definition.unavailableReason ?? "This map layer is unavailable."
       : `${definition.description} Select any item to open the same context route used by the map.`;
-    const allEntries = definition.status === "available"
-      ? definition.id === "forces" ? this.getAllForceEntries() : this.getListEntries(definition.id)
-      : [];
     const defaultEntries = definition.status === "available" ? this.getListEntries(definition.id) : [];
+    const allEntries = definition.status === "available"
+      ? this.targetPickOriginHexKey
+        ? defaultEntries
+        : definition.id === "forces" ? this.getAllForceEntries() : defaultEntries
+      : [];
     const query = this.listSearch.value.trim().toLocaleLowerCase();
     const entries = query.length === 0
       ? defaultEntries
       : allEntries.filter((entry) => `${entry.label} ${entry.meta}`.toLocaleLowerCase().includes(query));
     this.listSearch.parentElement!.hidden = definition.status === "featureGated" || allEntries.length === 0;
-    this.listStatus.textContent = query.length > 0
-      ? `${entries.length} of ${allEntries.length} shown`
-      : definition.id === "forces" && allEntries.length !== defaultEntries.length
+    this.listStatus.textContent = this.targetPickOriginHexKey
+      ? query.length > 0
+        ? `${entries.length} of ${allEntries.length} destinations shown`
+        : `${allEntries.length} destination hex${allEntries.length === 1 ? "" : "es"}`
+      : query.length > 0
+        ? `${entries.length} of ${allEntries.length} shown`
+        : definition.id === "forces" && allEntries.length !== defaultEntries.length
         ? `${defaultEntries.length} relevant of ${allEntries.length} formations`
         : `${allEntries.length} item${allEntries.length === 1 ? "" : "s"}`;
     if (entries.length === 0) {
       this.listContent.replaceChildren(createText(
         "p",
         "campaign-map-accessible-list__empty",
-        definition.status === "featureGated" ? "No projected layer is exposed." : "No projected entities are available in this layer."
+        definition.status === "featureGated"
+          ? "No projected layer is exposed."
+          : this.targetPickOriginHexKey
+            ? "No redeployment destinations match this search."
+            : "No projected entities are available in this layer."
       ));
       return;
     }

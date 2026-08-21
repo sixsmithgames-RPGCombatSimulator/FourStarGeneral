@@ -320,6 +320,20 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       { hexKey: "4,6", label: "Friendly ground · 4,6", available: true, reason: null }
     ]);
     const destinationToggle = root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle");
+    const destinationSearch = root.querySelector<HTMLInputElement>("[aria-label='Search current map list']");
+    if (destinationSearch) {
+      destinationSearch.value = "4,6";
+      destinationSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    if (root.querySelectorAll("[data-map-list-selection-kind='hex']").length !== 1
+      || root.querySelector("[data-map-list-selection-kind='formation']")
+      || !root.querySelector(".campaign-map-accessible-list__status")?.textContent?.includes("1 of 2 destinations shown")) {
+      throw new Error("Redeployment search switched from destination hexes to force records.");
+    }
+    if (destinationSearch) {
+      destinationSearch.value = "";
+      destinationSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    }
     const blockedDestination = root.querySelector<HTMLButtonElement>("[data-map-list-selection-id='5,5']");
     const legalDestination = root.querySelector<HTMLButtonElement>("[data-map-list-selection-id='4,6']");
     if (!destinationToggle?.textContent?.includes("2 destination hexes")
