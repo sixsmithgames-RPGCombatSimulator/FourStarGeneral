@@ -332,6 +332,7 @@ registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_A
               hex: originAxial,
               forces: [
                 { unitType: "Infantry_42", count: 2, label: "1st Infantry Division" },
+                { unitType: "Infantry_42", count: 1, label: "Beachhead Reserve" },
                 { unitType: "Artillery_105mm", count: 1, label: "Field Artillery Battalion" }
               ]
             },
@@ -373,16 +374,24 @@ registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_A
     const modes = Array.from(popupBody.querySelectorAll<HTMLButtonElement>(".redeploy-mode-card"));
     const modeKeys = modes.map((mode) => mode.dataset.mode).join(",");
     const issues = popupBody.querySelectorAll(".redeploy-issue");
+    const unitRows = popupBody.querySelectorAll(".redeploy-unit-row");
     const confirm = popupBody.querySelector<HTMLButtonElement>("#campaignRedeployConfirm");
+    const summary = popupBody.querySelector(".redeploy-summary-panel");
+    const units = popupBody.querySelector(".redeploy-units");
     if (modeKeys !== "foot,truck"
       || modes.some((mode) => !mode.querySelector("img.mode-sprite"))
       || issues.length !== 1
+      || unitRows.length !== 2
+      || popupBody.querySelector("input[type='range']")
+      || !popupBody.textContent?.includes("3 available · 1st Infantry Division (2) · Beachhead Reserve (1)")
+      || popupBody.textContent?.includes("Infantry 42")
+      || !summary || !units || !(summary.compareDocumentPosition(units) & Node.DOCUMENT_POSITION_FOLLOWING)
       || !issues[0].textContent?.includes("Reduce the quantity or remove an earlier movement draft.")
       || !confirm?.disabled
       || confirm.textContent !== "Resolve conflict to continue"
       || popupBody.querySelector(".campaign-order-composer__guide")
       || popupBody.querySelector(".campaign-order-preview-contract")
-      || !popupBody.textContent?.includes("Draft only · no force or resources are committed until you commit orders.")
+      || !popupBody.textContent?.includes("Units move only after Commit Orders.")
       || /[\u2600-\u27BF\u{1F300}-\u{1FAFF}]/u.test(popupBody.textContent ?? "")) {
       throw new Error(`Redeployment planner remains cluttered or ambiguous: modes=${modeKeys}, issues=${issues.length}, text='${popupBody.textContent}'.`);
     }
@@ -395,6 +404,7 @@ registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_A
 registerTest("CAMPAIGNSCREEN_FORMATS_INTERNAL_CAMPAIGN_LABELS_FOR_PLAYERS", async ({ Given, When, Then }) => {
   const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
   const labels: string[] = [];
+  const unitLabels: string[] = [];
 
   await Given("raw infrastructure and unit identifiers from campaign truth", () => {});
 
@@ -404,11 +414,19 @@ registerTest("CAMPAIGNSCREEN_FORMATS_INTERNAL_CAMPAIGN_LABELS_FOR_PLAYERS", asyn
       (screen as any).formatCampaignLabel("Infantry_42"),
       (screen as any).formatCampaignLabel("transport_ship")
     );
+    unitLabels.push(
+      (screen as any).formatCampaignUnitLabel("Infantry_42"),
+      (screen as any).formatCampaignUnitLabel("Artillery_105mm"),
+      (screen as any).formatCampaignUnitLabel("Panzer_IV")
+    );
   });
 
   await Then("camelCase and snake_case tokens become first-class labels", () => {
     if (labels.join("|") !== "Naval Base|Infantry 42|Transport Ship") {
       throw new Error(`Campaign formatter exposed raw implementation labels: ${labels.join("|")}.`);
+    }
+    if (unitLabels.join("|") !== "Infantry|105 mm Artillery|Panzer IV") {
+      throw new Error(`Campaign unit formatter exposed production identifiers: ${unitLabels.join("|")}.`);
     }
   });
 });

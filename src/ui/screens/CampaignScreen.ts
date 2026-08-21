@@ -318,16 +318,33 @@ export class CampaignScreen {
 
     const originTile = scenario.tiles.find((t) => t.hex.q === aAx.q && t.hex.r === aAx.r);
     const destTile = scenario.tiles.find((t) => t.hex.q === bAx.q && t.hex.r === bAx.r);
-    const originFormations = this.campaignState.getCampaignFormationRoster("Player")
-      .filter((formation) => projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey) === originOffsetKey);
-    const originForces = (originTile?.forces ?? []).map((g) => {
-      const names = originFormations
-        .filter((formation) => formation.campaignUnitType === g.unitType)
-        .map((formation) => formation.name);
+    const forceGroups = new Map<string, {
+      unitType: string;
+      count: number;
+      groups: Array<{ label: string; count: number }>;
+    }>();
+    for (const force of originTile?.forces ?? []) {
+      const existing = forceGroups.get(force.unitType) ?? {
+        unitType: force.unitType,
+        count: 0,
+        groups: []
+      };
+      existing.count += force.count;
+      const groupLabel = force.label?.trim() || this.formatCampaignUnitLabel(force.unitType);
+      const existingGroup = existing.groups.find((group) => group.label === groupLabel);
+      if (existingGroup) existingGroup.count += force.count;
+      else existing.groups.push({ label: groupLabel, count: force.count });
+      forceGroups.set(force.unitType, existing);
+    }
+    const originForces = Array.from(forceGroups.values()).map((force) => {
+      const typeLabel = this.formatCampaignUnitLabel(force.unitType);
       return {
-        unitType: g.unitType,
-        count: g.count,
-        label: names.length > 0 ? names.join(" + ") : this.formatCampaignLabel(g.unitType)
+        unitType: force.unitType,
+        count: force.count,
+        label: force.groups.length === 1 ? force.groups[0].label : typeLabel,
+        detail: force.groups.length === 1
+          ? `${typeLabel} · ${force.count} available`
+          : `${force.count} available · ${force.groups.map((group) => `${group.label} (${group.count})`).join(" · ")}`
       };
     });
     if (!originTile || originForces.length === 0) return;
@@ -406,14 +423,17 @@ export class CampaignScreen {
         <div class="redeploy-unit-row" data-unit-row="${idx}">
           <div class="unit-label">
             <span class="unit-name">${this.escapeHtml(g.label)}</span>
-            <span class="unit-avail">${this.escapeHtml(this.formatCampaignLabel(g.unitType))} · ${g.count} available</span>
+            <span class="unit-avail">${this.escapeHtml(g.detail)}</span>
           </div>
-          <input type="range" min="0" max="${g.count}" value="${selectedCount}" data-move-slider="${idx}" aria-label="${this.escapeHtml(this.formatCampaignLabel(g.unitType))} count" />
-          <input type="number" min="0" max="${g.count}" value="${selectedCount}" data-move-index="${idx}" />
-          <div class="unit-quick">
-            <button type="button" data-quick="0" data-quick-idx="${idx}" title="Leave all behind">0</button>
-            <button type="button" data-quick="half" data-quick-idx="${idx}" title="Move half">½</button>
-            <button type="button" data-quick="all" data-quick-idx="${idx}" title="Move all">All</button>
+          <div class="unit-count-control">
+            <label for="campaignMoveCount${idx}">Move</label>
+            <input id="campaignMoveCount${idx}" type="number" min="0" max="${g.count}" value="${selectedCount}" data-move-index="${idx}" aria-label="${this.escapeHtml(g.label)} to move" />
+            <span class="unit-count-max">of ${g.count}</span>
+            <div class="unit-quick" aria-label="Quick quantity choices">
+              <button type="button" data-quick="0" data-quick-idx="${idx}" title="Leave all at the origin">None</button>
+              ${g.count > 1 ? `<button type="button" data-quick="half" data-quick-idx="${idx}" title="Move half">Half</button>` : ""}
+              <button type="button" data-quick="all" data-quick-idx="${idx}" title="Move all">All</button>
+            </div>
           </div>
           <div class="unit-note" data-unit-note="${idx}"></div>
         </div>`;
@@ -432,9 +452,9 @@ export class CampaignScreen {
         <div class="redeploy-issues" id="campaignRedeployIssues"></div>
         <div class="redeploy-section-label">Transport mode</div>
         <div class="redeploy-modes">${modeCards}</div>
+        <div class="redeploy-summary-panel" id="campaignRedeploySummary"></div>
         <div class="redeploy-section-label">Units to move</div>
         <div class="redeploy-units">${unitRows}</div>
-        <div class="redeploy-summary-panel" id="campaignRedeploySummary"></div>
         <div class="button-row redeploy-actions">
           <button type="submit" class="primary-button" id="campaignRedeployConfirm">${editingOrder ? "Replace Draft" : "Add Draft"}</button>
           <button type="button" id="campaignRedeployCancel" class="secondary-button">Cancel</button>
@@ -449,7 +469,6 @@ export class CampaignScreen {
     const cancelBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployCancel");
     if (!form || !summaryEl || !issuesEl || !confirmBtn || !cancelBtn) return;
     const numberInputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-index]"));
-    const sliders = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-slider]"));
     const modeButtons = Array.from(body.querySelectorAll<HTMLButtonElement>(".redeploy-mode-card"));
 
     const unitAllowedInMode = (unitType: string, modeKey: string): boolean => {
@@ -478,7 +497,6 @@ export class CampaignScreen {
         const note = body.querySelector<HTMLElement>(`[data-unit-note="${i}"]`);
         row?.classList.toggle("unit-row-disabled", !allowed);
         if (numberInputs[i]) numberInputs[i].disabled = !allowed;
-        if (sliders[i]) sliders[i].disabled = !allowed;
         body.querySelectorAll<HTMLButtonElement>(`[data-quick-idx="${i}"]`).forEach((qb) => {
           qb.disabled = !allowed;
         });
@@ -499,16 +517,18 @@ export class CampaignScreen {
       const capBad = preview.capacityAvailable !== null && preview.capacityNeeded > preview.capacityAvailable;
       const mode = TRANSPORT_MODES[selectedModeKey];
       const capLabel = mode?.capacityType === "trucks" ? "Trucks" : mode?.capacityType === "transportShips" ? "Transport ships" : "Aircraft";
+      const availability = (cost: number, available: number, bad: boolean): string =>
+        bad ? `${fmt(cost)} needed · ${fmt(available)} available` : fmt(cost);
 
       summaryEl.innerHTML = `
-        <div class="summary-eta">Arrives <strong>${etaDisplay}</strong> · ${preview.timeSegments} segment${preview.timeSegments !== 1 ? "s" : ""} in transit</div>
-        <div class="summary-grid">
-          <div class="summary-cell${fuelBad ? " cost-bad" : ""}"><span>Fuel</span><strong>${fmt(preview.fuelCost)}</strong><em>of ${fmt(preview.fuelAvailable)}</em></div>
-          <div class="summary-cell${supBad ? " cost-bad" : ""}"><span>Supplies</span><strong>${fmt(preview.suppliesCost)}</strong><em>of ${fmt(preview.suppliesAvailable)}</em></div>
-          ${mode?.capacityType ? `<div class="summary-cell${capBad ? " cost-bad" : ""}"><span>${capLabel}</span><strong>${preview.capacityNeeded}</strong><em>of ${preview.capacityAvailable ?? 0}</em></div>` : ""}
-          ${preview.manpowerLoss > 0 ? `<div class="summary-cell cost-warn"><span>Estimated losses</span><strong>${fmt(preview.manpowerLoss)}</strong><em>personnel</em></div>` : ""}
+        <div class="summary-eta"><span>Arrival</span><strong>${etaDisplay}</strong><em>${preview.timeSegments} segment${preview.timeSegments !== 1 ? "s" : ""} in transit</em></div>
+        <div class="summary-costs" aria-label="Redeployment cost">
+          <span class="summary-cost${fuelBad ? " cost-bad" : ""}">Fuel <strong>${availability(preview.fuelCost, preview.fuelAvailable, fuelBad)}</strong></span>
+          <span class="summary-cost${supBad ? " cost-bad" : ""}">Supplies <strong>${availability(preview.suppliesCost, preview.suppliesAvailable, supBad)}</strong></span>
+          ${mode?.capacityType ? `<span class="summary-cost${capBad ? " cost-bad" : ""}">${capLabel} <strong>${capBad ? `${preview.capacityNeeded} needed · ${preview.capacityAvailable ?? 0} available` : preview.capacityNeeded}</strong></span>` : ""}
+          ${preview.manpowerLoss > 0 ? `<span class="summary-cost cost-warn">Estimated losses <strong>${fmt(preview.manpowerLoss)}</strong></span>` : ""}
         </div>
-        <p class="redeploy-draft-note">Draft only · no force or resources are committed until you commit orders.</p>
+        <p class="redeploy-draft-note">Units move only after Commit Orders.</p>
       `;
 
       const uniqueDiagnostics = Array.from(new Map(preview.diagnostics.map((issue) => [
@@ -532,13 +552,7 @@ export class CampaignScreen {
     numberInputs.forEach((inp, i) =>
       inp.addEventListener("input", () => {
         const clamped = Math.max(0, Math.min(originForces[i].count, Number(inp.value) || 0));
-        if (sliders[i]) sliders[i].value = String(clamped);
-        refresh();
-      })
-    );
-    sliders.forEach((sl, i) =>
-      sl.addEventListener("input", () => {
-        if (numberInputs[i]) numberInputs[i].value = sl.value;
+        inp.value = String(clamped);
         refresh();
       })
     );
@@ -548,7 +562,6 @@ export class CampaignScreen {
         const max = originForces[i]?.count ?? 0;
         const val = qb.dataset.quick === "all" ? max : qb.dataset.quick === "half" ? Math.ceil(max / 2) : 0;
         if (numberInputs[i]) numberInputs[i].value = String(val);
-        if (sliders[i]) sliders[i].value = String(val);
         refresh();
       })
     );
@@ -3746,6 +3759,19 @@ export class CampaignScreen {
       .split(" ")
       .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1) : word)
       .join(" ");
+  }
+
+  private formatCampaignUnitLabel(value: string): string {
+    const labels: Record<string, string> = {
+      Infantry_42: "Infantry",
+      Infantry_Elite: "Elite Infantry",
+      Artillery_105mm: "105 mm Artillery",
+      Artillery_155mm: "155 mm Artillery",
+      Panzer_IV: "Panzer IV",
+      Supply_Truck: "Supply Trucks",
+      Transport_Ship: "Transport Ships"
+    };
+    return labels[value] ?? this.formatCampaignLabel(value);
   }
 
   private saveCampaignToFile(): void {
