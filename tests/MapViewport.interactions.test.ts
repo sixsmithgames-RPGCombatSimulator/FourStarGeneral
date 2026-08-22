@@ -394,7 +394,11 @@ registerTest("MAP_VIEWPORT_FITS_AND_CENTERS_COMPLETE_MAP", async ({ Given, When,
       throw new Error(`Complete-map fit was not centered: ${JSON.stringify(transform)}.`);
     }
     const appliedTransform = viewportRoot.getAttribute("transform") ?? "";
-    if (!appliedTransform.includes(`scale(${expectedZoom})`)) {
+    const inverseZoom = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom"));
+    const restingScale = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom-resting"));
+    if (!appliedTransform.includes(`scale(${expectedZoom})`)
+      || Math.abs(inverseZoom - 1 / expectedZoom) > tolerance
+      || Math.abs(restingScale - 0.92 / expectedZoom) > tolerance) {
       throw new Error(`Complete-map fit was not applied to the viewport root: ${appliedTransform}.`);
     }
     host.remove();

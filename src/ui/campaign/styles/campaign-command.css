@@ -442,7 +442,7 @@
   margin-top: 0;
 }
 
-.campaign-context-inspector[data-route-mode="projectedWithActions"] #campaignSelectionInfo > :not(:has(button)) {
+.campaign-context-inspector[data-route-mode="projectedWithActions"] #campaignSelectionInfo > :not(:has(button)):not(.campaign-front-assessment) {
   display: none;
 }
 

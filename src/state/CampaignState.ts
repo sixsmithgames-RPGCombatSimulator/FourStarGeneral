@@ -3252,11 +3252,10 @@ export class CampaignState {
         );
       }
     });
-    if (formationIds) {
+    if (formationIds && formationIds.length > 0) {
       const exactIds = [...formationIds];
       const exactByType = new Map<string, number>();
-      const exactInvalid = exactIds.length === 0
-        || new Set(exactIds).size !== exactIds.length
+      const exactInvalid = new Set(exactIds).size !== exactIds.length
         || exactIds.some((formationId) => {
           const formation = this.runtime?.formations[formationId];
           if (!formation) return true;

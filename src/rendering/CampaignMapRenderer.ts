@@ -858,9 +858,9 @@ export class CampaignMapRenderer {
   private renderFriendlyBaseDisclosures(layer: SVGGElement, scenario: CampaignScenarioData): void {
     const density = this.getHexDensityScalar();
     const iconSize = HEX_RADIUS * density * 1.6;
-    const fontSize = 10;
-    const titleSize = 12;
-    const lineHeight = 13;
+    const fontSize = 12;
+    const titleSize = 15;
+    const lineHeight = 15;
 
     scenario.tiles.forEach((instance) => {
       if (!this.isFriendlyInstallation(instance, scenario)) return;
@@ -881,7 +881,7 @@ export class CampaignMapRenderer {
       const roleLabel = this.formatMarkerLabel(palette.role);
       const disclosureLines = [roleLabel, ...forceLines, "Select for full roster"];
       const longestLine = [baseName, ...disclosureLines].reduce((longest, line) => Math.max(longest, line.length), 0);
-      const cardWidth = Math.min(230, Math.max(138, longestLine * fontSize * 0.56 + 24));
+      const cardWidth = Math.min(300, Math.max(168, longestLine * fontSize * 0.56 + 28));
       const cardHeight = 19 + disclosureLines.length * lineHeight + 12;
       const gap = Math.max(12, iconSize * 0.95);
       const prefersRight = center.cx < this.mapPixelWidth * 0.58;
@@ -889,7 +889,7 @@ export class CampaignMapRenderer {
       const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
       const cardY = Math.max(6, Math.min(this.mapPixelHeight - cardHeight - 6, center.cy - cardHeight / 2));
       const cardEdgeX = prefersRight ? cardX : cardX + cardWidth;
-      const triggerRadius = Math.max(iconSize * 0.55, HEX_RADIUS * density * 0.76);
+      const triggerRadius = Math.max(16, iconSize * 0.55, HEX_RADIUS * density * 0.76);
       const formationSummary = readyForces.length > 0
         ? readyForces.map((force) => `${force.count} ${this.formatMarkerLabel(force.label ?? force.unitType)}`).join(", ")
         : "no formations currently ready";

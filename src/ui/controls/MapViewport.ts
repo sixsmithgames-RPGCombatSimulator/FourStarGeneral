@@ -559,6 +559,11 @@ export class MapViewport implements IMapViewport {
     // mismatches between viewport state and actual rendered transform
     const transformValue = `translate(${panX}, ${panY}) scale(${zoom})`;
     this.viewportRoot.setAttribute("transform", transformValue);
+    // Keep progressive-disclosure cards legible at every camera preset. They inherit
+    // these values inside the transformed SVG group and counter-scale to screen size.
+    const inverseZoom = 1 / zoom;
+    this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom", String(inverseZoom));
+    this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom-resting", String(inverseZoom * 0.92));
   }
 
   /**

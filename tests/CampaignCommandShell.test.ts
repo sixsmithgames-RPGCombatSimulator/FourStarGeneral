@@ -733,6 +733,70 @@ registerTest("CAMPAIGN_MAP_CLICK_IS_SELECTION_ONLY", async ({ Given, When, Then 
   });
 });
 
+registerTest("CAMPAIGN_MULTI_TARGET_FRONT_ACCEPTS_VISIBLE_MAP_AND_CONTACT_SELECTION", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let onHexClick: ((hexKey: string, tile?: unknown, contactId?: string) => void) | null = null;
+  let screen: CampaignScreen;
+  let beforeHash = "";
+  let beforeRevision = -1;
+
+  await Given("the shipped Omaha-Gold front with two opposing target hexes, one carrying a contact", () => {
+    campaignState.reset();
+    mountCommandShellFixture();
+    const renderer = {
+      render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {},
+      getViewportRoot() { return null; },
+      onHexClick(handler: (hexKey: string, tile?: unknown, contactId?: string) => void) { onHexClick = handler; },
+      clearAllHighlights() {}, highlightHex() {}
+    };
+    screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+    screen.initialize();
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    (screen as any).selectedFrontKey = "omaha_gold";
+    (screen as any).selectedFrontTargetHexKey = null;
+    (screen as any).renderSelection();
+    const snapshot = campaignState.getRuntimeSnapshot();
+    const scenario = campaignState.getScenario();
+    if (!snapshot || !scenario || !onHexClick) throw new Error("The Omaha-Gold target-selection fixture was incomplete.");
+    beforeRevision = snapshot.revision;
+    beforeHash = computeCampaignContentHash(scenario);
+  });
+
+  await When("the commander chooses one plain target hex and then the contacted target hex", () => {
+    onHexClick?.("26,24");
+    if ((screen as any).selectedFrontTargetHexKey !== "26,24") {
+      throw new Error("The plain opposing hex did not become the selected front target.");
+    }
+    const contact = campaignState.getCampaignMapView("Player")?.enemyContacts.find((entry) => entry.locationHexKey === "24,24");
+    if (!contact) throw new Error("The Omaha-Gold contact target was not projected.");
+    onHexClick?.("24,24", undefined, contact.id);
+  });
+
+  await Then("the front remains selected, the target action is pressed, Queue enables, and campaign truth is unchanged", () => {
+    const snapshot = campaignState.getRuntimeSnapshot();
+    const scenario = campaignState.getScenario();
+    const selectedAction = document.querySelector<HTMLButtonElement>('[data-campaign-front-target-choice="24,24"]');
+    const queue = document.querySelector<HTMLButtonElement>("#campaignQueueEngagement");
+    if (!snapshot || !scenario
+      || (screen as any).selectedFrontKey !== "omaha_gold"
+      || (screen as any).selectedFrontTargetHexKey !== "24,24"
+      || selectedAction?.getAttribute("aria-pressed") !== "true"
+      || queue?.disabled
+      || snapshot.revision !== beforeRevision
+      || computeCampaignContentHash(scenario) !== beforeHash) {
+      throw new Error("Map target selection lost front identity, launch readiness, or selection-only safety.");
+    }
+    const targetCopy = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-campaign-front-target-choice]"))
+      .map((button) => button.textContent?.replace(/\s+/g, " ").trim() ?? "");
+    if (!targetCopy.some((copy) => copy.includes("Omaha approach") && copy.includes("Fortified Assault"))
+      || !targetCopy.some((copy) => copy.includes("Gold approach") && copy.includes("Meeting Engagement"))
+      || targetCopy.some((copy) => /\b(?:24|26),24\b/.test(copy))) {
+      throw new Error(`Target choices did not use meaningful beach approaches: ${JSON.stringify(targetCopy)}.`);
+    }
+    campaignState.reset();
+  });
+});
+
 registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let onHexClick: ((hexKey: string) => void) | null = null;

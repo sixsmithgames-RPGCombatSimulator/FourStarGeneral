@@ -387,6 +387,27 @@ registerTest("CAMPAIGN_REDEPLOY_ACTION_EXCLUDES_EXACTLY_HELD_FORMATIONS", async 
   });
 });
 
+registerTest("CAMPAIGN_REDEPLOY_EMPTY_EXACT_SELECTION_REPORTS_ONE_ACTIONABLE_ISSUE", async ({ Given, When, Then }) => {
+  const state = buildState();
+  let diagnostics: readonly { code: string; message: string }[] = [];
+
+  await Given("an untouched Plymouth-to-Utah sea-lift planner with no named formation selected", async () => {});
+
+  await When("the planner previews its initial empty selection", async () => {
+    const preview = state.previewRedeploy("5,10", "22,24", [], "naval", undefined, false, []);
+    if (!preview) throw new Error("The empty named-formation preview was not produced.");
+    diagnostics = preview.diagnostics;
+  });
+
+  await Then("the player sees only the selection prompt and no false unavailable-formation conflict", async () => {
+    if (diagnostics.length !== 1
+      || diagnostics[0]?.code !== "ORDER_SELECTION_INVALID"
+      || diagnostics[0]?.message !== "No units selected.") {
+      throw new Error(`The untouched planner exposed contradictory diagnostics: ${JSON.stringify(diagnostics)}.`);
+    }
+  });
+});
+
 registerTest("CAMPAIGN_REDEPLOY_DRAFT_RETAINS_EXACT_NAMED_FORMATIONS", async ({ Given, When, Then }) => {
   const state = buildState();
   const formations = state.getCampaignFormationRoster("Player")

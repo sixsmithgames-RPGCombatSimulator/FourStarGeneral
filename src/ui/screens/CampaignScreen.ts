@@ -46,6 +46,7 @@ interface CampaignScreenStatusMessage {
 
 interface PlayerFrontTargetAssessment {
   readonly targetHexKey: string;
+  readonly approachLabel: string;
   readonly missionLabel: string;
   readonly roleLabel: string;
   readonly contactCount: number;
@@ -211,8 +212,10 @@ export class CampaignScreen {
     const targetsAssessment = preparations.map((prepared): PlayerFrontTargetAssessment => {
       const context = prepared.engagement.context;
       const briefing = context.intelligenceBriefing;
+      const friendlyHexKey = front.edges?.find((edge) => edge.opposingHexKey === context.battleHexKey)?.friendlyHexKey;
       return {
         targetHexKey: context.battleHexKey,
+        approachLabel: friendlyHexKey ? `${this.getCampaignLocationDisplayLabel(friendlyHexKey)} approach` : "Selected approach",
         missionLabel: MISSION_TYPE_LABELS[context.missionType],
         roleLabel: `${context.attacker} attacks · ${context.defender} defends`,
         contactCount: briefing?.contacts.length ?? 0,
@@ -1151,6 +1154,22 @@ export class CampaignScreen {
     this.bindTerrainEditDragHandlers(svg);
     // Map clicks are selection-only. Every campaign action requires a separate inspector or tray control.
     this.renderer.onHexClick((hexKey, _tile, contactId) => {
+      const selectedFront = this.selectedFrontKey
+        ? this.getPlayerFrontAssessment(this.selectedFrontKey)
+        : null;
+      const selectedTarget = selectedFront?.targets.find((target) => target.targetHexKey === hexKey) ?? null;
+      if (selectedTarget && this.selectedFrontKey) {
+        if (this.campaignStatusMessage) this.campaignStatusMessage = null;
+        this.selectedFrontTargetHexKey = selectedTarget.targetHexKey;
+        this.selectedHexKey = selectedTarget.targetHexKey;
+        this.renderer.clearAllHighlights("selected");
+        this.renderer.highlightHex(selectedTarget.targetHexKey, "selected");
+        this.renderSelection();
+        this.renderCampaignIntel();
+        this.renderCommandShell();
+        this.commandInterface?.revealInspector({ kind: "front", id: this.selectedFrontKey });
+        return;
+      }
       if (contactId && this.focusCampaignContact(contactId)) return;
       const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
       if (this.campaignStatusMessage) {
@@ -1626,6 +1645,13 @@ export class CampaignScreen {
   private bindCampaignInspectorActions(): void {
     this.selectionContainer?.addEventListener("click", (event) => {
       const target = event.target as HTMLElement;
+      const frontTarget = target.closest<HTMLButtonElement>("[data-campaign-front-target-choice]");
+      if (frontTarget && this.selectedFrontKey) {
+        this.selectedFrontTargetHexKey = frontTarget.dataset.campaignFrontTargetChoice || null;
+        this.renderSelection();
+        this.renderCommandShell();
+        return;
+      }
       if (target.closest("[data-plan-campaign-redeploy]")) {
         if (!this.selectedHexKey) return;
         this.campaignPopupInvoker = target.closest<HTMLElement>("[data-plan-campaign-redeploy]");
@@ -1669,13 +1695,6 @@ export class CampaignScreen {
         this.campaignPopupInvoker = target.closest<HTMLElement>("[data-draft-infrastructure-repair]");
         this.openInfrastructureRepairModal(this.selectedHexKey);
       }
-    });
-    this.selectionContainer?.addEventListener("change", (event) => {
-      const select = (event.target as Element).closest<HTMLSelectElement>("[data-campaign-front-target]");
-      if (!select || !this.selectedFrontKey) return;
-      this.selectedFrontTargetHexKey = select.value || null;
-      this.renderSelection();
-      this.renderCommandShell();
     });
   }
 
@@ -1768,7 +1787,7 @@ export class CampaignScreen {
     if (this.selectedFrontKey) {
       const assessment = this.getPlayerFrontAssessment(this.selectedFrontKey);
       const targetOptions = assessment.targets.length > 1
-        ? `<label class="campaign-front-target-choice"><span>Engagement target</span><select data-campaign-front-target><option value="">Choose an opposing hex</option>${assessment.targets.map((target) => `<option value="${this.escapeHtml(target.targetHexKey)}" ${target.targetHexKey === this.selectedFrontTargetHexKey ? "selected" : ""}>${this.escapeHtml(`${target.missionLabel} — ${target.targetHexKey}`)}</option>`).join("")}</select></label>`
+        ? `<fieldset class="campaign-front-target-choice"><legend>Choose engagement target</legend><div class="campaign-front-target-choice__options">${assessment.targets.map((target) => `<button type="button" data-campaign-front-target-choice="${this.escapeHtml(target.targetHexKey)}" aria-label="${this.escapeHtml(`${target.approachLabel}, ${target.missionLabel}, opposing hex ${target.targetHexKey}`)}" title="Opposing hex ${this.escapeHtml(target.targetHexKey)}" aria-pressed="${target.targetHexKey === this.selectedFrontTargetHexKey ? "true" : "false"}"><strong>${this.escapeHtml(target.approachLabel)}</strong><span>${this.escapeHtml(target.missionLabel)}</span></button>`).join("")}</div></fieldset>`
         : "";
       const target = assessment.target;
       items.push(`
@@ -4049,7 +4068,7 @@ export class CampaignScreen {
     const view = this.campaignState.getCampaignMapView("Player");
     const parsed = CoordinateSystem.parseHexKey(offsetHexKey);
     const axial = parsed ? CoordinateSystem.offsetToAxial(parsed.col, parsed.row) : null;
-    const tile = axial ? view?.scenario.tiles.find((entry) => entry.hex.q === axial.q && entry.hex.r === axial.r) : null;
+    const tile = axial ? view?.scenario.tiles?.find((entry) => entry.hex.q === axial.q && entry.hex.r === axial.r) : null;
     const palette = tile && view ? view.scenario.tilePalette[tile.tile] : null;
     return palette?.mapLabel?.trim() || this.formatCampaignLabel(palette?.role ?? "Operational hex");
   }

@@ -313,6 +313,80 @@ registerTest("CAMPAIGNSCREEN_MULTI_EDGE_FRONT_REQUIRES_ONE_EXPLICIT_TARGET", asy
   });
 });
 
+registerTest("CAMPAIGNSCREEN_MULTI_EDGE_TARGETS_ARE_VISIBLE_DIRECT_ACTIONS", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  let selection: HTMLElement;
+  let queue: HTMLButtonElement;
+
+  await Given("a selected Player front with two legal tactical targets", () => {
+    selection = document.createElement("div");
+    queue = document.createElement("button");
+    document.body.replaceChildren(selection, queue);
+    (screen as any).selectionContainer = selection;
+    (screen as any).queueEngagementButton = queue;
+    (screen as any).selectedFrontKey = "split-front";
+    (screen as any).selectedFrontTargetHexKey = null;
+    (screen as any).selectedHexKey = null;
+    (screen as any).campaignStatusMessage = null;
+    (screen as any).editMode = false;
+    (screen as any).renderCommandShell = () => {};
+    (screen as any).campaignState = {
+      getCampaignMapView: () => ({
+        scenario: {
+          fronts: [{
+            key: "split-front",
+            initiative: "Player",
+            edges: [
+              { friendlyHexKey: "4,4", opposingHexKey: "5,5" },
+              { friendlyHexKey: "4,5", opposingHexKey: "6,6" }
+            ]
+          }]
+        }
+      }),
+      prepareCampaignFrontEngagement: ({ requestedTargetHexKey }: { requestedTargetHexKey: string }) => ({
+        ok: true,
+        engagement: {
+          context: {
+            battleHexKey: requestedTargetHexKey,
+            missionType: requestedTargetHexKey === "5,5" ? "meetingEngagement" : "portAssault",
+            attacker: "Player",
+            defender: "Bot",
+            intelligenceBriefing: {
+              contacts: [],
+              resistanceBand: "unknown",
+              confidenceBand: "medium",
+              explicitUnknowns: ["Defender strength"]
+            }
+          }
+        }
+      }),
+      getHeadquartersStatusMessage: () => null,
+      getPendingEngagements: () => [],
+      getActiveCampaignBattlePackage: () => null,
+      hasActionableEnemyContactNear: () => false
+    };
+    (screen as any).bindCampaignInspectorActions();
+  });
+
+  await When("the front assessment renders and the commander chooses its first target", () => {
+    (screen as any).renderSelection();
+    const choices = selection.querySelectorAll<HTMLButtonElement>("[data-campaign-front-target-choice]");
+    if (choices.length !== 2 || !selection.textContent?.includes("Choose engagement target") || !queue.disabled) {
+      throw new Error(`Multi-target actions were not directly visible before launch: '${selection.textContent ?? ""}'.`);
+    }
+    choices[0]?.click();
+  });
+
+  await Then("the chosen target is pressed and immediately enables the tactical launch", () => {
+    const selected = selection.querySelector<HTMLButtonElement>('[data-campaign-front-target-choice="5,5"]');
+    if ((screen as any).selectedFrontTargetHexKey !== "5,5"
+      || selected?.getAttribute("aria-pressed") !== "true"
+      || queue.disabled) {
+      throw new Error("The visible target action did not become the authoritative launch choice.");
+    }
+  });
+});
+
 registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_AND_ONE_BLOCKER", async ({ Given, When, Then }) => {
   const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
   const origin = "2,2";
