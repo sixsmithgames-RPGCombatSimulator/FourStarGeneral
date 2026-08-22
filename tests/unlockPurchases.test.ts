@@ -161,6 +161,9 @@ registerTest("PRECOMBAT_LOCKED_UNITS_RENDER_UNLOCK_CTA_AND_BLOCK_REQUISITIONS", 
     if (!row.textContent?.includes("Unlock Unit")) {
       throw new Error(`Expected locked unit row to expose an unlock CTA, received ${row.textContent}.`);
     }
+    if (/\p{Extended_Pictographic}/u.test(row.textContent ?? "")) {
+      throw new Error(`Locked unit row used operating-system emoji instead of plain status copy: ${row.textContent}.`);
+    }
     if (row.querySelector('[data-action="increment"]')) {
       throw new Error("Locked unit rows should not render increment controls.");
     }

@@ -202,20 +202,17 @@ export class InitiativeTurnControls {
       <div class="turn-controls-buttons">
         ${this.config.showSkipTurn ? `
           <button class="turn-btn skip-turn-btn" disabled title="Skip remaining player units (Space)">
-            <span class="btn-icon">⏭</span>
             <span class="btn-text">Skip Turn</span>
           </button>
         ` : ''}
         
         ${this.config.showEndTurn ? `
           <button class="turn-btn end-turn-btn" disabled title="End current activation (Enter)">
-            <span class="btn-icon">✓</span>
             <span class="btn-text">Complete</span>
           </button>
         ` : ''}
         
         <button class="turn-btn next-activation-btn" disabled title="Next activation (Tab)">
-          <span class="btn-icon">▶</span>
           <span class="btn-text">Next</span>
         </button>
       </div>

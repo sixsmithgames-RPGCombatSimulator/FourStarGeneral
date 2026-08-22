@@ -7,6 +7,7 @@ import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
 import { RiverOverlayRenderer } from "./RiverOverlayRenderer";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
+import { SpriteSheetAnimator } from "./SpriteSheetAnimator";
 import { loadEffectSpecifications, type RawEffectSpec } from "./EffectSpecifications";
 import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints, type TerrainTint } from "./TerrainResponseSystem";
 import { WreckFxRenderer, resolveWreckFxClass, type WreckFxClass } from "./WreckFxRenderer";
@@ -437,6 +438,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly riverRenderer = new RiverOverlayRenderer();
   private readonly reconOverlayState = new Map<string, ReconStatusKey>();
   private combatAnimator: ProceduralEffectsAnimator | null = null;
+  private spriteSheetAnimator: SpriteSheetAnimator | null = null;
   private readonly soundManager: CombatSoundManager = new CombatSoundManager();
   private readonly recentEffects = new Map<string, number>(); // Dedupe guard: effectKey -> timestamp
   private activeAirShowRuntimeTrace: AirShowRuntimeTraceSession | null = null;
@@ -2913,6 +2915,13 @@ export class HexMapRenderer implements IMapRenderer {
     ) {
       this.combatAnimator.stopAll();
       this.combatAnimator = null;
+    }
+    if (this.spriteSheetAnimator
+      && previousCombatEffectsLayer
+      && this.combatEffectsLayer
+      && previousCombatEffectsLayer !== this.combatEffectsLayer) {
+      this.spriteSheetAnimator.stopAll();
+      this.spriteSheetAnimator = null;
     }
 
     // Initialize combat animator with the SVG combat effects layer for procedural effects.
@@ -14537,18 +14546,6 @@ export class HexMapRenderer implements IMapRenderer {
       console.error("[HexMapRenderer] playCombatAnimationAt FAILED - No effects layer available");
       return;
     }
-    console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
-
-    if (!this.combatAnimator) {
-      console.log("[HexMapRenderer] Creating new ProceduralEffectsAnimator with SVG effects layer and sound manager");
-      this.combatAnimator = new ProceduralEffectsAnimator(effectsLayer, this.soundManager);
-    }
-    if (!this.combatAnimator) {
-      console.warn("[HexMapRenderer] Combat animator not initialized");
-      return;
-    }
-    console.log("[HexMapRenderer] Combat animator ready:", this.combatAnimator);
-
     if (dedupeKey !== false) {
       const dedupeWindowMs = this.getEffectDedupeWindowMs(animationType);
       const effectKey = dedupeKey ?? `${animationType}:${Math.round(x)}:${Math.round(y)}:${Math.round(scale * 100)}`;
@@ -14563,12 +14560,36 @@ export class HexMapRenderer implements IMapRenderer {
       if (this.recentEffects.size > 100) {
         const cutoff = now - 1000;
         for (const [key, timestamp] of this.recentEffects.entries()) {
-          if (timestamp < cutoff) {
-            this.recentEffects.delete(key);
-          }
+          if (timestamp < cutoff) this.recentEffects.delete(key);
         }
       }
     }
+    if (animationType === "impactHits") {
+      if (!this.spriteSheetAnimator) this.spriteSheetAnimator = new SpriteSheetAnimator(effectsLayer);
+      if (this.soundCatalogReady) await this.soundCatalogReady;
+      const soundPromise = soundRequest !== false && soundRequest !== undefined
+        ? this.soundManager.playWeaponSound({
+            ...soundRequest,
+            seed: Math.abs(Math.round(x * 31 + y * 17 + scale * 101))
+          }).catch(() => undefined)
+        : Promise.resolve();
+      await Promise.all([
+        this.spriteSheetAnimator.playAnimation("impactHits", x, y, scale),
+        soundPromise
+      ]);
+      return;
+    }
+    console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
+
+    if (!this.combatAnimator) {
+      console.log("[HexMapRenderer] Creating new ProceduralEffectsAnimator with SVG effects layer and sound manager");
+      this.combatAnimator = new ProceduralEffectsAnimator(effectsLayer, this.soundManager);
+    }
+    if (!this.combatAnimator) {
+      console.warn("[HexMapRenderer] Combat animator not initialized");
+      return;
+    }
+    console.log("[HexMapRenderer] Combat animator ready:", this.combatAnimator);
 
     const currentZoom = this.getCurrentZoom();
     const zoomTier = getZoomTier(currentZoom);

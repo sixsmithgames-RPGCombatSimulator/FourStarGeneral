@@ -40,7 +40,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
     steps: [
       {
         title: "The Command Post",
-        content: "Use this room for the broad view: current orders, battlefield reports, losses, supply, and the time remaining.",
+        content: "Use this room for the broad view: current orders, battlefield reports, losses, supply, objectives, and current mission conditions.",
         highlightSelector: "#warRoomOverlay [data-war-room-command-strip]",
         position: "bottom",
         arrowDirection: "up",

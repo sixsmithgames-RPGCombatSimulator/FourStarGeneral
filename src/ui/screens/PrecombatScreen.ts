@@ -1327,14 +1327,13 @@ export class PrecombatScreen {
     const availabilityBadge = unavailable
       ? `<span class="allocation-lock" aria-label="${option.label} is planned but not yet implemented.">Planned feature</span>`
       : "";
-    const lockIcon = locked ? `<span class="allocation-lock-icon" title="Locked">🔒</span>` : "";
     const unlockBadge = !unavailable && locked
-      ? `<span class="allocation-lock allocation-lock--required" aria-label="${option.label} requires a roster unlock before you can requisition it.">🔒 Unlock required — Purchase to access</span>`
+      ? `<span class="allocation-lock allocation-lock--required" aria-label="${option.label} requires a roster unlock before you can requisition it.">Unlock required</span>`
       : "";
     const controlsMarkup = unavailable
       ? `<div class="allocation-quantity allocation-quantity--disabled" role="group" aria-label="${option.label} availability"><span class="allocation-count">Pending</span></div>`
       : locked
-      ? `<div class="allocation-quantity allocation-quantity--locked" role="group" aria-label="${option.label} unlock controls"><span class="allocation-count">🔒 Locked</span><a class="secondary-button allocation-unlock-link" href="${this.unlockState.buildPurchaseUrlForSku(option.key)}">Unlock</a></div>`
+      ? `<div class="allocation-quantity allocation-quantity--locked" role="group" aria-label="${option.label} unlock controls"><span class="allocation-count">Locked</span><a class="secondary-button allocation-unlock-link" href="${this.unlockState.buildPurchaseUrlForSku(option.key)}">Unlock</a></div>`
       : `<div class="allocation-quantity" role="group" aria-label="${option.label} quantity controls">
             <button
               type="button"
@@ -1367,7 +1366,7 @@ export class PrecombatScreen {
           </div>
           <div class="allocation-copy">
             <div class="allocation-title-row">
-              <h4>${lockIcon}${option.label}</h4>
+              <h4>${option.label}</h4>
               <span class="allocation-cost">${option.costPerUnit.toLocaleString()} RP</span>
             </div>
             <p class="allocation-copy__description">${option.description}</p>

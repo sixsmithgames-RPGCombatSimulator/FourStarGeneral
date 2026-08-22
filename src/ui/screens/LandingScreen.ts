@@ -67,8 +67,6 @@ export class LandingScreen {
   private missionList: HTMLElement | null = null;
   private campaignButtons: HTMLButtonElement[] = [];
   private campaignList: HTMLElement | null = null;
-  private missionStatus: HTMLElement | null = null;
-  private missionHeadline: HTMLElement | null = null;
   private missionListSummary: HTMLElement | null = null;
   private generalAssignmentHeadline: HTMLElement | null = null;
   private generalAssignmentDetails: HTMLElement | null = null;
@@ -95,7 +93,7 @@ export class LandingScreen {
   private commissionButton: HTMLButtonElement | null = null;
   private difficultySelect: HTMLSelectElement | null = null;
 
-  private activeMissionButton: HTMLButtonElement | null = null;
+  private disclosedGeneralId: string | null | undefined;
   private precombatScreen: PrecombatScreen | null = null;
   private campaignScreen: CampaignScreen | null = null;
   private readonly unlockState = ensureUnlockState();
@@ -242,7 +240,6 @@ export class LandingScreen {
     banner.className = "guest-signin-banner";
     banner.innerHTML = `
       <div class="guest-signin-content">
-        <span class="guest-signin-icon">👤</span>
         <span class="guest-signin-text">${GUEST_MODE_MESSAGES.signInPrompt}</span>
         <a href="${buildSignInUrl()}" class="guest-signin-button">Sign In</a>
       </div>
@@ -368,8 +365,6 @@ export class LandingScreen {
    */
   private cacheElements(): void {
     this.missionList = this.element.querySelector('[data-mission-list]');
-    this.missionStatus = this.element.querySelector('#missionStatus');
-    this.missionHeadline = this.element.querySelector('#missionHeadline');
     this.missionListSummary = this.element.querySelector('#missionListSummary');
     this.generalAssignmentHeadline = this.element.querySelector('#generalAssignmentHeadline');
     this.generalAssignmentDetails = this.element.querySelector('#generalAssignmentDetails');
@@ -502,24 +497,12 @@ export class LandingScreen {
     this.missionButtons.forEach((btn) => {
       btn.classList.toggle("is-active", btn === button);
     });
-    this.activeMissionButton = button;
 
     // Update UI state
     this.uiState.selectedMission = mission;
 
-    // Update status text with mission data
-    const title = getMissionTitle(mission);
-    const briefing = getMissionBriefing(mission);
-
-    if (this.missionStatus) {
-      this.missionStatus.textContent = briefing;
-    }
-    if (this.missionHeadline) {
-      this.missionHeadline.textContent = title;
-    }
-
     this.updateUI();
-    if (mission === "campaign") {
+    if (resolveSelectedOperationDestination(mission) === "campaign") {
       this.transitionToCampaign();
     } else {
       this.transitionToPrecombat();
@@ -749,12 +732,12 @@ export class LandingScreen {
       .map((entry) => {
         const selected = entry.id === this.uiState.selectedGeneralId;
         const isGuestGeneral = isFieldCommander(entry.id);
-        const guestBadge = isGuestGeneral ? '<span class="guest-badge" title="Guest Commander">👤</span> ' : '';
+        const guestBadge = isGuestGeneral ? '<span class="guest-badge">Guest</span> ' : '';
         const assignmentControl = selected
           ? '<span class="general-roster-assigned">Assigned</span>'
           : `<button type="button" class="primary-button" data-select-general="${entry.id}">Assign</button>`;
         const retireButton = isGuestGeneral
-          ? '<button type="button" class="secondary-button" disabled title="Sign in to create your own commander">Retire</button>'
+          ? ""
           : `<button type="button" class="secondary-button" data-retire-general="${entry.id}">Retire</button>`;
         return `
           <article class="general-roster-card${selected ? " is-selected" : ""}${isGuestGeneral ? " is-guest" : ""}">
@@ -843,17 +826,9 @@ export class LandingScreen {
     this.missionButtons.forEach((button) => {
       const matches = button.dataset.mission === mission;
       button.classList.toggle('is-active', matches);
-      if (matches) {
-        this.activeMissionButton = button;
-      }
     });
 
     this.syncCampaignButtonState(mission);
-
-    if (mission && this.missionStatus && this.missionHeadline) {
-      this.missionHeadline.textContent = getMissionTitle(mission);
-      this.missionStatus.textContent = getMissionBriefing(mission);
-    }
   }
 
   /**
@@ -868,12 +843,10 @@ export class LandingScreen {
       button.dataset.disabled = disabled ? "true" : "false";
       button.classList.toggle("is-disabled", disabled);
       button.setAttribute("aria-disabled", disabled ? "true" : "false");
+      button.disabled = disabled;
 
       const matches = button.dataset.mission === mission;
       button.classList.toggle("is-active", matches);
-      if (matches) {
-        this.activeMissionButton = button;
-      }
     });
   }
 
@@ -890,21 +863,18 @@ export class LandingScreen {
     const rosterDetails = this.element.querySelector<HTMLDetailsElement>("#commandRosterDetails");
     if (!selectedId) {
       if (rosterDetails) rosterDetails.open = true;
+      this.disclosedGeneralId = null;
       this.generalAssignmentHeadline.textContent = "No general assigned.";
       this.generalAssignmentDetails.textContent = "Choose a commander to unlock campaigns and battles.";
       this.missionListSummary.textContent = "Assign a commander to continue.";
-      if (this.missionHeadline) {
-        this.missionHeadline.textContent = "Awaiting mission briefing.";
-      }
-      if (this.missionStatus) {
-        this.missionStatus.textContent = "Choose a mission once a commander is assigned.";
-      }
       this.updateGeneralDetailPanel(null, "assignment");
       return;
     }
 
     const general = findGeneralById(selectedId);
     if (!general) {
+      if (rosterDetails) rosterDetails.open = true;
+      this.disclosedGeneralId = null;
       this.generalAssignmentHeadline.textContent = "Selected general no longer exists.";
       this.generalAssignmentDetails.textContent = "Reassign a commander from the updated roster.";
       this.missionListSummary.textContent = "Roster data refreshed; reselect a commander to continue.";
@@ -917,7 +887,10 @@ export class LandingScreen {
     const isGuestGeneral = isFieldCommander(selectedId);
 
     this.generalAssignmentHeadline.textContent = `${general.identity.name} assigned.`;
-    if (rosterDetails) rosterDetails.open = false;
+    if (rosterDetails && this.disclosedGeneralId !== selectedId) {
+      rosterDetails.open = false;
+      this.disclosedGeneralId = selectedId;
+    }
 
     if (isGuestGeneral) {
       this.generalAssignmentDetails.textContent = "Guest commander · open to manage the roster.";
@@ -1014,10 +987,10 @@ export class LandingScreen {
         const isLocked = !isMissionUnlocked(missionKey, missionsCompleted, victories);
         if (isLocked) {
           lockedMarkup.push(`
-            <div class="locked-operation-row">
-              <strong>🔒 ${title}</strong>
+            <li class="locked-operation-row">
+              <strong>${title}</strong>
               <span>${unlockReq.description}</span>
-            </div>
+            </li>
           `);
           return;
         }
@@ -1025,6 +998,7 @@ export class LandingScreen {
           <button type="button" class="mission-button" data-mission="${missionKey}" data-locked="false">
             <strong>${title}</strong>
             <span>${summarizeMissionForLaunch(briefing)}</span>
+            <em>Play standalone battle</em>
           </button>
         `);
       });
@@ -1032,7 +1006,7 @@ export class LandingScreen {
     this.missionList.innerHTML = `${availableMarkup.join("")}${lockedMarkup.length > 0 ? `
       <details class="locked-operation-disclosure">
         <summary>Locked operations (${lockedMarkup.length})</summary>
-        <div class="locked-operation-list">${lockedMarkup.join("")}</div>
+        <ul class="locked-operation-list">${lockedMarkup.join("")}</ul>
       </details>
     ` : ""}`;
     this.missionButtons = Array.from(this.missionList.querySelectorAll<HTMLButtonElement>('[data-mission]'));

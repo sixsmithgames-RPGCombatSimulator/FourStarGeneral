@@ -94,8 +94,50 @@ registerTest("LANDING_PRIORITIZES_DIRECT_PLAY_WITH_PROGRESSIVE_DISCLOSURE", asyn
     if (/VICTORY:|DEFEAT:/i.test(lockedCopy)
       || root.textContent?.includes("Choose a mission once a commander is assigned")
       || !root.textContent?.includes("Field Commander assigned.")
-      || !root.querySelector(".general-roster-assigned")) {
+      || !root.querySelector(".general-roster-assigned")
+      || root.textContent?.includes("Retire")
+      || root.textContent?.includes("🔒")
+      || /\p{Extended_Pictographic}/u.test(root.textContent ?? "")
+      || Array.from(available).some((button) => !button.textContent?.includes("Play standalone battle"))
+      || locked?.querySelector("button")) {
       throw new Error(`Landing retained verbose, contradictory, or duplicate commander copy: ${root.textContent}`);
+    }
+  });
+});
+
+registerTest("LANDING_COMMANDER_ADMINISTRATION_OPENS_ONLY_WHEN_ASSIGNMENT_IS_REQUIRED", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+
+  await Given("the operation screen has an assigned Field Commander", async () => {
+    root = mountLandingClarityFixture();
+    const screen = new LandingScreen({
+      showScreen() {},
+      showScreenById() {},
+      getCurrentScreen: () => null
+    }, new UIState());
+    screen.initialize();
+  });
+
+  await When("the player clears the commander assignment", async () => {
+    root.querySelector<HTMLButtonElement>("#clearGeneralSelection")?.click();
+  });
+
+  await Then("commander administration opens and playable choices wait for reassignment", async () => {
+    const roster = root.querySelector<HTMLDetailsElement>("#commandRosterDetails");
+    const campaign = root.querySelector<HTMLButtonElement>("[data-mission='campaign']");
+    if (!roster?.open
+      || !campaign?.disabled
+      || root.querySelectorAll("[data-mission-list] button[data-mission]").length !== 0
+      || !root.textContent?.includes("Assign a commander to continue.")) {
+      throw new Error("Landing did not expose commander administration when assignment became required.");
+    }
+
+    root.querySelector<HTMLButtonElement>("[data-select-general]")?.click();
+    if (roster.open
+      || campaign.disabled
+      || root.querySelectorAll("[data-mission-list] button[data-mission]").length !== 3
+      || !root.querySelector(".general-roster-assigned")) {
+      throw new Error("Landing did not return focus to playable choices after commander assignment.");
     }
   });
 });

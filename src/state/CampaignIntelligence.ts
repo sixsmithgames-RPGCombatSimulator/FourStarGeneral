@@ -460,7 +460,7 @@ export function findEligibleIntelAssets(
 ): Array<{ assetKey: string; label: string; hexKey: string }> {
   const rule = INTEL_OPERATION_RULES[type];
   if (rule.requiresAsset === "none") return [];
-  const result: Array<{ assetKey: string; label: string; hexKey: string }> = [];
+  const grouped = new Map<string, { hexKey: string; count: number; labels: Set<string>; unitType: string }>();
   for (const tile of friendlyTiles(scenario, faction)) {
     const hexKey = axialToOffsetKey(tile.hex.q, tile.hex.r);
     for (const force of tile.forces ?? []) {
@@ -470,14 +470,32 @@ export function findEligibleIntelAssets(
         rule.requiresAsset === "security" ? isSecurityUnit(force.unitType) :
         rule.requiresAsset === "friendlyForce";
       if (!eligible || force.count <= 0) continue;
-      result.push({
-        assetKey: `${hexKey}:${force.unitType}`,
-        label: `${force.unitType.replace(/_/g, " ")} at ${hexKey}`,
-        hexKey
-      });
+      const assetKey = `${hexKey}:${force.unitType}`;
+      const current = grouped.get(assetKey) ?? {
+        hexKey,
+        count: 0,
+        labels: new Set<string>(),
+        unitType: force.unitType
+      };
+      current.count += force.count;
+      if (force.label?.trim()) current.labels.add(force.label.trim());
+      grouped.set(assetKey, current);
     }
   }
-  return result;
+  return Array.from(grouped.entries())
+    .map(([assetKey, asset]) => {
+      const fallback = asset.unitType
+        .replace(/_/g, " ")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+      const name = asset.labels.size > 0 ? Array.from(asset.labels).join(" + ") : fallback;
+      return {
+        assetKey,
+        label: `${name} · ${asset.count} group${asset.count === 1 ? "" : "s"} · Hex ${asset.hexKey}`,
+        hexKey: asset.hexKey
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
 export function isIntelAssetInRange(
@@ -521,6 +539,66 @@ function decayContacts(state: CampaignKnowledgeState, segment: number): void {
     } else if (contact.state === "stale" && age === 2) {
       createBriefEvent(state, segment, "stale", "Contact is stale", `No fresh observation near ${contact.locationHexKey}.`, contact.id);
     }
+  }
+}
+
+/**
+ * Keeps the briefing useful when routine decay and a fresh observation affect the same contact in
+ * one resolution. The final assessment remains authoritative; the superseded confidence warning
+ * must not become a second unread report for a change the player never actually experienced.
+ */
+function coalesceSegmentBriefEvents(
+  state: CampaignKnowledgeState,
+  priorState: CampaignKnowledgeState,
+  segment: number
+): void {
+  const priorContacts = new Map(priorState.contacts.map((contact) => [contact.id, contact]));
+  const finalContacts = new Map(state.contacts.map((contact) => [contact.id, contact]));
+  const transitionKinds = new Set<CampaignIntelBriefEvent["kind"]>(["upgraded", "downgraded", "stale"]);
+  const retainedTransitionIds = new Map<string, string>();
+  const newContactEventIds = new Map<string, string>();
+  state.briefEvents.forEach((event) => {
+    if (event.segment !== segment || !event.contactId) return;
+    if (event.kind === "new" && !priorContacts.has(event.contactId)) {
+      newContactEventIds.set(event.contactId, event.id);
+      const final = finalContacts.get(event.contactId);
+      if (final) {
+        const projected = projectEnemyContact(final, segment);
+        event.title = "New enemy contact";
+        event.detail = `${projected ? contactLabel(projected) : "Enemy activity"} near ${final.locationHexKey}; assessment is ${final.level}.`;
+      }
+      return;
+    }
+    if (!transitionKinds.has(event.kind)) return;
+    const prior = priorContacts.get(event.contactId);
+    const final = finalContacts.get(event.contactId);
+    if (!prior || !final) return;
+    const rankChange = KNOWLEDGE_RANK[final.level] - KNOWLEDGE_RANK[prior.level];
+    const retainedKind = rankChange > 0 ? "upgraded"
+      : rankChange < 0 ? "downgraded"
+        : prior.state !== "stale" && final.state === "stale" ? "stale" : null;
+    if (event.kind === retainedKind) retainedTransitionIds.set(event.contactId, event.id);
+  });
+  state.briefEvents = state.briefEvents.filter((event) => {
+    if (event.segment === segment && event.contactId && event.kind === "new" && !priorContacts.has(event.contactId)) {
+      return newContactEventIds.get(event.contactId) === event.id;
+    }
+    if (event.segment !== segment || !event.contactId || !transitionKinds.has(event.kind)) return true;
+    if (!priorContacts.has(event.contactId) && newContactEventIds.has(event.contactId)) return false;
+    return retainedTransitionIds.get(event.contactId) === event.id;
+  });
+  const routineDeclines = state.briefEvents.filter((event) => event.segment === segment
+    && (event.kind === "downgraded" || event.kind === "stale"));
+  if (routineDeclines.length > 1) {
+    const declineIds = new Set(routineDeclines.map((event) => event.id));
+    state.briefEvents = state.briefEvents.filter((event) => !declineIds.has(event.id));
+    createBriefEvent(
+      state,
+      segment,
+      routineDeclines.some((event) => event.kind === "downgraded") ? "downgraded" : "stale",
+      "Intelligence picture aged",
+      `${routineDeclines.length} contact assessments lost confidence or became stale. Review Contacts for their current locations and uncertainty.`
+    );
   }
 }
 
@@ -696,7 +774,15 @@ function resolveOperationsForFaction(
     }
 
     if (operation.publicOutcome) {
-      createBriefEvent(state, segment, "operation", operation.publicOutcome.summary, operation.publicOutcome.detail, undefined, operation.id);
+      createBriefEvent(
+        state,
+        segment,
+        "operation",
+        operation.publicOutcome.summary,
+        operation.publicOutcome.detail,
+        operation.targetContactId,
+        operation.id
+      );
     }
   }
 }
@@ -727,6 +813,7 @@ export function resolveCampaignIntelligenceSegment(
     const enemyState = result[String(opposingFaction(faction))];
     if (!enemyState) continue;
     resolveOperationsForFaction(scenario, state, enemyState, segment);
+    coalesceSegmentBriefEvents(state, knowledgeByFaction[faction] ?? state, segment);
     state.lastResolvedSegment = segment;
   }
   return result;
@@ -846,6 +933,9 @@ export function buildCampaignMapView(
 
 function resistanceFromContacts(contacts: CampaignEnemyContactView[]): CampaignIntelligenceBriefing["resistanceBand"] {
   if (contacts.length === 0) return "unknown";
+  // A contact is a location-level assessment, not one formation. Until intelligence establishes
+  // a strength band, calling that contact "light" materially understates a possible concentration.
+  if (contacts.some((contact) => !contact.strengthBand)) return "unknown";
   const score: Record<IntelStrengthBand, number> = { trace: 1, light: 2, moderate: 4, heavy: 7, massed: 11 };
   const total = contacts.reduce((sum, contact) => sum + (contact.strengthBand ? score[contact.strengthBand] : 2), 0);
   if (total <= 2) return "light";
@@ -873,7 +963,9 @@ export function buildIntelligenceBriefing(
     : 15;
   const briefingConfidence = confidenceBand(averageConfidence);
   const summary = resistanceBand === "unknown"
-    ? "Enemy strength is unknown. No current source adequately covers the battle area."
+    ? contacts.length > 0
+      ? "Enemy presence is confirmed, but its strength and number of formations are not assessed."
+      : "Enemy strength is unknown. No current source adequately covers the battle area."
     : `Enemy resistance is assessed as ${resistanceBand}, with ${briefingConfidence} confidence.`;
   return {
     observerFaction: state.faction,
@@ -895,6 +987,7 @@ export function buildIntelligenceBriefing(
     explicitUnknowns: contacts.length === 0
       ? ["Defender strength", "Reserve locations", "Readiness and supply"]
       : [
+          ...(contacts.some((contact) => !contact.strengthBand) ? ["Defender strength and number of formations"] : []),
           ...(contacts.every((contact) => !contact.readinessBand) ? ["Defender readiness"] : []),
           ...(contacts.every((contact) => !contact.supplyBand) ? ["Defender supply state"] : []),
           "Unobserved reserves outside the collection area"

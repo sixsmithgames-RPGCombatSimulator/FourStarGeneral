@@ -2057,6 +2057,17 @@ export class CampaignState {
       .filter((asset) => !targetHexKey || isIntelAssetInRange(asset.hexKey, targetHexKey, type));
   }
 
+  /** Resolves an internal assigned-asset key back to its stable Player-facing formation label. */
+  getIntelAssetDisplayLabel(
+    type: CampaignIntelOperationType,
+    assetKey: string,
+    faction: CampaignFactionKey = "Player"
+  ): string | null {
+    if (!this.scenario) return null;
+    return findEligibleIntelAssets(this.scenario, faction, type)
+      .find((asset) => asset.assetKey === assetKey)?.label ?? null;
+  }
+
   scheduleIntelOperation(options: {
     type: CampaignIntelOperationType;
     targetHexKey: string;

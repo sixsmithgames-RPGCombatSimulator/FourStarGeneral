@@ -162,7 +162,7 @@ function resolveInspectorRoute(
         ...(order.cancellationSummary ? [{ label: "Cancellation", value: order.cancellationSummary }] : []),
         ...(order.validationIssues ?? order.validationMessages.map((message) => ({ code: "ORDER_BLOCKED", message, correctiveAction: "Review and correct this draft." })))
           .flatMap((issue) => [
-            { label: `Requires attention · ${issue.code}`, value: issue.message },
+            { label: "Requires attention", value: issue.message },
             { label: "Corrective action", value: issue.correctiveAction }
           ])
       ],
@@ -259,6 +259,7 @@ function resolveInspectorRoute(
         ...(front.roleLabel ? [{ label: "Roles", value: front.roleLabel }] : []),
         ...(front.intelligenceUnknowns?.length ? [{ label: "Intelligence unknowns", value: front.intelligenceUnknowns.join(" · ") }] : []),
         ...(front.targetChoiceLabel ? [{ label: "Target decision", value: front.targetChoiceLabel }] : []),
+        ...(front.stageLabel ? [{ label: "Next development", value: front.stageLabel }] : []),
         ...(front.forcePosture ? [{ label: "Friendly posture", value: front.forcePosture }] : []),
         ...(front.objectivePosture ? [{ label: "Objectives", value: front.objectivePosture }] : []),
         ...(front.lastChange && !front.lastChange.startsWith("No recent") ? [{ label: "Last change", value: front.lastChange }] : [])
@@ -269,12 +270,12 @@ function resolveInspectorRoute(
   return emptyRoute(selection.kind, selection.id);
 }
 
-function emptyRoute(kind: Exclude<CampaignCommandSelection, null>["kind"], id: string): CampaignInspectorRoute {
+function emptyRoute(kind: Exclude<CampaignCommandSelection, null>["kind"], _id: string): CampaignInspectorRoute {
   const label = kind.replace(/([a-z])([A-Z])/g, "$1 $2");
   return {
     kind,
     title: label.charAt(0).toUpperCase() + label.slice(1),
-    summary: `No Player-safe projected detail is available for ${id}.`,
+    summary: "No current Player-safe assessment is available for this selection.",
     facts: [],
     mode: "empty"
   };

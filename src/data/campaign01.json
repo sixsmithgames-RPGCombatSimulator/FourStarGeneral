@@ -156,7 +156,7 @@
     ], "initiative": "Player", "modifiers": ["fortified", "navalSupport"] },
     { "key": "caen_airborne_flank", "label": "Caen-Orne Counterattack Sector", "hexKeys": ["11,21"], "edges": [
       { "friendlyHexKey": "11,21", "opposingHexKey": "11,20" }
-    ], "initiative": "Bot", "modifiers": ["armoured", "airborne"] }
+    ], "initiative": "Bot", "modifiers": ["armoured", "airborne", "counterattack@2"] }
   ],
   "objectives": [
     {

@@ -1026,10 +1026,10 @@ export class BattleScreen {
             <!-- Mode Toggle -->
             <div class="attack-preview-mode-toggle">
               <button type="button" class="attack-preview-mode-btn attack-preview-mode-btn--active" data-mode="player" onclick="this.closest('.attack-preview-details').querySelectorAll('.attack-preview-mode-content').forEach(el => el.hidden = el.dataset.mode !== 'player'); this.closest('.attack-preview-mode-toggle').querySelectorAll('.attack-preview-mode-btn').forEach(btn => btn.classList.toggle('attack-preview-mode-btn--active', btn.dataset.mode === 'player'));">
-                <span class="mode-icon">👁️</span> Commander View
+                Commander View
               </button>
               <button type="button" class="attack-preview-mode-btn" data-mode="dev" onclick="this.closest('.attack-preview-details').querySelectorAll('.attack-preview-mode-content').forEach(el => el.hidden = el.dataset.mode !== 'dev'); this.closest('.attack-preview-mode-toggle').querySelectorAll('.attack-preview-mode-btn').forEach(btn => btn.classList.toggle('attack-preview-mode-btn--active', btn.dataset.mode === 'dev'));">
-                <span class="mode-icon">🔧</span> Technical Data
+                Technical Data
               </button>
             </div>
 
@@ -14313,7 +14313,7 @@ export class BattleScreen {
     if (commandState.towState === "deployed") {
       return {
         canToggle: commandState.canMoveOut,
-        toggleLabel: "🔧 Move Out",
+        toggleLabel: "Move Out",
         toggleTooltip: "Hook up guns for towing. Spends half movement. Deployed batteries cannot fire while limbered.",
         toggleAction: "moveOutTow"
       };
@@ -14322,7 +14322,7 @@ export class BattleScreen {
     if (commandState.towState === "towed") {
       return {
         canToggle: commandState.canDeployTow,
-        toggleLabel: "🎯 Deploy",
+        toggleLabel: "Deploy",
         toggleTooltip: "Unlimber guns for firing. Deployment after movement ends the turn.",
         toggleAction: "deployTow"
       };

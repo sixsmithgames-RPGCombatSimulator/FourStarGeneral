@@ -57,6 +57,7 @@ registerTest("ENHANCED_INITIATIVE_CONTROLS_SURFACE_TUTORIAL_STATUS", async ({ Gi
     expect(container.querySelector(".next-activation-btn")?.textContent?.trim() === "Next Formation", "Expected a plain-language formation selector.");
     expect(container.querySelector(".skip-group-btn")?.textContent?.trim() === "Hold Group", "Expected a plain-language hold command.");
     expect(container.querySelector(".group-advance-btn")?.textContent?.trim() === "Next Group", "Expected the primary command to advance only the active group.");
+    expect(!/\p{Extended_Pictographic}/u.test(container.textContent ?? ""), "Expected initiative status to use plain language rather than operating-system emoji.");
 
     controls.dispose();
   });

@@ -115,8 +115,8 @@ registerTest("CAMPAIGN_COMMAND_NAVIGATOR_ROUTES_ALL_SURFACES_CONSISTENTLY", asyn
   await When("an intelligence contact and then a formation are deep-linked", async () => {
     navigator.navigate({ kind: "intelligence", id: "contact-7" });
     const intel = state.getSnapshot();
-    if (intel.workspace !== "intelligence" || intel.overlay !== "intelligence" || intel.selection?.kind !== "contact") {
-      throw new Error("Intelligence deep link did not resolve to its canonical destination.");
+    if (intel.workspace !== "intelligence" || intel.overlay !== "intelligence" || intel.selection !== null) {
+      throw new Error("Unvalidated intelligence alert IDs were promoted into contact selections.");
     }
     navigator.navigate({ kind: "formation", id: "formation-3" });
   });
@@ -485,7 +485,12 @@ registerTest("CAMPAIGN_COMMAND_SCREEN_MOUNTS_MANAGED_COMPATIBILITY_BOUNDARY", as
         detail: "4,5 → 5,5",
         status: "committed",
         eta: "ETA Day 1, 03:00-06:00",
-        validationMessages: [],
+        validationMessages: ["The selected formation is no longer ready."],
+        validationIssues: [{
+          code: "ORDER_FORCE_UNAVAILABLE",
+          message: "The selected formation is no longer ready.",
+          correctiveAction: "Choose another ready formation."
+        }],
         canRemove: false,
         canCancel: true
       }],
@@ -515,8 +520,11 @@ registerTest("CAMPAIGN_COMMAND_SCREEN_MOUNTS_MANAGED_COMPATIBILITY_BOUNDARY", as
       throw new Error("Force-location selection did not reach shared UI state.");
     }
     root.querySelector<HTMLButtonElement>("[data-order-id='order-1'] .campaign-order-card__inspect")?.click();
+    const orderInspectorCopy = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
     if (screen.getUIState().getSnapshot().selection?.kind !== "order"
-      || !root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("ETA Day 1")) {
+      || !orderInspectorCopy.includes("ETA Day 1")
+      || !orderInspectorCopy.includes("Requires attention")
+      || orderInspectorCopy.includes("ORDER_FORCE_UNAVAILABLE")) {
       throw new Error("Order-tray selection did not reach the typed inspector.");
     }
     screen.navigate({ kind: "formation", id: "formation-9", focus: false });
@@ -542,7 +550,7 @@ registerTest("CAMPAIGN_COMMAND_SCREEN_MOUNTS_MANAGED_COMPATIBILITY_BOUNDARY", as
         !root.querySelector<HTMLElement>("#campaignContextInspector")?.inert
         || root.querySelector("#campaignContextInspector")?.getAttribute("aria-hidden") !== "true"
       ))
-      || !root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("No Player-safe projected detail")) {
+      || !root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("No current Player-safe assessment")) {
       throw new Error(`Compact close state or Situation command-priority rendering is not synchronized: ${JSON.stringify({
         openSheet: screen.getUIState().getSnapshot().openSheet,
         activeElement: activeElement?.id,

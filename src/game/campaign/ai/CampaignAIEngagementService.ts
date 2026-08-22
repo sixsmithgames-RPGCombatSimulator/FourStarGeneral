@@ -9,7 +9,8 @@ import type {
   CampaignEngagementContext,
   CampaignEngagementForceGroup,
   CampaignFactionKey,
-  CampaignPendingEngagement
+  CampaignPendingEngagement,
+  CampaignScenarioData
 } from "../../../core/campaignTypes";
 import { getAllocationOption } from "../../../data/unitAllocation";
 import { buildIntelligenceBriefing } from "../../../state/CampaignIntelligence";
@@ -37,6 +38,7 @@ import type { CampaignAIPlanBehaviorDirective } from "./CampaignAIBehaviorTypes"
 import type { CampaignAISelectedPlan } from "./CampaignAIPlanningTypes";
 
 const OFFENSIVE_PLAN_KINDS = new Set(["prepareOffensive", "counterattack"]);
+const AUTHORED_COUNTERATTACK_MODIFIER = /^counterattack@(\d+)$/;
 
 export interface CampaignAIEngagementInitiationResult {
   readonly engagementId: string;
@@ -110,6 +112,89 @@ function exactAvailableDefenderIds(
 }
 
 /**
+ * Converts an authored enemy-initiative front into a deterministic contact opportunity once its
+ * published cadence is reached. The target comes only from the front's exact public control edge,
+ * and the attacker list comes only from the AI faction's own formation truth. This is a bounded
+ * fallback for scenario-defining counterattacks when the general portfolio is occupied by
+ * intelligence and reserve work; it does not search for a substitute Player target.
+ */
+function authoredCounterattack(
+  runtime: CampaignRuntimeState,
+  faction: CampaignFactionKey
+): { plan: CampaignAISelectedPlan; directive: CampaignAIPlanBehaviorDirective } | null {
+  const candidates = runtime.compatibility.initialFronts
+    .flatMap((front) => {
+      if (front.initiative !== faction || !front.edges?.length) return [];
+      const alreadyOpened = runtime.engagementOrder.some((engagementId) => {
+        const prior = runtime.engagements[engagementId]?.engagement;
+        return prior?.frontKey === front.key && prior.attacker === faction;
+      }) || runtime.engagementLedgerOrder.some((engagementId) => {
+        const prior = runtime.engagementLedger[engagementId]?.package?.engagement;
+        return prior?.frontKey === front.key && prior.attacker === faction;
+      });
+      if (alreadyOpened) return [];
+      const cadence = front.modifiers?.flatMap((modifier) => {
+        const match = AUTHORED_COUNTERATTACK_MODIFIER.exec(modifier);
+        return match ? [Number(match[1])] : [];
+      })[0];
+      if (!Number.isInteger(cadence) || cadence! < 0 || runtime.currentSegment < cadence!) return [];
+      return front.edges.map((edge) => ({ front, edge, cadence: cadence! }));
+    })
+    .sort((left, right) => left.cadence - right.cadence
+      || left.front.key.localeCompare(right.front.key)
+      || left.edge.opposingHexKey.localeCompare(right.edge.opposingHexKey));
+
+  for (const candidate of candidates) {
+    const targetRuntimeHexKey = campaignOffsetKeyToRuntimeHexKey(candidate.edge.opposingHexKey);
+    const friendlyRuntimeHexKey = campaignOffsetKeyToRuntimeHexKey(candidate.edge.friendlyHexKey);
+    if (!targetRuntimeHexKey || !friendlyRuntimeHexKey
+      || runtime.tiles[targetRuntimeHexKey]?.controller !== "Player"
+      || runtime.tiles[friendlyRuntimeHexKey]?.controller !== faction) continue;
+    const assignedFormationIds = [...runtime.tiles[friendlyRuntimeHexKey].formationIds]
+      .filter((formationId) => runtime.formations[formationId]?.faction === faction)
+      .sort();
+    if (assignedFormationIds.length === 0) continue;
+    const planId = createStableCampaignRecordId(
+      "authored-counterattack",
+      runtime.campaignId,
+      faction,
+      candidate.front.key,
+      candidate.edge.opposingHexKey,
+      candidate.cadence
+    );
+    const plan: CampaignAISelectedPlan = {
+      planId,
+      candidateId: `${planId}:candidate`,
+      signature: `counterattack:${candidate.edge.opposingHexKey}:${candidate.front.key}`,
+      kind: "counterattack",
+      targetHexKey: candidate.edge.opposingHexKey,
+      sourceFindingIds: [`front:${candidate.front.key}`],
+      objectiveKeys: [],
+      contactIds: [],
+      assignedFormationIds,
+      resources: { supplies: 0, fuel: 0, ammo: 0, manpower: 0, intelligenceCapacity: 0 },
+      score: 100,
+      startedSegment: candidate.cadence,
+      lastReviewedSegment: runtime.currentSegment,
+      commitmentUntilSegment: runtime.currentSegment + 1,
+      triggers: { reinforce: [], exploit: [], abort: [], withdraw: [] },
+      summary: `Execute the published counterattack on ${candidate.front.label}.`
+    };
+    return {
+      plan,
+      directive: {
+        planId,
+        planKind: "counterattack",
+        status: "holding",
+        orderIds: [],
+        reason: "The counterattack force is staged on its exact authored front."
+      }
+    };
+  }
+  return null;
+}
+
+/**
  * Attempts one already-selected offensive. The target is never substituted: if the private plan's
  * projected target is not a legal Player hex, the operation remains staged for a later assessment.
  */
@@ -118,7 +203,8 @@ export function initiateCampaignAIOffensive(
   definition: CampaignScenarioDefinition,
   faction: CampaignFactionKey,
   plan: CampaignAISelectedPlan,
-  directive: CampaignAIPlanBehaviorDirective
+  directive: CampaignAIPlanBehaviorDirective,
+  frozenScenario?: CampaignScenarioData
 ): CampaignAIEngagementInitiationResult | null {
   if (faction !== "Bot" || !OFFENSIVE_PLAN_KINDS.has(plan.kind)
     || directive.planId !== plan.planId || directive.planKind !== plan.kind
@@ -155,7 +241,10 @@ export function initiateCampaignAIOffensive(
     : undefined;
   const frontKey = targetFrontKey(runtime, plan.targetHexKey);
   const objectiveKey = targetObjectiveKey(definition, targetRuntimeHexKey);
-  const scenario = projectLegacyCampaignState(definition, runtime).scenario;
+  // Segment resolution builds AI records before the engagement phase, while the transaction's
+  // revision is not committed until every phase passes. Use the already-frozen, valid opening
+  // projection in that path; standalone callers may still project a fully valid runtime here.
+  const scenario = frozenScenario ?? projectLegacyCampaignState(definition, runtime).scenario;
   const rawContext = buildEngagementContext(scenario, {
     engagementId,
     battleHexKey: plan.targetHexKey,
@@ -244,7 +333,8 @@ export function initiateCampaignAIOffensive(
 export function resolveCampaignAIEngagements(
   runtime: CampaignRuntimeState,
   definition: CampaignScenarioDefinition,
-  events: CampaignDomainEventDraft[]
+  events: CampaignDomainEventDraft[],
+  frozenScenario?: CampaignScenarioData
 ): string[] {
   if (runtime.activeEngagementId) return [];
   for (const faction of runtime.factionOrder) {
@@ -255,7 +345,7 @@ export function resolveCampaignAIEngagements(
     for (const plan of planning.portfolio.selectedPlans) {
       const directive = behavior.directives.find((entry) => entry.planId === plan.planId);
       if (!directive) continue;
-      const initiated = initiateCampaignAIOffensive(runtime, definition, faction, plan, directive);
+      const initiated = initiateCampaignAIOffensive(runtime, definition, faction, plan, directive, frozenScenario);
       if (!initiated) continue;
       events.push({
         type: "stateChanged",
@@ -268,6 +358,23 @@ export function resolveCampaignAIEngagements(
         }
       });
       return [initiated.engagementId, initiated.packageId, ...initiated.attackerFormationIds, ...initiated.defenderFormationIds];
+    }
+    const authored = authoredCounterattack(runtime, faction);
+    if (authored) {
+      const initiated = initiateCampaignAIOffensive(runtime, definition, faction, authored.plan, authored.directive, frozenScenario);
+      if (initiated) {
+        events.push({
+          type: "stateChanged",
+          category: "engagement",
+          summary: `Enemy forces have opened the published counterattack at ${runtime.engagements[initiated.engagementId]!.engagement.context!.battleHexKey}.`,
+          details: {
+            engagementId: initiated.engagementId,
+            battleHexKey: runtime.engagements[initiated.engagementId]!.engagement.context!.battleHexKey,
+            playerDefenseRequired: true
+          }
+        });
+        return [initiated.engagementId, initiated.packageId, ...initiated.attackerFormationIds, ...initiated.defenderFormationIds];
+      }
     }
   }
   return [];

@@ -224,6 +224,8 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
     }
     if (advancedMode !== "nextReport" || !pausePreference
       || root.querySelector("#campaignAdvanceMode")?.getAttribute("aria-disabled") === "true"
+      || root.querySelector<HTMLButtonElement>("#campaignAdvanceSegment")?.title !== "Advance to next report"
+      || root.querySelector<HTMLButtonElement>("#campaignAdvanceSegment")?.getAttribute("aria-label") !== "Advance to next report"
       || root.querySelector("#campaignAdvanceTimeline")?.hasAttribute("hidden")) {
       throw new Error("Advance mode, pause preference, or persisted timeline controls are not operable.");
     }
@@ -801,6 +803,7 @@ registerTest("CAMPAIGN_RESET_RESTORES_THE_NORMANDY_COMMAND_FRAME", async ({ Give
       getTransform() { return { zoom: 1, panX: 0, panY: 0 }; },
       setTransform() {}
     };
+    (screen as any).bindCampaignControls();
     screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
     root.querySelector<HTMLButtonElement>("#campaignResetView")?.click();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -982,6 +985,8 @@ registerTest("CAMPAIGN_FCI4_TRAY_EXPLAINS_PREVIEW_CONFLICT_PRIORITY_EDIT_AND_CAN
       || !root.textContent?.includes("Advance will not execute them")
       || !root.textContent?.includes("next production-allocation slot")
       || conflict?.textContent?.includes("Remove, edit, or reprioritize") !== true
+      || conflict?.textContent?.includes("Needs correction") !== true
+      || /\bORDER_[A-Z_]+\b|RESERVATION CONFLICT/.test(root.textContent ?? "")
       || root.querySelectorAll(".campaign-order-card").length !== 3
       || root.querySelector("#campaignOrderHistoryCount")?.textContent !== "1"
       || moved !== "draft-conflict:earlier"
@@ -1014,7 +1019,7 @@ registerTest("CAMPAIGN_COMMAND_SHELL_PRIORITIZES_FORCES_AND_COMPACTS_TRUE_IDLE_S
     navalPower: 0,
     intelligenceCapacity: "3/3",
     orders: [],
-    advance: { mode: "nextReport" as const, enabled: true, pauseAfterEveryResolution: false, summary: "No campaign time resolved yet.", alerts: [], timeline: [] }
+    advance: { mode: "day" as const, enabled: true, pauseAfterEveryResolution: false, summary: "No campaign time resolved yet.", alerts: [], timeline: [] }
   };
 
   await Given("operational forces, a theater reserve, and no pending orders", () => {
@@ -1052,7 +1057,9 @@ registerTest("CAMPAIGN_COMMAND_SHELL_PRIORITIZES_FORCES_AND_COMPACTS_TRUE_IDLE_S
     const layout = root.querySelector<HTMLElement>(".campaign-command-shell");
     if (layout?.dataset.ordersEmpty !== "false"
       || !root.querySelector(".campaign-order-tray__idle")?.textContent?.includes("No pending orders")
-      || !root.querySelector("#campaignOrderCommitFeedback")?.textContent?.includes("Orders committed successfully.")) {
+      || !root.querySelector("#campaignOrderCommitFeedback")?.textContent?.includes("Orders committed successfully.")
+      || root.querySelector<HTMLButtonElement>("#campaignAdvanceSegment")?.title !== "Advance one day"
+      || root.querySelector<HTMLButtonElement>("#campaignAdvanceSegment")?.getAttribute("aria-label") !== "Advance one day") {
       throw new Error("Idle compaction hid meaningful commit feedback or lost its single concise status.");
     }
   });

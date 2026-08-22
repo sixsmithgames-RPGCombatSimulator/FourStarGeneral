@@ -55,7 +55,9 @@ export class CampaignCommandNavigator {
       case "order":
         return { workspace: "situation", overlay: "orders", selection: id ? { kind: "order", id } : null };
       case "intelligence":
-        return { workspace: "intelligence", overlay: "intelligence", selection: id ? { kind: "contact", id } : null };
+        // This layer cannot prove whether a persisted alert ID is a projected contact or an
+        // internal operation/event key. CampaignScreen promotes only validated contact IDs.
+        return { workspace: "intelligence", overlay: "intelligence", selection: null };
       case "logistics":
         return { workspace: "logistics", overlay: "supply", selection: null };
       case "infrastructure":

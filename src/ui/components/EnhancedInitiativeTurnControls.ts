@@ -521,18 +521,18 @@ export class EnhancedInitiativeTurnControls {
       // Update action status
       const completionState = this.unitCompletionStates.get(this.currentUnit.unitId);
       if (completionState) {
-        moveStatus.textContent = completionState.hasMoved ? '🚶 Moved' : '🚶 Not moved';
+        moveStatus.textContent = completionState.hasMoved ? 'Moved' : 'Not moved';
         moveStatus.className = `action-status move-status ${completionState.hasMoved ? 'completed' : 'pending'}`;
         
-        attackStatus.textContent = completionState.hasAttacked ? '⚔️ Attacked' : '⚔️ Not attacked';
+        attackStatus.textContent = completionState.hasAttacked ? 'Attacked' : 'Not attacked';
         attackStatus.className = `action-status attack-status ${completionState.hasAttacked ? 'completed' : 'pending'}`;
         
-        abilityStatus.textContent = completionState.hasUsedAbilities ? '✨ Abilities used' : '✨ No abilities used';
+        abilityStatus.textContent = completionState.hasUsedAbilities ? 'Abilities used' : 'No abilities used';
         abilityStatus.className = `action-status ability-status ${completionState.hasUsedAbilities ? 'completed' : 'pending'}`;
       } else {
-        moveStatus.textContent = '🚶 Not moved';
-        attackStatus.textContent = '⚔️ Not attacked';
-        abilityStatus.textContent = '✨ No abilities used';
+        moveStatus.textContent = 'Not moved';
+        attackStatus.textContent = 'Not attacked';
+        abilityStatus.textContent = 'No abilities used';
       }
     } else {
       unitInfo.style.display = 'none';

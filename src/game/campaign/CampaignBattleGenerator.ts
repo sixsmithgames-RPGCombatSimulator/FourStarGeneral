@@ -289,6 +289,10 @@ export function generateCampaignBattleScenario(
 
   const authoredPlayerUnits = structuredClone((Array.isArray(player["units"]) ? player["units"] : []) as RawUnit[]);
   const authoredBotUnits = structuredClone((Array.isArray(bot["units"]) ? bot["units"] : []) as RawUnit[]);
+  // A campaign package is the authoritative force contract for both sides. Template rosters are
+  // placement anchors only; retaining authored Player units would silently add unrelated forces
+  // beside the exact persistent formations the commander committed in precombat.
+  player["units"] = [];
   if (playerDefense) {
     // Attack-oriented maps must be inverted. Authored defensive maps (Bastogne, Kasserine,
     // Anzio) already put Player on the defended ground, so their zones/objectives/HQ stay put.
@@ -316,7 +320,6 @@ export function generateCampaignBattleScenario(
       player["hq"] = structuredClone(bot["hq"]);
       bot["hq"] = playerHq;
     }
-    player["units"] = [];
     bot["units"] = [];
     player["goal"] = "Hold the defended objectives and prevent an operational breakthrough.";
     player["strategy"] = "Use prepared ground, preserve the core formations, and counterattack only when the enemy attack loses cohesion.";

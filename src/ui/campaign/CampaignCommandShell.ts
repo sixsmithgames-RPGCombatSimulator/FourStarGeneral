@@ -41,6 +41,7 @@ export interface CampaignCommandFrontView {
   readonly roleLabel?: string;
   readonly intelligenceUnknowns?: readonly string[];
   readonly targetChoiceLabel?: string;
+  readonly stageLabel?: string;
   readonly forcePosture?: string;
   readonly objectivePosture?: string;
   readonly lastChange?: string;
@@ -1156,6 +1157,7 @@ export class CampaignCommandShell {
       heading.append(createTextElement("strong", "", front.label), createTextElement("span", "", front.initiativeLabel));
       card.append(
         heading,
+        ...(front.stageLabel ? [createTextElement("p", "campaign-situation-front__stage", front.stageLabel)] : []),
         ...(front.engagementLabel ? [createTextElement("p", "campaign-situation-front__engagement", front.engagementLabel)] : []),
         createTextElement("p", "", front.pressureLabel ?? "No assessed pressure summary is available."),
         ...(front.targetChoiceLabel ? [createTextElement("p", "campaign-situation-front__target-choice", front.targetChoiceLabel)] : []),
@@ -1438,7 +1440,7 @@ export class CampaignCommandShell {
         const block = document.createElement("div");
         block.className = "campaign-order-card__validation";
         block.dataset.reasonCode = issue.code;
-        block.append(createTextElement("strong", "", issue.code.replace(/^ORDER_/, "").replace(/_/g, " ")), createTextElement("span", "", issue.message), createTextElement("small", "", issue.correctiveAction));
+        block.append(createTextElement("strong", "", "Needs correction"), createTextElement("span", "", issue.message), createTextElement("small", "", issue.correctiveAction));
         card.appendChild(block);
       });
       if (order.canRemove || order.canCancel || order.canEdit || order.canMoveEarlier || order.canMoveLater) {
@@ -1448,6 +1450,7 @@ export class CampaignCommandShell {
           const button = document.createElement("button");
           button.type = "button";
           button.textContent = label;
+          button.dataset.orderAction = label.toLowerCase();
           button.setAttribute("aria-label", ariaLabel);
           button.setAttribute("aria-describedby", orderLabel.id);
           button.addEventListener("click", callback);
@@ -1474,6 +1477,19 @@ export class CampaignCommandShell {
     };
     const label = this.root.querySelector<HTMLElement>("#campaignAdvanceSegment .btn-label");
     if (label) label.textContent = labels[mode];
+    const button = this.root.querySelector<HTMLButtonElement>("#campaignAdvanceSegment");
+    if (button) {
+      const accessibleLabels: Readonly<Record<CampaignCommandAdvanceMode, string>> = {
+        segment: "Advance 3 hours",
+        nextReport: "Advance to next report",
+        dawn: "Advance to dawn",
+        dusk: "Advance to dusk",
+        day: "Advance one day"
+      };
+      const accessibleLabel = accessibleLabels[mode];
+      button.title = accessibleLabel;
+      button.setAttribute("aria-label", accessibleLabel);
+    }
   }
 
   private setTimelineExpanded(force?: boolean): void {

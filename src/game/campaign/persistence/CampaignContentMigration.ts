@@ -29,8 +29,11 @@ export const CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH = "fnv1a32-412d85f7";
 /** Exact production identity after the historical-clock and directional-fleet clarity repair. */
 export const CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH = "fnv1a32-e8f3d4b9";
 
-/** Exact production identity after the source-backed D+1 Normandy geography and order-of-battle repair. */
-export const CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH = "fnv1a32-b41c5c8a";
+/** Exact production identity before the authored Caen counterattack cadence became executable. */
+export const CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH = "fnv1a32-b41c5c8a";
+
+/** Exact production identity after the source-backed D+1 campaign and executable counterattack repair. */
+export const CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH = "fnv1a32-e10034d8";
 
 const NEW_CONTACT_TILE_KEYS = ["27,24", "29,25"] as const;
 const AIRFIELD_TILE_KEY = "30,25";
@@ -223,6 +226,27 @@ export function migrateCampaignRuntimeContent(
   }
   if (source.scenarioContentHash === currentHash) {
     return { runtime: structuredClone(source), migrated: false };
+  }
+
+  if (definition.key === "central_channel"
+    && currentHash === CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH
+    && source.scenarioContentHash === CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH) {
+    const authoredFronts = new Map(definition.map.initialFronts.map((front) => [front.key, front]));
+    const migrated: CampaignRuntimeState = {
+      ...structuredClone(source),
+      scenarioContentHash: currentHash,
+      compatibility: {
+        ...structuredClone(source.compatibility),
+        initialFronts: source.compatibility.initialFronts.map((front) => {
+          const authored = authoredFronts.get(front.key);
+          return authored
+            ? { ...structuredClone(front), ...(authored.modifiers ? { modifiers: [...authored.modifiers] } : { modifiers: undefined }) }
+            : structuredClone(front);
+        })
+      }
+    };
+    assertCampaignRuntimeState(migrated);
+    return { runtime: migrated, migrated: true };
   }
 
   const priorCentralChannelHashes = new Set([

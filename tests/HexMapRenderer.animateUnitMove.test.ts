@@ -1,6 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { HexMapRenderer } from "../src/rendering/HexMapRenderer";
+import { SpriteSheetAnimator } from "../src/rendering/SpriteSheetAnimator";
 import type { ScenarioData } from "../src/core/types";
 
 type RafCallback = (timestamp: number) => void;
@@ -1462,5 +1463,41 @@ registerTest("HEXMAP_RENDERUNIT_DOES_NOT_ADD_WATER_TRANSPORT_OVERLAY", async ({ 
     }
 
     viewport.remove();
+  });
+});
+
+registerTest("HEXMAP_IMPACT_HITS_USE_THE_REGISTERED_SPRITE_EFFECT", async ({ Given, When, Then }) => {
+  const renderer = new HexMapRenderer();
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const effectsLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  svg.appendChild(effectsLayer);
+  document.body.appendChild(svg);
+  const originalPlayAnimation = SpriteSheetAnimator.prototype.playAnimation;
+  const originalWarn = console.warn;
+  let played = "";
+  const warnings: string[] = [];
+
+  await Given("the battle requests the authored sparks-and-hits effect during real combat", () => {
+    (renderer as any).combatEffectsLayer = effectsLayer;
+    SpriteSheetAnimator.prototype.playAnimation = async function (animationType: string): Promise<void> {
+      played = animationType;
+    } as typeof SpriteSheetAnimator.prototype.playAnimation;
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+  });
+
+  await When("the impact effect is played without a weapon-sound request", async () => {
+    try {
+      await renderer.playCombatAnimationAt("impactHits", 120, 80, 1, false);
+    } finally {
+      SpriteSheetAnimator.prototype.playAnimation = originalPlayAnimation;
+      console.warn = originalWarn;
+      svg.remove();
+    }
+  });
+
+  await Then("the registered sprite animator owns the effect without an unknown-specification warning", () => {
+    if (played !== "impactHits" || warnings.some((warning) => /No specification found.*impactHits/i.test(warning))) {
+      throw new Error(`impactHits was not routed through its registered sprite effect: ${JSON.stringify({ played, warnings })}`);
+    }
   });
 });

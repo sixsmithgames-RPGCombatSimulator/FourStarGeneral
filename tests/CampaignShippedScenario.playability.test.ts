@@ -7,6 +7,7 @@ import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { splitLegacyCampaignScenario } from "../src/game/campaign/runtime/CampaignScenarioAdapter";
 import { CampaignState } from "../src/state/CampaignState";
 import { generateCampaignBattleScenario } from "../src/game/campaign/CampaignBattleGenerator";
+import { resolveCampaignAIEngagements } from "../src/game/campaign/ai/CampaignAIEngagementService";
 
 function buildShippedScenario(): CampaignScenarioData {
   return structuredClone(campaignScenarioData) as CampaignScenarioData;
@@ -166,6 +167,55 @@ registerTest("CAMPAIGN_SHIPPED_FRONTS_SURVIVE_THE_FIRST_SEGMENT", async ({ Given
   });
 });
 
+registerTest("CAMPAIGN_SHIPPED_CAEN_COUNTERATTACK_NATURALLY_INTERRUPTS_TIME", async ({ Given, When, Then }) => {
+  const state = new CampaignState({ legacyStorage: null });
+
+  await Given("the authored Caen-Orne counterattack front and its adjacent British airborne defense", () => {
+    state.setScenario(buildShippedScenario());
+  });
+  const first = state.advanceCampaign({ mode: "segment" });
+  await When("the published two-segment counterattack cadence is reached through ordinary campaign time", () => {
+    if (!first.ok || first.state.activeEngagementId !== null) {
+      throw new Error("The counterattack fired before its published operational cadence.");
+    }
+  });
+  const second = state.advanceCampaign({ mode: "segment" });
+  await Then("one exact Bot attack creates a mandatory Player defense from mapped formations", () => {
+    if (!second.ok) throw new Error(second.error.message);
+    const engagementId = second.state.activeEngagementId;
+    const engagement = engagementId ? second.state.engagements[engagementId] : null;
+    const pkg = engagementId ? second.state.engagementLedger[engagementId]?.package : null;
+    const attackers = pkg?.formationCommitments.filter((entry) => entry.faction === "Bot" && entry.role === "attacker") ?? [];
+    const defenders = pkg?.formationCommitments.filter((entry) => entry.faction === "Player" && entry.role === "defender") ?? [];
+    if (!engagementId || !engagement || engagement.status !== "inBattle" || !pkg
+      || engagement.engagement.frontKey !== "caen_airborne_flank"
+      || engagement.engagement.context?.battleHexKey !== "11,20"
+      || attackers.length === 0 || defenders.length === 0
+      || second.state.status !== "engagement"
+      || second.report.stopReason !== "engagement") {
+      throw new Error("The published Caen counterattack did not produce one exact mandatory defense.");
+    }
+
+    const resolved = structuredClone(second.state);
+    const ledger = resolved.engagementLedger[engagementId];
+    ledger.status = "resolved";
+    resolved.activeEngagementId = null;
+    resolved.status = "planning";
+    resolved.engagementOrder.splice(0, resolved.engagementOrder.length,
+      ...resolved.engagementOrder.filter((id) => id !== engagementId));
+    delete resolved.engagements[engagementId];
+    const planning = resolved.aiPlanningByFaction?.Bot;
+    const behavior = resolved.aiBehaviorsByFaction?.Bot;
+    if (!planning || !behavior) throw new Error("The counterattack did not retain its AI planning boundary.");
+    (planning.portfolio.selectedPlans as unknown as unknown[]).splice(0, planning.portfolio.selectedPlans.length);
+    (behavior.directives as unknown as unknown[]).splice(0, behavior.directives.length);
+    const repeated = resolveCampaignAIEngagements(resolved, splitLegacyCampaignScenario(buildShippedScenario()), []);
+    if (repeated.length > 0 || resolved.activeEngagementId !== null) {
+      throw new Error("The resolved authored counterattack opened again from its retained ledger history.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_SHIPPED_FIRST_ATTACK_FREEZES_REAL_TARGET_AND_FORCES", async ({ Given, When, Then }) => {
   const state = new CampaignState({ legacyStorage: null });
   const engagementId = "shipped-omaha-gold-attack";
@@ -203,14 +253,18 @@ registerTest("CAMPAIGN_SHIPPED_FIRST_ATTACK_FREEZES_REAL_TARGET_AND_FORCES", asy
     const generated = generateCampaignBattleScenario(committed.package.context, runtime, committed.package) as unknown as {
       campaignBattlePackageId?: string;
       campaignBattleHexKey?: string;
-      sides: { Bot: { units: Array<{ campaignProvenance?: { formationId: string } }> } };
+      sides: {
+        Player: { units: Array<{ campaignProvenance?: { formationId: string } }> };
+        Bot: { units: Array<{ campaignProvenance?: { formationId: string } }> };
+      };
     };
     const tacticalBotIds = new Set(generated.sides.Bot.units.flatMap((unit) => unit.campaignProvenance?.formationId ?? []));
     if (generated.campaignBattlePackageId !== committed.package.packageId
       || generated.campaignBattleHexKey !== "5,20"
+      || generated.sides.Player.units.length !== 0
       || botCommitments.length === 0
       || botCommitments.some((entry) => !tacticalBotIds.has(entry.formationId))) {
-      throw new Error("Generated tactical opposition drifted from the frozen 352nd position.");
+      throw new Error("Generated tactical forces drifted from the frozen campaign package.");
     }
   });
 });

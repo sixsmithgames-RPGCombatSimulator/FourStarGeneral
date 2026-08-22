@@ -313,10 +313,6 @@
       flex-wrap: wrap;
       justify-content: center;
     }
-    .guest-signin-icon {
-      font-size: 1.1rem;
-      opacity: 0.8;
-    }
     .guest-signin-text {
       color: var(--text-secondary);
       font-size: 0.9rem;
@@ -347,10 +343,10 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 1.4rem;
-      height: 1.4rem;
+      min-height: 1.4rem;
+      padding: 0 0.45rem;
       background: rgba(177, 139, 77, 0.2);
-      border-radius: 50%;
+      border-radius: 999px;
       font-size: 0.75rem;
       margin-right: 0.35rem;
       vertical-align: middle;
@@ -366,6 +362,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
+      max-width: none;
     }
     .landing-header h1,
     .landing-header p { margin: 0; }
@@ -545,7 +542,13 @@
       font-size: 0.76rem;
       font-weight: 700;
     }
-    .locked-operation-list { display: grid; gap: 0.35rem; margin-top: 0.55rem; }
+    .locked-operation-list {
+      display: grid;
+      gap: 0.35rem;
+      margin: 0.55rem 0 0;
+      padding: 0;
+      list-style: none;
+    }
     .locked-operation-row {
       display: grid;
       gap: 0.14rem;
@@ -587,6 +590,17 @@
       color: var(--text-secondary);
       line-height: 1.35;
     }
+    .campaign-card em,
+    .mission-button em {
+      margin-top: 0.2rem;
+      color: var(--accent-strong);
+      font-family: var(--font-label);
+      font-size: 0.64rem;
+      font-style: normal;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
 
     .campaign-card:hover,
     .campaign-card:focus-visible,
@@ -625,25 +639,6 @@
       cursor: not-allowed;
       transform: none;
       box-shadow: none;
-    }
-    .mission-button.is-locked {
-      opacity: 0.5;
-      cursor: not-allowed;
-      filter: grayscale(0.8);
-      border-color: rgba(150, 130, 90, 0.2);
-      background: linear-gradient(135deg, rgba(80, 70, 50, 0.2), rgba(13, 15, 12, 0.8));
-    }
-    .mission-button.is-locked:hover,
-    .mission-button.is-locked:focus-visible {
-      transform: none;
-      box-shadow: none;
-      border-color: rgba(150, 130, 90, 0.25);
-    }
-    .mission-button.is-locked strong {
-      color: rgba(245, 196, 109, 0.5);
-    }
-    .mission-button.is-locked span {
-      color: rgba(150, 140, 120, 0.4);
     }
     .mission-button span {
       display: block;
@@ -738,17 +733,6 @@
     }
     .allocation-item[data-locked="true"] .allocation-title-row h4 {
       color: rgba(200, 200, 200, 0.7);
-    }
-    .allocation-lock-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 1.2rem;
-      height: 1.2rem;
-      background: rgba(177, 152, 101, 0.2);
-      border-radius: 50%;
-      font-size: 0.7rem;
-      margin-right: 0.35rem;
     }
     .allocation-item[data-unavailable="true"] {
       opacity: 0.56;
@@ -1546,25 +1530,6 @@
       color: var(--accent-strong);
       font-size: 0.88rem;
       letter-spacing: 0.03em;
-    }
-    .landing-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 0.85rem;
-      flex-wrap: wrap;
-      margin-top: 0.5rem;
-      padding: 0.65rem;
-      border: 1px solid rgba(177, 152, 101, 0.22);
-      border-radius: 12px;
-      background: linear-gradient(180deg, rgba(24, 27, 21, 0.98), rgba(12, 14, 11, 0.98));
-      box-shadow: 0 -12px 30px rgba(4, 6, 5, 0.36);
-      position: sticky;
-      bottom: 0;
-      z-index: 6;
-    }
-    .landing-footer .primary-button {
-      min-width: 0;
     }
     .difficulty-selector {
       display: flex;
@@ -6488,7 +6453,9 @@
       }
       .landing-primary {
         grid-column: 1;
+        order: 1;
       }
+      .landing-secondary { order: 2; }
     }
     @media (max-width: 960px) {
       body {
@@ -9986,16 +9953,6 @@
       gap: 0.45rem;
     }
 
-    .landing-resume-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.65rem;
-    }
-
-    .landing-resume-actions > button {
-      flex: 1 1 12rem;
-    }
-
     .battle-save-command__status {
       max-width: 15rem;
       color: var(--text-secondary);
@@ -10288,7 +10245,13 @@
     .app-boot-status__surface div { display: grid; gap: 0.3rem; }
     .app-boot-status__surface strong { font-family: var(--font-heading); letter-spacing: 0.08em; text-transform: uppercase; }
     .app-boot-status__surface span { color: rgba(224, 214, 187, 0.72); font-size: 0.78rem; line-height: 1.4; }
-    .app-boot-status__mark { color: #dfbd6a; font-size: 1.7rem; animation: app-boot-pulse 1.2s ease-in-out infinite alternate; }
+    .app-boot-status__mark {
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid #dfbd6a;
+      border-radius: 50%;
+      animation: app-boot-pulse 1.2s ease-in-out infinite alternate;
+    }
     .screen-transition-status {
       position: fixed;
       z-index: 19990;
@@ -10308,7 +10271,7 @@
 <body>
   <div id="appBootStatus" class="app-boot-status" role="status" aria-live="polite" aria-label="Preparing command systems">
     <div class="app-boot-status__surface">
-      <span class="app-boot-status__mark" aria-hidden="true">★</span>
+      <span class="app-boot-status__mark" aria-hidden="true"></span>
       <div>
         <strong>Preparing command systems</strong>
         <span>Loading the operational map, roster, and battle engine…</span>
@@ -10317,7 +10280,7 @@
   </div>
   <div id="screenTransitionStatus" class="screen-transition-status hidden" role="status" aria-live="polite" aria-hidden="true">
     <div class="app-boot-status__surface">
-      <span class="app-boot-status__mark" aria-hidden="true">★</span>
+      <span class="app-boot-status__mark" aria-hidden="true"></span>
       <div>
         <strong>Command transition</strong>
         <span data-screen-transition-copy>Preparing the next command view…</span>
@@ -10924,6 +10887,7 @@
                 <button type="button" class="campaign-card" data-campaign-id="western-europe" data-mission="campaign" aria-label="Enter Western Europe Campaign">
                   <strong>Western Europe</strong>
                   <span>Lead Allied forces through a persistent multi-phase offensive.</span>
+                  <em>Enter campaign</em>
                 </button>
               </div>
             </div>
@@ -10955,7 +10919,6 @@
             <!-- TIME CONTROL SECTION -->
             <section class="sidebar-section time-section">
               <h3 class="sidebar-heading">
-                <span class="heading-icon">⏰</span>
                 <span>Campaign Progress</span>
               </h3>
               <div class="time-display-container">
@@ -10964,10 +10927,9 @@
                 </div>
                 <div class="time-controls">
                   <button id="campaignPause" type="button" class="time-btn" title="Pause" disabled>
-                    <span class="btn-icon">⏸</span>
+                    <span class="btn-label">Pause</span>
                   </button>
                   <button id="campaignAdvanceSegment" type="button" class="time-btn time-btn-primary" title="Advance 3 hours">
-                    <span class="btn-icon">▶</span>
                     <span class="btn-label">3 Hours</span>
                   </button>
                   <div class="speed-controls">

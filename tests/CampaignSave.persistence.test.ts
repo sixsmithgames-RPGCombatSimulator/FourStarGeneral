@@ -36,6 +36,7 @@ import { CampaignSaveRepository } from "../src/game/campaign/persistence/Campaig
 import {
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
+  CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
   migrateCampaignRuntimeContent
 } from "../src/game/campaign/persistence/CampaignContentMigration";
 import {
@@ -347,6 +348,40 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_V1_DETERMINISTICALLY", async ({ Given, When
       throw new Error("Migrated runtime content identity did not come from the resolver-owned authored definition.");
     }
     if (raw !== originalRaw) throw new Error("Pure migration modified the original legacy source string.");
+  });
+});
+
+registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_WHILE_ENABLING_THE_CAEN_COUNTERATTACK", async ({ Given, When, Then }) => {
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const definition = splitLegacyCampaignScenario(scenario);
+  const state = new CampaignState({ legacyStorage: null });
+  state.setScenario(scenario);
+  const runtime = state.getRuntimeSnapshot();
+  if (!runtime) throw new Error("Counterattack migration fixture did not create a runtime.");
+  const prior = {
+    ...structuredClone(runtime),
+    scenarioContentHash: CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
+  };
+  prior.currentSegment = 12;
+  prior.revision = 12;
+  const caen = prior.compatibility.initialFronts.find((front) => front.key === "caen_airborne_flank");
+  if (!caen) throw new Error("Counterattack migration fixture lost the Caen front.");
+  caen.modifiers = caen.modifiers?.filter((modifier) => !modifier.startsWith("counterattack@"));
+  let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
+
+  await Given("a progressed save from the immediately preceding D+1 build", () => {});
+  await When("the executable counterattack cadence is added without changing campaign geometry", () => {
+    migrated = migrateCampaignRuntimeContent(prior, definition);
+  });
+  await Then("progress is retained and only the current authored front modifier and content identity are reconciled", () => {
+    const repaired = migrated.runtime.compatibility.initialFronts.find((front) => front.key === "caen_airborne_flank");
+    if (!migrated.migrated
+      || migrated.runtime.currentSegment !== 12
+      || migrated.runtime.revision !== 12
+      || migrated.runtime.scenarioContentHash !== CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH
+      || !repaired?.modifiers?.includes("counterattack@2")) {
+      throw new Error("The compatible counterattack migration reset progress or omitted its authored cadence.");
+    }
   });
 });
 

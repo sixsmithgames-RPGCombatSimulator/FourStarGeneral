@@ -9,6 +9,7 @@
 
 import type { InitiativeQueue, UnitActivation } from '../../core/InitiativeQueue';
 import type { ScenarioUnit } from '../../core/types';
+import { getSpriteForScenarioType } from '../../data/unitSpriteCatalog';
 
 /**
  * Configuration for the queue display
@@ -165,7 +166,7 @@ export class InitiativeQueueDisplay {
       <div class="queue-items-container"></div>
       <div class="queue-footer">
         <button class="queue-toggle-btn" title="Toggle queue visibility">
-          <span class="toggle-icon">▼</span>
+          <span class="toggle-icon">Hide</span>
         </button>
       </div>
     `;
@@ -269,7 +270,7 @@ export class InitiativeQueueDisplay {
       <div class="queue-item-position">${item.position}</div>
       <div class="queue-item-content">
         <div class="queue-item-unit">
-          ${this.config.showUnitIcons ? this.getUnitIcon(item.unit) : ''}
+          ${this.config.showUnitIcons ? this.getUnitIcon(item.unit, item.activation.ownerId === 'player' ? 'Player' : 'Bot') : ''}
           <span class="queue-item-label">${this.getUnitLabel(item)}</span>
         </div>
         ${this.config.showInitiativeValues ? `
@@ -292,48 +293,15 @@ export class InitiativeQueueDisplay {
    * @param unit - Unit data
    * @returns Icon HTML string
    */
-  private getUnitIcon(unit: ScenarioUnit | null): string {
+  private getUnitIcon(unit: ScenarioUnit | null, faction: "Player" | "Bot"): string {
     if (!unit) {
-      return '<div class="unit-icon unit-icon-unknown">?</div>';
+      return '<span class="unit-icon unit-icon-unknown" aria-hidden="true">?</span>';
     }
-
-    // Simple icon based on unit type
     const iconClass = `unit-icon-${unit.type.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
-    return `<div class="unit-icon ${iconClass}">${this.getUnitIconSymbol(unit.type)}</div>`;
-  }
-
-  /**
-   * Get unit icon symbol
-   * 
-   * @param unitType - Unit type string
-   * @returns Icon symbol
-   */
-  private getUnitIconSymbol(unitType: string): string {
-    const iconMap: Record<string, string> = {
-      'infantry_42': '♟',
-      'at_infantry': '🎯',
-      'engineer': '🔧',
-      'recon_bike': '🏍',
-      'recon_armoredcar': '🚗',
-      'light_tank': '🛡',
-      'medium_tank': '🗡',
-      'heavy_tank': '⚔',
-      'tank_destroyer': '💥',
-      'assault_gun': '💣',
-      'apc_halftrack': '🚐',
-      'supply_truck': '🚚',
-      'howitzer_105': '💥',
-      'rocket_artillery': '🚀',
-      'sp_artillery': '🎯',
-      'flak_88': '🛡',
-      'fighter': '✈',
-      'interceptor': '🛩',
-      'ground_attack': '🎯',
-      'bomber': '💣',
-      'transport_plane': '🚁'
-    };
-
-    return iconMap[unitType.toLowerCase()] || '⚔';
+    const spriteUrl = getSpriteForScenarioType(unit.type, faction, "Sideview");
+    return spriteUrl
+      ? `<img class="unit-icon ${iconClass}" src="${spriteUrl}" alt="" aria-hidden="true">`
+      : '<span class="unit-icon unit-icon-unknown" aria-hidden="true">?</span>';
   }
 
   /**
@@ -357,12 +325,12 @@ export class InitiativeQueueDisplay {
    */
   private getStatusIcon(item: QueueItemData): string {
     if (item.isActive) {
-      return '<span class="status-icon status-active">▶</span>';
+      return '<span class="status-icon status-active">Current</span>';
     }
     if (item.isActivated) {
-      return '<span class="status-icon status-activated">✓</span>';
+      return '<span class="status-icon status-activated">Done</span>';
     }
-    return '<span class="status-icon status-pending">⏸</span>';
+    return '<span class="status-icon status-pending">Waiting</span>';
   }
 
   /**
@@ -448,10 +416,10 @@ export class InitiativeQueueDisplay {
     
     if (isHidden) {
       itemsContainer.style.display = 'block';
-      toggleIcon.textContent = '▼';
+      toggleIcon.textContent = 'Hide';
     } else {
       itemsContainer.style.display = 'none';
-      toggleIcon.textContent = '▶';
+      toggleIcon.textContent = 'Show';
     }
   }
 
@@ -561,6 +529,7 @@ export class InitiativeQueueDisplay {
         font-size: 10px;
         background: rgba(255, 255, 255, 0.1);
         border-radius: 2px;
+        object-fit: contain;
       }
 
       .queue-item-label {
@@ -580,7 +549,10 @@ export class InitiativeQueueDisplay {
       }
 
       .status-icon {
-        font-size: 12px;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
         opacity: 0.8;
       }
 

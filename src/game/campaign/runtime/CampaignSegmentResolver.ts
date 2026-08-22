@@ -942,6 +942,7 @@ export function resolveCampaignSegment(
 
   const result = runCampaignRuntimeTransaction(source, label, (candidate) => {
     const frozenSource = structuredClone(candidate);
+    const frozenScenario = projectLegacyCampaignState(definition, frozenSource).scenario;
     const events: CampaignDomainEventDraft[] = [];
     const phaseReports: CampaignSegmentPhaseReport[] = [];
     const phase = (phaseId: CampaignSegmentPhase, action: () => readonly string[]): void => {
@@ -978,7 +979,7 @@ export function resolveCampaignSegment(
       ...resolveIntelligence(candidate, definition, targetSegment, events),
       ...resolveAIAssessments(candidate, frozenViews, targetSegment, events)
     ]);
-    phase("engagements", () => resolveCampaignAIEngagements(candidate, definition, events));
+    phase("engagements", () => resolveCampaignAIEngagements(candidate, definition, events, frozenScenario));
     phase("consequences", () => resolveInfrastructureRepairs(candidate, targetSegment, events));
     phase("control", () => resolveFrontControl(candidate, targetSegment, events));
     phase("objectives", () => {

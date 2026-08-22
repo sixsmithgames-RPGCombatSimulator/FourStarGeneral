@@ -76,6 +76,9 @@ function classifyPlayerOrderChanges(source: CampaignRuntimeState, candidate: Cam
       return;
     }
     if (order.status === "completed") {
+      // Intelligence completion already creates one Player-safe brief in the Intelligence
+      // workspace. Duplicating it here produces two unread reports for the same fact.
+      if (order.kind === "reconnaissance" || order.kind === "counterIntelligence") return;
       alerts.push({
         severity: "notable",
         category: order.kind === "production" || order.kind === "infrastructureRepair"
@@ -97,12 +100,15 @@ function classifyPlayerIntelligence(source: CampaignRuntimeState, candidate: Cam
   return (candidate.knowledgeByFaction.Player?.briefEvents ?? [])
     .filter((event) => !priorIds.has(event.id))
     .map((event) => ({
-      severity: "notable" as const,
+      severity: (event.kind === "operation" || event.kind === "new"
+        || event.kind === "upgraded" || event.kind === "disputed"
+        ? "notable" : "routine") as CampaignAdvanceAlert["severity"],
       category: "intelligence" as const,
       title: event.title,
       detail: event.detail,
       targetKind: "intelligence" as const,
-      targetId: event.contactId ?? event.operationId ?? event.id,
+      // Only a projected contact is a valid inspector route. Operation/event IDs remain internal.
+      targetId: event.contactId ?? null,
       requiresStop: false
     }));
 }
@@ -192,7 +198,7 @@ function classifyMandatoryChanges(
       severity: "critical",
       category: "objectives",
       title: "Primary objective changed",
-      detail: `Objective ${key} is now ${objective.status}. Review the campaign situation before continuing.`,
+      detail: `The primary objective is now ${objective.status}. Review the campaign situation before continuing.`,
       targetKind: "objective",
       targetId: key,
       requiresStop: true

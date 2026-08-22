@@ -4,6 +4,7 @@ import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { CampaignState } from "../src/state/CampaignState";
 import {
   buildCampaignMapView,
+  buildIntelligenceBriefing,
   createCampaignKnowledgeState,
   createIntelOperation,
   recordBattlefieldIntelligence,
@@ -188,6 +189,173 @@ registerTest("CAMPAIGN_INTEL_ASSETS_COMMIT_AND_OBEY_RANGE", async ({ Given, When
     if (!firstResult?.ok) throw new Error("Valid first assignment was rejected.");
     if (duplicateResult?.ok) throw new Error("A committed reconnaissance asset was assigned twice.");
     if (distantResult?.ok) throw new Error("A ground-recon asset was assigned beyond its operating range.");
+  });
+});
+
+registerTest("CAMPAIGN_INTEL_ASSET_CHOICES_AGGREGATE_AUTHORED_FORMATIONS", async ({ Given, When, Then }) => {
+  const scenario = intelligenceScenario();
+  scenario.tiles[0]!.forces = [
+    { unitType: "Recon_Bike", count: 1, label: "2nd Cavalry Reconnaissance Squadron" },
+    { unitType: "Recon_Bike", count: 2, label: "4th Cavalry Reconnaissance Squadron" }
+  ];
+  const state = new CampaignState({ legacyStorage: null });
+  let assets: ReturnType<CampaignState["getEligibleIntelAssets"]> = [];
+
+  await Given("two authored reconnaissance groups share one operational asset key", () => {
+    state.setScenario(scenario);
+  });
+  await When("the Intelligence composer requests eligible ground reconnaissance assets", () => {
+    assets = state.getEligibleIntelAssets("groundRecon", "Player");
+  });
+  await Then("one unique option uses authored names, total availability, and a player-facing location", () => {
+    if (assets.length !== 1
+      || !assets[0]!.label.includes("2nd Cavalry Reconnaissance Squadron")
+      || !assets[0]!.label.includes("4th Cavalry Reconnaissance Squadron")
+      || !assets[0]!.label.includes("3 groups")
+      || !assets[0]!.label.includes("Hex 0,0")
+      || /Recon_Bike|0,0:Recon_Bike/.test(assets[0]!.label)) {
+      throw new Error(`Intelligence assets remain duplicated or implementation-facing: ${JSON.stringify(assets)}`);
+    }
+    if (state.getIntelAssetDisplayLabel("groundRecon", assets[0]!.assetKey) !== assets[0]!.label) {
+      throw new Error("Committed intelligence orders cannot recover the same player-facing asset label.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_INTEL_BRIEFINGS_REPORT_ONE_NET_CHANGE_PER_CONTACT", async ({ Given, When, Then }) => {
+  const scenario = intelligenceScenario();
+  scenario.tiles.splice(1, 0, {
+    tile: "playerRegion",
+    factionControl: "Player",
+    hex: { q: 0, r: 1 },
+    forces: [{ unitType: "Recon_Bike", count: 1, label: "Supporting reconnaissance squadron" }]
+  });
+  scenario.tiles[2]!.hex = { q: 1, r: 0 };
+  const player = createCampaignKnowledgeState(scenario, "Player", 0);
+  const bot = createCampaignKnowledgeState(scenario, "Bot", 0);
+  player.contacts = [];
+  player.sourceReports = [];
+  player.briefEvents = [];
+  let resolved: Record<string, typeof player> = { Player: player, Bot: bot };
+
+  await Given("two independent observers can report the same previously unknown enemy concentration", () => {});
+  await When("all passive collection and confidence changes resolve in one segment", () => {
+    resolved = resolveCampaignIntelligenceSegment(scenario, resolved, 1) as Record<string, typeof player>;
+  });
+  await Then("the player receives one new-contact brief and no synthetic upgrade/downgrade storm", () => {
+    const contact = resolved.Player.contacts[0];
+    if (!contact) throw new Error("Passive observers did not create the expected contact.");
+    const events = resolved.Player.briefEvents.filter((event) => event.segment === 1 && event.contactId === contact.id);
+    if (events.length !== 1 || events[0]!.kind !== "new"
+      || events.some((event) => event.kind === "upgraded" || event.kind === "downgraded")) {
+      throw new Error(`One contact produced redundant same-segment reports: ${JSON.stringify(events)}`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_INTEL_GROUPS_ROUTINE_MULTI_CONTACT_DECLINES", async ({ Given, When, Then }) => {
+  const scenario = intelligenceScenario();
+  const player = createCampaignKnowledgeState(scenario, "Player", 0);
+  const bot = createCampaignKnowledgeState(scenario, "Bot", 0);
+  const baseContact = {
+    observerFaction: "Player" as const,
+    subjectKind: "force" as const,
+    level: "located" as const,
+    state: "current" as const,
+    confidence: 46,
+    uncertaintyRadius: 0,
+    domain: "ground" as const,
+    lastObservedSegment: 0,
+    lastUpdatedSegment: 0,
+    sourceReportIds: ["report-old"],
+    sourceLabels: ["Old patrol report"],
+    analystNotes: ["No recent confirmation."]
+  };
+  player.contacts = [
+    { ...baseContact, id: "contact-aging-1", locationHexKey: "5,2", truthEntityKey: "force:5,2" },
+    { ...baseContact, id: "contact-aging-2", locationHexKey: "7,3", truthEntityKey: "force:7,3" }
+  ];
+  player.briefEvents = [];
+  let resolved: Record<string, typeof player> = { Player: player, Bot: bot };
+
+  await Given("multiple old contacts genuinely lose confidence during the same quiet resolution", () => {});
+  await When("the campaign resolves their net end-of-segment intelligence state", () => {
+    resolved = resolveCampaignIntelligenceSegment(scenario, resolved, 2) as Record<string, typeof player>;
+  });
+  await Then("one briefing delta summarizes the routine decline without hiding current contact detail", () => {
+    const events = resolved.Player.briefEvents.filter((event) => event.segment === 2
+      && (event.kind === "downgraded" || event.kind === "stale"));
+    if (events.length !== 1
+      || events[0]!.contactId !== undefined
+      || !events[0]!.detail.includes("2 contact assessments")) {
+      throw new Error(`Routine confidence loss still floods unread reporting: ${JSON.stringify(events)}`);
+    }
+    if (resolved.Player.contacts.length !== 2 || resolved.Player.contacts.some((contact) => contact.level !== "reported")) {
+      throw new Error("Briefing aggregation changed authoritative contact assessments.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_INTEL_OPERATION_BRIEF_ROUTES_TO_ITS_PROJECTED_CONTACT", async ({ Given, When, Then }) => {
+  const scenario = intelligenceScenario();
+  const player = createCampaignKnowledgeState(scenario, "Player", 0);
+  const bot = createCampaignKnowledgeState(scenario, "Bot", 0);
+  player.operations.push(createIntelOperation(player, "groundRecon", "5,2", 0, "0,0:Recon_Bike"));
+  let resolved = resolveCampaignIntelligenceSegment(scenario, { Player: player, Bot: bot }, 1);
+  const contactId = resolved.Player.contacts[0]?.id;
+
+  await Given("a commander verifies one existing projected contact", () => {
+    if (!contactId) throw new Error("The prerequisite collection did not produce a projected contact.");
+    resolved.Player.briefEvents.forEach((event) => { event.read = true; });
+    resolved.Player.operations.push(createIntelOperation(
+      resolved.Player,
+      "verify",
+      "5,2",
+      1,
+      "0,0:Infantry_42",
+      contactId
+    ));
+  });
+  await When("the verification result reaches the Intelligence briefing", () => {
+    resolved = resolveCampaignIntelligenceSegment(scenario, resolved, 2);
+  });
+  await Then("the operation report points only to the safe contact identity", () => {
+    const event = resolved.Player.briefEvents.find((entry) => entry.segment === 2 && entry.kind === "operation");
+    if (!event || event.contactId !== contactId) {
+      throw new Error(`Verification report cannot route to its projected contact: ${JSON.stringify(event)}`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_INTEL_NEVER_CALLS_UNASSESSED_STRENGTH_LIGHT", async ({ Given, Then }) => {
+  const scenario = intelligenceScenario();
+  const player = createCampaignKnowledgeState(scenario, "Player", 0);
+  player.contacts.push({
+    id: "contact-unassessed",
+    observerFaction: "Player",
+    subjectKind: "force",
+    level: "located",
+    state: "current",
+    confidence: 58,
+    locationHexKey: "5,2",
+    uncertaintyRadius: 0,
+    domain: "ground",
+    lastObservedSegment: 0,
+    lastUpdatedSegment: 0,
+    sourceReportIds: ["report-1"],
+    sourceLabels: ["Forward patrol"],
+    analystNotes: ["Location confirmed; strength unassessed."],
+    truthEntityKey: "force:5,2"
+  });
+
+  await Given("a located enemy contact whose formation strength has not been assessed", () => {});
+  await Then("the engagement briefing says strength and formation count are unknown", () => {
+    const briefing = buildIntelligenceBriefing(player, "5,2", 0);
+    if (briefing.resistanceBand !== "unknown"
+      || !/strength and number of formations are not assessed/i.test(briefing.summary)
+      || !briefing.explicitUnknowns.some((entry) => /number of formations/i.test(entry))) {
+      throw new Error(`The briefing still presents an unknown concentration as light resistance: ${JSON.stringify(briefing)}`);
+    }
   });
 });
 

@@ -6,7 +6,7 @@ import type {
   CampaignOrderActionPreview,
   CampaignReservation
 } from "../../game/campaign/orders/CampaignOrderTypes";
-import type { CampaignAdvanceStopReason } from "../../game/campaign/runtime/campaignRuntimeTypes";
+import type { CampaignAdvanceAlert, CampaignAdvanceStopReason } from "../../game/campaign/runtime/campaignRuntimeTypes";
 import { MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
@@ -59,6 +59,29 @@ interface PlayerFrontAssessment {
   readonly targetRequired: boolean;
   readonly target: PlayerFrontTargetAssessment | null;
   readonly targets: readonly PlayerFrontTargetAssessment[];
+}
+
+/** Keeps authored counterattack timing truthful before, during, and after the one-shot event. */
+export function resolveCampaignCounterattackStageLabel(options: {
+  cadenceSegment: number | null;
+  currentSegment: number;
+  active: boolean;
+  priorStatus: string | null;
+  timeLabel: string | null;
+}): string | undefined {
+  if (!Number.isInteger(options.cadenceSegment)) return undefined;
+  if (options.active || ["opportunity", "planned", "committed", "inBattle"].includes(options.priorStatus ?? "")) {
+    return "Enemy counterattack requires command now.";
+  }
+  if (options.priorStatus === "resolved") return "Enemy counterattack resolved.";
+  if (options.priorStatus === "cancelled" || options.priorStatus === "abandoned") {
+    return "Enemy counterattack concluded.";
+  }
+  const cadence = options.cadenceSegment as number;
+  if (options.currentSegment < cadence) {
+    return `Enemy counterattack expected in ${(cadence - options.currentSegment) * 3} hours${options.timeLabel ? ` · ${options.timeLabel}` : ""}.`;
+  }
+  return "Enemy counterattack will interrupt the next campaign resolution.";
 }
 
 export class CampaignScreen {
@@ -211,6 +234,15 @@ export class CampaignScreen {
     const target = selectedTarget ?? targetsAssessment[0];
     if (target.contactCount === 0) {
       return { canLaunch: true, pressureLabel: "Enemy strength is unknown on the current opposing edge.", targetRequired: false, target, targets: targetsAssessment };
+    }
+    if (target.resistanceBand === "unknown") {
+      return {
+        canLaunch: true,
+        pressureLabel: `${target.contactCount} assessed contact area${target.contactCount === 1 ? "" : "s"} · strength and formation count unknown · ${target.confidenceBand} confidence.`,
+        targetRequired: false,
+        target,
+        targets: targetsAssessment
+      };
     }
     return {
       canLaunch: true,
@@ -553,7 +585,7 @@ export class CampaignScreen {
         `${issue.code}|${issue.message}|${issue.correctiveAction}`,
         issue
       ])).values());
-      issuesEl.innerHTML = preview.ok ? "" : uniqueDiagnostics.map((issue) => `<div class="redeploy-issue" data-reason-code="${issue.code}"><strong>${this.escapeHtml(this.formatCampaignLabel(issue.code.replace(/^ORDER_/, "")))}</strong><span>${this.escapeHtml(issue.message)}</span><small>${this.escapeHtml(issue.correctiveAction)}</small></div>`).join("");
+      issuesEl.innerHTML = preview.ok ? "" : uniqueDiagnostics.map((issue) => `<div class="redeploy-issue" data-reason-code="${issue.code}"><strong>Plan needs correction</strong><span>${this.escapeHtml(issue.message)}</span><small>${this.escapeHtml(issue.correctiveAction)}</small></div>`).join("");
       confirmBtn.disabled = !preview.ok;
       confirmBtn.textContent = preview.ok
         ? editingOrder ? "Replace Draft" : "Add Draft"
@@ -737,7 +769,11 @@ export class CampaignScreen {
     this.commandInterface = new CampaignCommandInterface(this.element, {
       onWorkspaceChanged: (workspace) => (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
         .setIntelContactsVisible?.(workspace === "intelligence"),
-      onOpenIntelligence: () => document.dispatchEvent(new CustomEvent("campaign:intelligence:open")),
+      onOpenIntelligence: () => {
+        this.intelTab = "situation";
+        this.resetIntelComposer();
+        document.dispatchEvent(new CustomEvent("campaign:intelligence:open"));
+      },
       onAcknowledgeAfterActionReport: (reportId) => {
         this.campaignState.acknowledgeCampaignAfterActionReport(reportId);
         this.renderCommandShell();
@@ -745,6 +781,9 @@ export class CampaignScreen {
       onAcknowledgeAlert: (alertId) => {
         this.campaignState.acknowledgeCampaignAlert(alertId);
         this.renderCommandShell();
+      },
+      onAlertSelected: (targetKind, targetId) => {
+        if (targetKind === "intelligence" && targetId) this.focusCampaignContact(targetId);
       },
       onAfterActionTargetSelected: (targetKind, targetId) => {
         this.commandInterface?.navigate({ kind: targetKind, id: targetId, focus: true });
@@ -1378,7 +1417,7 @@ export class CampaignScreen {
         const normalized = preview.normalizedAllocation;
         previewEl.innerHTML = preview.action.availability === "available" && normalized && preview.effectiveSegment !== null
           ? `<div class="campaign-order-preview-clear"><dt>Effective</dt><dd>${this.escapeHtml(this.campaignState.segmentToTimeDisplay(preview.effectiveSegment))} · the current mix remains active until delivery.</dd></div>`
-          : `<div class="redeploy-issue" data-reason-code="${preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID"}"><strong>${(preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(preview.action.reason ?? "The allocation is unavailable.")}</span><small>${this.escapeHtml(preview.action.correctiveAction ?? "Adjust the allocation and review it again.")}</small></div>`;
+          : `<div class="redeploy-issue" data-reason-code="${preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID"}"><strong>Production unavailable</strong><span>${this.escapeHtml(preview.action.reason ?? "The allocation is unavailable.")}</span><small>${this.escapeHtml(preview.action.correctiveAction ?? "Adjust the allocation and review it again.")}</small></div>`;
       }
       applyBtn.disabled = preview.action.availability !== "available" || !preview.normalizedAllocation;
     };
@@ -1479,7 +1518,7 @@ export class CampaignScreen {
     confirm.disabled = action.availability !== "available";
     issues.innerHTML = action.availability === "available"
       ? `<div class="campaign-order-preview-clear">No conflicts in the current command picture.</div>`
-      : `<div class="redeploy-issue" data-reason-code="${action.reasonCode ?? "ORDER_INFRASTRUCTURE_INVALID"}"><strong>${(action.reasonCode ?? "ORDER_INFRASTRUCTURE_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(action.reason ?? "Reconstruction is unavailable.")}</span><small>${this.escapeHtml(action.correctiveAction ?? "Review the selected facility.")}</small></div>`;
+      : `<div class="redeploy-issue" data-reason-code="${action.reasonCode ?? "ORDER_INFRASTRUCTURE_INVALID"}"><strong>Reconstruction unavailable</strong><span>${this.escapeHtml(action.reason ?? "Reconstruction is unavailable.")}</span><small>${this.escapeHtml(action.correctiveAction ?? "Review the selected facility.")}</small></div>`;
     const hide = (): void => {
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
@@ -1883,15 +1922,24 @@ export class CampaignScreen {
     }
     const rule = this.campaignState.getIntelOperationRules()[this.intelOperationType];
     const replaced = Boolean(this.editingIntelOrderId);
-    this.commandCommitFeedback = { feedback: `${rule.label} draft ${replaced ? "replaced" : "added"}; capacity, assets, and stocks are held without spending.`, feedbackTone: "success" };
+    if (result.order.validation.valid) {
+      this.commandCommitFeedback = { feedback: `${rule.label} draft ${replaced ? "replaced" : "added"}; capacity, assets, and stocks are held without spending.`, feedbackTone: "success" };
+      this.resetIntelComposer();
+    } else {
+      this.intelFeedback = result.order.validation.issues[0]?.message ?? `${rule.label} draft has a conflict.`;
+    }
     this.renderCommandShell();
-    this.intelFeedback = result.order.validation.valid
-      ? `${rule.label} draft ${replaced ? "replaced" : "added"} for ${this.selectedHexKey}; review and commit it in the order tray.`
-      : result.order.validation.issues[0]?.message ?? `${rule.label} draft has a conflict.`;
+    this.renderCampaignIntel();
+  }
+
+  /** Returns the Intelligence workspace to a neutral, truthful state after an order mutation. */
+  private resetIntelComposer(): void {
+    this.intelOperationType = null;
     this.intelTargetContactId = null;
     this.editingIntelOrderId = null;
     this.editingIntelAssetKey = null;
-    this.renderCampaignIntel();
+    this.intelFeedback = "";
+    this.renderer.clearAllHighlights("order-preview-target");
   }
 
   /** Renders compact readiness plus the Situation / Contacts / Operations drawer. */
@@ -2073,7 +2121,7 @@ export class CampaignScreen {
           : `<p class="campaign-intel-order-summary">Select a map hex to see eligible assets and complete this draft.</p>`}
         ${!hasTarget || selectedAction.availability === "available"
           ? ""
-          : `<div class="redeploy-issue" data-reason-code="${selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID"}"><strong>${(selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong><span>${this.escapeHtml(selectedAction.reason ?? "The operation is unavailable.")}</span><small>${this.escapeHtml(selectedAction.correctiveAction ?? "Review the target and assigned asset.")}</small></div>`}
+          : `<div class="redeploy-issue" data-reason-code="${selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID"}"><strong>Operation unavailable</strong><span>${this.escapeHtml(selectedAction.reason ?? "The operation is unavailable.")}</span><small>${this.escapeHtml(selectedAction.correctiveAction ?? "Review the target and assigned asset.")}</small></div>`}
         ${this.intelFeedback ? `<div class="campaign-intel-feedback" aria-live="polite">${this.escapeHtml(this.intelFeedback)}</div>` : ""}
         <button type="button" class="campaign-intel-confirm" data-intel-schedule ${selectedAction.availability !== "available" ? "disabled" : ""}>${this.editingIntelOrderId ? "Replace draft" : "Add draft"}</button>
       </section>
@@ -2093,8 +2141,11 @@ export class CampaignScreen {
       });
       return;
     }
-    this.campaignPopupInvoker = Array.from(this.element.querySelectorAll<HTMLElement>("[data-order-id]"))
+    const fallbackInvoker = Array.from(this.element.querySelectorAll<HTMLElement>("[data-order-id]"))
       .find((entry) => entry.dataset.orderId === orderId) ?? null;
+    this.campaignPopupInvoker = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : fallbackInvoker;
     if (order.kind === "redeploy") {
       this.openRedeployModal(order.payload.originOffsetKey, order.payload.destinationOffsetKey, order);
       return;
@@ -2173,8 +2224,13 @@ export class CampaignScreen {
     const order = this.campaignState.getCampaignOrders().find((entry) => entry.id === orderId && entry.faction === "Player");
     const preview = this.campaignState.previewCampaignOrderCancellation(orderId, "Player");
     if (!layer || !dialog || !title || !body || !close || !order) return;
-    this.campaignPopupInvoker = Array.from(this.element.querySelectorAll<HTMLElement>("[data-order-id]"))
+    const fallbackOrder = Array.from(this.element.querySelectorAll<HTMLElement>("[data-order-id]"))
       .find((entry) => entry.dataset.orderId === orderId) ?? null;
+    const fallbackInvoker = fallbackOrder?.querySelector<HTMLButtonElement>("[data-order-action='cancel']")
+      ?? fallbackOrder;
+    this.campaignPopupInvoker = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : fallbackInvoker;
     const projected = this.projectCommandOrder(order, this.campaignState.getCampaignOrders().filter((entry) => entry.faction === "Player"));
     title.textContent = "Review Order Cancellation";
     body.innerHTML = `
@@ -2187,7 +2243,7 @@ export class CampaignScreen {
           <div><dt>Exposure</dt><dd>${this.escapeHtml(preview.exposureSummary)}</dd></div>
         </dl>
         <div class="${preview.canCancel ? "campaign-order-preview-clear" : "redeploy-issue"}" data-reason-code="${preview.reasonCode ?? ""}">
-          <strong>${preview.canCancel ? "CANCELLATION AVAILABLE" : (preview.reasonCode ?? "CANCELLATION BLOCKED").replace(/^ORDER_/, "").replace(/_/g, " ")}</strong>
+          <strong>${preview.canCancel ? "Cancellation available" : "Cancellation unavailable"}</strong>
           <span>${this.escapeHtml(preview.reason ?? "The order can be cancelled before execution.")}</span>
           <small>${this.escapeHtml(preview.correctiveAction ?? "Confirm only if the consequences are acceptable.")}</small>
         </div>
@@ -2200,7 +2256,14 @@ export class CampaignScreen {
     const confirm = body.querySelector<HTMLButtonElement>("#campaignConfirmOrderCancellation");
     const keep = body.querySelector<HTMLButtonElement>("#campaignKeepOrder");
     if (!confirm || !keep) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      hide();
+    };
     const hide = (): void => {
+      layer.removeEventListener("keydown", onKeyDown);
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
       this.campaignPopupInvoker?.focus({ preventScroll: true });
@@ -2211,6 +2274,7 @@ export class CampaignScreen {
     };
     keep.onclick = hide;
     close.onclick = hide;
+    layer.addEventListener("keydown", onKeyDown);
     layer.classList.remove("hidden");
     layer.setAttribute("aria-hidden", "false");
     (preview.canCancel ? confirm : keep).focus({ preventScroll: true });
@@ -2219,6 +2283,9 @@ export class CampaignScreen {
   /** Issues every valid draft through one state transaction. */
   private commitDraftOrders(): void {
     if (this.commandCommitBusy) return;
+    const includesIntelDraft = this.campaignState.getCampaignOrders().some((order) => order.faction === "Player"
+      && order.status === "draft"
+      && (order.kind === "reconnaissance" || order.kind === "counterIntelligence"));
     this.commandCommitBusy = true;
     this.commandCommitFeedback = { feedback: "Validating every draft and shared hold before atomic commit…", feedbackTone: "info" };
     this.renderCommandShell();
@@ -2233,6 +2300,7 @@ export class CampaignScreen {
         feedback: `Commit rejected. No order, resource, or hold changed; every draft was preserved.${result.blockers.length > 0 ? ` ${result.blockers.length} blocker${result.blockers.length === 1 ? "" : "s"} remain.` : ""}`,
         feedbackTone: "warning"
       };
+    if (result.ok && includesIntelDraft) this.resetIntelComposer();
     this.setCampaignStatusMessage(result.ok ? {
       title: `${result.committedCount} order${result.committedCount === 1 ? "" : "s"} committed.`,
       detail: "Resources and capacity were assigned together in one command transaction.",
@@ -2247,9 +2315,14 @@ export class CampaignScreen {
       tone: "warning"
     });
     this.renderCommandShell();
+    if (result.ok && includesIntelDraft) this.renderCampaignIntel();
   }
 
   private removeDraftOrder(orderId: string): void {
+    const removedIntelDraft = this.campaignState.getCampaignOrders().some((order) => order.id === orderId
+      && order.faction === "Player"
+      && order.status === "draft"
+      && (order.kind === "reconnaissance" || order.kind === "counterIntelligence"));
     const result = this.campaignState.removeCampaignOrder(orderId);
     this.commandCommitFeedback = result.ok
       ? { feedback: "Draft removed; its holds were released and every later draft was revalidated.", feedbackTone: "success" }
@@ -2265,7 +2338,9 @@ export class CampaignScreen {
       action: "Review its current status in the order tray.",
       tone: "warning"
     });
+    if (result.ok && removedIntelDraft) this.resetIntelComposer();
     this.renderCommandShell();
+    if (result.ok && removedIntelDraft) this.renderCampaignIntel();
   }
 
   private cancelCommittedOrder(orderId: string): void {
@@ -2390,7 +2465,10 @@ export class CampaignScreen {
     } else {
       const rule = this.campaignState.getIntelOperationRules()[order.payload.operationType];
       label = rule.label;
-      detail = `${order.payload.targetHexKey}${order.payload.assignedAssetKey ? ` · ${order.payload.assignedAssetKey}` : ""}`;
+      const assetLabel = order.payload.assignedAssetKey
+        ? this.campaignState.getIntelAssetDisplayLabel(order.payload.operationType, order.payload.assignedAssetKey, "Player")
+        : null;
+      detail = `Hex ${order.payload.targetHexKey}${assetLabel ? ` · ${assetLabel}` : ""}`;
       etaSegment = order.payload.resolveSegment;
       routeSummary = `${order.payload.targetHexKey} · radius ${rule.targetRadius} hex`;
       costSummary = `${order.payload.suppliesCost.toLocaleString()} supply · ${order.payload.fuelCost.toLocaleString()} fuel · ${order.payload.capacityCost} intelligence capacity`;
@@ -2695,13 +2773,22 @@ export class CampaignScreen {
     });
     const advanceRecords = this.campaignState.getCampaignAdvanceTimeline(24);
     const severityRank = { routine: 0, notable: 1, critical: 2, decisionRequired: 3 } as const;
+    const projectAlertDetail = (alert: CampaignAdvanceAlert | undefined, fallback: string): string => {
+      if (!alert) return fallback;
+      if (alert.targetKind !== "objective" || !alert.targetId) return alert.detail;
+      const objective = objectives.find((entry) => entry.key === alert.targetId);
+      const recordedStatus = /\bis now ([^.]+)/i.exec(alert.detail)?.[1]?.trim();
+      return objective
+        ? `${objective.label} is ${(recordedStatus ?? objective.status).toLowerCase()}. Review the campaign situation before continuing.`
+        : "A primary objective changed. Review the campaign situation before continuing.";
+    };
     const timeline = advanceRecords.map((record) => {
       const alert = [...record.alerts].sort((left, right) => severityRank[right.severity] - severityRank[left.severity])[0];
       return {
         id: record.id,
         timeLabel: this.campaignState.segmentToTimeDisplay(record.toSegment),
         title: alert?.title ?? "Segment resolved",
-        detail: alert?.detail ?? `${record.eventCount} material campaign updates committed.`,
+        detail: projectAlertDetail(alert, `${record.eventCount} material campaign updates committed.`),
         severity: alert?.severity ?? "routine" as const,
         stopLabel: record.stopReason ? this.campaignAdvanceStopLabel(record.stopReason) : null,
         targetKind: alert?.targetKind ?? "time" as const,
@@ -2715,8 +2802,9 @@ export class CampaignScreen {
       .map((alert) => ({
         id: alert.id,
         severity: alert.severity,
+        category: alert.category,
         title: alert.title,
-        detail: alert.detail,
+        detail: projectAlertDetail(alert, alert.detail),
         targetKind: alert.targetKind,
         targetId: alert.targetId,
         timeLabel: this.campaignState.segmentToTimeDisplay(alert.segment),
@@ -2724,12 +2812,13 @@ export class CampaignScreen {
         acknowledged: this.campaignState.isCampaignAlertAcknowledged(alert.id)
       })) ?? [];
     const commandAlerts = advanceRecords.flatMap((record) => record.alerts
+      .filter((alert) => alert.category !== "intelligence")
       .filter((alert) => alert.severity !== "routine" || alert.requiresStop)
       .map((alert) => ({
         id: alert.id,
         severity: alert.severity,
         title: alert.title,
-        detail: alert.detail,
+        detail: projectAlertDetail(alert, alert.detail),
         targetKind: alert.targetKind,
         targetId: alert.targetId,
         timeLabel: this.campaignState.segmentToTimeDisplay(alert.segment),
@@ -2739,6 +2828,7 @@ export class CampaignScreen {
     const actionableOrders = playerOrders.filter((order) => ["draft", "committed", "executing", "blocked"].includes(order.status));
     const priorities: CampaignCommandPriorityView[] = [];
     const urgentAlert = [...latestAlerts]
+      .filter((alert) => alert.category !== "intelligence")
       .filter((alert) => alert.requiresStop || !alert.acknowledged)
       .sort((left, right) => severityRank[right.severity] - severityRank[left.severity])[0];
     const conflictedDraft = playerOrders.find((order) => order.status === "draft" && !order.validation.valid);
@@ -2813,10 +2903,13 @@ export class CampaignScreen {
     }
     const frontViews = scenario.fronts.map((front) => {
       const frontHexes = new Set(front.hexKeys);
+      const playerSideHexes = new Set(front.initiative === "Player"
+        ? front.hexKeys
+        : front.edges?.map((edge) => edge.opposingHexKey) ?? front.hexKeys);
       const assessedContacts = view.enemyContacts.filter((contact) => frontHexes.has(contact.locationHexKey));
       const uncertainContacts = assessedContacts.filter((contact) => contact.state === "stale" || contact.state === "disputed").length;
-      const friendlyFormations = formations.filter((formation) => formation.locationHexKey && frontHexes.has(formation.locationHexKey));
-      const sectorObjectives = objectives.filter((objective) => objective.hexKey && frontHexes.has(objective.hexKey));
+      const friendlyFormations = formations.filter((formation) => formation.locationHexKey && playerSideHexes.has(formation.locationHexKey));
+      const sectorObjectives = objectives.filter((objective) => objective.hexKey && playerSideHexes.has(objective.hexKey));
       const relatedObjectiveIds = new Set(sectorObjectives.map((objective) => objective.key));
       const relatedFormationIds = new Set(friendlyFormations.map((formation) => formation.id));
       const lastChange = timeline.find((entry) => (
@@ -2825,6 +2918,25 @@ export class CampaignScreen {
       ));
       const playerAssessment = front.initiative === "Player" ? this.getPlayerFrontAssessment(front.key) : null;
       const engagementTarget = playerAssessment?.target ?? null;
+      const counterattackCadence = front.modifiers?.flatMap((modifier) => {
+        const match = /^counterattack@(\d+)$/.exec(modifier);
+        return match ? [Number(match[1])] : [];
+      })[0];
+      const frontEngagementActive = engagements.some((engagement) => engagement.frontKey === front.key);
+      const counterattackLedger = runtime?.engagementLedgerOrder
+        .map((id) => runtime.engagementLedger[id])
+        .find((entry) => entry?.package?.engagement.frontKey === front.key && entry?.package?.engagement.attacker === "Bot");
+      const stageLabel = front.initiative !== "Player"
+        ? resolveCampaignCounterattackStageLabel({
+            cadenceSegment: Number.isInteger(counterattackCadence) ? counterattackCadence as number : null,
+            currentSegment: view.currentSegment,
+            active: frontEngagementActive,
+            priorStatus: counterattackLedger?.status ?? null,
+            timeLabel: Number.isInteger(counterattackCadence)
+              ? this.campaignState.segmentToTimeDisplay(counterattackCadence as number)
+              : null
+          })
+        : undefined;
       return {
         key: front.key,
         label: front.label,
@@ -2840,6 +2952,7 @@ export class CampaignScreen {
         targetChoiceLabel: playerAssessment?.targetRequired
           ? `${playerAssessment.targets.length} legal opposing targets require a command choice.`
           : undefined,
+        stageLabel,
         forcePosture: `${friendlyFormations.length} friendly formation${friendlyFormations.length === 1 ? "" : "s"} in sector`,
         objectivePosture: `${sectorObjectives.length} objective${sectorObjectives.length === 1 ? "" : "s"} in sector`,
         lastChange: lastChange ? `${lastChange.timeLabel} · ${lastChange.title}` : "No recent objective or formation change in this sector."

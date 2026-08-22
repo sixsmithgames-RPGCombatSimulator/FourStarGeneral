@@ -142,7 +142,7 @@ function validateLeadingFrameUniqueness(sourceLabel: string, frameDataUrls: read
 //     link.href = dataUrl;
 //     const filename = sourceLabel.includes("Explosion") ? "explosion_sheet_debug_overlay.png" : "sheet_debug_overlay.png";
 //     link.download = filename;
-//     link.textContent = `📊 Download Debug Sheet Overlay (${filename})`;
+//     link.textContent = `Download Debug Sheet Overlay (${filename})`;
 //     link.style.cssText = "display:block; color: lime; background: black; padding: 8px; margin: 4px; font-weight: bold; border: 2px solid lime;";
 //     document.body.appendChild(link);
 //
@@ -176,7 +176,7 @@ export async function sliceSpriteSheet(
   // FAIL FAST: Validate the image divides evenly into cells
   if (!Number.isInteger(sourceCellWidth) || !Number.isInteger(sourceCellHeight)) {
     const error = new Error(
-      `[SpriteSheet] ❌ ASSET/SPEC MISMATCH - Image dimensions ${image.naturalWidth}×${image.naturalHeight} ` +
+      `[SpriteSheet] ASSET/SPEC MISMATCH - Image dimensions ${image.naturalWidth}×${image.naturalHeight} ` +
       `do not divide evenly into ${columns}×${rows} grid. ` +
       `Cell size would be ${sourceCellWidth.toFixed(3)}×${sourceCellHeight.toFixed(3)} (non-integer). ` +
       `This indicates the spec columns/rows are WRONG for this asset.`
@@ -189,7 +189,7 @@ export async function sliceSpriteSheet(
   const maxFrames = columns * rows;
   if (frameCount > maxFrames) {
     const error = new Error(
-      `[SpriteSheet] ❌ ASSET/SPEC MISMATCH - frameCount=${frameCount} exceeds grid capacity of ${columns}×${rows}=${maxFrames} cells.`
+      `[SpriteSheet] ASSET/SPEC MISMATCH - frameCount=${frameCount} exceeds grid capacity of ${columns}×${rows}=${maxFrames} cells.`
     );
     console.error(error.message);
     throw error;
@@ -213,7 +213,7 @@ export async function sliceSpriteSheet(
   // // DEBUG: Create debug visualization: draw all frame rectangles on the source sheet
   // const debugOverlay = createDebugSheetOverlay(image, columns, rows, frameCount, sourceCellWidth, sourceCellHeight, inset, sourceLabel);
   // if (debugOverlay) {
-  //   console.log(`[SpriteSheet] 🎨 Debug overlay created - see download link in page`);
+  //   console.log(`[SpriteSheet] Debug overlay created - see download link in page`);
   // }
 
   for (let i = 0; i < frameCount; i++) {
@@ -275,7 +275,7 @@ export async function sliceSpriteSheet(
 
     // // DEBUG: Export first 4 explosion frames as standalone debug images
     // if (i < 4 && sourceLabel.includes("Explosion")) {
-    //   console.log(`[SpriteSheet] ⚠️ DEBUG PROOF - Frame ${i} exported for manual inspection:`);
+    //   console.log(`[SpriteSheet] DEBUG PROOF - Frame ${i} exported for manual inspection:`);
     //   console.log(`[SpriteSheet]   Source rect: (${sx},${sy},${sw},${sh})`);
     //   console.log(`[SpriteSheet]   Output size: ${outputWidth}x${outputHeight}`);
     //   console.log(`[SpriteSheet]   Data URL length: ${dataUrl.length} bytes`);
