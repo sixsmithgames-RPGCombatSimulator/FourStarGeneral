@@ -291,8 +291,8 @@ export class CampaignScreen {
   }
 
   /** Opens a fresh campaign on its current primary objective instead of an empty corner of the theater. */
-  private focusOpeningObjective(scenario: CampaignScenarioData, force = false): void {
-    if ((!force && this.selectedHexKey) || !this.viewport) return;
+  private focusOpeningObjective(scenario: CampaignScenarioData): void {
+    if (this.selectedHexKey || !this.viewport) return;
     const objective = scenario.objectives.find((candidate) => candidate.category === "primary")
       ?? scenario.objectives[0];
     if (!objective) return;
@@ -312,11 +312,7 @@ export class CampaignScreen {
     const pans = Array.from(this.element.querySelectorAll<HTMLButtonElement>("[data-campaign-pan]"));
     zoomIn?.addEventListener("click", () => this.viewport?.adjustZoom(0.2));
     zoomOut?.addEventListener("click", () => this.viewport?.adjustZoom(-0.2));
-    reset?.addEventListener("click", () => {
-      this.viewport?.reset();
-      const scenario = this.campaignState.getCampaignMapView("Player")?.scenario;
-      if (scenario) this.focusOpeningObjective(scenario, true);
-    });
+    reset?.addEventListener("click", () => this.viewport?.reset());
     pans.forEach((btn) =>
       btn.addEventListener("click", () => {
         const dir = btn.dataset.campaignPan;
