@@ -64,6 +64,10 @@ export interface CampaignForceGroup {
   count: number;
   /** Optional label surfaced in tooltips for additional context. */
   label?: string;
+  /** Campaign segment when this authored group first enters the operational order of battle. */
+  availableFromSegment?: number;
+  /** Optional player-facing event copy emitted when the group becomes available. */
+  availabilityCopy?: string;
 }
 
 export interface CampaignTileDefinition {
@@ -166,7 +170,7 @@ export type CampaignObjectiveCondition =
   | {
       kind: "formationStatus";
       formationId: string;
-      statuses: Array<"ready" | "committed" | "inTransit" | "isolated" | "refitting" | "shattered" | "destroyed" | "captured">;
+      statuses: Array<"unavailable" | "ready" | "committed" | "inTransit" | "isolated" | "refitting" | "shattered" | "destroyed" | "captured">;
     }
   | {
       kind: "resourceThreshold";
@@ -401,6 +405,21 @@ export interface CampaignMapExtents {
    * This allows precise marking of irregular water bodies like the English Channel.
    */
   waterHexes?: string[];
+  /** Source-backed fixed landmarks used to verify that the grid follows the painted background at theater scale. */
+  registrationAnchors?: Array<{
+    key: string;
+    label: string;
+    hex: Axial;
+    sourceLabel: string;
+  }>;
+  /** Independent distance checks that prevent one locally correct cluster from certifying a mis-scaled theater. */
+  distanceCalibrations?: Array<{
+    fromAnchorKey: string;
+    toAnchorKey: string;
+    expectedDistanceKm: number;
+    toleranceKm: number;
+    sourceLabel: string;
+  }>;
 }
 
 /**
@@ -412,6 +431,30 @@ export interface CampaignHistoricalCalendar {
   startDateIso: string;
   /** D-day-relative day number represented by segment zero (for example, 1 renders as D+1). */
   operationDayOffset: number;
+}
+
+/**
+ * One fixed strategic location included in a faction's pre-operation briefing.
+ * This is immutable map knowledge, not a projection of the location's current
+ * controller, garrison, capacity, damage, or operational status.
+ */
+export interface CampaignBriefedStrategicSite {
+  /** Stable authored identity independent from any runtime tile at the same location. */
+  key: string;
+  /** Faction whose command briefing contains this location. */
+  observerFaction: CampaignFactionKey;
+  /** Exact fixed location known from maps, photography, or historical planning records. */
+  hex: Axial;
+  /** Public geographic or installation name. */
+  label: string;
+  /** Broad installation class safe to expose without consulting runtime truth. */
+  role: CampaignTileRole;
+  /** Concise, source-bounded briefing text. Must not describe mutable runtime state. */
+  summary: string;
+  /** Player-facing provenance such as "Pre-operation aerial survey". */
+  sourceLabel: string;
+  /** Authored public marker art; never derived from a hidden runtime tile. */
+  spriteKey: string;
 }
 
 /**
@@ -452,6 +495,8 @@ export interface CampaignScenarioData {
     nominalWidthKm?: number;
   };
   tilePalette: CampaignTilePalette;
+  /** Fixed sites known from an observer's briefing, kept separate from mutable runtime tiles. */
+  briefedStrategicSites?: CampaignBriefedStrategicSite[];
   tiles: CampaignTileInstance[];
   fronts: CampaignFrontLine[];
   objectives: CampaignObjective[];

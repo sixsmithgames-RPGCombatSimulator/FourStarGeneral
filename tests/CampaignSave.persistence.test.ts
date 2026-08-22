@@ -35,6 +35,7 @@ import {
 import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
 import {
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
+  CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH,
   CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
   CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
   migrateCampaignRuntimeContent
@@ -376,7 +377,7 @@ registerTest("CAMPAIGN_SAVE_REJECTS_PROGRESS_FROM_THE_UNREGISTERED_DPLUS1_MAP", 
   });
   await Then("the save is preserved behind explicit recovery guidance", () => {
     if (failure?.code !== "CONTENT_MISMATCH"
-      || !failure.message.includes("retired, unregistered campaign geography")
+      || !failure.message.includes("retired campaign scope")
       || !failure.message.includes("preserved")) {
       throw new Error(`Progressed unregistered content did not fail closed: ${failure?.message ?? "none"}.`);
     }
@@ -392,13 +393,13 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
   if (!runtime) throw new Error("Pristine migration fixture did not create a runtime.");
   const retiredOpening = {
     ...structuredClone(runtime),
-    scenarioContentHash: CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
+    scenarioContentHash: CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
   };
   let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
 
   await Given("an unplayed save carrying the exact retired production content identity", () => {
     const currentHash = computeCampaignContentHash(definition);
-    if (currentHash !== CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
+    if (currentHash !== CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
       || retiredOpening.currentSegment !== 0
       || retiredOpening.revision !== 0) {
       throw new Error(`Normandy content identity or pristine boundary drifted: ${currentHash}.`);
@@ -413,16 +414,80 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
     const result = migrated.runtime;
     if (!migrated.migrated
       || result.campaignId !== runtime.campaignId
-      || result.scenarioContentHash !== CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
+      || result.scenarioContentHash !== CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
       || result.currentSegment !== 0
       || result.revision !== 0
       || result.tiles["22,13"]?.tileKey !== "utahBeach"
       || result.tiles["24,11"]?.tileKey !== "omahaBeach"
       || result.tiles["30,7"]?.tileKey !== "swordBeach"
-      || result.compatibility.initialFronts.length !== 4
+       || result.compatibility.initialFronts.length !== 4
+       || result.tiles["5,8"]?.tileKey !== "westernEmbarkation"
+       || result.tiles["44,4"]?.tileKey !== "rouenHub"
       || !result.knowledgeByFaction.Player
       || !result.knowledgeByFaction.Bot) {
       throw new Error("Pristine save did not adopt the complete corrected D+1 opening.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_STATE_LOAD_REACHES_THE_CERTIFIED_FULL_THEATER_MIGRATION", async ({ Given, When, Then }) => {
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const sourceBackend = new InMemoryCampaignSaveBackend();
+  const sourceState = new CampaignState({ saveBackend: sourceBackend, legacyStorage: null });
+  sourceState.setScenario(scenario);
+  const request = {
+    timestamp: "2026-08-22T12:00:00.000Z",
+    label: "Retired Normandy opening",
+    playTimeSeconds: 0,
+    difficulty: "standard",
+    commanderRosterLink: null,
+    uiResumeContext: {
+      workspace: "theater" as const,
+      selectedEntityId: null,
+      mapCenter: null,
+      mapZoom: null
+    }
+  };
+
+  await Given("a valid named save carrying the immediately retired registered-map identity", async () => {
+    await sourceState.saveCampaignSlot({
+      ...request,
+      slotId: "slot-retired-opening",
+      slotType: "manual"
+    });
+  });
+
+  const retiredState = structuredClone(sourceBackend.exportState()) as InMemoryCampaignSaveBackendState;
+  const retiredSlot = retiredState.slots["slot-retired-opening"];
+  const retiredEnvelope = retiredSlot ? retiredState.saves[retiredSlot.currentSaveId] as FourStarCampaignSaveEnvelope : null;
+  if (!retiredEnvelope) throw new Error("Retired-map load fixture did not persist its named slot.");
+  const mutableEnvelope = retiredEnvelope as unknown as {
+    payload: { runtime: { scenarioContentHash: string } };
+    checksum: string;
+  };
+  mutableEnvelope.payload.runtime.scenarioContentHash = CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH;
+  mutableEnvelope.checksum = computeCampaignSaveChecksum(retiredEnvelope);
+  const loadState = new CampaignState({
+    saveBackend: new InMemoryCampaignSaveBackend(retiredState),
+    legacyStorage: null
+  });
+  loadState.setScenario(scenario);
+  let load: Awaited<ReturnType<CampaignState["loadCampaignSlot"]>> | null = null;
+
+  await When("CampaignState performs normal expected-content validation and hydration", async () => {
+    load = await loadState.loadCampaignSlot("slot-retired-opening", request);
+  });
+
+  await Then("the compatible prior hash reaches migration instead of being rejected at the repository boundary", () => {
+    const runtime = loadState.getRuntimeSnapshot();
+    if (!load
+      || !load.ok
+      || runtime?.scenarioContentHash !== CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
+      || runtime.currentSegment !== 0
+      || runtime.revision !== 0
+      || runtime.tiles["5,8"]?.tileKey !== "westernEmbarkation"
+      || runtime.tiles["44,4"]?.tileKey !== "rouenHub") {
+      throw new Error(`Normal load did not reach the certified full-theater migration: ${load?.ok ? "stale runtime" : load?.error.message ?? "no result"}.`);
     }
   });
 });
@@ -452,7 +517,7 @@ registerTest("CAMPAIGN_SAVE_PRESERVES_BUT_REJECTS_PROGRESS_ON_RETIRED_GEOGRAPHY"
   });
   await Then("the save fails closed with explicit recovery guidance instead of silently changing history", () => {
     if (failure?.code !== "CONTENT_MISMATCH"
-      || !failure.message.includes("progress on retired, unregistered campaign geography")
+      || !failure.message.includes("progress on a retired campaign scope")
       || !failure.message.includes("preserved")
       || !failure.message.includes("compatible earlier build")) {
       throw new Error(`Progressed retired content did not fail closed with recovery guidance: ${failure?.message ?? "none"}.`);

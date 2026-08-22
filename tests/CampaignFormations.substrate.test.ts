@@ -15,6 +15,7 @@ import {
   type CreateCampaignRuntimeOptions
 } from "../src/game/campaign/runtime/CampaignScenarioAdapter";
 import { validateCampaignRuntimeState } from "../src/game/campaign/runtime/CampaignInvariantValidator";
+import { resolveCampaignSegment } from "../src/game/campaign/runtime/CampaignSegmentResolver";
 import {
   createCampaignFormationRecord,
   reconcileCampaignFormationForceCounts,
@@ -24,8 +25,10 @@ import {
   attachCampaignFormationProvenanceToContext,
   createCampaignFormationBattleSeed,
   extractCampaignFormationTacticalSnapshot,
+  isCampaignFormationBattleEligible,
   selectCampaignFormationsForAllocation
 } from "../src/game/campaign/formations/CampaignFormationBattleAdapter";
+import { createRedeployOrderDraft } from "../src/game/campaign/orders/CampaignOrderService";
 import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
 import { generateCampaignBattleScenario } from "../src/game/campaign/CampaignBattleGenerator";
 import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
@@ -102,6 +105,102 @@ function runtimeOptions(scenario: CampaignScenarioData): CreateCampaignRuntimeOp
   };
 }
 
+function buildAuthoredArrivalScenario(): CampaignScenarioData {
+  return {
+    key: "authored-arrival-contract",
+    title: "Authored Arrival Contract",
+    description: "Scheduled formation availability certification fixture.",
+    hexScaleKm: 10,
+    dimensions: { cols: 3, rows: 2 },
+    background: { imageUrl: "about:blank", stretchMode: "contain" },
+    tilePalette: {
+      player: { role: "logisticsHub", factionControl: "Player", supplyValue: 4 },
+      bot: { role: "fortificationLight", factionControl: "Bot", supplyValue: 2 }
+    },
+    tiles: [
+      {
+        tile: "player",
+        factionControl: "Player",
+        hex: { q: 0, r: 0 },
+        forces: [
+          { unitType: "Engineer", count: 1, label: "Beachhead engineers" },
+          {
+            unitType: "Infantry_42",
+            count: 2,
+            label: "U.S. follow-on formations",
+            availableFromSegment: 2,
+            availabilityCopy: "U.S. follow-on formations arrived at the staging area."
+          }
+        ]
+      },
+      { tile: "player", factionControl: "Player", hex: { q: 0, r: 1 }, forces: [] },
+      {
+        tile: "bot",
+        factionControl: "Bot",
+        hex: { q: 2, r: 0 },
+        forces: [
+          { unitType: "Infantry_42", count: 1, label: "German security force" },
+          {
+            unitType: "Panzer_IV",
+            count: 2,
+            label: "German assembling reserve",
+            availableFromSegment: 3,
+            availabilityCopy: "German assembling formations entered the operational reserve."
+          },
+          {
+            unitType: "Infantry_42",
+            count: 1,
+            label: "German assembling reserve infantry",
+            availableFromSegment: 3,
+            availabilityCopy: "German assembling formations entered the operational reserve."
+          }
+        ]
+      }
+    ],
+    fronts: [],
+    objectives: [],
+    economies: [
+      {
+        faction: "Player",
+        manpower: 1000,
+        supplies: 500,
+        fuel: 300,
+        ammo: 200,
+        airPower: 0,
+        navalPower: 0,
+        intelCoverage: 0,
+        productionAllocation: { supplies: 40, fuel: 30, ammo: 10, manpower: 20 }
+      },
+      {
+        faction: "Bot",
+        manpower: 900,
+        supplies: 450,
+        fuel: 280,
+        ammo: 180,
+        airPower: 0,
+        navalPower: 0,
+        intelCoverage: 0
+      }
+    ]
+  };
+}
+
+function arrivalRuntimeOptions(scenario: CampaignScenarioData): CreateCampaignRuntimeOptions {
+  return {
+    campaignId: "campaign_authored_arrivals_test",
+    seed: 0x24f021,
+    currentSegment: 1,
+    turnState: null,
+    queuedDecisions: [],
+    engagements: [],
+    activeEngagementId: null,
+    knowledgeByFaction: {
+      Player: createCampaignKnowledgeState(scenario, "Player", 1),
+      Bot: createCampaignKnowledgeState(scenario, "Bot", 1)
+    }
+  };
+}
+
 function buildEngagementContext(): CampaignEngagementContext {
   return {
     engagementId: "eng_formations",
@@ -147,7 +246,132 @@ registerTest("CAMPAIGN_FORMATIONS_DETERMINISTIC_LEGACY_REGISTRY", async ({ Given
       || infantry.some((entry) => entry.personnel.core?.fit <= 0 || entry.battleHistory[0]?.type !== "formed")) {
       throw new Error("Legacy infantry did not receive unique identity, complete personnel pools, and origin history.");
     }
+    if (first.formationOrder.some((id) => first.formations[id].status !== "ready"
+      || first.formations[id].availableFromSegment !== undefined
+      || first.formations[id].availabilityCopy !== undefined)) {
+      throw new Error("Legacy force groups without availability metadata did not preserve immediate readiness.");
+    }
     if (validateCampaignRuntimeState(first).length !== 0) throw new Error("Seeded formation runtime failed invariants.");
+  });
+});
+
+registerTest("CAMPAIGN_FORMATIONS_AUTHORED_ARRIVALS_START_UNAVAILABLE", async ({ Given, When, Then }) => {
+  const scenario = buildAuthoredArrivalScenario();
+  const runtime = createCampaignRuntime(splitLegacyCampaignScenario(scenario), arrivalRuntimeOptions(scenario));
+  const playerArrivals = runtime.formationOrder
+    .map((id) => runtime.formations[id])
+    .filter((formation) => formation.faction === "Player" && formation.availableFromSegment === 2);
+  const germanArrivals = runtime.formationOrder
+    .map((id) => runtime.formations[id])
+    .filter((formation) => formation.faction === "Bot" && formation.availableFromSegment === 3);
+
+  await Given("authored U.S. follow-on and German assembling formations with future arrival segments", async () => {});
+
+  await When("the campaign runtime is seeded before either arrival boundary", async () => {});
+
+  await Then("future formations retain identity but are absent from orders, combat, and operational force totals", async () => {
+    if (playerArrivals.length !== 2 || germanArrivals.length !== 3
+      || [...playerArrivals, ...germanArrivals].some((formation) => formation.status !== "unavailable")) {
+      throw new Error("Future authored groups were not seeded as unavailable persistent formations.");
+    }
+    if (runtime.tiles["0,0"].forces.some((force) => force.unitType === "Infantry_42")
+      || runtime.tiles["2,0"].forces.some((force) => force.unitType === "Panzer_IV")) {
+      throw new Error("Scheduled formations leaked into the operational aggregate projection before arrival.");
+    }
+    const scheduled = playerArrivals[0];
+    if (!scheduled || isCampaignFormationBattleEligible(scheduled)) {
+      throw new Error("A scheduled U.S. follow-on formation was considered battle eligible.");
+    }
+    const orderRuntime = structuredClone(runtime);
+    const draft = createRedeployOrderDraft(orderRuntime, {
+      faction: "Player",
+      payload: {
+        originOffsetKey: "0,0",
+        destinationOffsetKey: "0,1",
+        originRuntimeHexKey: "0,0",
+        destinationRuntimeHexKey: "0,1",
+        selections: [{ unitType: "Infantry_42", count: 1 }],
+        transportModeKey: "foot",
+        transportCapacityType: null,
+        distance: 1,
+        timeSegments: 1,
+        etaSegment: 2,
+        returnEtaSegment: 2,
+        fuelCost: 0,
+        suppliesCost: 1,
+        manpowerCost: 0,
+        transportCapacityCost: 0,
+        formationIds: [scheduled.id]
+      }
+    });
+    if (!draft.validation.issues.some((issue) => issue.code === "ORDER_FORCE_UNAVAILABLE")) {
+      throw new Error("A scheduled formation could be selected for a redeployment order before arrival.");
+    }
+    if (validateCampaignRuntimeState(runtime).length !== 0) throw new Error("Scheduled formation runtime failed invariants.");
+
+    const malformed = buildAuthoredArrivalScenario();
+    const malformedGroup = malformed.tiles[0].forces?.[1];
+    if (!malformedGroup) throw new Error("Arrival validation fixture is missing its scheduled force group.");
+    malformedGroup.availableFromSegment = 1.5;
+    let rejected = false;
+    try {
+      splitLegacyCampaignScenario(malformed);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) throw new Error("A fractional authored arrival segment was accepted.");
+  });
+});
+
+registerTest("CAMPAIGN_FORMATIONS_AUTHORED_ARRIVALS_RELEASE_DETERMINISTICALLY", async ({ Given, When, Then }) => {
+  const scenario = buildAuthoredArrivalScenario();
+  const definition = splitLegacyCampaignScenario(scenario);
+  const runtime = createCampaignRuntime(definition, arrivalRuntimeOptions(scenario));
+  const segmentTwo = resolveCampaignSegment(runtime, definition);
+  const repeatedSegmentTwo = resolveCampaignSegment(runtime, definition);
+
+  await Given("scheduled force groups tied to separate U.S. and German segment boundaries", async () => {});
+
+  await When("campaign time crosses segment two and then segment three", async () => {
+    if (!segmentTwo.ok) throw new Error(segmentTwo.error.message);
+    if (!repeatedSegmentTwo.ok) throw new Error(repeatedSegmentTwo.error.message);
+  });
+
+  await Then("each group releases once with authored copy, refreshed totals, and deterministic state", async () => {
+    if (!segmentTwo.ok || !repeatedSegmentTwo.ok) throw new Error("Segment two did not resolve.");
+    if (computeCampaignContentHash(segmentTwo.state) !== computeCampaignContentHash(repeatedSegmentTwo.state)) {
+      throw new Error("Repeating the same arrival boundary produced different campaign truth.");
+    }
+    const usArrivals = segmentTwo.state.formationOrder
+      .map((id) => segmentTwo.state.formations[id])
+      .filter((formation) => formation.faction === "Player" && formation.availableFromSegment === 2);
+    const germanWaiting = segmentTwo.state.formationOrder
+      .map((id) => segmentTwo.state.formations[id])
+      .filter((formation) => formation.faction === "Bot" && formation.availableFromSegment === 3);
+    const usEvents = segmentTwo.state.eventLog.filter((event) => event.summary === "U.S. follow-on formations arrived at the staging area.");
+    if (usArrivals.some((formation) => formation.status !== "ready")
+      || germanWaiting.some((formation) => formation.status !== "unavailable")
+      || usEvents.length !== 1
+      || usEvents[0].details.formationCount !== 2
+      || !segmentTwo.state.tiles["0,0"].forces.some((force) => force.unitType === "Infantry_42" && force.count === 2)) {
+      throw new Error("The U.S. segment-two release did not update identity, event history, and force projection exactly once.");
+    }
+
+    const segmentThree = resolveCampaignSegment(segmentTwo.state, definition);
+    if (!segmentThree.ok) throw new Error(segmentThree.error.message);
+    const germanArrivals = segmentThree.state.formationOrder
+      .map((id) => segmentThree.state.formations[id])
+      .filter((formation) => formation.faction === "Bot" && formation.availableFromSegment === 3);
+    const germanEvents = segmentThree.state.eventLog.filter((event) => event.summary === "German assembling formations entered the operational reserve.");
+    if (germanArrivals.some((formation) => formation.status !== "ready")
+      || germanEvents.length !== 1
+      || germanEvents[0].details.formationCount !== 3
+      || !segmentThree.state.tiles["2,0"].forces.some((force) => force.unitType === "Panzer_IV" && force.count === 2)) {
+      throw new Error("The German segment-three release did not update identity, event history, and force projection exactly once.");
+    }
+    if (validateCampaignRuntimeState(segmentThree.state).length !== 0) {
+      throw new Error("Released formation runtime failed invariants.");
+    }
   });
 });
 

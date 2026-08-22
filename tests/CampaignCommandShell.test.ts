@@ -31,7 +31,7 @@ function mountCommandShellFixture(includeDeveloperTemplates = false): HTMLElemen
           <section class="sidebar-section campaign-intel-section"><button id="campaignIntelToggle"></button><button id="campaignIntelCoverage"></button><div id="campaignIntelSummary"></div><span id="campaignIntelUnread"></span></section>
           <section class="sidebar-section economy-section"><div id="campaignEconomySummary"></div></section>
           <section class="sidebar-section production-section"><div id="campaignProductionSummary"></div><button id="campaignProductionManage"></button></section>
-          <section class="sidebar-section map-controls-section"><button id="campaignZoomOut">−</button><button id="campaignResetView">Reset</button><button id="campaignZoomIn">+</button></section>
+          <section class="sidebar-section map-controls-section"><button id="campaignZoomOut">−</button><button id="campaignTheaterOverview" aria-pressed="false">Theater overview</button><button id="campaignActiveFrontView" aria-pressed="true">Active front</button><button id="campaignZoomIn">+</button></section>
           <section class="sidebar-section session-section"><div class="session-controls"><button id="campaignSave" class="session-btn">Save</button><button id="campaignLoad" class="session-btn">Load</button><button id="campaignBattleSaves" class="session-btn">Battles</button><button id="campaignExit" class="session-btn">Exit</button></div></section>
           ${includeDeveloperTemplates ? `
             <template id="campaignDeveloperSessionTemplate"><button id="campaignEditMode">Edit</button></template>
@@ -733,6 +733,50 @@ registerTest("CAMPAIGN_MAP_CLICK_IS_SELECTION_ONLY", async ({ Given, When, Then 
   });
 });
 
+registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let onHexClick: ((hexKey: string) => void) | null = null;
+  let stagingHexKey = "";
+
+  await Given("the Bristol build-up base before any scheduled formation becomes available", () => {
+    campaignState.reset();
+    mountCommandShellFixture();
+    const renderer = {
+      render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {},
+      getViewportRoot() { return null; },
+      onHexClick(handler: (hexKey: string) => void) { onHexClick = handler; },
+      clearAllHighlights() {}, highlightHex() {}
+    };
+    const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+    screen.initialize();
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    const view = campaignState.getCampaignMapView("Player");
+    const staging = view?.scenario.tiles.find((tile) => tile.tile === "bristolBuildUp");
+    if (!staging || !onHexClick || (staging.forces?.length ?? 0) !== 0) {
+      throw new Error("The scheduled-only Bristol staging fixture was not available.");
+    }
+    const offset = CoordinateSystem.axialToOffset(staging.hex.q, staging.hex.r);
+    stagingHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+  });
+
+  await When("the commander inspects the base", () => {
+    onHexClick?.(stagingHexKey);
+  });
+
+  await Then("infrastructure context remains visible without an unusable redeployment action", () => {
+    const inspectorCopy = [
+      document.getElementById("campaignContextInspectorRoute")?.textContent,
+      document.getElementById("campaignSelectionInfo")?.textContent
+    ].filter(Boolean).join(" ");
+    if (!inspectorCopy.includes("Bristol")
+      || !inspectorCopy.includes("Logistics Hub")
+      || inspectorCopy.includes("Plan redeployment")) {
+      throw new Error(`Empty staging base exposed a misleading ground action: ${inspectorCopy}`);
+    }
+    campaignState.reset();
+  });
+});
+
 registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let centered: { x: number; y: number } | null = null;
@@ -771,18 +815,20 @@ registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", as
 
   await Then("the first frame centers the active lodgment rather than empty southern England", async () => {
     const actual = centered as { x: number; y: number } | null;
-    if (!actual || actual.x !== 640 || actual.y !== 980 || openingZoom !== 1.5) {
-      throw new Error(`Opening camera did not frame the Normandy objective at command scale: ${JSON.stringify({ actual, openingZoom })}.`);
+    const scopeLabel = document.querySelector("#campaignMapScopeLabel")?.textContent;
+    const activePressed = document.querySelector<HTMLButtonElement>("#campaignActiveFrontView")?.getAttribute("aria-pressed");
+    if (!actual || actual.x !== 640 || actual.y !== 980 || openingZoom !== 1.5 || scopeLabel !== "Active front" || activePressed !== "true") {
+      throw new Error(`Opening camera did not identify and frame the Normandy objective at command scale: ${JSON.stringify({ actual, openingZoom, scopeLabel, activePressed })}.`);
     }
     campaignState.reset();
   });
 });
 
-registerTest("CAMPAIGN_RESET_RESTORES_THE_NORMANDY_COMMAND_FRAME", async ({ Given, When, Then }) => {
+registerTest("CAMPAIGN_CAMERA_SWITCHES_BETWEEN_THEATER_OVERVIEW_AND_ACTIVE_FRONT", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let centered: { x: number; y: number } | null = null;
   let openingZoom: number | null = null;
-  let resetCount = 0;
+  let theaterFitCount = 0;
   let root: HTMLElement;
 
   await Given("a commander who has panned away from the active lodgment", () => {
@@ -790,7 +836,7 @@ registerTest("CAMPAIGN_RESET_RESTORES_THE_NORMANDY_COMMAND_FRAME", async ({ Give
     root = mountCommandShellFixture();
   });
 
-  await When("Reset is used on the campaign map", async () => {
+  await When("the commander requests the theater overview and then returns to the active front", async () => {
     const renderer = {
       render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {}, setIntelContactsVisible() {},
       getViewportRoot() { return null; },
@@ -800,21 +846,30 @@ registerTest("CAMPAIGN_RESET_RESTORES_THE_NORMANDY_COMMAND_FRAME", async ({ Give
     const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
     screen.initialize();
     (screen as any).viewport = {
-      reset() { resetCount += 1; },
+      fitToMap() { theaterFitCount += 1; },
       centerOn(x: number, y: number) { centered = { x, y }; },
       getTransform() { return { zoom: 1, panX: 0, panY: 0 }; },
       setTransform(zoom: number) { openingZoom = zoom; }
     };
     (screen as any).bindCampaignControls();
     screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
-    root.querySelector<HTMLButtonElement>("#campaignResetView")?.click();
+    root.querySelector<HTMLButtonElement>("#campaignTheaterOverview")?.click();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const theaterLabel = root.querySelector("#campaignMapScopeLabel")?.textContent;
+    const theaterPressed = root.querySelector<HTMLButtonElement>("#campaignTheaterOverview")?.getAttribute("aria-pressed");
+    if (theaterFitCount !== 1 || theaterLabel !== "Theater overview" || theaterPressed !== "true") {
+      throw new Error(`Theater overview did not fit or identify the full map: ${JSON.stringify({ theaterFitCount, theaterLabel, theaterPressed })}.`);
+    }
+    root.querySelector<HTMLButtonElement>("#campaignActiveFrontView")?.click();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   });
 
-  await Then("the default zoom is followed by a return to the primary Normandy objective", () => {
+  await Then("the active-front route restores the primary Normandy objective and identifies the camera scope", () => {
     const actual = centered as { x: number; y: number } | null;
-    if (resetCount !== 1 || !actual || actual.x !== 640 || actual.y !== 980 || openingZoom !== 1.5) {
-      throw new Error(`Campaign Reset did not restore the command area: ${JSON.stringify({ resetCount, actual, openingZoom })}.`);
+    const activeLabel = root.querySelector("#campaignMapScopeLabel")?.textContent;
+    const activePressed = root.querySelector<HTMLButtonElement>("#campaignActiveFrontView")?.getAttribute("aria-pressed");
+    if (theaterFitCount !== 1 || !actual || actual.x !== 640 || actual.y !== 980 || openingZoom !== 1.5 || activeLabel !== "Active front" || activePressed !== "true") {
+      throw new Error(`Active-front view did not restore the command area: ${JSON.stringify({ theaterFitCount, actual, openingZoom, activeLabel, activePressed })}.`);
     }
     campaignState.reset();
   });

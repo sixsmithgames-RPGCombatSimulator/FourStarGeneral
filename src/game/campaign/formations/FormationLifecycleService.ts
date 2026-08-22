@@ -33,6 +33,8 @@ export interface CreateCampaignFormationRecordInput {
   readonly campaignUnitType: string;
   readonly locationHexKey: string | null;
   readonly createdSegment: number;
+  readonly availableFromSegment?: number;
+  readonly availabilityCopy?: string;
   readonly origin: CampaignFormationRecord["origin"];
 }
 
@@ -47,6 +49,15 @@ export interface CampaignFormationReconciliation {
   readonly createdFormationIds: readonly string[];
   readonly movedFormationIds: readonly string[];
   readonly retiredFormationIds: readonly string[];
+}
+
+/** One authored force-group release applied at a deterministic campaign segment boundary. */
+export interface CampaignFormationAvailabilityRelease {
+  readonly faction: CampaignFactionKey;
+  readonly hexKey: string;
+  readonly availableFromSegment: number;
+  readonly formationIds: readonly string[];
+  readonly summary: string;
 }
 
 interface DesiredFormationSlot {
@@ -101,11 +112,16 @@ function cloneStatusPools(status: FormationStatus): Pick<CampaignFormationRecord
   };
 }
 
-/** True when a formation should appear in map placement and aggregate-force projections. */
+/** True when an active or scheduled formation retains a concrete campaign-map placement. */
 export function isCampaignFormationPlaced(formation: CampaignFormationRecord): boolean {
   return formation.locationHexKey !== null
     && formation.retiredSegment === null
     && !TERMINAL_FORMATION_STATUSES.has(formation.status);
+}
+
+/** True when a placed formation has entered the operational order of battle. */
+export function isCampaignFormationAvailable(formation: CampaignFormationRecord): boolean {
+  return formation.status !== "unavailable";
 }
 
 /**
@@ -120,11 +136,14 @@ export function createCampaignFormationRecord(input: CreateCampaignFormationReco
   const readiness = calculateFormationReadiness(status, template?.strength ?? 100).readiness;
   const eliteBonus = input.campaignUnitType.includes("Elite") ? 1 : 0;
   const baseExperience = Math.min(5, Math.max(0, (template?.baseExperience ?? 0) + eliteBonus));
+  const scheduled = input.availableFromSegment !== undefined && input.availableFromSegment > input.createdSegment;
   const formedEntry: CampaignFormationHistoryEntry = {
     id: formationHistoryId(input.id, input.createdSegment, 0, "formed"),
     type: "formed",
     segment: input.createdSegment,
-    summary: `${input.name} entered the campaign order of battle.`,
+    summary: scheduled
+      ? `${input.name} was scheduled to enter the campaign order of battle at segment ${input.availableFromSegment}.`
+      : `${input.name} entered the campaign order of battle.`,
     engagementId: null,
     fromHexKey: null,
     toHexKey: input.locationHexKey
@@ -139,7 +158,7 @@ export function createCampaignFormationRecord(input: CreateCampaignFormationReco
     formationKey,
     equipmentPackageKey: input.campaignUnitType,
     locationHexKey: input.locationHexKey,
-    status: "ready",
+    status: scheduled ? "unavailable" : "ready",
     ...cloneStatusPools(status),
     readiness,
     cohesion: 100,
@@ -156,6 +175,8 @@ export function createCampaignFormationRecord(input: CreateCampaignFormationReco
     battleHistory: [formedEntry],
     currentOrderId: null,
     createdSegment: input.createdSegment,
+    ...(input.availableFromSegment !== undefined ? { availableFromSegment: input.availableFromSegment } : {}),
+    ...(input.availabilityCopy !== undefined ? { availabilityCopy: input.availabilityCopy } : {}),
     retiredSegment: null,
     origin: structuredClone(input.origin)
   };
@@ -210,6 +231,8 @@ export function seedLegacyCampaignFormationRegistry(
           campaignUnitType: group.unitType,
           locationHexKey: hexKey,
           createdSegment,
+          ...(group.availableFromSegment !== undefined ? { availableFromSegment: group.availableFromSegment } : {}),
+          ...(group.availabilityCopy !== undefined ? { availabilityCopy: group.availabilityCopy } : {}),
           origin: {
             kind: "legacyAggregate",
             initialHexKey: hexKey,
@@ -225,6 +248,11 @@ export function seedLegacyCampaignFormationRegistry(
     });
   });
 
+  tileOrder.forEach((hexKey) => {
+    const tile = tiles[hexKey];
+    if (tile) tile.forces = projectCampaignFormationForces({ formations }, tile);
+  });
+
   return { formationOrder, formations };
 }
 
@@ -237,7 +265,7 @@ export function projectCampaignFormationForces(
   const indexByKey = new Map<string, number>();
   tile.formationIds.forEach((formationId) => {
     const formation = runtime.formations[formationId];
-    if (!formation || !isCampaignFormationPlaced(formation)) return;
+    if (!formation || !isCampaignFormationPlaced(formation) || !isCampaignFormationAvailable(formation)) return;
     const label = formation.origin.legacyLabel;
     const key = `${formation.campaignUnitType}\u0000${label ?? ""}`;
     const existingIndex = indexByKey.get(key);
@@ -263,6 +291,68 @@ export function synchronizeCampaignFormationForceProjection(runtime: CampaignRun
   });
 }
 
+/** Releases every due authored formation exactly once and refreshes the aggregate compatibility projection. */
+export function releaseCampaignFormationAvailability(
+  runtime: CampaignRuntimeState,
+  segment: number
+): CampaignFormationAvailabilityRelease[] {
+  const grouped = new Map<string, CampaignFormationRecord[]>();
+  runtime.formationOrder.forEach((formationId) => {
+    const formation = runtime.formations[formationId];
+    if (!formation
+      || formation.status !== "unavailable"
+      || formation.locationHexKey === null
+      || formation.availableFromSegment === undefined
+      || formation.availableFromSegment > segment) return;
+    const authoredReleaseKey = formation.availabilityCopy?.trim()
+      ? `copy:${formation.availabilityCopy.trim()}`
+      : formation.origin.legacyLabel?.trim()
+        ? `label:${formation.origin.legacyLabel.trim()}`
+        : `group:${formation.origin.legacyGroupIndex}`;
+    const groupKey = JSON.stringify([
+      String(formation.faction),
+      formation.locationHexKey,
+      formation.availableFromSegment,
+      formation.origin.initialHexKey,
+      authoredReleaseKey
+    ]);
+    const entries = grouped.get(groupKey) ?? [];
+    entries.push(formation);
+    grouped.set(groupKey, entries);
+  });
+
+  const releases: CampaignFormationAvailabilityRelease[] = [];
+  grouped.forEach((formations) => {
+    const first = formations[0];
+    if (!first || first.locationHexKey === null || first.availableFromSegment === undefined) return;
+    const fallbackLabel = first.origin.legacyLabel?.trim()
+      || (formations.length === 1 ? first.name : `${formatFormationType(first.campaignUnitType)} formations`);
+    const summary = first.availabilityCopy?.trim()
+      || `${fallbackLabel} became available at ${first.locationHexKey}.`;
+    formations.forEach((formation) => {
+      formation.status = "ready";
+      formation.battleHistory.push(createHistoryEntry(
+        formation,
+        "statusChanged",
+        segment,
+        summary,
+        formation.locationHexKey,
+        formation.locationHexKey
+      ));
+    });
+    releases.push({
+      faction: first.faction,
+      hexKey: first.locationHexKey,
+      availableFromSegment: first.availableFromSegment,
+      formationIds: formations.map((formation) => formation.id),
+      summary
+    });
+  });
+
+  if (releases.length > 0) synchronizeCampaignFormationForceProjection(runtime);
+  return releases;
+}
+
 /** Moves one formation without changing identity, condition, honors, or campaign ownership. */
 export function relocateCampaignFormation(
   runtime: CampaignRuntimeState,
@@ -273,7 +363,7 @@ export function relocateCampaignFormation(
 ): boolean {
   const formation = runtime.formations[formationId];
   const destination = runtime.tiles[destinationHexKey];
-  if (!formation || !destination || !isCampaignFormationPlaced(formation)) return false;
+  if (!formation || !destination || !isCampaignFormationPlaced(formation) || !isCampaignFormationAvailable(formation)) return false;
   const originHexKey = formation.locationHexKey;
   if (originHexKey === destinationHexKey) return true;
   if (originHexKey) {
@@ -304,7 +394,10 @@ export function transitionCampaignFormationStatus(
   summary?: string
 ): boolean {
   const formation = runtime.formations[formationId];
-  if (!formation || formation.status === status || TERMINAL_FORMATION_STATUSES.has(formation.status)) return false;
+  if (!formation
+    || formation.status === "unavailable"
+    || formation.status === status
+    || TERMINAL_FORMATION_STATUSES.has(formation.status)) return false;
   const prior = formation.status;
   formation.status = status;
   formation.battleHistory.push(createHistoryEntry(
@@ -407,9 +500,13 @@ export function reconcileCampaignFormationForceCounts(
   reason: string
 ): CampaignFormationReconciliation {
   const desired = buildDesiredSlots(runtime);
+  const unavailableIds = runtime.formationOrder.filter((id) => {
+    const formation = runtime.formations[id];
+    return Boolean(formation && formation.status === "unavailable" && isCampaignFormationPlaced(formation));
+  });
   const availableIds = runtime.formationOrder.filter((id) => {
     const formation = runtime.formations[id];
-    return Boolean(formation && isCampaignFormationPlaced(formation));
+    return Boolean(formation && isCampaignFormationPlaced(formation) && isCampaignFormationAvailable(formation));
   });
   const assigned = new Set<string>();
   const assignments = new Map<number, string>();
@@ -496,6 +593,18 @@ export function reconcileCampaignFormationForceCounts(
   runtime.tileOrder.forEach((hexKey) => {
     const tile = runtime.tiles[hexKey];
     if (tile) tile.formationIds = [];
+  });
+  unavailableIds.forEach((id) => {
+    const formation = runtime.formations[id];
+    if (!formation || formation.locationHexKey === null) return;
+    appendPlacement(runtime, formation, {
+      hexKey: formation.locationHexKey,
+      faction: formation.faction,
+      unitType: formation.campaignUnitType,
+      groupIndex: formation.origin.legacyGroupIndex ?? 0,
+      ordinal: formation.origin.legacyOrdinal ?? 0,
+      label: formation.origin.legacyLabel
+    });
   });
   desired.forEach((slot, slotIndex) => {
     const id = assignments.get(slotIndex);

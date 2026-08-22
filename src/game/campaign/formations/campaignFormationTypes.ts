@@ -20,6 +20,7 @@ export type CampaignFormationOwnership = "core" | "attached" | "auxiliary";
 
 /** Campaign lifecycle states shared by player and strategic AI formations. */
 export type CampaignFormationStatus =
+  | "unavailable"
   | "ready"
   | "committed"
   | "inTransit"
@@ -100,6 +101,10 @@ export interface CampaignFormationRecord {
   battleHistory: CampaignFormationHistoryEntry[];
   currentOrderId: string | null;
   readonly createdSegment: number;
+  /** Authored segment boundary when this formation enters the operational order of battle. */
+  readonly availableFromSegment?: number;
+  /** Optional authored event copy shared by formations seeded from the same force group. */
+  readonly availabilityCopy?: string;
   retiredSegment: number | null;
   readonly origin: CampaignFormationOrigin;
 }
@@ -122,4 +127,3 @@ export interface CampaignFormationTacticalSnapshot {
   readonly ammo: number;
   readonly fuel: number;
 }
-

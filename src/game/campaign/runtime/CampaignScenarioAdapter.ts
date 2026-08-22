@@ -10,6 +10,7 @@
 import {
   CAMPAIGN_HEX_SCALE_KM,
   type CampaignArcDefinition,
+  type CampaignBriefedStrategicSite,
   type CampaignFactionEconomy,
   type CampaignForceGroup,
   type CampaignFrontLine,
@@ -103,6 +104,30 @@ function deepFreezeCampaignData<T>(value: T): CampaignReadonly<T> {
   return value as CampaignReadonly<T>;
 }
 
+function assertForceGroupAvailability(
+  forces: readonly CampaignForceGroup[] | undefined,
+  path: string
+): void {
+  (forces ?? []).forEach((force, index) => {
+    if (force.availableFromSegment !== undefined
+      && (!Number.isInteger(force.availableFromSegment) || force.availableFromSegment < 0)) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign force availability at ${path}.${index} must be a non-negative integer segment.`,
+        { path: `${path}.${index}.availableFromSegment`, value: String(force.availableFromSegment) }
+      );
+    }
+    if (force.availabilityCopy !== undefined
+      && (force.availableFromSegment === undefined || force.availabilityCopy.trim().length === 0)) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign force availability copy at ${path}.${index} requires an arrival segment and non-empty copy.`,
+        { path: `${path}.${index}.availabilityCopy` }
+      );
+    }
+  });
+}
+
 /**
  * WHAT: Validates the minimum authored scenario identity and map geometry needed by runtime creation.
  * WHY: A malformed definition must fail before partial runtime records or save identities are produced.
@@ -148,6 +173,87 @@ function assertLegacyScenarioCanSplit(scenario: CampaignScenarioData): void {
         { path: `scenario.tiles.${index}.hex`, q: tile.hex.q, r: tile.hex.r, col, row }
       );
     }
+    assertForceGroupAvailability(tile.forces, `scenario.tiles.${index}.forces`);
+  });
+  Object.entries(scenario.tilePalette).forEach(([paletteKey, tile]) => {
+    assertForceGroupAvailability(tile.forces, `scenario.tilePalette.${paletteKey}.forces`);
+  });
+  const registrationAnchors = new Map((scenario.mapExtents?.registrationAnchors ?? []).map((anchor, index) => {
+    const row = anchor.hex.r + Math.floor(anchor.hex.q / 2);
+    if (!anchor.key.trim() || !anchor.label.trim() || !anchor.sourceLabel.trim()
+      || !Number.isInteger(anchor.hex.q) || !Number.isInteger(anchor.hex.r)
+      || anchor.hex.q < 0 || anchor.hex.q >= scenario.dimensions.cols
+      || row < 0 || row >= scenario.dimensions.rows) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign registration anchor ${index} is incomplete or outside the declared operational grid.`,
+        { path: `scenario.mapExtents.registrationAnchors.${index}` }
+      );
+    }
+    return [anchor.key, anchor] as const;
+  }));
+  if (registrationAnchors.size !== (scenario.mapExtents?.registrationAnchors?.length ?? 0)) {
+    throw new CampaignRuntimeError(
+      "INVALID_SCENARIO",
+      "Campaign registration anchors must use unique keys.",
+      { path: "scenario.mapExtents.registrationAnchors" }
+    );
+  }
+  (scenario.mapExtents?.distanceCalibrations ?? []).forEach((calibration, index) => {
+    const from = registrationAnchors.get(calibration.fromAnchorKey);
+    const to = registrationAnchors.get(calibration.toAnchorKey);
+    if (!from || !to || from.key === to.key
+      || !Number.isFinite(calibration.expectedDistanceKm) || calibration.expectedDistanceKm <= 0
+      || !Number.isFinite(calibration.toleranceKm) || calibration.toleranceKm < 0
+      || !calibration.sourceLabel.trim()) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign distance calibration ${index} is incomplete or references an unknown anchor.`,
+        { path: `scenario.mapExtents.distanceCalibrations.${index}` }
+      );
+    }
+    const hexDistance = Math.max(
+      Math.abs(from.hex.q - to.hex.q),
+      Math.abs(from.hex.r - to.hex.r),
+      Math.abs((-from.hex.q - from.hex.r) - (-to.hex.q - to.hex.r))
+    );
+    const measuredKm = hexDistance * scale;
+    if (Math.abs(measuredKm - calibration.expectedDistanceKm) > calibration.toleranceKm) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign distance calibration ${calibration.fromAnchorKey} to ${calibration.toAnchorKey} exceeds its registered tolerance.`,
+        { path: `scenario.mapExtents.distanceCalibrations.${index}`, measuredKm, expectedKm: calibration.expectedDistanceKm }
+      );
+    }
+  });
+  const briefedSiteKeys = new Set<string>();
+  (scenario.briefedStrategicSites ?? []).forEach((site, index) => {
+    const col = site.hex.q;
+    const row = site.hex.r + Math.floor(site.hex.q / 2);
+    if (!site.key.trim() || briefedSiteKeys.has(site.key)) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign briefing site ${index} must have a unique non-empty key.`,
+        { path: `scenario.briefedStrategicSites.${index}.key`, key: site.key }
+      );
+    }
+    briefedSiteKeys.add(site.key);
+    if (!Number.isInteger(site.hex.q) || !Number.isInteger(site.hex.r)
+      || col < 0 || col >= scenario.dimensions.cols
+      || row < 0 || row >= scenario.dimensions.rows) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign briefing site ${site.key} falls outside the declared operational grid.`,
+        { path: `scenario.briefedStrategicSites.${index}.hex`, q: site.hex.q, r: site.hex.r, col, row }
+      );
+    }
+    if (!site.label.trim() || !site.summary.trim() || !site.sourceLabel.trim() || !site.spriteKey.trim()) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign briefing site ${site.key} requires public label, summary, source, and marker art.`,
+        { path: `scenario.briefedStrategicSites.${index}` }
+      );
+    }
   });
 }
 
@@ -166,6 +272,9 @@ export function splitLegacyCampaignScenario(scenario: CampaignScenarioData): Cam
     ...(scenario.mapExtents ? { mapExtents: structuredClone(scenario.mapExtents) } : {}),
     background: structuredClone(scenario.background),
     tilePalette: structuredClone(scenario.tilePalette),
+    ...(scenario.briefedStrategicSites
+      ? { briefedStrategicSites: structuredClone(scenario.briefedStrategicSites) }
+      : {}),
     initialFronts: structuredClone(scenario.fronts)
   };
   const initialState: CampaignInitialStateDefinition = {
@@ -543,6 +652,9 @@ export function projectLegacyCampaignState(
       : {}),
     background: cloneReadonlyCampaignData(definition.map.background),
     tilePalette: cloneReadonlyCampaignData<Record<string, CampaignTileDefinition>>(definition.map.tilePalette),
+    ...(definition.map.briefedStrategicSites
+      ? { briefedStrategicSites: cloneReadonlyCampaignData<CampaignBriefedStrategicSite[]>(definition.map.briefedStrategicSites) }
+      : {}),
     tiles,
     fronts: structuredClone(runtime.compatibility.initialFronts),
     objectives: cloneReadonlyCampaignData<CampaignObjective[]>(definition.objectives),

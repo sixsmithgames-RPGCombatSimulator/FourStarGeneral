@@ -164,11 +164,24 @@ export interface CampaignCoverageHexView {
   strength: "screened" | "observed" | "priority";
 }
 
+/** Player-safe fixed-site record sourced only from immutable authored briefing data. */
+export interface CampaignKnownStrategicSiteView {
+  id: string;
+  locationHexKey: string;
+  label: string;
+  role: string;
+  summary: string;
+  sourceLabel: string;
+  spriteKey: string;
+}
+
 export interface CampaignMapViewModel {
   observerFaction: CampaignFactionKey;
   /** Sanitized scenario: opposing force arrays are always removed. */
   scenario: CampaignScenarioData;
   enemyContacts: CampaignEnemyContactView[];
+  /** Fixed locations known before play; never populated from hidden runtime tile state. */
+  knownStrategicSites?: CampaignKnownStrategicSiteView[];
   coverage: CampaignCoverageHexView[];
   capacity: { total: number; committed: number; available: number };
   unreadReportCount: number;

@@ -78,6 +78,7 @@ const CAMPAIGN_AI_PLAN_KINDS = new Set([
 ]);
 const CAMPAIGN_FORMATION_OWNERSHIP = new Set(["core", "attached", "auxiliary"]);
 const CAMPAIGN_FORMATION_STATUSES = new Set([
+  "unavailable",
   "ready",
   "committed",
   "inTransit",
@@ -463,6 +464,7 @@ function validateCampaignFormations(runtime: CampaignRuntimeState, issues: Campa
         return;
       }
       placedIds.add(formationId);
+      if (formation.status === "unavailable") return;
       projected.set(formation.campaignUnitType, (projected.get(formation.campaignUnitType) ?? 0) + 1);
     });
     const aggregate = new Map<string, number>();
@@ -501,6 +503,27 @@ function validateCampaignFormations(runtime: CampaignRuntimeState, issues: Campa
         code: "FORMATION_INVALID",
         path: `formations.${id}`,
         message: `Formation ${id} has invalid identity, type, lifecycle, or campaign time.`
+      });
+    }
+
+    const invalidAvailability = (formation.availableFromSegment !== undefined
+      && (!Number.isInteger(formation.availableFromSegment) || formation.availableFromSegment < 0))
+      || (formation.availabilityCopy !== undefined
+        && (typeof formation.availabilityCopy !== "string"
+          || formation.availabilityCopy.trim().length === 0
+          || formation.availableFromSegment === undefined))
+      || (formation.status === "unavailable"
+        && (formation.availableFromSegment === undefined
+          || formation.availableFromSegment <= runtime.currentSegment
+          || formation.currentOrderId !== null))
+      || (formation.availableFromSegment !== undefined
+        && formation.availableFromSegment > runtime.currentSegment
+        && formation.status !== "unavailable");
+    if (invalidAvailability) {
+      addIssue(issues, {
+        code: "FORMATION_INVALID",
+        path: `formations.${id}.availableFromSegment`,
+        message: `Formation ${id} availability metadata and lifecycle status must match campaign time.`
       });
     }
 

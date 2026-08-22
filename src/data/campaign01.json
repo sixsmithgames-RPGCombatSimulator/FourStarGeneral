@@ -1,7 +1,7 @@
 {
   "key": "central_channel",
-  "title": "Operation Overlord - Normandy Lodgment",
-  "description": "D+1, 7 June 1944. The five Allied beachheads are ashore from Utah in the west to Sword in the east, airborne forces hold both flanks, and German formations are organizing local counterattacks. Consolidate the lodgment, secure Cherbourg, and take Caen.",
+  "title": "Operation Overlord - Normandy Campaign",
+  "description": "D+1, 7 June 1944. The five Allied beachheads are ashore, the cross-Channel build-up is under way, and German formations are organizing local counterattacks. Consolidate the lodgment, secure the Cotentin and Caen, then break out across Normandy toward the Seine.",
   "historicalCalendar": { "startDateIso": "1944-06-07", "operationDayOffset": 1 },
   "hexScaleKm": 10,
   "dimensions": { "cols": 58, "rows": 50 },
@@ -87,6 +87,19 @@
       "51,-23", "51,-22", "51,-19", "52,-26", "52,-25", "52,-24", "52,-22", "52,-19", "53,-26", "53,-25",
       "53,-23", "53,-20", "54,-27", "54,-25", "54,-23", "54,-21", "55,-25", "55,-23", "55,-21", "56,-25",
       "56,-23", "57,-25"
+    ],
+    "registrationAnchors": [
+      { "key": "utah", "label": "Utah Beach", "hex": { "q": 22, "r": 13 }, "sourceLabel": "U.S. Army D-Day operational geography" },
+      { "key": "sword", "label": "Sword Beach", "hex": { "q": 30, "r": 7 }, "sourceLabel": "U.S. Army D-Day operational geography" },
+      { "key": "cherbourg", "label": "Cherbourg", "hex": { "q": 20, "r": 15 }, "sourceLabel": "U.S. Army Center of Military History campaign maps" },
+      { "key": "caen", "label": "Caen", "hex": { "q": 31, "r": 10 }, "sourceLabel": "U.S. Army Center of Military History campaign maps" },
+      { "key": "western_ports", "label": "Plymouth-Dartmouth sector", "hex": { "q": 5, "r": 8 }, "sourceLabel": "U.S. Naval History and Heritage Command Neptune embarkation plan" },
+      { "key": "solent", "label": "Southampton-Solent sector", "hex": { "q": 24, "r": -2 }, "sourceLabel": "U.S. Naval History and Heritage Command Neptune embarkation plan" }
+    ],
+    "distanceCalibrations": [
+      { "fromAnchorKey": "utah", "toAnchorKey": "sword", "expectedDistanceKm": 80, "toleranceKm": 5, "sourceLabel": "U.S. Army 50-mile assault-front description" },
+      { "fromAnchorKey": "cherbourg", "toAnchorKey": "caen", "expectedDistanceKm": 110, "toleranceKm": 10, "sourceLabel": "U.S. Army Center of Military History Normandy campaign maps" },
+      { "fromAnchorKey": "western_ports", "toAnchorKey": "solent", "expectedDistanceKm": 190, "toleranceKm": 15, "sourceLabel": "U.S. Naval History and Heritage Command Neptune embarkation plan" }
     ]
   },
   "background": {
@@ -99,8 +112,13 @@
     "nominalWidthKm": 500
   },
   "tilePalette": {
-    "southernEnglandAirfields": { "role": "airbase", "factionControl": "Player", "spriteKey": "airbase", "supplyValue": 5, "airSortieCapacity": 20, "intelConfirmed": true, "notes": "Allied tactical air forces operating from southern England." },
-    "southCoastStaging": { "role": "logisticsHub", "factionControl": "Player", "spriteKey": "logisticsHub", "supplyValue": 14, "intelConfirmed": true, "notes": "Cross-Channel embarkation, supply, and replacement staging area." },
+    "southernEnglandAirfields": { "role": "airbase", "factionControl": "Player", "mapLabel": "Air Support West", "spriteKey": "airbase", "supplyValue": 3, "airSortieCapacity": 10, "intelConfirmed": true, "notes": "Western tactical-air bases supporting the American lodgment and Channel approaches." },
+    "easternEnglandAirfields": { "role": "airbase", "factionControl": "Player", "mapLabel": "Air Support East", "spriteKey": "airbase", "supplyValue": 3, "airSortieCapacity": 10, "intelConfirmed": true, "notes": "Eastern tactical-air bases supporting the British and Canadian lodgment." },
+    "westernEmbarkation": { "role": "logisticsHub", "factionControl": "Player", "mapLabel": "Western Ports", "spriteKey": "logisticsHub", "supplyValue": 4, "intelConfirmed": true, "notes": "Plymouth, Torbay, and Dartmouth embarkation sector for Utah-bound forces and stores." },
+    "portlandEmbarkation": { "role": "logisticsHub", "factionControl": "Player", "mapLabel": "Portland-Poole", "spriteKey": "logisticsHub", "supplyValue": 4, "intelConfirmed": true, "notes": "Portland, Weymouth, and Poole embarkation sector supporting the Omaha build-up." },
+    "southCoastStaging": { "role": "logisticsHub", "factionControl": "Player", "mapLabel": "The Solent", "spriteKey": "logisticsHub", "supplyValue": 5, "intelConfirmed": true, "notes": "Southampton and Solent embarkation, supply, and replacement staging for Gold and Juno." },
+    "easternEmbarkation": { "role": "logisticsHub", "factionControl": "Player", "mapLabel": "Eastern Ports", "spriteKey": "logisticsHub", "supplyValue": 4, "intelConfirmed": true, "notes": "Portsmouth, Newhaven, and Shoreham embarkation sector supporting Sword and follow-on forces." },
+    "bristolBuildUp": { "role": "logisticsHub", "factionControl": "Player", "mapLabel": "Bristol Build-up", "spriteKey": "logisticsHub", "supplyValue": 3, "intelConfirmed": true, "notes": "Bristol Channel build-up route for the first American follow-on divisions." },
     "westernNavalForce": { "role": "taskForce", "factionControl": "Player", "mapLabel": "Western Naval Force", "spriteKey": "taskForce", "navalCapacity": 14, "intelConfirmed": true, "notes": "Western Naval Task Force supporting Utah and Omaha from assigned Channel fire-support stations." },
     "easternNavalForce": { "role": "taskForce", "factionControl": "Player", "mapLabel": "Eastern Naval Force", "spriteKey": "taskForce", "navalCapacity": 16, "intelConfirmed": true, "notes": "Eastern Naval Task Force supporting Gold, Juno, and Sword from assigned Channel fire-support stations." },
     "utahBeach": { "role": "fortificationLight", "factionControl": "Player", "mapLabel": "Utah", "spriteKey": "fortificationLight", "supplyValue": 4, "intelConfirmed": true, "notes": "Utah Beach lodgment held by the U.S. 4th Infantry Division and VII Corps elements." },
@@ -108,28 +126,77 @@
     "goldBeach": { "role": "fortificationLight", "factionControl": "Player", "mapLabel": "Gold", "spriteKey": "fortificationLight", "supplyValue": 4, "intelConfirmed": true, "notes": "Gold Beach lodgment held by the British 50th Division with 8th Armoured Brigade support." },
     "junoBeach": { "role": "fortificationLight", "factionControl": "Player", "mapLabel": "Juno", "spriteKey": "fortificationLight", "supplyValue": 4, "intelConfirmed": true, "notes": "Juno Beach lodgment held by the 3rd Canadian Infantry Division with 2nd Canadian Armoured Brigade support." },
     "swordBeach": { "role": "fortificationLight", "factionControl": "Player", "mapLabel": "Sword", "spriteKey": "fortificationLight", "supplyValue": 4, "intelConfirmed": true, "notes": "Sword Beach lodgment held by the British 3rd Infantry Division with 27th Armoured Brigade support." },
-    "usAirborneLodgment": { "role": "region", "factionControl": "Player", "mapLabel": "Ste-Mère-Église", "intelConfirmed": true, "notes": "U.S. airborne lodgment behind Utah, held by elements of the 82nd and 101st Airborne Divisions." },
+    "usAirborneLodgment": { "role": "region", "factionControl": "Player", "mapLabel": "Ste-Mère-Église", "intelConfirmed": true, "notes": "U.S. 82nd Airborne Division lodgment around Ste-Mère-Église and the Merderet crossings." },
+    "us101AirborneLodgment": { "role": "region", "factionControl": "Player", "mapLabel": "Utah Exits", "intelConfirmed": true, "notes": "U.S. 101st Airborne Division lodgment covering the Utah exits and approaches to Carentan." },
     "britishAirborneLodgment": { "role": "region", "factionControl": "Player", "mapLabel": "Orne", "intelConfirmed": true, "notes": "British 6th Airborne Division bridgehead east of the Orne, including the attached 1st Canadian Parachute Battalion." },
+    "pointeDuHocLodgment": { "role": "region", "factionControl": "Player", "mapLabel": "Pointe du Hoc", "intelConfirmed": true, "notes": "Isolated U.S. Ranger position awaiting relief after the cliff assault." },
+    "easternBeachheadLink": { "role": "region", "factionControl": "Player", "intelConfirmed": true, "notes": "Connected British and Canadian D+1 beachhead corridor." },
     "germanCoastalDefense": { "role": "fortificationLight", "factionControl": "Bot", "spriteKey": "fortificationLight", "supplyValue": 2, "intelConfirmed": false, "notes": "German coastal defense sector." },
     "germanStrongpoint": { "role": "fortificationHeavy", "factionControl": "Bot", "spriteKey": "fortificationHeavy", "supplyValue": 3, "intelConfirmed": false, "notes": "German fortified coastal sector." },
     "germanFieldPosition": { "role": "region", "factionControl": "Bot", "intelConfirmed": false, "notes": "German field formation sector." },
     "cherbourgPort": { "role": "navalBase", "factionControl": "Bot", "mapLabel": "Cherbourg", "spriteKey": "navalBase", "supplyValue": 10, "navalCapacity": 14, "intelConfirmed": false, "notes": "Cherbourg deep-water port, the principal Allied supply objective in the Cotentin." },
-    "caenHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Caen", "spriteKey": "logisticsHub", "supplyValue": 10, "intelConfirmed": false, "notes": "Caen road and rail hub, the eastern operational objective of the lodgment." }
+    "caenHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Caen", "spriteKey": "logisticsHub", "supplyValue": 10, "intelConfirmed": false, "notes": "Caen road and rail hub, the eastern operational objective of the lodgment." },
+    "germanOperationalRegion": { "role": "region", "factionControl": "Bot", "intelConfirmed": false, "notes": "German-held operational sector." },
+    "saintLoHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Saint-Lô", "spriteKey": "logisticsHub", "supplyValue": 6, "intelConfirmed": false, "notes": "Saint-Lô road junction and defensive center." },
+    "avranchesHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Avranches", "spriteKey": "logisticsHub", "supplyValue": 5, "intelConfirmed": false, "notes": "Avranches road junction controlling the route from Normandy into Brittany." },
+    "falaiseHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Falaise", "spriteKey": "logisticsHub", "supplyValue": 5, "intelConfirmed": false, "notes": "Falaise road center on the southern shoulder of the Normandy battlefield." },
+    "argentanHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Argentan", "spriteKey": "logisticsHub", "supplyValue": 4, "intelConfirmed": false, "notes": "Argentan road center on the southern side of the planned encirclement." },
+    "rouenHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Rouen", "spriteKey": "logisticsHub", "supplyValue": 8, "intelConfirmed": false, "notes": "Rouen road, rail, and Seine crossing center." }
   },
+  "briefedStrategicSites": [
+    { "key": "briefed_cherbourg", "observerFaction": "Player", "hex": { "q": 20, "r": 15 }, "label": "Cherbourg", "role": "navalBase", "summary": "Deep-water port and principal Cotentin supply objective. Current garrison and port condition are unconfirmed.", "sourceLabel": "Pre-operation port and aerial survey", "spriteKey": "navalBase" },
+    { "key": "briefed_grandcamp_maisy", "observerFaction": "Player", "hex": { "q": 23, "r": 13 }, "label": "Grandcamp-Maisy batteries", "role": "fortificationHeavy", "summary": "Mapped coastal-battery area west of Omaha. Current weapon serviceability is unconfirmed.", "sourceLabel": "Pre-operation aerial photography and naval intelligence", "spriteKey": "fortificationHeavy" },
+    { "key": "briefed_douvres", "observerFaction": "Player", "hex": { "q": 29, "r": 9 }, "label": "Douvres radar site", "role": "intelNode", "summary": "Known German radar installation behind the eastern beaches. Current condition and defenders are unconfirmed.", "sourceLabel": "Pre-operation aerial survey", "spriteKey": "airbase" },
+    { "key": "briefed_caen", "observerFaction": "Player", "hex": { "q": 31, "r": 10 }, "label": "Caen", "role": "logisticsHub", "summary": "Major road and rail hub and published eastern objective. Current defenses are unconfirmed.", "sourceLabel": "Allied operational maps", "spriteKey": "logisticsHub" },
+    { "key": "briefed_saint_lo", "observerFaction": "Player", "hex": { "q": 26, "r": 16 }, "label": "Saint-Lô", "role": "logisticsHub", "summary": "Known road junction on the route to an operational breakout. Current defenses are unconfirmed.", "sourceLabel": "Allied operational maps", "spriteKey": "logisticsHub" },
+    { "key": "briefed_avranches", "observerFaction": "Player", "hex": { "q": 24, "r": 22 }, "label": "Avranches", "role": "logisticsHub", "summary": "Known road junction controlling the route out of Normandy toward Brittany. Current defenses are unconfirmed.", "sourceLabel": "Allied operational maps", "spriteKey": "logisticsHub" },
+    { "key": "briefed_falaise", "observerFaction": "Player", "hex": { "q": 35, "r": 13 }, "label": "Falaise", "role": "logisticsHub", "summary": "Known road center on the southern shoulder of the Normandy battlefield. Current defenses are unconfirmed.", "sourceLabel": "Allied operational maps", "spriteKey": "logisticsHub" },
+    { "key": "briefed_argentan", "observerFaction": "Player", "hex": { "q": 37, "r": 14 }, "label": "Argentan", "role": "logisticsHub", "summary": "Known road center on the southern side of the planned encirclement area. Current defenses are unconfirmed.", "sourceLabel": "Allied operational maps", "spriteKey": "logisticsHub" },
+    { "key": "briefed_le_havre", "observerFaction": "Player", "hex": { "q": 38, "r": 1 }, "label": "Le Havre", "role": "navalBase", "summary": "Known Channel port guarding the Seine estuary. Current port condition and garrison are unconfirmed.", "sourceLabel": "Pre-operation port and aerial survey", "spriteKey": "navalBase" },
+    { "key": "briefed_rouen", "observerFaction": "Player", "hex": { "q": 44, "r": 4 }, "label": "Rouen and the Seine crossings", "role": "logisticsHub", "summary": "Known road, rail, and river-crossing center on the eastern campaign axis. Current defenses are unconfirmed.", "sourceLabel": "Allied operational maps and aerial photography", "spriteKey": "logisticsHub" },
+    { "key": "briefed_pas_de_calais", "observerFaction": "Player", "hex": { "q": 52, "r": -14 }, "label": "Pas-de-Calais defenses", "role": "fortificationHeavy", "summary": "Fixed coastal-defense belt remains mapped, while mobile reserves in the region are assessed separately.", "sourceLabel": "Pre-operation aerial photography", "spriteKey": "fortificationHeavy" },
+    { "key": "briefed_brest", "observerFaction": "Player", "hex": { "q": 5, "r": 32 }, "label": "Brest", "role": "navalBase", "summary": "Known Atlantic port on the western campaign flank. Current port condition and garrison are unconfirmed.", "sourceLabel": "Allied operational maps", "spriteKey": "navalBase" },
+    { "key": "briefed_st_nazaire", "observerFaction": "Player", "hex": { "q": 15, "r": 37 }, "label": "Saint-Nazaire", "role": "navalBase", "summary": "Known Atlantic port and submarine-base area beyond the immediate Normandy lodgment. Current condition is unconfirmed.", "sourceLabel": "Allied operational maps and aerial photography", "spriteKey": "navalBase" }
+  ],
   "tiles": [
-    { "tile": "southernEnglandAirfields", "hex": { "q": 15, "r": 1 }, "forces": [
-      { "unitType": "Fighter", "count": 12, "label": "Allied tactical fighter groups" },
-      { "unitType": "Bomber", "count": 8, "label": "Allied medium bomber groups" }
+    { "tile": "westernEmbarkation", "hex": { "q": 5, "r": 8 }, "forces": [
+      { "unitType": "Supply_Truck", "count": 3, "label": "Western embarkation supply columns" },
+      { "unitType": "Infantry_42", "count": 1, "label": "Utah follow-on battalion groups" }
+    ] },
+    { "tile": "portlandEmbarkation", "hex": { "q": 14, "r": 3 }, "forces": [
+      { "unitType": "Supply_Truck", "count": 3, "label": "Omaha embarkation supply columns" },
+      { "unitType": "Infantry_42", "count": 1, "label": "Omaha follow-on battalion groups" }
     ] },
     { "tile": "southCoastStaging", "hex": { "q": 24, "r": -2 }, "forces": [
-      { "unitType": "Supply_Truck", "count": 12, "label": "Cross-Channel supply columns" },
-      { "unitType": "Infantry_42", "count": 6, "label": "Follow-on infantry battalions" }
+      { "unitType": "Supply_Truck", "count": 3, "label": "Solent supply columns" },
+      { "unitType": "Infantry_42", "count": 2, "label": "Gold and Juno follow-on battalion groups" }
+    ] },
+    { "tile": "easternEmbarkation", "hex": { "q": 28, "r": -6 }, "forces": [
+      { "unitType": "Supply_Truck", "count": 3, "label": "Eastern embarkation supply columns" },
+      { "unitType": "Infantry_42", "count": 2, "label": "Sword follow-on battalion groups" }
+    ] },
+    { "tile": "bristolBuildUp", "hex": { "q": 5, "r": 3 }, "forces": [
+      { "unitType": "Infantry_42", "count": 3, "label": "U.S. 2nd Infantry Division advance groups", "availableFromSegment": 6, "availabilityCopy": "U.S. 2nd Infantry Division advance groups began landing from the Bristol Channel build-up route." },
+      { "unitType": "Infantry_42", "count": 3, "label": "U.S. 90th Infantry Division advance groups", "availableFromSegment": 8, "availabilityCopy": "U.S. 90th Infantry Division advance groups entered the cross-Channel build-up." }
+    ] },
+    { "tile": "southernEnglandAirfields", "hex": { "q": 15, "r": 1 }, "forces": [
+      { "unitType": "Fighter", "count": 6, "label": "Western tactical fighter groups" },
+      { "unitType": "Bomber", "count": 4, "label": "Western medium bomber groups" }
+    ] },
+    { "tile": "easternEnglandAirfields", "hex": { "q": 24, "r": -4 }, "forces": [
+      { "unitType": "Fighter", "count": 6, "label": "Eastern tactical fighter groups" },
+      { "unitType": "Bomber", "count": 4, "label": "Eastern medium bomber groups" }
     ] },
     { "tile": "westernNavalForce", "hex": { "q": 22, "r": 9 }, "rotation": 90 },
     { "tile": "easternNavalForce", "hex": { "q": 26, "r": 5 }, "rotation": 90 },
     { "tile": "usAirborneLodgment", "hex": { "q": 21, "r": 16 }, "forces": [
-      { "unitType": "Paratrooper", "count": 6, "label": "U.S. 82nd Airborne Division groups" },
+      { "unitType": "Paratrooper", "count": 6, "label": "U.S. 82nd Airborne Division groups" }
+    ] },
+    { "tile": "us101AirborneLodgment", "hex": { "q": 23, "r": 16 }, "forces": [
       { "unitType": "Paratrooper", "count": 6, "label": "U.S. 101st Airborne Division groups" }
+    ] },
+    { "tile": "pointeDuHocLodgment", "hex": { "q": 23, "r": 14 }, "forces": [
+      { "unitType": "Infantry_Elite", "count": 2, "label": "U.S. 2nd Ranger Battalion groups" }
     ] },
     { "tile": "utahBeach", "hex": { "q": 22, "r": 13 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "U.S. 4th Infantry Division battalions" },
@@ -142,12 +209,16 @@
     ] },
     { "tile": "goldBeach", "hex": { "q": 26, "r": 10 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "British 50th Infantry Division battalions" },
-      { "unitType": "Medium_Tank", "count": 3, "label": "British 8th Armoured Brigade regiments" }
+      { "unitType": "Medium_Tank", "count": 3, "label": "British 8th Armoured Brigade regiments" },
+      { "unitType": "Medium_Tank", "count": 3, "label": "British 22nd Armoured Brigade advance groups" }
     ] },
+    { "tile": "easternBeachheadLink", "hex": { "q": 27, "r": 10 } },
     { "tile": "junoBeach", "hex": { "q": 28, "r": 9 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "3rd Canadian Infantry Division battalions" },
-      { "unitType": "Medium_Tank", "count": 3, "label": "2nd Canadian Armoured Brigade regiments" }
+      { "unitType": "Medium_Tank", "count": 3, "label": "2nd Canadian Armoured Brigade regiments" },
+      { "unitType": "Infantry_42", "count": 3, "label": "British 51st Highland Division advance groups" }
     ] },
+    { "tile": "easternBeachheadLink", "hex": { "q": 29, "r": 8 } },
     { "tile": "swordBeach", "hex": { "q": 30, "r": 7 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "British 3rd Infantry Division battalions" },
       { "unitType": "Medium_Tank", "count": 3, "label": "British 27th Armoured Brigade regiments" }
@@ -168,6 +239,9 @@
     { "tile": "germanFieldPosition", "hex": { "q": 20, "r": 18 }, "forces": [
       { "unitType": "Paratrooper", "count": 3, "label": "6th Fallschirmjaeger Regiment battalions" }
     ] },
+    { "tile": "germanFieldPosition", "hex": { "q": 19, "r": 19 }, "forces": [
+      { "unitType": "Infantry_42", "count": 3, "label": "243rd Infantry Division western Cotentin groups" }
+    ] },
     { "tile": "germanFieldPosition", "hex": { "q": 20, "r": 16 }, "forces": [
       { "unitType": "Infantry_42", "count": 4, "label": "Cherbourg approach security battalions" },
       { "unitType": "Artillery_105mm", "count": 1, "label": "Cotentin field battery" }
@@ -177,48 +251,97 @@
       { "unitType": "Artillery_155mm", "count": 2, "label": "Cherbourg fortress artillery" }
     ] },
     { "tile": "germanStrongpoint", "hex": { "q": 24, "r": 12 }, "forces": [
-      { "unitType": "Infantry_42", "count": 9, "label": "352nd Infantry Division battalions" },
-      { "unitType": "Artillery_105mm", "count": 3, "label": "352nd divisional artillery batteries" }
+      { "unitType": "Infantry_42", "count": 3, "label": "352nd Infantry Division depleted battalion groups" },
+      { "unitType": "Artillery_105mm", "count": 1, "label": "352nd surviving divisional artillery group" }
     ] },
-    { "tile": "germanStrongpoint", "hex": { "q": 27, "r": 10 }, "forces": [
-      { "unitType": "Infantry_42", "count": 4, "label": "716th Infantry Division western battalions" },
-      { "unitType": "Artillery_105mm", "count": 1, "label": "716th western coastal artillery battery" }
+    { "tile": "germanFieldPosition", "hex": { "q": 26, "r": 11 }, "forces": [
+      { "unitType": "Infantry_42", "count": 2, "label": "Bayeux approach defensive groups" }
     ] },
-    { "tile": "germanStrongpoint", "hex": { "q": 29, "r": 8 }, "forces": [
-      { "unitType": "Infantry_42", "count": 3, "label": "716th Infantry Division eastern battalions" },
-      { "unitType": "Artillery_105mm", "count": 1, "label": "716th eastern coastal artillery battery" }
+    { "tile": "germanStrongpoint", "hex": { "q": 27, "r": 11 }, "forces": [
+      { "unitType": "Infantry_42", "count": 1, "label": "716th Infantry Division fragmented battalion group" }
+    ] },
+    { "tile": "germanOperationalRegion", "hex": { "q": 27, "r": 12 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 27, "r": 13 } },
+    { "tile": "germanStrongpoint", "hex": { "q": 29, "r": 9 }, "forces": [
+      { "unitType": "Artillery_105mm", "count": 1, "label": "716th surviving coastal artillery group" }
     ] },
     { "tile": "germanFieldPosition", "hex": { "q": 31, "r": 8 }, "forces": [
-      { "unitType": "Medium_Tank", "count": 6, "label": "21st Panzer Division armoured groups" },
-      { "unitType": "Infantry_Elite", "count": 4, "label": "21st Panzergrenadier battalions" }
+      { "unitType": "Medium_Tank", "count": 2, "label": "21st Panzer Division local armoured probe" },
+      { "unitType": "Infantry_Elite", "count": 2, "label": "21st Panzergrenadier local probe" }
     ] },
+    { "tile": "germanOperationalRegion", "hex": { "q": 31, "r": 9 } },
     { "tile": "caenHub", "hex": { "q": 31, "r": 10 }, "forces": [
       { "unitType": "Infantry_42", "count": 4, "label": "Caen defense battalions" },
       { "unitType": "Supply_Truck", "count": 3, "label": "Caen supply columns" }
     ] },
     { "tile": "germanFieldPosition", "hex": { "q": 28, "r": 13 }, "forces": [
-      { "unitType": "Medium_Tank", "count": 3, "label": "Panzer Lehr Division assembling armoured groups" },
-      { "unitType": "Infantry_42", "count": 4, "label": "Panzer Lehr Division assembling panzergrenadier battalions" }
+      { "unitType": "Medium_Tank", "count": 2, "label": "Panzer Lehr Division armoured groups", "availableFromSegment": 8, "availabilityCopy": "Panzer Lehr Division elements completed assembly for operational commitment." },
+      { "unitType": "Infantry_42", "count": 2, "label": "Panzer Lehr Division panzergrenadier groups", "availableFromSegment": 8, "availabilityCopy": "Panzer Lehr Division elements completed assembly for operational commitment." }
     ] },
     { "tile": "germanFieldPosition", "hex": { "q": 32, "r": 11 }, "forces": [
-      { "unitType": "Medium_Tank", "count": 3, "label": "12th SS Panzer Division arriving armoured groups" },
-      { "unitType": "Infantry_42", "count": 4, "label": "12th SS Panzer Division arriving panzergrenadier battalions" }
+      { "unitType": "Medium_Tank", "count": 2, "label": "12th SS Panzer Division armoured groups", "availableFromSegment": 8, "availabilityCopy": "12th SS Panzer Division elements completed assembly for operational commitment." },
+      { "unitType": "Infantry_42", "count": 2, "label": "12th SS Panzer Division panzergrenadier groups", "availableFromSegment": 8, "availabilityCopy": "12th SS Panzer Division elements completed assembly for operational commitment." }
+    ] },
+    { "tile": "germanFieldPosition", "hex": { "q": 23, "r": 18 }, "forces": [
+      { "unitType": "Infantry_42", "count": 2, "label": "30th Mobile Brigade columns", "availableFromSegment": 6, "availabilityCopy": "30th Mobile Brigade columns reached the Cotentin operational area." }
+    ] },
+    { "tile": "germanOperationalRegion", "hex": { "q": 27, "r": 14 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 26, "r": 15 } },
+    { "tile": "saintLoHub", "hex": { "q": 26, "r": 16 }, "forces": [
+      { "unitType": "Infantry_42", "count": 3, "label": "Saint-Lô defensive groups" },
+      { "unitType": "Artillery_105mm", "count": 1, "label": "Saint-Lô field artillery group" }
+    ] },
+    { "tile": "germanOperationalRegion", "hex": { "q": 25, "r": 17 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 25, "r": 18 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 24, "r": 19 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 24, "r": 20 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 24, "r": 21 } },
+    { "tile": "avranchesHub", "hex": { "q": 24, "r": 22 }, "forces": [
+      { "unitType": "Infantry_42", "count": 2, "label": "Avranches defensive groups" }
+    ] },
+    { "tile": "germanOperationalRegion", "hex": { "q": 32, "r": 10 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 33, "r": 10 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 34, "r": 10 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 35, "r": 10 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 35, "r": 11 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 35, "r": 12 } },
+    { "tile": "falaiseHub", "hex": { "q": 35, "r": 13 }, "forces": [
+      { "unitType": "Infantry_42", "count": 3, "label": "Falaise defensive groups" },
+      { "unitType": "Medium_Tank", "count": 2, "label": "Falaise mobile reserve groups", "availableFromSegment": 8, "availabilityCopy": "Falaise mobile reserve groups became available for operational commitment." }
+    ] },
+    { "tile": "germanOperationalRegion", "hex": { "q": 36, "r": 13 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 37, "r": 13 } },
+    { "tile": "argentanHub", "hex": { "q": 37, "r": 14 }, "forces": [
+      { "unitType": "Infantry_42", "count": 2, "label": "Argentan defensive groups" }
+    ] },
+    { "tile": "germanOperationalRegion", "hex": { "q": 38, "r": 13 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 39, "r": 12 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 40, "r": 11 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 41, "r": 10 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 42, "r": 9 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 43, "r": 8 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 44, "r": 7 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 44, "r": 6 } },
+    { "tile": "germanOperationalRegion", "hex": { "q": 44, "r": 5 } },
+    { "tile": "rouenHub", "hex": { "q": 44, "r": 4 }, "forces": [
+      { "unitType": "Infantry_42", "count": 3, "label": "Rouen defensive groups" },
+      { "unitType": "Supply_Truck", "count": 2, "label": "Seine logistics columns" }
     ] }
   ],
   "fronts": [
-    { "key": "utah_cotentin", "label": "Utah and Cotentin Airborne Sector", "hexKeys": ["22,24", "21,26"], "edges": [
+    { "key": "utah_cotentin", "label": "Utah and Cotentin Airborne Sector", "hexKeys": ["22,24", "21,26", "23,27", "23,25"], "edges": [
       { "friendlyHexKey": "21,26", "opposingHexKey": "21,25" },
       { "friendlyHexKey": "21,26", "opposingHexKey": "20,26" },
-      { "friendlyHexKey": "21,26", "opposingHexKey": "22,26" },
+      { "friendlyHexKey": "23,25", "opposingHexKey": "22,26" },
       { "friendlyHexKey": "22,24", "opposingHexKey": "22,25" }
     ], "initiative": "Player", "modifiers": ["airborne", "navalSupport"] },
     { "key": "omaha_gold", "label": "Omaha-Gold Sector", "hexKeys": ["24,23", "26,23"], "edges": [
       { "friendlyHexKey": "24,23", "opposingHexKey": "24,24" },
-      { "friendlyHexKey": "26,23", "opposingHexKey": "27,23" }
+      { "friendlyHexKey": "26,23", "opposingHexKey": "26,24" }
     ], "initiative": "Player", "modifiers": ["fortified", "navalSupport"] },
-    { "key": "juno_sword", "label": "Juno-Sword Sector", "hexKeys": ["28,23", "30,22"], "edges": [
-      { "friendlyHexKey": "28,23", "opposingHexKey": "27,23" },
-      { "friendlyHexKey": "30,22", "opposingHexKey": "29,22" }
+    { "key": "juno_sword", "label": "Juno-Sword Sector", "hexKeys": ["26,23", "27,23", "28,23", "29,22", "30,22"], "edges": [
+      { "friendlyHexKey": "27,23", "opposingHexKey": "27,24" },
+      { "friendlyHexKey": "29,22", "opposingHexKey": "29,23" }
     ], "initiative": "Player", "modifiers": ["fortified", "navalSupport"] },
     { "key": "caen_airborne_flank", "label": "Caen-Orne Counterattack Sector", "hexKeys": ["31,22"], "edges": [
       { "friendlyHexKey": "31,22", "opposingHexKey": "31,23" }
@@ -235,6 +358,7 @@
         { "kind": "controlHex", "hex": { "q": 28, "r": 9 }, "faction": "Player", "holdSegments": 2 },
         { "kind": "controlHex", "hex": { "q": 30, "r": 7 }, "faction": "Player", "holdSegments": 2 },
         { "kind": "controlHex", "hex": { "q": 21, "r": 16 }, "faction": "Player", "holdSegments": 2 },
+        { "kind": "controlHex", "hex": { "q": 23, "r": 16 }, "faction": "Player", "holdSegments": 2 },
         { "kind": "controlHex", "hex": { "q": 31, "r": 7 }, "faction": "Player", "holdSegments": 2 }
       ],
       "score": 100, "rewards": ["beachSupplyNetwork", "followOnForces"], "rewardEffects": [
@@ -259,14 +383,53 @@
         { "kind": "resource", "resource": "fuel", "amount": 15000, "label": "Caen transport stocks secured: +15,000 fuel." },
         { "kind": "unlock", "key": "normandy_breakout", "label": "Normandy breakout" }
       ]
+    },
+    {
+      "key": "break_saint_lo", "label": "Break the Saint-Lô Line", "description": "Take the Saint-Lô road junction and rupture the German defensive belt south of the lodgment.",
+      "hex": { "q": 26, "r": 16 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "breakout", "requiresObjectives": ["capture_cherbourg", "secure_caen"],
+      "conditions": [{ "kind": "controlHex", "faction": "Player", "holdSegments": 1, "minimumInfrastructureEffectiveness": 0.2 }],
+      "score": 100, "rewards": ["cobraAxis"], "rewardEffects": [
+        { "kind": "resource", "resource": "fuel", "amount": 20000, "label": "The Saint-Lô road net opens the breakout axis: +20,000 fuel." }
+      ]
+    },
+    {
+      "key": "open_avranches", "label": "Open the Avranches Corridor", "description": "Secure Avranches and open the route for the breakout from Normandy into Brittany and the French interior.",
+      "hex": { "q": 24, "r": 22 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "breakout", "requiresObjectives": ["break_saint_lo"],
+      "conditions": [{ "kind": "controlHex", "faction": "Player", "holdSegments": 1, "minimumInfrastructureEffectiveness": 0.2 }],
+      "score": 100, "rewards": ["operationalFreedom"], "rewardEffects": [
+        { "kind": "resource", "resource": "supplies", "amount": 20000, "label": "The Avranches corridor supports mobile operations: +20,000 supply." }
+      ]
+    },
+    {
+      "key": "close_falaise", "label": "Take Falaise", "description": "Drive through Falaise to form the northern shoulder of an encirclement of the German armies in Normandy.",
+      "hex": { "q": 35, "r": 13 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "encirclement", "requiresObjectives": ["break_saint_lo", "open_avranches"],
+      "conditions": [{ "kind": "controlHex", "faction": "Player", "holdSegments": 1, "minimumInfrastructureEffectiveness": 0.2 }],
+      "score": 100, "rewards": ["northernPincer"]
+    },
+    {
+      "key": "close_argentan", "label": "Take Argentan", "description": "Secure Argentan and close the southern shoulder of the Normandy encirclement.",
+      "hex": { "q": 37, "r": 14 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "encirclement", "requiresObjectives": ["break_saint_lo", "open_avranches"],
+      "conditions": [{ "kind": "controlHex", "faction": "Player", "holdSegments": 1, "minimumInfrastructureEffectiveness": 0.2 }],
+      "score": 100, "rewards": ["southernPincer"]
+    },
+    {
+      "key": "reach_the_seine", "label": "Reach the Seine at Rouen", "description": "Pursue the retreating German armies and secure the Rouen crossing corridor on the Seine.",
+      "hex": { "q": 44, "r": 4 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "pursuit", "requiresObjectives": ["close_falaise", "close_argentan"],
+      "conditions": [{ "kind": "controlHex", "faction": "Player", "holdSegments": 1, "minimumInfrastructureEffectiveness": 0.2 }],
+      "score": 150, "rewards": ["seineCrossings"], "rewardEffects": [
+        { "kind": "resource", "resource": "supplies", "amount": 30000, "label": "The Seine crossing corridor is secured: +30,000 supply." }
+      ]
     }
   ],
   "campaignArc": {
     "phases": [
       { "key": "lodgment", "label": "D+1 Lodgment", "description": "Hold all five beachheads and both airborne flanks while German local counterattacks gather.", "objectiveKeys": ["hold_lodgment"] },
-      { "key": "expansion", "label": "Normandy Expansion", "description": "Drive through the Cotentin to Cherbourg and break the eastern defense around Caen.", "objectiveKeys": ["capture_cherbourg", "secure_caen"] }
+      { "key": "expansion", "label": "Normandy Expansion", "description": "Drive through the Cotentin to Cherbourg and break the eastern defense around Caen.", "objectiveKeys": ["capture_cherbourg", "secure_caen"] },
+      { "key": "breakout", "label": "Operation Cobra", "description": "Break the Saint-Lô line and open the Avranches corridor for mobile operations.", "objectiveKeys": ["break_saint_lo", "open_avranches"] },
+      { "key": "encirclement", "label": "Falaise Encirclement", "description": "Close the Falaise-Argentan gap and trap the German armies remaining in Normandy.", "objectiveKeys": ["close_falaise", "close_argentan"] },
+      { "key": "pursuit", "label": "Pursuit to the Seine", "description": "Pursue across northern France and secure the Seine crossing corridor at Rouen.", "objectiveKeys": ["reach_the_seine"] }
     ],
-    "victoryObjectiveKeys": ["hold_lodgment", "capture_cherbourg", "secure_caen"],
+    "victoryObjectiveKeys": ["hold_lodgment", "capture_cherbourg", "secure_caen", "break_saint_lo", "open_avranches", "close_falaise", "close_argentan", "reach_the_seine"],
     "defeatObjectiveKeys": ["hold_lodgment"],
     "defeatWhenNoPlayerFormations": true,
     "decisiveVictoryThreshold": 90,

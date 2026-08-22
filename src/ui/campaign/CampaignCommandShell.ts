@@ -52,12 +52,24 @@ export interface CampaignCommandContactView {
   readonly id: string;
   readonly label: string;
   readonly locationHexKey: string;
+  readonly locationLabel?: string;
+  readonly locationRoleLabel?: string;
   readonly state: "current" | "stale" | "disputed" | "lost";
   readonly confidenceBand: "low" | "medium" | "high";
   readonly ageSegments: number;
   readonly uncertaintyRadius: number;
   readonly sourceLabels: readonly string[];
   readonly strengthBand?: string;
+}
+
+/** Fixed strategic location from an authored command briefing, never live opposing truth. */
+export interface CampaignCommandKnownSiteView {
+  readonly id: string;
+  readonly label: string;
+  readonly locationHexKey: string;
+  readonly roleLabel: string;
+  readonly summary: string;
+  readonly sourceLabel: string;
 }
 
 /** Player-safe persistent formation projection for list and inspector surfaces. */
@@ -68,6 +80,7 @@ export interface CampaignCommandFormationView {
   readonly ownershipLabel: string;
   readonly locationHexKey: string | null;
   readonly statusLabel: string;
+  readonly availabilityLabel?: string | null;
   readonly readiness: string;
   readonly cohesion: string;
   readonly fatigue: string;
@@ -89,6 +102,7 @@ export interface CampaignCommandHexView {
   readonly displayLabel?: string;
   readonly summary?: string;
   readonly locationLabel?: string;
+  readonly sourceLabel?: string;
   readonly hasContextActions?: boolean;
   readonly forces: readonly string[];
   readonly infrastructure: string | null;
@@ -313,6 +327,7 @@ export interface CampaignCommandShellView {
   readonly forces: readonly CampaignCommandForceView[];
   readonly fronts?: readonly CampaignCommandFrontView[];
   readonly contacts?: readonly CampaignCommandContactView[];
+  readonly knownSites?: readonly CampaignCommandKnownSiteView[];
   readonly formations?: readonly CampaignCommandFormationView[];
   readonly hexes?: readonly CampaignCommandHexView[];
   readonly airPower: number;
@@ -579,7 +594,9 @@ export class CampaignCommandShell {
       <div class="campaign-map-mode-group" role="group" aria-label="Map overlay">
         <button type="button" class="active" aria-pressed="true" data-campaign-overlay="operational">Operational</button>
       </div>
-      <div class="campaign-map-viewport-controls" role="group" aria-label="Map viewport"></div>
+      <div class="campaign-map-viewport-controls" role="group" aria-label="Map viewport">
+        <span id="campaignMapScopeLabel" class="campaign-map-scope-label" aria-live="polite">Active front</span>
+      </div>
       <div class="campaign-map-legend" aria-label="Map legend"><span><i data-legend="friendly"></i>Friendly control</span><span><i data-legend="contact"></i>Assessed contact</span><span><i data-legend="front"></i>Front</span></div>
     `;
     const modeGroup = toolbar.querySelector<HTMLElement>(".campaign-map-mode-group");
@@ -591,7 +608,7 @@ export class CampaignCommandShell {
       modeGroup.appendChild(intelCoverage);
     }
     const viewportControls = toolbar.querySelector<HTMLElement>(".campaign-map-viewport-controls");
-    ["#campaignZoomOut", "#campaignResetView", "#campaignZoomIn"].forEach((selector) => {
+    ["#campaignTheaterOverview", "#campaignActiveFrontView", "#campaignZoomOut", "#campaignZoomIn"].forEach((selector) => {
       const control = this.root.querySelector<HTMLElement>(selector);
       if (control && viewportControls) viewportControls.appendChild(control);
     });

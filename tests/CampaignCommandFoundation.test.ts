@@ -30,7 +30,7 @@ function mountFoundationFixture(): HTMLElement {
           <section class="campaign-intel-section"><button id="campaignIntelToggle"></button><button id="campaignIntelCoverage"></button><div id="campaignIntelSummary"></div><span id="campaignIntelUnread"></span></section>
           <section class="economy-section"><div id="campaignEconomySummary"></div></section>
           <section class="production-section"><div id="campaignProductionSummary"></div><button id="campaignProductionManage"></button></section>
-          <section class="map-controls-section"><button id="campaignZoomOut">−</button><button id="campaignResetView">Reset</button><button id="campaignZoomIn">+</button></section>
+          <section class="map-controls-section"><button id="campaignZoomOut">−</button><button id="campaignTheaterOverview" aria-pressed="false">Theater overview</button><button id="campaignActiveFrontView" aria-pressed="true">Active front</button><button id="campaignZoomIn">+</button></section>
           <section class="session-section"><button id="campaignSave">Save</button><button id="campaignLoad">Load</button><button id="campaignExit">Exit</button></section>
           <section class="selection-section"><div id="campaignSelectionInfo"></div></section>
           <div class="action-section"><button id="campaignQueueEngagement"></button></div>
@@ -185,6 +185,21 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       }],
       forces: [{ hexKey: "4,5", label: "1st Infantry Group", count: 3 }],
       fronts: [{ key: "front-1", label: "Northern front", hexKeys: ["4,5", "5,5"], initiativeLabel: "Friendly initiative" }],
+      knownSites: [{
+        id: "briefed-site-1",
+        label: "Charted relay station",
+        locationHexKey: "6,5",
+        roleLabel: "Intel node",
+        summary: "The fixed relay location is known; its current control and activity are unconfirmed.",
+        sourceLabel: "Theater signals directory"
+      }, {
+        id: "briefed-site-2",
+        label: "Known rail yard",
+        locationHexKey: "5,5",
+        roleLabel: "Logistics Hub",
+        summary: "The fixed rail-yard location is known; current activity is unconfirmed.",
+        sourceLabel: "Pre-operation aerial survey"
+      }],
       formations: [{
         id: "formation-1",
         name: "1st Infantry Division",
@@ -227,7 +242,8 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
         typeLabel: "Infantry",
         ownershipLabel: "Reserve",
         locationHexKey: "9,9",
-        statusLabel: "Ready",
+        statusLabel: "Unavailable",
+        availabilityLabel: "D+2 · 8 June 1944, 00:00–03:00",
         readiness: "95%",
         cohesion: "94%",
         fatigue: "2%",
@@ -238,21 +254,39 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
         honors: [],
         battles: 0,
         currentOrderId: null,
-        latestHistory: null
+        latestHistory: "Scheduled to become available D+2 · 8 June 1944, 00:00–03:00."
       }],
       hexes: [{
         hexKey: "4,5",
-        roleLabel: "logistics hub",
+        roleLabel: "Logistics Hub",
         controlLabel: "Friendly control",
+        displayLabel: "First Army Depot",
+        summary: "Named friendly supply base.",
+        locationLabel: "First Army Depot · hex 4,5",
         forces: ["1st Infantry Group · 3"],
         infrastructure: "logistics hub · damaged · 80/100 integrity · 80% effective",
         objectives: ["Secure the crossing"],
         fronts: ["Northern front"]
+      }, {
+        hexKey: "6,5",
+        roleLabel: "Intel node",
+        controlLabel: "Current control unconfirmed",
+        displayLabel: "Charted relay station",
+        summary: "The fixed relay location is known; its current control and activity are unconfirmed.",
+        locationLabel: "Charted relay station · hex 6,5",
+        sourceLabel: "Theater signals directory",
+        hasContextActions: false,
+        forces: [],
+        infrastructure: null,
+        objectives: [],
+        fronts: []
       }],
       contacts: [{
         id: "contact-1",
         label: "Armored activity",
         locationHexKey: "5,5",
+        locationLabel: "Known rail yard",
+        locationRoleLabel: "Logistics Hub",
         state: "current",
         confidenceBand: "high",
         ageSegments: 1,
@@ -279,6 +313,13 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
   });
 
   await When("the player changes layers and selects objective and contact records through the map list", async () => {
+    root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
+    if (!root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")
+      || !root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='4,5']")
+      || !root.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label")?.includes("4 map records")) {
+      throw new Error("Operational map list omitted the named friendly base or fixed briefing-site record.");
+    }
+    root.querySelector<HTMLButtonElement>("[data-close-map-list]")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='objectives']")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='objective']")?.click();
@@ -295,9 +336,26 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='intelligence']")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
+    if (!root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")
+      || !root.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label")?.includes("2 map records")
+      || root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='5,5']")) {
+      throw new Error("Intelligence map list omitted the fixed briefing-site record.");
+    }
     root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='contact']")?.click();
-    if (!root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("high confidence")) {
+    const contactInspector = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
+    if (!contactInspector.includes("high confidence")
+      || !contactInspector.includes("Known rail yard")
+      || !contactInspector.includes("Logistics Hub")) {
       throw new Error("Safe contact detail did not reach the typed inspector.");
+    }
+    root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
+    root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
+    root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")?.click();
+    const siteInspector = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
+    if (!siteInspector.includes("Current control unconfirmed")
+      || !siteInspector.includes("Theater signals directory")
+      || !root.querySelector<HTMLElement>(".action-section")?.hidden) {
+      throw new Error("Briefed site inspector leaked live status or exposed runtime actions.");
     }
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='forces']")?.click();
@@ -336,7 +394,8 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     }
     const blockedDestination = root.querySelector<HTMLButtonElement>("[data-map-list-selection-id='5,5']");
     const legalDestination = root.querySelector<HTMLButtonElement>("[data-map-list-selection-id='4,6']");
-    if (!destinationToggle?.textContent?.includes("2 destination hexes")
+    if (destinationToggle?.textContent?.trim() !== "Destinations (2)"
+      || !destinationToggle.getAttribute("aria-label")?.includes("2 destination hexes")
       || blockedDestination?.getAttribute("aria-disabled") !== "true"
       || blockedDestination?.disabled
       || !blockedDestination.parentElement?.textContent?.includes("opposing control")
@@ -382,6 +441,13 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       || performance.indexedHexes !== 2 || performance.cacheBuilds !== initialCacheBuilds
       || performance.entityClassApplications !== initialClassApplications) {
       throw new Error("Campaign overlay registry, emphasis, or accessible list state diverged.");
+    }
+    screen.revealInspector({ kind: "formation", id: "formation-3" });
+    const scheduledInspector = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
+    if (!scheduledInspector.includes("AvailableD+2 · 8 June 1944, 00:00–03:00")
+      || !scheduledInspector.includes("Scheduled to become available")
+      || /segment\s+\d+/i.test(scheduledInspector)) {
+      throw new Error(`Scheduled formation ETA was not player-facing: ${scheduledInspector}`);
     }
     screen.getUIState().setOverlay("environment", "test-feature-gate");
     const gatedSvg = root.querySelector<SVGSVGElement>("#campaignHexMap");

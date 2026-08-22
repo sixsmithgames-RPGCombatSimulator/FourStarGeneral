@@ -78,6 +78,7 @@ export interface CampaignScenarioMapDefinition {
   readonly mapExtents?: CampaignReadonly<CampaignMapExtents>;
   readonly background: CampaignReadonly<CampaignScenarioData["background"]>;
   readonly tilePalette: CampaignReadonly<Record<string, CampaignTileDefinition>>;
+  readonly briefedStrategicSites?: CampaignReadonly<NonNullable<CampaignScenarioData["briefedStrategicSites"]>>;
   readonly initialFronts: readonly CampaignReadonly<CampaignFrontLine>[];
 }
 

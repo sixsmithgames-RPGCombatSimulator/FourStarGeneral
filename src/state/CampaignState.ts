@@ -110,9 +110,12 @@ import { migrateLegacyCampaignSave } from "../game/campaign/persistence/Campaign
 import {
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+  CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH,
   CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
   CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
+  CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
   CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
+  CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
   migrateCampaignRuntimeContent
 } from "../game/campaign/persistence/CampaignContentMigration";
 import {
@@ -1798,17 +1801,30 @@ export class CampaignState {
       scenarioKey: this.scenarioDefinition.key,
       scenarioContentHash,
       ...(this.scenarioDefinition.key === "central_channel"
-        && (scenarioContentHash === CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
-          || scenarioContentHash === CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH)
+        && scenarioContentHash === CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
         ? {
             compatiblePriorContentHashes: [
               CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
               CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
               CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
-              CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
+              CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
+              CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
+              CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
+              CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
             ]
           }
-        : {})
+        : this.scenarioDefinition.key === "central_channel"
+          && (scenarioContentHash === CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
+            || scenarioContentHash === CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH)
+          ? {
+              compatiblePriorContentHashes: [
+                CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
+                CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+                CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
+                CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
+              ]
+            }
+          : {})
     };
   }
 

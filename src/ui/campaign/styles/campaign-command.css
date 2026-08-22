@@ -500,6 +500,31 @@
   grid-template-columns: minmax(0, auto) auto minmax(0, 1fr) auto;
 }
 
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-map-list-toggle {
+  width: auto;
+  justify-self: end;
+}
+
+#campaignScreen[data-campaign-map-scope="theater-overview"] .campaign-map-viewport {
+  overflow: hidden;
+}
+
+.campaign-map-scope-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-map-viewport-controls button[aria-pressed="true"] {
+  border-color: var(--campaign-color-border-strong);
+  background: rgba(165, 126, 44, 0.2);
+  color: var(--campaign-color-text);
+}
+
 #campaignScreen[data-campaign-command-ui="v2"] .campaign-operational-map {
   container-type: inline-size;
 }
@@ -812,6 +837,15 @@
   .campaign-map-legend > span:nth-of-type(n+3) { display: none; }
 }
 
+@container (max-width: 1100px) {
+  #campaignScreen[data-campaign-command-ui="v2"] .campaign-map-command-strip {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .campaign-map-overlay-button__label { display: none; }
+  .campaign-map-overlay-button__short { display: inline; }
+  .campaign-map-legend { display: none !important; }
+}
+
 @container (max-width: 620px) {
   .campaign-map-command-strip { grid-template-columns: minmax(0, 1fr) auto auto; }
   .campaign-map-overlay-buttons { display: none; }
@@ -854,6 +888,25 @@
     padding: 0.65rem 0.85rem;
     background: rgba(16, 20, 16, 0.98);
     box-shadow: 0 1px 0 var(--campaign-color-border), 0 8px 18px rgba(0, 0, 0, 0.24);
+  }
+}
+
+@media (max-width: 700px), (max-height: 430px) and (max-width: 860px) {
+  #campaignScreen[data-campaign-command-ui="v2"] .campaign-command-shell {
+    --campaign-shell-tray: 56px;
+    grid-template-rows: var(--campaign-shell-bar) minmax(0, 1fr) var(--campaign-shell-tray) 40px;
+  }
+
+  #campaignScreen[data-campaign-command-ui="v2"] .campaign-map-command-strip {
+    min-height: 46px;
+    padding: 0.25rem 0.4rem;
+  }
+
+  #campaignScreen[data-campaign-command-ui="v2"] .campaign-map-overlay-select select {
+    box-sizing: border-box;
+    height: 32px;
+    min-height: 32px;
+    padding: 0.25rem 0.4rem;
   }
 }
 

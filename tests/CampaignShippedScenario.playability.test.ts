@@ -13,7 +13,7 @@ function buildShippedScenario(): CampaignScenarioData {
   return structuredClone(campaignScenarioData) as CampaignScenarioData;
 }
 
-registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT", async ({ Given, When, Then }) => {
+registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT", async ({ Given, When, Then }) => {
   const scenario = buildShippedScenario();
 
   await Given("the shipped campaign at 00:00 on 7 June 1944", () => {});
@@ -42,6 +42,18 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT
         Math.abs((-sword.hex.q - sword.hex.r) - (-utah.hex.q - utah.hex.r))
       )
       : Number.NaN;
+    const anchors = new Map((scenario.mapExtents?.registrationAnchors ?? []).map((anchor) => [anchor.key, anchor]));
+    const calibrationFailures = (scenario.mapExtents?.distanceCalibrations ?? []).filter((calibration) => {
+      const from = anchors.get(calibration.fromAnchorKey);
+      const to = anchors.get(calibration.toAnchorKey);
+      if (!from || !to) return true;
+      const distance = Math.max(
+        Math.abs(from.hex.q - to.hex.q),
+        Math.abs(from.hex.r - to.hex.r),
+        Math.abs((-from.hex.q - from.hex.r) - (-to.hex.q - to.hex.r))
+      ) * (scenario.hexScaleKm ?? 0);
+      return Math.abs(distance - calibration.expectedDistanceKm) > calibration.toleranceKm;
+    });
     if (outOfBounds.length > 0
       || beachLabels.join("|") !== "Utah|Omaha|Gold|Juno|Sword"
       || scenario.hexScaleKm !== 10
@@ -50,6 +62,9 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT
       || scenario.background.nativeWidth !== 1024 || scenario.background.nativeHeight !== 1024
       || scenario.background.stretchMode !== "contain"
       || beachFrontageHexes !== 8
+      || anchors.size < 6
+      || (scenario.mapExtents?.distanceCalibrations?.length ?? 0) < 3
+      || calibrationFailures.length > 0
       || scenario.historicalCalendar?.startDateIso !== "1944-06-07"
       || scenario.historicalCalendar.operationDayOffset !== 1
       || !scenario.description.includes("five Allied beachheads")) {
@@ -84,6 +99,7 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT
       || cherbourg.hex.q >= utah.hex.q
       || Math.abs(cherbourgDisplayRow - utahDisplayRow) > 1
       || !heldHexes.has("21,16")
+      || !heldHexes.has("23,16")
       || !heldHexes.has("31,7")) {
       throw new Error(`Land/water or Cotentin geography is incoherent: invalidWater=${invalidWater.join(",")} wronglyPlaced=${wronglyPlaced.map((tile) => tile.tile).join(",")}.`);
     }
@@ -101,20 +117,108 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT
       "U.S. 82nd Airborne Division",
       "U.S. 101st Airborne Division",
       "British 6th Airborne Division",
+      "U.S. 2nd Ranger Battalion",
+      "British 51st Highland Division",
+      "British 22nd Armoured Brigade",
       "709th Infantry Division",
+      "243rd Infantry Division",
       "91st Air Landing Division",
       "6th Fallschirmjaeger Regiment",
       "352nd Infantry Division",
       "716th Infantry Division",
       "21st Panzer Division",
       "Panzer Lehr Division",
-      "12th SS Panzer Division"
+      "12th SS Panzer Division",
+      "30th Mobile Brigade"
     ];
     const missing = required.filter((name) => !labels.some((label) => label.includes(name)));
     const fleets = scenario.tiles.filter((tile) => scenario.tilePalette[tile.tile]?.role === "taskForce");
     const fleetKeys = fleets.map((tile) => `${tile.hex.q},${tile.hex.r + Math.floor(tile.hex.q / 2)}`).sort();
-    if (missing.length > 0 || fleetKeys.join("|") !== "22,20|26,18" || fleets.some((tile) => (tile.forces?.length ?? 0) > 0)) {
+    const airborneLocations = scenario.tiles
+      .filter((tile) => tile.forces?.some((force) => force.label?.includes("U.S. 82nd Airborne Division") || force.label?.includes("U.S. 101st Airborne Division")))
+      .map((tile) => `${tile.hex.q},${tile.hex.r}`);
+    const namedEnglishHubs = scenario.tiles.filter((tile) => {
+      const palette = scenario.tilePalette[tile.tile];
+      const row = tile.hex.r + Math.floor(tile.hex.q / 2);
+      return row <= 10 && palette?.factionControl === "Player" && Boolean(palette.mapLabel)
+        && (palette.role === "airbase" || palette.role === "logisticsHub");
+    });
+    if (missing.length > 0
+      || fleetKeys.join("|") !== "22,20|26,18"
+      || fleets.some((tile) => (tile.forces?.length ?? 0) > 0)
+      || new Set(airborneLocations).size !== 2
+      || namedEnglishHubs.length < 7) {
       throw new Error(`D+1 order of battle is incomplete: missing=${missing.join(",")} fleets=${fleetKeys.join("|")}.`);
+    }
+  });
+
+  await Then("the German coastal divisions are depleted and major armored reserves are unavailable until D+2", () => {
+    const allGroups = scenario.tiles.flatMap((tile) => tile.forces ?? []);
+    const countFor = (fragment: string): number => allGroups
+      .filter((group) => group.label?.includes(fragment))
+      .reduce((sum, group) => sum + group.count, 0);
+    const delayedArmored = allGroups.filter((group) => group.label?.includes("Panzer Lehr Division") || group.label?.includes("12th SS Panzer Division"));
+    if (countFor("352nd Infantry Division") !== 3
+      || countFor("716th Infantry Division") !== 1
+      || countFor("21st Panzer Division") !== 2
+      || delayedArmored.length !== 4
+      || delayedArmored.some((group) => group.availableFromSegment !== 8)) {
+      throw new Error("D+1 German strength or reinforcement availability reverted to paper-strength/instant-ready values.");
+    }
+  });
+
+  await Then("the full campaign arc remains visible from the lodgment through the Seine", () => {
+    const phases = scenario.campaignArc?.phases.map((phase) => phase.key) ?? [];
+    const victoryKeys = new Set(scenario.campaignArc?.victoryObjectiveKeys ?? []);
+    const requiredObjectives = ["hold_lodgment", "capture_cherbourg", "secure_caen", "break_saint_lo", "open_avranches", "close_falaise", "close_argentan", "reach_the_seine"];
+    const briefedSites = scenario.briefedStrategicSites ?? [];
+    const knownSites = new Set(briefedSites.map((site) => site.label));
+    const toOffsetKey = (hex: { q: number; r: number }): string => `${hex.q},${hex.r + Math.floor(hex.q / 2)}`;
+    const toAxial = (hexKey: string): { q: number; r: number } => {
+      const [q, row] = hexKey.split(",").map(Number);
+      return { q, r: row - Math.floor(q / 2) };
+    };
+    const hexDistance = (left: { q: number; r: number }, right: { q: number; r: number }): number => Math.max(
+      Math.abs(left.q - right.q),
+      Math.abs(left.r - right.r),
+      Math.abs((-left.q - left.r) - (-right.q - right.r))
+    );
+    const botTiles = scenario.tiles.filter((tile) => scenario.tilePalette[tile.tile]?.factionControl === "Bot");
+    const botKeys = new Set(botTiles.map((tile) => toOffsetKey(tile.hex)));
+    const playerKeys = new Set(scenario.tiles
+      .filter((tile) => scenario.tilePalette[tile.tile]?.factionControl === "Player")
+      .map((tile) => toOffsetKey(tile.hex)));
+    const briefedSitesOnFriendlyTiles = briefedSites
+      .filter((site) => playerKeys.has(toOffsetKey(site.hex)))
+      .map((site) => site.key);
+    const reachable = new Set(scenario.fronts.flatMap((front) => front.edges ?? [])
+      .map((edge) => edge.opposingHexKey)
+      .filter((key) => botKeys.has(key)));
+    let added = true;
+    while (added) {
+      added = false;
+      botTiles.forEach((tile) => {
+        const key = toOffsetKey(tile.hex);
+        if (reachable.has(key)) return;
+        if ([...reachable].some((candidate) => hexDistance(tile.hex, toAxial(candidate)) === 1)) {
+          reachable.add(key);
+          added = true;
+        }
+      });
+    }
+    const unreachablePrimaryTargets = scenario.objectives
+      .filter((objective) => objective.category === "primary" && objective.owner === "Bot")
+      .filter((objective) => !reachable.has(toOffsetKey(objective.hex)))
+      .map((objective) => objective.key);
+    if (phases.join("|") !== "lodgment|expansion|breakout|encirclement|pursuit"
+      || requiredObjectives.some((key) => !victoryKeys.has(key))
+      || !knownSites.has("Cherbourg") || !knownSites.has("Caen")
+      || !knownSites.has("Saint-Lô") || !knownSites.has("Rouen and the Seine crossings")
+      || !knownSites.has("Pas-de-Calais defenses") || !knownSites.has("Brest")
+      || briefedSites.length !== 13
+      || briefedSitesOnFriendlyTiles.length > 0
+      || unreachablePrimaryTargets.length > 0) {
+      throw new Error("The registered full-theater map collapsed back into a beachhead-only vignette.");
     }
   });
 });

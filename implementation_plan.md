@@ -54,6 +54,40 @@
 
 ---
 
+## 2026-08-22 — Restore the full D+1 theater picture
+
+### Intent
+Keep the source-registered 10 km hex scale and historically defensible eight-hex Utah-to-Sword frontage, while restoring the cross-Channel support network, known enemy infrastructure, assessed enemy dispositions, and follow-on Normandy campaign arc that the registered-map rebuild made visually and mechanically absent.
+
+### Current behavior
+- The 58×50 background and coastline registration are correct, but only 24 strategic tiles are authored and 22 of them cluster around the lodgment.
+- Opening and Reset force a 1.5× primary-objective close-up, so the two small unlabeled UK staging markers are outside the useful frame.
+- The Operational map list exposes only fronts, while fixed German sites have no safe knowledge projection: unconfirmed sprites can survive into rendered scenario truth even though force and infrastructure details are stripped.
+- The campaign ends after holding the beaches, Cherbourg, and Caen; the map contains no playable Saint-Lô breakout, Falaise encirclement, or Seine pursuit arc.
+
+### Expected new behavior
+- The theater view exposes named Allied embarkation, logistics, air, naval, and follow-on-force anchors in southern England and the Channel without making all formations permanent opening-frame clutter.
+- Recon-confirmed fixed German ports, batteries, airfields, and road/rail hubs are visible as known sites. Mobile German formations outside direct contact appear only as player-safe, uncertain intelligence assessments.
+- Opening presents the cross-Channel command picture; explicit `Theater overview` and `Active front` controls let the player move between strategic scope and tactical relevance without overloading Reset.
+- The Normandy arc continues from lodgment through Cherbourg/Caen, Saint-Lô/Avranches breakout, Falaise/Argentan encirclement, and the Seine approach on connected, image-registered land hexes.
+- Exact enemy forces, readiness, supply, infrastructure condition, and economy remain absent from the Player projection unless intelligence rules have earned them.
+
+### Impact analysis
+- **Consumers:** Campaign scenario adapter/runtime, formation registry, objective evaluator, front derivation, intelligence initialization/projection, map renderer, overlay list, inspector, campaign camera, saves/content migration, and tactical engagement generation.
+- **Events/state:** Authored content hash changes. Only pristine prior openings may migrate to the expanded theater; progressed saves on retired geography must continue to fail closed.
+- **Visual risk:** Additional anchors can recreate clutter, collide with labels, obscure contours, or become illegible at overview scale. Strategic-site symbology must remain bounded and contacts must stay confined to Intelligence.
+- **Gameplay risk:** Added Bot territory must not create unintended opening fronts, immediately accessible reinforcements, duplicate formations, impossible objectives, or truth leaks. Every new phase needs a connected capture route and deterministic natural completion path.
+
+### Edge cases and regression gates
+- Verify every new tile, water key, objective, and front endpoint is in bounds and land/water legal under the registered grid.
+- Verify the opening front set remains the intended four sectors while future connected territory derives new fronts only after control changes.
+- Verify known-site projection contains only label, broad role, location, provenance, objective relationship, and explicit unknown condition; reject hidden supply/capacity/integrity/forces.
+- Verify remote photo-recon contacts have uncertainty and broad classification only at earned knowledge levels; do not expose formation names or exact counts.
+- Verify full campaign objectives form an achievable dependency chain and victory requires the final pursuit phase.
+- Verify overview/active-front camera controls, label collision, marker selection, keyboard/list alternatives, save migration, campaign suite, full suite, build, lint, and external-Chrome live frames before one batched release.
+
+---
+
 ## Airshow Camera and Mobile Battle Zoom Plan
 
 ### Intended behavior

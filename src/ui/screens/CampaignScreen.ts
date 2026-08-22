@@ -18,6 +18,7 @@ import { computeDailyProduction, ensureCampaignState } from "../../state/Campaig
 import { ensureUnlockState } from "../../state/UnlockState";
 import {
   type CampaignCommandAdvanceMode,
+  type CampaignCommandHexView,
   type CampaignCommandOrderCommitView,
   type CampaignCommandOrderView,
   type CampaignCommandPriorityView,
@@ -137,6 +138,7 @@ export class CampaignScreen {
   private commandSaveStatus: CampaignCommandShellView["saveStatus"] = "Unsaved";
   private campaignAdvanceMode: CampaignCommandAdvanceMode = "nextReport";
   private pauseAfterEveryCampaignResolution = false;
+  private campaignCameraRequest = 0;
   private readonly campaignActionRegistry = new CampaignActionRegistry((actionId, context) => this.previewCampaignAction(actionId, context));
   private editingIntelOrderId: string | null = null;
   private editingIntelAssetKey: string | null = null;
@@ -261,7 +263,7 @@ export class CampaignScreen {
   private syncViewportAfterRender(): void {
     if (!this.viewport) {
       try {
-        this.viewport = new MapViewport("#campaignHexMap");
+        this.viewport = new MapViewport("#campaignHexMap", () => this.setCampaignMapScope("custom"), 0.1);
         this.bindCampaignControls();
       } catch {
         // Defensive: viewport optional in tests / minimal DOMs
@@ -290,8 +292,21 @@ export class CampaignScreen {
     this.syncViewportAfterRender();
   }
 
+  /** Identifies the active camera preset in the visible command strip and assistive state. */
+  private setCampaignMapScope(scope: "active-front" | "theater-overview" | "custom"): void {
+    const label = this.element.querySelector<HTMLElement>("#campaignMapScopeLabel");
+    if (label) label.textContent = scope === "active-front" ? "Active front"
+      : scope === "theater-overview" ? "Theater overview"
+        : "Custom view";
+    this.element.dataset.campaignMapScope = scope;
+    const activeFront = this.element.querySelector<HTMLButtonElement>("#campaignActiveFrontView");
+    const theater = this.element.querySelector<HTMLButtonElement>("#campaignTheaterOverview");
+    activeFront?.setAttribute("aria-pressed", scope === "active-front" ? "true" : "false");
+    theater?.setAttribute("aria-pressed", scope === "theater-overview" ? "true" : "false");
+  }
+
   /** Opens a fresh campaign on its current primary objective instead of an empty corner of the theater. */
-  private focusOpeningObjective(scenario: CampaignScenarioData, force = false): void {
+  private focusActiveFront(scenario: CampaignScenarioData, force = false): void {
     if ((!force && this.selectedHexKey) || !this.viewport) return;
     const objective = scenario.objectives.find((candidate) => candidate.category === "primary")
       ?? scenario.objectives[0];
@@ -301,12 +316,26 @@ export class CampaignScreen {
     const center = (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>).getHexCenter?.(hexKey);
     if (!center) return;
     const openingZoom = scenario.background?.gridLayout === "flatTopOddQ" ? 1.5 : 1;
+    const cameraRequest = ++this.campaignCameraRequest;
     requestAnimationFrame(() => {
+      if (cameraRequest !== this.campaignCameraRequest) return;
       const viewport = this.viewport;
       if (!viewport) return;
       const transform = viewport.getTransform();
       viewport.setTransform(openingZoom, transform.panX, transform.panY);
       viewport.centerOn(center.cx, center.cy);
+      this.setCampaignMapScope("active-front");
+    });
+  }
+
+  /** Fits the complete campaign illustration so the commander can recover theater context in one action. */
+  private focusTheaterOverview(): void {
+    if (!this.viewport) return;
+    const cameraRequest = ++this.campaignCameraRequest;
+    requestAnimationFrame(() => {
+      if (cameraRequest !== this.campaignCameraRequest) return;
+      this.viewport?.fitToMap();
+      this.setCampaignMapScope("theater-overview");
     });
   }
 
@@ -315,14 +344,15 @@ export class CampaignScreen {
     if (!this.viewport) return;
     const zoomIn = this.element.querySelector<HTMLButtonElement>("#campaignZoomIn");
     const zoomOut = this.element.querySelector<HTMLButtonElement>("#campaignZoomOut");
-    const reset = this.element.querySelector<HTMLButtonElement>("#campaignResetView");
+    const theaterOverview = this.element.querySelector<HTMLButtonElement>("#campaignTheaterOverview");
+    const activeFront = this.element.querySelector<HTMLButtonElement>("#campaignActiveFrontView");
     const pans = Array.from(this.element.querySelectorAll<HTMLButtonElement>("[data-campaign-pan]"));
     zoomIn?.addEventListener("click", () => this.viewport?.adjustZoom(0.2));
     zoomOut?.addEventListener("click", () => this.viewport?.adjustZoom(-0.2));
-    reset?.addEventListener("click", () => {
-      this.viewport?.reset();
+    theaterOverview?.addEventListener("click", () => this.focusTheaterOverview());
+    activeFront?.addEventListener("click", () => {
       const scenario = this.campaignState.getCampaignMapView("Player")?.scenario;
-      if (scenario) this.focusOpeningObjective(scenario, true);
+      if (scenario) this.focusActiveFront(scenario, true);
     });
     pans.forEach((btn) =>
       btn.addEventListener("click", () => {
@@ -901,7 +931,7 @@ export class CampaignScreen {
       const detail = (event as CustomEvent<{ id?: string }>).detail;
       if (detail?.id !== "campaign") return;
       const scenario = this.campaignState.getCampaignMapView("Player")?.scenario;
-      if (scenario) this.focusOpeningObjective(scenario);
+      if (scenario) this.focusActiveFront(scenario);
     });
 
     // Capture hooks after shell composition. Existing IDs are moved, never duplicated.
@@ -2646,6 +2676,9 @@ export class CampaignScreen {
         0
       );
       const statusLabel = formation.status.replace(/([a-z])([A-Z])/g, "$1 $2");
+      const availabilityLabel = formation.status === "unavailable" && formation.availableFromSegment !== undefined
+        ? this.campaignState.segmentToTimeDisplay(formation.availableFromSegment)
+        : null;
       return {
         id: formation.id,
         name: formation.name,
@@ -2653,6 +2686,7 @@ export class CampaignScreen {
         ownershipLabel: formation.ownership.charAt(0).toUpperCase() + formation.ownership.slice(1),
         locationHexKey,
         statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
+        availabilityLabel,
         readiness: `${Math.round(formation.readiness)}%`,
         cohesion: `${Math.round(formation.cohesion)}%`,
         fatigue: `${Math.round(formation.fatigue)}%`,
@@ -2663,10 +2697,20 @@ export class CampaignScreen {
         honors: formation.honors.map((honor) => honor.name),
         battles: formation.experience.battles,
         currentOrderId: formation.currentOrderId,
-        latestHistory: formation.battleHistory[formation.battleHistory.length - 1]?.summary ?? null
+        latestHistory: availabilityLabel
+          ? `Scheduled to become available ${availabilityLabel}.`
+          : formation.battleHistory[formation.battleHistory.length - 1]?.summary ?? null
       };
     });
-    const hexes = scenario.tiles.map((tile) => {
+    const knownSites = (view.knownStrategicSites ?? []).map((site) => ({
+      id: site.id,
+      label: site.label,
+      locationHexKey: site.locationHexKey,
+      roleLabel: this.formatCampaignLabel(site.role),
+      summary: site.summary,
+      sourceLabel: site.sourceLabel
+    }));
+    const hexes: CampaignCommandHexView[] = scenario.tiles.map((tile) => {
       const palette = scenario.tilePalette[tile.tile];
       const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
       const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
@@ -2693,7 +2737,7 @@ export class CampaignScreen {
             ? `English Channel · offshore support station · hex ${hexKey}`
             : `${authoredMapLabel ?? roleLabel} · hex ${hexKey}`
         } : {}),
-        hasContextActions: controller === "Player" && (hasPresentForces || Boolean(infrastructure)),
+        hasContextActions: controller === "Player" && hasPresentForces,
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
         infrastructure: infrastructure
           ? `${infrastructureRole} · ${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`
@@ -2701,6 +2745,25 @@ export class CampaignScreen {
         objectives: objectives.filter((objective) => objective.hexKey === hexKey).map((objective) => objective.label),
         fronts: scenario.fronts.filter((front) => front.hexKeys.includes(hexKey)).map((front) => front.label)
       };
+    });
+    const projectedHexKeys = new Set(hexes.map((hex) => hex.hexKey));
+    knownSites.forEach((site) => {
+      if (projectedHexKeys.has(site.locationHexKey)) return;
+      hexes.push({
+        hexKey: site.locationHexKey,
+        roleLabel: site.roleLabel,
+        controlLabel: "Current control unconfirmed",
+        displayLabel: site.label,
+        summary: site.summary,
+        locationLabel: `${site.label} · hex ${site.locationHexKey}`,
+        sourceLabel: site.sourceLabel,
+        hasContextActions: false,
+        forces: [],
+        infrastructure: null,
+        objectives: objectives.filter((objective) => objective.hexKey === site.locationHexKey).map((objective) => objective.label),
+        fronts: scenario.fronts.filter((front) => front.hexKeys.includes(site.locationHexKey)).map((front) => front.label)
+      });
+      projectedHexKeys.add(site.locationHexKey);
     });
     const engagements = this.campaignState.getPendingEngagements();
     const runtime = this.campaignState.getRuntimeSnapshot();
@@ -3059,17 +3122,25 @@ export class CampaignScreen {
       } : null,
       forces,
       fronts: frontViews,
-      contacts: view.enemyContacts.map((contact) => ({
-        id: contact.id,
-        label: contact.label,
-        locationHexKey: contact.locationHexKey,
-        state: contact.state,
-        confidenceBand: contact.confidenceBand,
-        ageSegments: contact.ageSegments,
-        uncertaintyRadius: contact.uncertaintyRadius,
-        sourceLabels: contact.sourceLabels.slice(),
-        strengthBand: contact.strengthBand
-      })),
+      knownSites,
+      contacts: view.enemyContacts.map((contact) => {
+        const knownLocation = knownSites.find((site) => site.locationHexKey === contact.locationHexKey);
+        return {
+          id: contact.id,
+          label: contact.label,
+          locationHexKey: contact.locationHexKey,
+          ...(knownLocation ? {
+            locationLabel: knownLocation.label,
+            locationRoleLabel: knownLocation.roleLabel
+          } : {}),
+          state: contact.state,
+          confidenceBand: contact.confidenceBand,
+          ageSegments: contact.ageSegments,
+          uncertaintyRadius: contact.uncertaintyRadius,
+          sourceLabels: contact.sourceLabels.slice(),
+          strengthBand: contact.strengthBand
+        };
+      }),
       formations,
       hexes,
       airPower: playerEconomy?.airPower ?? 0,

@@ -15,6 +15,7 @@ const FRONT_LAYER_ID = "campaign-map-fronts";
 const FORCE_LAYER_ID = "campaign-map-forces";
 const INTEL_COVERAGE_LAYER_ID = "campaign-map-intel-coverage";
 const INTEL_CONTACT_LAYER_ID = "campaign-map-intel-contacts";
+const KNOWN_SITE_LAYER_ID = "campaign-map-known-sites";
 const LOCATION_LABEL_LAYER_ID = "campaign-map-location-labels";
 const MAX_CAMPAIGN_FORCE_ACTORS = 4;
 const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
@@ -255,6 +256,7 @@ export class CampaignMapRenderer {
     const locationLabelGroup = this.ensureLayer(viewportRoot, LOCATION_LABEL_LAYER_ID);
     const forceGroup = this.ensureLayer(viewportRoot, FORCE_LAYER_ID);
     const coverageGroup = this.ensureLayer(viewportRoot, INTEL_COVERAGE_LAYER_ID);
+    const knownSiteGroup = this.ensureLayer(viewportRoot, KNOWN_SITE_LAYER_ID);
     const contactGroup = this.ensureLayer(viewportRoot, INTEL_CONTACT_LAYER_ID);
 
     const density = this.getHexDensityScalar();
@@ -268,6 +270,7 @@ export class CampaignMapRenderer {
     this.renderSprites(spriteGroup, scenario);
     this.renderForceGroups(forceGroup, scenario);
     this.renderIntelCoverage(coverageGroup, viewModel);
+    this.renderKnownStrategicSites(knownSiteGroup, viewModel);
     this.renderIntelContacts(contactGroup, viewModel);
     this.renderNamedLocations(locationLabelGroup, scenario);
 
@@ -295,6 +298,7 @@ export class CampaignMapRenderer {
     spriteGroup.setAttribute("transform", transform);
     forceGroup.setAttribute("transform", transform);
     coverageGroup.setAttribute("transform", transform);
+    knownSiteGroup.setAttribute("transform", transform);
     contactGroup.setAttribute("transform", transform);
     locationLabelGroup.setAttribute("transform", transform);
     this.bindInteraction();
@@ -1142,9 +1146,12 @@ export class CampaignMapRenderer {
         marker.appendChild(uncertainty);
       }
 
-      const tokenRadius = HEX_RADIUS * density * 0.54;
+      const sharesHexWithKnownSite = (viewModel.knownStrategicSites ?? [])
+        .some((site) => site.locationHexKey === contact.locationHexKey);
+      const markerCx = cx + (sharesHexWithKnownSite ? HEX_RADIUS * density * 0.38 : 0);
+      const tokenRadius = HEX_RADIUS * density * (sharesHexWithKnownSite ? 0.36 : 0.54);
       const token = document.createElementNS(SVG_NS, "circle");
-      token.setAttribute("cx", String(cx));
+      token.setAttribute("cx", String(markerCx));
       token.setAttribute("cy", String(cy));
       token.setAttribute("r", String(tokenRadius));
       token.setAttribute("fill", contact.state === "stale"
@@ -1164,7 +1171,7 @@ export class CampaignMapRenderer {
         const iconSize = tokenRadius * 1.55;
         const icon = document.createElementNS(SVG_NS, "image");
         icon.setAttribute("href", spriteUrl);
-        icon.setAttribute("x", String(cx - iconSize / 2));
+        icon.setAttribute("x", String(markerCx - iconSize / 2));
         icon.setAttribute("y", String(cy - iconSize / 2));
         icon.setAttribute("width", String(iconSize));
         icon.setAttribute("height", String(iconSize));
@@ -1178,16 +1185,84 @@ export class CampaignMapRenderer {
         const diamond = document.createElementNS(SVG_NS, "polygon");
         const inset = tokenRadius * 0.46;
         diamond.setAttribute("points", [
-          `${cx},${cy - inset}`,
-          `${cx + inset},${cy}`,
-          `${cx},${cy + inset}`,
-          `${cx - inset},${cy}`
+          `${markerCx},${cy - inset}`,
+          `${markerCx + inset},${cy}`,
+          `${markerCx},${cy + inset}`,
+          `${markerCx - inset},${cy}`
         ].join(" "));
         diamond.setAttribute("fill", "#e6bd68");
         diamond.setAttribute("opacity", "0.9");
         diamond.setAttribute("data-hex", contact.locationHexKey);
         diamond.setAttribute("aria-hidden", "true");
         marker.appendChild(diamond);
+      }
+      layer.appendChild(marker);
+    });
+  }
+
+  /** Renders immutable briefing sites without consulting hidden runtime tiles. */
+  private renderKnownStrategicSites(layer: SVGGElement, viewModel: CampaignMapViewModel): void {
+    const density = this.getHexDensityScalar();
+    layer.setAttribute("aria-label", "Briefed strategic sites");
+    (viewModel.knownStrategicSites ?? []).forEach((site) => {
+      const hex = this.hexGroups.get(site.locationHexKey);
+      if (!hex) return;
+      const cx = Number(hex.dataset.cx ?? NaN);
+      const cy = Number(hex.dataset.cy ?? NaN);
+      if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+
+      const marker = document.createElementNS(SVG_NS, "g");
+      marker.classList.add("campaign-known-site");
+      marker.setAttribute("data-known-site-id", site.id);
+      marker.setAttribute("data-hex", site.locationHexKey);
+      marker.setAttribute("role", "button");
+      marker.setAttribute("tabindex", "0");
+      marker.setAttribute(
+        "aria-label",
+        `${site.label}, briefed ${this.formatMarkerLabel(site.role).toLowerCase()}. Fixed location from ${site.sourceLabel}; current control and status unconfirmed.`
+      );
+
+      const sharesHexWithContact = viewModel.enemyContacts
+        .some((contact) => contact.locationHexKey === site.locationHexKey);
+      const markerCx = cx - (sharesHexWithContact ? HEX_RADIUS * density * 0.38 : 0);
+      const ring = document.createElementNS(SVG_NS, "circle");
+      const radius = HEX_RADIUS * density * (sharesHexWithContact ? 0.36 : 0.58);
+      ring.setAttribute("cx", String(markerCx));
+      ring.setAttribute("cy", String(cy));
+      ring.setAttribute("r", String(radius));
+      ring.setAttribute("fill", "rgba(24, 29, 32, 0.78)");
+      ring.setAttribute("stroke", "#d1b468");
+      ring.setAttribute("stroke-width", String(Math.max(1, density * 5)));
+      ring.setAttribute("data-hex", site.locationHexKey);
+      ring.setAttribute("aria-hidden", "true");
+      marker.appendChild(ring);
+
+      const asset = CAMPAIGN_SPRITES[site.spriteKey];
+      if (asset) {
+        const size = radius * 1.55;
+        const image = document.createElementNS(SVG_NS, "image");
+        image.setAttribute("href", asset);
+        image.setAttribute("x", String(markerCx - size / 2));
+        image.setAttribute("y", String(cy - size / 2));
+        image.setAttribute("width", String(size));
+        image.setAttribute("height", String(size));
+        image.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        image.setAttribute("opacity", "0.84");
+        image.setAttribute("data-hex", site.locationHexKey);
+        image.setAttribute("aria-hidden", "true");
+        image.classList.add("campaign-known-site__sprite");
+        marker.appendChild(image);
+      } else {
+        const fallback = document.createElementNS(SVG_NS, "rect");
+        const size = radius * 0.72;
+        fallback.setAttribute("x", String(cx - size / 2));
+        fallback.setAttribute("y", String(cy - size / 2));
+        fallback.setAttribute("width", String(size));
+        fallback.setAttribute("height", String(size));
+        fallback.setAttribute("fill", "#d1b468");
+        fallback.setAttribute("data-hex", site.locationHexKey);
+        fallback.setAttribute("aria-hidden", "true");
+        marker.appendChild(fallback);
       }
       layer.appendChild(marker);
     });
@@ -1356,7 +1431,7 @@ export class CampaignMapRenderer {
     const keydownListener = (event: KeyboardEvent): void => {
       if (event.key !== "Enter" && event.key !== " ") return;
       const target = event.target as Element | null;
-      if (!target?.closest(".campaign-intel-contact[data-contact-id]")) return;
+      if (!target?.closest(".campaign-intel-contact[data-contact-id], .campaign-known-site[data-known-site-id]")) return;
       event.preventDefault();
       activateTarget(target);
     };

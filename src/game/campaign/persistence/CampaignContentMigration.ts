@@ -38,6 +38,9 @@ export const CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH = "fnv1a32-e10034d8";
 /** Exact identity after registering the D+1 scenario to the native square background and painted coastline. */
 export const CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH = "fnv1a32-fe02aba5";
 
+/** Exact identity after restoring the cross-Channel network, wider Normandy arc, and safe fixed-site briefing. */
+export const CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH = "fnv1a32-fcb0fa84";
+
 const NEW_CONTACT_TILE_KEYS = ["27,24", "29,25"] as const;
 const AIRFIELD_TILE_KEY = "30,25";
 const CHANNEL_TASK_FORCE_TILE_KEY = "20,18";
@@ -229,6 +232,33 @@ export function migrateCampaignRuntimeContent(
   }
   if (source.scenarioContentHash === currentHash) {
     return { runtime: structuredClone(source), migrated: false };
+  }
+
+  if (definition.key === "central_channel"
+    && currentHash === CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH) {
+    const retiredScopeHashes = new Set([
+      CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
+      CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
+      CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
+      CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
+    ]);
+    if (!retiredScopeHashes.has(source.scenarioContentHash)) {
+      throw contentMismatch("Campaign save content has no certified migration to the full Normandy theater.", source, currentHash);
+    }
+    if (!isPristineOpening(source)) {
+      throw contentMismatch(
+        "This save contains progress on a retired campaign scope. It was preserved, but its orders, formations, and outcomes cannot be guessed onto the expanded Normandy theater. Start a new Normandy campaign or load it in a compatible earlier build.",
+        source,
+        currentHash
+      );
+    }
+    return {
+      runtime: createCorrectedPristineOpening(source, definition, currentHash),
+      migrated: true
+    };
   }
 
   if (definition.key === "central_channel"

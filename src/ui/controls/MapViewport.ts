@@ -16,6 +16,7 @@ export class MapViewport implements IMapViewport {
   private viewportRoot: SVGGElement | null = null;
   private readonly wheelZoomStep = 0.18;
   private readonly wheelEventTarget: HTMLElement | SVGSVGElement;
+  private readonly onCameraAdjusted: (() => void) | null;
   /** Tracks whether viewportRoot warning has been logged to reduce console noise */
   private hasLoggedViewportWarning = false;
   /** Timestamp of last user camera input (wheel/drag) to suppress auto-focus */
@@ -278,16 +279,21 @@ export class MapViewport implements IMapViewport {
     }
   }
 
-  // Zoom limits keep interactions bounded; a higher max lets commanders inspect the map closely.
-  private readonly MIN_ZOOM = 0.5;
+  private readonly minZoom: number;
   private readonly MAX_ZOOM = 7.5;
 
-  constructor(mapElementSelector: string = "#battleHexMap") {
+  constructor(
+    mapElementSelector: string = "#battleHexMap",
+    onCameraAdjusted: (() => void) | null = null,
+    minimumZoom = 0.5
+  ) {
     const element = document.querySelector<SVGSVGElement>(mapElementSelector);
     if (!element) {
       throw new Error(`Map element not found: ${mapElementSelector}`);
     }
     this.mapElement = element;
+    this.onCameraAdjusted = onCameraAdjusted;
+    this.minZoom = Math.max(0.1, Math.min(1, minimumZoom));
     this.wheelEventTarget = this.mapElement.parentElement instanceof HTMLElement ? this.mapElement.parentElement : this.mapElement;
     this.wheelEventTarget.style.touchAction = "none";
 
@@ -315,6 +321,28 @@ export class MapViewport implements IMapViewport {
     this.updateTransform();
   }
 
+  /** Fits the complete rendered map inside its viewport, then centers it. */
+  fitToMap(padding = 12): void {
+    const context = this.computeViewportContext();
+    if (!context) {
+      console.error("[MapViewport] fitToMap failed: viewport context unavailable");
+      return;
+    }
+
+    const availableWidth = Math.max(1, context.containerWidth - Math.max(0, padding) * 2);
+    const availableHeight = Math.max(1, context.containerHeight - Math.max(0, padding) * 2);
+    const fitZoom = this.clamp(
+      Math.min(
+        availableWidth / (context.mapWidth * context.renderScale),
+        availableHeight / (context.mapHeight * context.renderScale)
+      ),
+      this.minZoom,
+      this.MAX_ZOOM
+    );
+    this.setTransform(fitZoom, 0, 0);
+    this.centerOn(context.mapWidth / 2, context.mapHeight / 2);
+  }
+
   /**
    * Sets the viewportRoot element that should receive transforms.
    * Called by HexMapRenderer after rendering to ensure we have the live reference.
@@ -338,10 +366,11 @@ export class MapViewport implements IMapViewport {
   adjustZoom(delta: number): void {
     this.transform.zoom = this.clamp(
       this.transform.zoom + delta,
-      this.MIN_ZOOM,
+      this.minZoom,
       this.MAX_ZOOM
     );
     this.updateTransform();
+    this.onCameraAdjusted?.();
   }
 
   /**
@@ -369,7 +398,7 @@ export class MapViewport implements IMapViewport {
     } = context;
 
     const oldZoom = currentZoom;
-    const newZoom = this.clamp(currentZoom + delta, this.MIN_ZOOM, this.MAX_ZOOM);
+    const newZoom = this.clamp(currentZoom + delta, this.minZoom, this.MAX_ZOOM);
     if (newZoom === oldZoom) {
       return;
     }
@@ -392,6 +421,7 @@ export class MapViewport implements IMapViewport {
     this.transform.panY = panY;
 
     this.updateTransform();
+    this.onCameraAdjusted?.();
   }
 
   /**
@@ -410,10 +440,11 @@ export class MapViewport implements IMapViewport {
     this.transform.panX = clampedPan.panX;
     this.transform.panY = clampedPan.panY;
     this.updateTransform();
+    this.onCameraAdjusted?.();
   }
 
   setTransform(zoom: number, panX: number, panY: number): void {
-    const nextZoom = this.clamp(zoom, this.MIN_ZOOM, this.MAX_ZOOM);
+    const nextZoom = this.clamp(zoom, this.minZoom, this.MAX_ZOOM);
     const context = this.computeViewportContext();
     this.transform.zoom = nextZoom;
     if (context) {

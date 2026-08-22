@@ -2,6 +2,12 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { CampaignState } from "../src/state/CampaignState";
+import { deriveCampaignFrontsFromControl } from "../src/game/campaign/control/CampaignBattleControlResolver";
+import {
+  createCampaignRuntime,
+  projectLegacyCampaignState,
+  splitLegacyCampaignScenario
+} from "../src/game/campaign/runtime/CampaignScenarioAdapter";
 import {
   buildCampaignMapView,
   buildIntelligenceBriefing,
@@ -78,11 +84,101 @@ registerTest("CAMPAIGN_INTEL_PROJECTION_STRIPS_TRUTH", async ({ Given, Then }) =
   await Then("the map projection contains neither enemy forces nor enemy economy", async () => {
     const view = buildCampaignMapView(scenario, knowledge, 0);
     const enemyTile = view.scenario.tiles.find((tile) => tile.factionControl === "Bot");
-    if ((enemyTile?.forces?.length ?? 0) !== 0) throw new Error("Enemy tile forces leaked into the map projection.");
-    if ((view.scenario.tilePalette.botRegion.forces?.length ?? 0) !== 0) throw new Error("Enemy palette forces leaked into the map projection.");
+    if (enemyTile) throw new Error("Unconfirmed hostile runtime tile leaked into the map projection.");
+    if (view.scenario.tilePalette.botRegion) throw new Error("Unused hostile palette truth leaked into the map projection.");
     if (view.scenario.economies.some((entry) => entry.faction === "Bot")) throw new Error("Enemy economy leaked into the map projection.");
     if (/Secret 12th Panzer|"count":12|palette-secret/.test(JSON.stringify(view))) {
       throw new Error("Exact enemy truth is serialized in the player-facing map model.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_BRIEFED_SITES_PROJECT_WITHOUT_HOSTILE_RUNTIME_TRUTH", async ({ Given, When, Then }) => {
+  const scenario = intelligenceScenario();
+  scenario.tilePalette.botRegion = {
+    ...scenario.tilePalette.botRegion,
+    role: "navalBase",
+    spriteKey: "navalBase",
+    mapLabel: "Hidden runtime name",
+    notes: "Hidden live installation note",
+    supplyValue: 99,
+    navalCapacity: 77
+  };
+  scenario.tiles.push({
+    tile: "botRegion",
+    factionControl: "Bot",
+    hex: { q: 6, r: 0 },
+    forces: [{ unitType: "Infantry_Elite", count: 14, label: "Hidden second garrison" }]
+  });
+  scenario.briefedStrategicSites = [{
+    key: "briefed-port",
+    observerFaction: "Player",
+    hex: { q: 5, r: 0 },
+    label: "Charted coastal port",
+    role: "navalBase",
+    summary: "Port facilities are charted here; current control, condition, and garrison are unconfirmed.",
+    sourceLabel: "Pre-operation naval survey",
+    spriteKey: "navalBase"
+  }];
+  const knowledge = createCampaignKnowledgeState(scenario, "Player", 0);
+  let view: ReturnType<typeof buildCampaignMapView>;
+
+  await Given("one charted site and two hidden hostile runtime installations", () => {});
+  await When("the Player-safe campaign map is assembled", () => {
+    view = buildCampaignMapView(scenario, knowledge, 0);
+  });
+  await Then("only the authored fixed-site briefing survives and no mutable enemy truth is serialized", () => {
+    const sites = view.knownStrategicSites ?? [];
+    const serialized = JSON.stringify(view);
+    if (sites.length !== 1
+      || sites[0]?.id !== "briefed-port"
+      || sites[0]?.locationHexKey !== "5,2"
+      || sites[0]?.sourceLabel !== "Pre-operation naval survey"
+      || view.scenario.tiles.some((tile) => tile.factionControl === "Bot")
+      || view.scenario.tilePalette.botRegion
+      || view.scenario.briefedStrategicSites
+      || /Hidden runtime name|Hidden live installation note|Hidden second garrison|Secret 12th Panzer|navalCapacity|supplyValue/.test(serialized)
+      || /observerFaction|factionControl":"Bot/.test(JSON.stringify(sites))) {
+      throw new Error(`Known-site projection crossed the opposing-truth boundary: ${serialized}`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_BRIEFED_SITES_PERSIST_AS_CONTENT_BUT_NEVER_FORM_FRONTS", async ({ Given, When, Then }) => {
+  const scenario = intelligenceScenario();
+  scenario.briefedStrategicSites = [{
+    key: "adjacent-charted-site",
+    observerFaction: "Player",
+    hex: { q: 1, r: 0 },
+    label: "Charted relay station",
+    role: "intelNode",
+    summary: "The fixed relay location is known; current activity is not.",
+    sourceLabel: "Theater signals directory",
+    spriteKey: "logisticsHub"
+  }];
+  const definition = splitLegacyCampaignScenario(scenario);
+  const runtime = createCampaignRuntime(definition, {
+    campaignId: "briefed-site-front-boundary",
+    seed: 7,
+    currentSegment: 0,
+    turnState: null,
+    queuedDecisions: [],
+    engagements: [],
+    activeEngagementId: null,
+    knowledgeByFaction: {}
+  });
+  let projection: ReturnType<typeof projectLegacyCampaignState>;
+
+  await Given("a briefing site adjacent to friendly runtime ground but no runtime tile for the site", () => {});
+  await When("the authored definition is projected and current fronts are derived", () => {
+    projection = projectLegacyCampaignState(definition, runtime);
+  });
+  await Then("the site survives authored-content projection without entering tile truth or front legality", () => {
+    if (definition.map.briefedStrategicSites?.[0]?.key !== "adjacent-charted-site"
+      || projection.scenario.briefedStrategicSites?.[0]?.key !== "adjacent-charted-site"
+      || runtime.tileOrder.includes("1,0")
+      || deriveCampaignFrontsFromControl(runtime).length !== 0) {
+      throw new Error("A knowledge-only strategic site became mutable tile or front truth.");
     }
   });
 });

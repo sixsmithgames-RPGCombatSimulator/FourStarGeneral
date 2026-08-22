@@ -4,6 +4,7 @@ import { CampaignMapRenderer } from "../src/rendering/CampaignMapRenderer";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import type { CampaignMapViewModel } from "../src/core/campaignIntelTypes";
+import { buildCampaignMapView, createCampaignKnowledgeState } from "../src/state/CampaignIntelligence";
 import campaignScenarioData from "../src/data/campaign01.json";
 
 registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) => {
@@ -42,6 +43,15 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
     observerFaction: "Player",
     scenario,
     enemyContacts: [],
+    knownStrategicSites: [{
+      id: "known-site",
+      locationHexKey: "1,0",
+      label: "Charted airfield",
+      role: "airbase",
+      summary: "The airfield location is known; current status is unconfirmed.",
+      sourceLabel: "Pre-operation aerial survey",
+      spriteKey: "airbase"
+    }],
     coverage: [],
     capacity: { total: 2, committed: 0, available: 2 },
     unreadReportCount: 0,
@@ -68,6 +78,18 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
 
     const front = svg.querySelector(".campaign-front.front-f1");
     if (!front) throw new Error("Front polyline not rendered");
+
+    const knownSite = svg.querySelector<SVGGElement>('.campaign-known-site[data-known-site-id="known-site"]');
+    const hexLayerTransform = svg.querySelector<SVGGElement>("#campaign-map-hexes")?.getAttribute("transform");
+    const knownSiteLayerTransform = svg.querySelector<SVGGElement>("#campaign-map-known-sites")?.getAttribute("transform");
+    if (!knownSite
+      || knownSite.getAttribute("data-hex") !== "1,0"
+      || !knownSite.querySelector(".campaign-known-site__sprite")
+      || !knownSite.getAttribute("aria-label")?.includes("current control and status unconfirmed")
+      || !hexLayerTransform
+      || knownSiteLayerTransform !== hexLayerTransform) {
+      throw new Error("Briefed strategic site did not render as a safe selectable fixed-site marker.");
+    }
   });
 
   await When("a campaign hex is clicked", async () => {
@@ -83,6 +105,67 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
 
     if (clicked !== 1) {
       throw new Error(`Click handler should have fired once, observed ${clicked}`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_RENDERER_OMITS_UNCONFIRMED_HOSTILE_SITES_FROM_THE_DOM", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const knownHex = CoordinateSystem.offsetToAxial(1, 0);
+  const hiddenHex = CoordinateSystem.offsetToAxial(2, 0);
+  const scenario: CampaignScenarioData = {
+    key: "known-site-dom-boundary",
+    title: "Known Site DOM Boundary",
+    description: "Only authored briefing data may reach the Player DOM.",
+    dimensions: { cols: 3, rows: 2 },
+    background: { imageUrl: "about:blank" },
+    tilePalette: {
+      player: { role: "region", factionControl: "Player" },
+      hostileSite: {
+        role: "navalBase",
+        factionControl: "Bot",
+        spriteKey: "navalBase",
+        mapLabel: "Secret runtime port label",
+        notes: "Secret runtime port status",
+        navalCapacity: 91,
+        forces: [{ unitType: "Infantry_Elite", count: 13, label: "Secret runtime garrison" }]
+      }
+    },
+    briefedStrategicSites: [{
+      key: "charted-port",
+      observerFaction: "Player",
+      hex: knownHex,
+      label: "Charted port",
+      role: "navalBase",
+      summary: "The port location is charted; current status is unconfirmed.",
+      sourceLabel: "Pre-operation naval survey",
+      spriteKey: "navalBase"
+    }],
+    tiles: [
+      { tile: "player", hex: { q: 0, r: 0 }, factionControl: "Player", forces: [] },
+      { tile: "hostileSite", hex: knownHex, factionControl: "Bot", forces: [] },
+      { tile: "hostileSite", hex: hiddenHex, factionControl: "Bot", forces: [{ unitType: "Infantry_Elite", count: 13, label: "Secret runtime garrison" }] }
+    ],
+    fronts: [],
+    objectives: [],
+    economies: []
+  };
+  const view = buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0);
+  const renderer = new CampaignMapRenderer();
+
+  await Given("one briefed hostile location and one wholly unconfirmed hostile runtime site", () => {});
+  await When("the sanitized Player view is rendered", () => {
+    renderer.render(svg, canvas as HTMLDivElement, view);
+  });
+  await Then("the DOM contains only the safe briefing marker and none of either runtime site's hidden fields", () => {
+    const markup = svg.outerHTML;
+    if (!svg.querySelector('.campaign-known-site[data-known-site-id="charted-port"]')
+      || svg.querySelector(`.campaign-sprite[data-hex="${CoordinateSystem.makeHexKey(2, 0)}"]`)
+      || /Secret runtime port label|Secret runtime port status|Secret runtime garrison|navalCapacity/.test(markup)) {
+      throw new Error(`Hostile runtime site crossed into the campaign DOM: ${markup}`);
     }
   });
 });
@@ -323,7 +406,8 @@ registerTest("CAMPAIGN_RENDERER_CENTERS_STRENGTH_FORMATIONS_INSIDE_AUTHORITATIVE
 
   await Then("actors communicate broad strength inside one centered safe footprint without leaking opposing formations", () => {
     const expectedActorCounts = new Map<string, number>([
-      ["21,26", 4],
+      ["21,26", 2],
+      ["23,27", 2],
       ["22,24", 4],
       ["24,23", 4]
     ]);
@@ -469,6 +553,80 @@ registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_E
       || !accessibleName.includes("within 1 hex")
       || !accessibleName.includes("Select to review")) {
       throw new Error(`Enemy contact presentation remained ambiguous: '${visibleText}' / '${accessibleName}'.`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_RENDERER_SEPARATES_COLOCATED_SITE_AND_CONTACT_MARKERS", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario: CampaignScenarioData = {
+    key: "colocated-intel",
+    title: "Colocated intelligence",
+    description: "Fixed sites and mobile assessments must remain separately selectable.",
+    dimensions: { cols: 2, rows: 2 },
+    background: { imageUrl: "about:blank" },
+    tilePalette: { region: { role: "region", factionControl: "Neutral" } },
+    tiles: [], fronts: [], objectives: [], economies: []
+  };
+  const renderer = new CampaignMapRenderer();
+
+  await Given("a briefed logistics hub and an assessed formation in the same hex", () => {
+    renderer.render(svg, canvas as HTMLDivElement, {
+      observerFaction: "Player",
+      scenario,
+      enemyContacts: [{
+        id: "contact-colocated",
+        subjectKind: "force",
+        level: "identified",
+        state: "current",
+        confidenceBand: "medium",
+        locationHexKey: "1,1",
+        uncertaintyRadius: 0,
+        domain: "ground",
+        label: "Ground formation",
+        classificationBand: "Ground formation",
+        strengthBand: "light",
+        lastObservedSegment: 0,
+        ageSegments: 0,
+        sourceLabels: ["Air reconnaissance"],
+        analystNotes: []
+      }],
+      knownStrategicSites: [{
+        id: "site-colocated",
+        locationHexKey: "1,1",
+        label: "Charted rail yard",
+        role: "logisticsHub",
+        summary: "Fixed site; current activity unconfirmed.",
+        sourceLabel: "Pre-operation aerial survey",
+        spriteKey: "logisticsHub"
+      }],
+      coverage: [],
+      capacity: { total: 0, committed: 0, available: 0 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+  });
+
+  await When("both intelligence records are rendered", () => {});
+
+  await Then("two bounded markers share the hex without covering each other or exposing a raw role ID", () => {
+    const center = renderer.getHexCenter("1,1");
+    const contactToken = svg.querySelector<SVGCircleElement>('.campaign-intel-contact[data-contact-id="contact-colocated"] circle:not(.campaign-intel-uncertainty)');
+    const site = svg.querySelector<SVGGElement>('.campaign-known-site[data-known-site-id="site-colocated"]');
+    const siteRing = site?.querySelector<SVGCircleElement>("circle") ?? null;
+    const contactX = Number(contactToken?.getAttribute("cx"));
+    const siteX = Number(siteRing?.getAttribute("cx"));
+    const radiusSum = Number(contactToken?.getAttribute("r")) + Number(siteRing?.getAttribute("r"));
+    const accessibleName = site?.getAttribute("aria-label") ?? "";
+    if (!center || !contactToken || !siteRing
+      || contactX <= center.cx || siteX >= center.cx
+      || contactX - siteX < radiusSum
+      || !accessibleName.includes("briefed logistics hub")
+      || accessibleName.includes("logisticsHub")) {
+      throw new Error(`Colocated intelligence remained overlapped or raw: ${JSON.stringify({ contactX, siteX, radiusSum, accessibleName })}.`);
     }
   });
 });

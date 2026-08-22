@@ -36,7 +36,10 @@ import type {
 } from "../ai/CampaignAIPlanningTypes";
 import { campaignOffsetKeyToRuntimeHexKey, revalidateCampaignOrderBook } from "../orders/CampaignOrderService";
 import type { CampaignOrder } from "../orders/CampaignOrderTypes";
-import { reconcileCampaignFormationForceCounts } from "../formations/FormationLifecycleService";
+import {
+  reconcileCampaignFormationForceCounts,
+  releaseCampaignFormationAvailability
+} from "../formations/FormationLifecycleService";
 import {
   campaignTileCapacityFactor,
   refreshCampaignInfrastructureState
@@ -966,7 +969,21 @@ export function resolveCampaignSegment(
         summary: `Campaign advanced to segment ${targetSegment}.`,
         details: { fromSegment, toSegment: targetSegment }
       });
-      return [candidate.campaignId];
+      const releases = releaseCampaignFormationAvailability(candidate, targetSegment);
+      releases.forEach((release) => {
+        events.push({
+          type: "stateChanged",
+          category: "movement",
+          summary: release.summary,
+          details: {
+            faction: String(release.faction),
+            hexKey: release.hexKey,
+            availableFromSegment: release.availableFromSegment,
+            formationCount: release.formationIds.length
+          }
+        });
+      });
+      return [candidate.campaignId, ...releases.flatMap((release) => release.formationIds)];
     });
     phase("environment", () => resolveInfrastructureEnvironment(candidate, targetSegment));
     phase("orders", () => candidate.orderOrder.filter((id) => {

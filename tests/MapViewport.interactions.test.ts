@@ -356,3 +356,132 @@ registerTest("MAP_VIEWPORT_CENTER_ON_USES_VIEWBOX_UNITS_WHEN_LAYOUT_IS_SCALED", 
     host.remove();
   });
 });
+
+registerTest("MAP_VIEWPORT_FITS_AND_CENTERS_COMPLETE_MAP", async ({ Given, When, Then }) => {
+  let mapViewport: MapViewport;
+  let host: HTMLElement;
+  let viewportRoot: SVGGElement;
+
+  await Given("a square theater map inside a wider command viewport", () => {
+    const dom = setupMapDom({
+      viewportWidth: 700,
+      viewportHeight: 560,
+      canvasWidth: 1024,
+      canvasHeight: 1024,
+      svgWidth: 1024,
+      svgHeight: 1024,
+      viewBoxWidth: 1024,
+      viewBoxHeight: 1024
+    });
+    host = dom.host;
+    viewportRoot = dom.viewportRoot;
+    mapViewport = new MapViewport();
+  });
+
+  await When("the complete map is fit with twelve pixels of viewport padding", () => {
+    mapViewport.fitToMap(12);
+  });
+
+  await Then("the limiting height determines zoom and the theater is centered", () => {
+    const transform = mapViewport.getTransform();
+    const expectedZoom = (560 - 24) / 1024;
+    const expectedPanX = 700 / 2 - expectedZoom * 512;
+    const expectedPanY = 560 / 2 - expectedZoom * 512;
+    const tolerance = 1e-6;
+    if (Math.abs(transform.zoom - expectedZoom) > tolerance
+      || Math.abs(transform.panX - expectedPanX) > tolerance
+      || Math.abs(transform.panY - expectedPanY) > tolerance) {
+      throw new Error(`Complete-map fit was not centered: ${JSON.stringify(transform)}.`);
+    }
+    const appliedTransform = viewportRoot.getAttribute("transform") ?? "";
+    if (!appliedTransform.includes(`scale(${expectedZoom})`)) {
+      throw new Error(`Complete-map fit was not applied to the viewport root: ${appliedTransform}.`);
+    }
+    host.remove();
+  });
+});
+
+registerTest("MAP_VIEWPORT_COMPLETE_MAP_FIT_SURVIVES_A_SHORT_VIEWPORT", async ({ Given, When, Then }) => {
+  let mapViewport: MapViewport;
+  let host: HTMLElement;
+  let viewportRoot: SVGGElement;
+  const cameraAdjustments = { count: 0 };
+
+  await Given("a square theater map inside a 200-percent-equivalent short command viewport", () => {
+    const dom = setupMapDom({
+      viewportWidth: 640,
+      viewportHeight: 170,
+      canvasWidth: 1024,
+      canvasHeight: 1024,
+      svgWidth: 1024,
+      svgHeight: 1024,
+      viewBoxWidth: 1024,
+      viewBoxHeight: 1024
+    });
+    host = dom.host;
+    viewportRoot = dom.viewportRoot;
+    mapViewport = new MapViewport("#battleHexMap", () => { cameraAdjustments.count += 1; }, 0.1);
+  });
+
+  await When("the commander requests the complete theater", () => {
+    mapViewport.fitToMap(12);
+  });
+
+  await Then("the preset remains stable below the former interaction floor instead of cropping the theater", () => {
+    const transform = mapViewport.getTransform();
+    const expectedZoom = (170 - 24) / 1024;
+    const tolerance = 1e-6;
+    if (Math.abs(transform.zoom - expectedZoom) > tolerance
+      || transform.panX <= 0
+      || transform.panY <= 0
+      || viewportRoot.getAttribute("transform") !== `translate(${transform.panX}, ${transform.panY}) scale(${expectedZoom})`) {
+      throw new Error(`Short complete-map fit remained cropped: ${JSON.stringify(transform)}.`);
+    }
+    mapViewport.setTransform(transform.zoom, transform.panX, transform.panY);
+    const rebound = mapViewport.getTransform();
+    if (Math.abs(rebound.zoom - expectedZoom) > tolerance
+      || Math.abs(rebound.panX - transform.panX) > tolerance
+      || Math.abs(rebound.panY - transform.panY) > tolerance
+      || cameraAdjustments.count !== 0) {
+      throw new Error(`Renderer rebind changed the fitted camera: ${JSON.stringify(rebound)}.`);
+    }
+    mapViewport.adjustZoom(-0.2);
+    const zoomedOut = mapViewport.getTransform();
+    const adjustmentsAfterZoom = Number(cameraAdjustments.count);
+    if (zoomedOut.zoom !== 0.1 || zoomedOut.zoom >= expectedZoom || adjustmentsAfterZoom !== 1) {
+      throw new Error(`Zooming from the fitted camera was not monotonic: ${JSON.stringify({ zoomedOut, cameraAdjustments: adjustmentsAfterZoom })}.`);
+    }
+    host.remove();
+  });
+});
+
+registerTest("MAP_VIEWPORT_DEFAULT_ZOOM_FLOOR_REMAINS_TACTICAL", async ({ Given, When, Then }) => {
+  let mapViewport: MapViewport;
+  let host: HTMLElement;
+
+  await Given("a tactical map using the default viewport contract", () => {
+    const dom = setupMapDom({
+      viewportWidth: 640,
+      viewportHeight: 480,
+      canvasWidth: 1024,
+      canvasHeight: 1024,
+      svgWidth: 1024,
+      svgHeight: 1024,
+      viewBoxWidth: 1024,
+      viewBoxHeight: 1024
+    });
+    host = dom.host;
+    mapViewport = new MapViewport();
+  });
+
+  await When("the commander zooms out beyond the tactical minimum", () => {
+    mapViewport.adjustZoom(-2);
+  });
+
+  await Then("the tactical map keeps its established half-scale floor", () => {
+    if (mapViewport.getTransform().zoom !== 0.5) {
+      throw new Error(`Default viewport zoom floor changed: ${JSON.stringify(mapViewport.getTransform())}.`);
+    }
+    host.remove();
+  });
+});

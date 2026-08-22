@@ -103,6 +103,7 @@ function resolveInspectorRoute(
         ...(hex ? [
           { label: "Control", value: hex.controlLabel },
           { label: "Type", value: hex.roleLabel },
+          ...(hex.sourceLabel ? [{ label: "Source", value: hex.sourceLabel }] : []),
           ...(hex.forces.length > 0 ? [{ label: "Projected forces", value: hex.forces.join("; ") }] : []),
           ...(hex.infrastructure ? [{ label: "Infrastructure", value: hex.infrastructure }] : []),
           ...(hex.objectives.length > 0 ? [{ label: "Objectives", value: hex.objectives.join(", ") }] : []),
@@ -198,6 +199,9 @@ function resolveInspectorRoute(
         summary: `${rosterFormation.ownershipLabel} ${rosterFormation.typeLabel} formation${rosterFormation.latestHistory ? `. ${rosterFormation.latestHistory}` : "."}`,
         facts: [
           { label: "Status", value: rosterFormation.statusLabel },
+          ...(rosterFormation.availabilityLabel
+            ? [{ label: "Available", value: rosterFormation.availabilityLabel }]
+            : []),
           { label: "Location", value: rosterFormation.locationHexKey ?? "Off map" },
           { label: "Readiness", value: rosterFormation.readiness },
           { label: "Cohesion", value: rosterFormation.cohesion },
@@ -232,11 +236,14 @@ function resolveInspectorRoute(
     if (!contact) return emptyRoute("contact", selection.id);
     return {
       kind: "contact",
-      title: contact.label,
+      title: contact.locationLabel ? `${contact.locationLabel} — ${contact.label}` : contact.label,
       summary: `${contact.confidenceBand} confidence assessment from ${contact.sourceLabels.join(", ") || "unattributed reporting"}.`,
       facts: [
         { label: "State", value: contact.state },
-        { label: "Assessed location", value: contact.locationHexKey },
+        { label: "Assessed location", value: contact.locationLabel
+          ? `${contact.locationLabel} · ${contact.locationHexKey}`
+          : contact.locationHexKey },
+        ...(contact.locationRoleLabel ? [{ label: "Known site", value: contact.locationRoleLabel }] : []),
         { label: "Uncertainty", value: `${contact.uncertaintyRadius} hex radius` },
         { label: "Age", value: `${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"}` },
         ...(contact.strengthBand ? [{ label: "Assessed strength", value: contact.strengthBand }] : [])

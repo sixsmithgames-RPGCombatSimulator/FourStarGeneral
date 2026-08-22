@@ -901,15 +901,40 @@ export function buildCampaignMapView(
   segment: number
 ): CampaignMapViewModel {
   const sanitized = structuredClone(scenario);
-  for (const tile of sanitized.tiles) {
-    if (tileOwner(sanitized, tile) !== state.faction) {
-      tile.forces = [];
-      delete tile.infrastructure;
+  const friendlyHexKeys = new Set(scenario.tiles
+    .filter((tile) => tileOwner(scenario, tile) === state.faction)
+    .map((tile) => axialToOffsetKey(tile.hex.q, tile.hex.r)));
+  const knownStrategicSites = (scenario.briefedStrategicSites ?? [])
+    .filter((site) => site.observerFaction === state.faction)
+    .filter((site) => !friendlyHexKeys.has(axialToOffsetKey(site.hex.q, site.hex.r)))
+    .map((site) => ({
+      id: site.key,
+      locationHexKey: axialToOffsetKey(site.hex.q, site.hex.r),
+      label: site.label,
+      role: site.role,
+      summary: site.summary,
+      sourceLabel: site.sourceLabel,
+      spriteKey: site.spriteKey
+    }))
+    .sort((left, right) => left.locationHexKey.localeCompare(right.locationHexKey) || left.id.localeCompare(right.id));
+
+  // Hostile runtime tiles are truth, not knowledge. Known fixed sites are projected separately
+  // from the authored briefing collection above and therefore cannot expose live control,
+  // formations, capacity, or infrastructure condition.
+  sanitized.tiles = sanitized.tiles.filter((tile) => {
+    const owner = tileOwner(scenario, tile);
+    return owner === state.faction || owner === "Neutral";
+  });
+  const retainedPaletteKeys = new Set(sanitized.tiles.map((tile) => tile.tile));
+  Object.keys(sanitized.tilePalette).forEach((key) => {
+    if (!retainedPaletteKeys.has(key)) {
+      delete sanitized.tilePalette[key];
+      return;
     }
-  }
-  for (const definition of Object.values(sanitized.tilePalette)) {
+    const definition = sanitized.tilePalette[key];
     if (definition.factionControl !== state.faction) definition.forces = [];
-  }
+  });
+  delete sanitized.briefedStrategicSites;
   sanitized.economies = sanitized.economies.filter((economy) => economy.faction === state.faction);
   const contacts = state.contacts
     .map((contact) => projectEnemyContact(contact, segment))
@@ -920,6 +945,7 @@ export function buildCampaignMapView(
     observerFaction: state.faction,
     scenario: sanitized,
     enemyContacts: contacts,
+    knownStrategicSites,
     coverage: coverageForFaction(scenario, state.faction),
     capacity: {
       total: state.capacityTotal,

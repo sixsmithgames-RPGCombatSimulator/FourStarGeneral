@@ -10,6 +10,8 @@ import type {
   CampaignCommandFormationView,
   CampaignCommandForceView,
   CampaignCommandFrontView,
+  CampaignCommandHexView,
+  CampaignCommandKnownSiteView,
   CampaignCommandObjectiveView,
   CampaignCommandOrderView,
   CampaignCommandShellView
@@ -306,16 +308,22 @@ export class CampaignMapOverlayController {
     if (this.coverageFilter) this.coverageFilter.hidden = effective.id !== "intelligence";
     if (this.listToggle) {
       const count = this.getListEntries(effective.id).length;
+      const includesKnownSites = (effective.id === "operational" || effective.id === "intelligence")
+        && (this.view?.knownSites?.length ?? 0) > 0;
       const noun = this.targetPickOriginHexKey
         ? "destination hex"
         : effective.id === "objectives" ? "objective"
           : effective.id === "forces" ? "formation"
+            : includesKnownSites ? "map record"
             : effective.id === "intelligence" ? "contact"
               : effective.id === "orders" ? "order"
                 : "front";
-      const nounLabel = count === 1 ? noun : noun === "destination hex" ? "destination hexes" : `${noun}s`;
+      const nounLabel = count === 1 ? noun
+        : noun === "destination hex" ? "destination hexes"
+          : noun === "map record" ? "map records"
+            : `${noun}s`;
       const forceSummary = effective.id === "forces" && !this.targetPickOriginHexKey ? `${count} relevant` : `${count} ${nounLabel}`;
-      this.listToggle.textContent = `${this.targetPickOriginHexKey ? "Destinations" : "Map list"} (${forceSummary})`;
+      this.listToggle.textContent = `${this.targetPickOriginHexKey ? "Destinations" : "Map list"} (${count})`;
       this.listToggle.setAttribute("aria-label", `${this.targetPickOriginHexKey ? "Redeployment destination" : effective.label} map list, ${forceSummary}`);
       if (requested.status === "featureGated") this.listToggle.textContent = `${requested.shortLabel} unavailable`;
     }
@@ -466,9 +474,25 @@ export class CampaignMapOverlayController {
       if (formations.length > 0) return formations.map((formation) => this.formationEntry(formation));
       return this.view.forces.filter((force) => relevantHexes.has(force.hexKey)).map((force, index) => this.forceEntry(force, index));
     }
-    if (overlay === "intelligence") return (this.view.contacts ?? []).map((contact) => this.contactEntry(contact));
+    if (overlay === "intelligence") {
+      const contactHexes = new Set((this.view.contacts ?? []).map((contact) => contact.locationHexKey));
+      return [
+        ...(this.view.contacts ?? []).map((contact) => this.contactEntry(contact)),
+        ...(this.view.knownSites ?? [])
+          .filter((site) => !contactHexes.has(site.locationHexKey))
+          .map((site) => this.knownSiteEntry(site))
+      ];
+    }
     if (overlay === "orders") return this.view.orders.map((order) => this.orderEntry(order));
-    if (overlay === "operational") return (this.view.fronts ?? []).map((front) => this.frontEntry(front));
+    if (overlay === "operational") return [
+      ...(this.view.fronts ?? []).map((front) => this.frontEntry(front)),
+      ...(this.view.hexes ?? [])
+        .filter((hex) => hex.controlLabel === "Friendly control"
+          && Boolean(hex.displayLabel)
+          && ["Airbase", "Logistics Hub", "Naval Base", "Naval task force"].includes(hex.roleLabel))
+        .map((hex) => this.strategicHexEntry(hex)),
+      ...(this.view.knownSites ?? []).map((site) => this.knownSiteEntry(site))
+    ];
     return [];
   }
 
@@ -504,7 +528,7 @@ export class CampaignMapOverlayController {
       key: formation.id,
       marker: formation.statusLabel === "Ready" ? "◆" : "◇",
       label: formation.name,
-      meta: `${formation.statusLabel} · ${formation.readiness}${formation.locationHexKey ? ` · ${formation.locationHexKey}` : " · Off map"}`,
+      meta: `${formation.statusLabel}${formation.availabilityLabel ? ` · available ${formation.availabilityLabel}` : ""} · ${formation.readiness}${formation.locationHexKey ? ` · ${formation.locationHexKey}` : " · Off map"}`,
       selection: { kind: "formation", id: formation.id }
     };
   }
@@ -513,9 +537,30 @@ export class CampaignMapOverlayController {
     return {
       key: contact.id,
       marker: contact.state === "current" ? "◇" : "◈",
-      label: contact.label,
-      meta: `${contact.confidenceBand} confidence · ${contact.locationHexKey} · ${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"} old`,
+      label: contact.locationLabel ?? contact.label,
+      meta: `${contact.locationRoleLabel ? `${contact.locationRoleLabel} · ` : ""}${contact.locationLabel ? `${contact.label} · ` : ""}${contact.confidenceBand} confidence · ${contact.locationHexKey} · ${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"} old`,
       selection: { kind: "contact", id: contact.id }
+    };
+  }
+
+  private knownSiteEntry(site: CampaignCommandKnownSiteView): MapListEntry {
+    return {
+      key: site.id,
+      marker: "SITE",
+      label: site.label,
+      meta: `${site.roleLabel} · ${site.locationHexKey} · ${site.sourceLabel}`,
+      selection: { kind: "hex", id: site.locationHexKey }
+    };
+  }
+
+  private strategicHexEntry(hex: CampaignCommandHexView): MapListEntry {
+    const isFleet = hex.roleLabel === "Naval task force";
+    return {
+      key: `strategic:${hex.hexKey}`,
+      marker: isFleet ? "FLEET" : "BASE",
+      label: hex.displayLabel ?? hex.roleLabel,
+      meta: `${hex.roleLabel} · ${hex.hexKey} · ${hex.controlLabel}`,
+      selection: { kind: "hex", id: hex.hexKey }
     };
   }
 
