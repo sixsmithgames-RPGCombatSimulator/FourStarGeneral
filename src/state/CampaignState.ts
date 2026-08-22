@@ -110,7 +110,6 @@ import { migrateLegacyCampaignSave } from "../game/campaign/persistence/Campaign
 import {
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
-  CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
   CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
   migrateCampaignRuntimeContent
@@ -1798,14 +1797,12 @@ export class CampaignState {
       scenarioKey: this.scenarioDefinition.key,
       scenarioContentHash,
       ...(this.scenarioDefinition.key === "central_channel"
-        && (scenarioContentHash === CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
-          || scenarioContentHash === CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH)
+        && scenarioContentHash === CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
         ? {
             compatiblePriorContentHashes: [
               CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
               CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
-              CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
-              CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH
+              CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH
             ]
           }
         : {})
@@ -2189,8 +2186,7 @@ export class CampaignState {
         targetRequired: false
       };
     }
-    const distinctTargets = new Set(candidates.map((edge) => edge.opposingHexKey));
-    if (!requestedTarget && distinctTargets.size > 1) {
+    if (!requestedTarget && candidates.length > 1) {
       return { ok: false, reason: "Select which opposing front hex to attack.", targetRequired: true };
     }
     const edge = candidates[0];

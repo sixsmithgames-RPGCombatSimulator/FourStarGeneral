@@ -71,8 +71,6 @@ export interface CampaignTileDefinition {
   role: CampaignTileRole;
   /** Current controller informs resource generation and front line rendering. */
   factionControl: CampaignFactionKey;
-  /** Optional player-facing geographic or operational name, such as Utah Beach or Caen. */
-  mapLabel?: string;
   /** Optional sprite key references art under src/assets/campaign. */
   spriteKey?: string;
   /** Supply throughput contributed by this location each campaign turn. */

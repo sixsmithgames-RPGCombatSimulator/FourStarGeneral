@@ -27,7 +27,7 @@ function buildAdvanceScenario(): CampaignScenarioData {
     title: "Advance Controls",
     description: "Compact C20-014 fixture.",
     hexScaleKm: 10,
-    dimensions: { cols: 3, rows: 2 },
+    dimensions: { cols: 3, rows: 1 },
     background: { imageUrl: "about:blank", stretchMode: "contain" },
     tilePalette: {
       player: { role: "region", factionControl: "Player", supplyValue: 0 },

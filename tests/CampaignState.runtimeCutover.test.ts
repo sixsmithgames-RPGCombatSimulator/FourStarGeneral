@@ -149,7 +149,7 @@ registerTest("CAMPAIGN_STATE_REJECTS_INVALID_SCENARIO_ATOMICALLY", async ({ Give
 
   await When("the invalid replacement is submitted through the authored scenario boundary", async () => {
     const invalid = buildCampaign01Scenario();
-    invalid.tiles = invalid.tiles.filter((tile) => tile.hex.q !== 2 || tile.hex.r !== 19);
+    invalid.tiles = invalid.tiles.filter((tile) => tile.hex.q !== 27 || tile.hex.r !== 24);
     try {
       state.setScenario(invalid);
     } catch (error) {

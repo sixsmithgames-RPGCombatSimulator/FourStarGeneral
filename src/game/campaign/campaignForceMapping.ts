@@ -20,15 +20,11 @@ const CAMPAIGN_TO_ALLOCATION: Readonly<Record<string, string>> = Object.freeze({
   Infantry_42: "infantry",
   // Elite infantry map to the standard formation; Phase 2 templates add an experience bonus on spawn.
   Infantry_Elite: "infantry",
-  Paratrooper: "airborneDetachment",
-  Engineer: "engineer",
   AT_Infantry: "antiTankBattery",
   Panzer_IV: "tank",
   Panzer_V: "tank",
-  Medium_Tank: "tank",
   Light_Tank: "tank",
   Heavy_Tank: "heavyTankCompany",
-  Tank_Destroyer: "tankDestroyerCompany",
   Howitzer_105: "howitzer",
   Artillery_105mm: "howitzer",
   // The tactical engine has no distinct 155mm map unit. Use the deployable howitzer battery as
@@ -49,7 +45,7 @@ const CAMPAIGN_TO_ALLOCATION: Readonly<Record<string, string>> = Object.freeze({
 export const CAMPAIGN_AIR_UNIT_TYPES: readonly string[] = Object.freeze(["Fighter", "Interceptor", "Bomber"]);
 
 /** Naval campaign types: contribute support eligibility rather than ground formations. */
-export const CAMPAIGN_NAVAL_UNIT_TYPES: readonly string[] = Object.freeze(["Battleship", "Destroyer", "Transport_Ship"]);
+export const CAMPAIGN_NAVAL_UNIT_TYPES: readonly string[] = Object.freeze(["Battleship", "Transport_Ship"]);
 
 /**
  * Consumable/support allocation keys purchasable from the discretionary RP reserve even when
