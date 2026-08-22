@@ -80,6 +80,40 @@
 
 ---
 
+## Registered Normandy D+1 Map Redesign Plan
+
+### Intended behavior
+- Use the 1024×1024 Central Channel illustration as the authoritative geographic surface. The campaign grid must preserve that aspect ratio and follow its painted Channel, English coast, Cotentin, Normandy coast, rivers, and road network.
+- Use one regular, contiguous campaign hex lattice whose neighboring centers represent 10 km. The full image is registered as a 58-column × 50-row flat-top odd-q grid, which covers approximately 500 km in both map axes without distorting the source art.
+- Place the D+1 lodgment on the painted Normandy coast: Cherbourg at the Cotentin tip; Utah through Sword in west-to-east order along the shore; U.S. airborne forces behind Utah; British airborne forces east of Sword; Caen inland; separate western and eastern naval support stations in visible Channel water.
+- Open the campaign framed tightly enough that the lodgment, fleet stations, airborne flanks, objectives, and opposing fronts read as an operational situation while preserving normal pan/zoom access to the full theater.
+
+### Current behavior
+- The restored baseline is visually usable but uses a legacy distorted 2500×1750 canvas, a mismatched pointy-top/odd-q renderer, and coordinates that are not historical D+1 placements.
+- The rejected retry authored a 50×35 synthetic row-band map and placed its entire Normandy cluster into painted water.
+- Source comments and metadata conflict between 5 km and 10 km per hex. Campaign 2.0 runtime and movement rules are already authoritative at 10 km.
+
+### Expected new behavior
+- The background renders at its actual 1024×1024 aspect with no crop or stretch. A registered flat-top odd-q lattice covers it edge-to-edge; every official coordinate has one visible hex and every visible neighbor relationship matches campaign axial math.
+- The five beaches span approximately five adjacent campaign hexes, consistent with the roughly 48 km historical landing frontage. Cherbourg-to-Caen is approximately 8–10 campaign hexes, consistent with the operational abstraction.
+- Water classification is derived and then explicitly authored from the painted background. Task forces must occupy water; every ground formation, infrastructure tile, objective, and front endpoint must occupy land.
+- No synthetic terrain row may override the painted shoreline. Registration tests prove the asset dimensions, grid geometry, named anchors, land/water legality, front adjacency, and scale.
+
+### Edge cases and risks
+- Existing saves from retired Central Channel content identities must migrate only through the existing explicit migration contract; unrecognized geometry must fail closed.
+- Coastline cells can straddle land and water. Authored anchor placement must use a land-majority footprint for ground positions and a water-majority footprint for naval stations, with beach cells intentionally centered on the land side of the painted edge.
+- The campaign renderer, scenario geometry, map focus, engagement context, persistence migration, and shipped-scenario tests are high-risk consumers. Tactical hex rendering must remain unchanged.
+- Named labels, force art, contacts, and front segments must remain inside their authoritative hex footprints and avoid obscuring the shoreline.
+
+### Verification
+- Capture background-only, registered-grid, anchor-overlay, and live opening frames at native aspect before certification.
+- Assert 10 km scale, 1024×1024 source registration, 58×50 flat-top odd-q dimensions, regular neighbor spacing, and no background distortion.
+- Assert both fleets are water; all non-naval authored tiles are land; every objective/front reference is in bounds and adjacent where required.
+- Assert Utah → Omaha → Gold → Juno → Sword ordering and approximate 48 km frontage; assert Cherbourg northwest of Utah and Caen inland/east of Sword.
+- Run focused renderer/shipped-scenario/persistence tests, TypeScript, campaign suite, full suite, build, diff checks, and a live external-Chrome acceptance pass before one batched push.
+
+---
+
 ## Smoke Screen Implementation Plan
 
 ### Intent
