@@ -384,9 +384,11 @@ registerTest("CAMPAIGN_SHIPPED_FIRST_ATTACK_FREEZES_REAL_TARGET_AND_FORCES", asy
     const context = prepared.engagement.context;
     if (context.battleHexKey !== "24,24" || context.defender !== "Bot"
       || context.missionType !== "fortifiedAssault"
+      || context.allocationCaps.shoreFireControlParty !== 1
+      || !context.availableForces.some((group) => group.unitType === "Battleship" && group.hexKey === "22,20")
       || context.availableForces.flatMap((group) => group.formationIds ?? []).length === 0
       || context.enemyForces.flatMap((group) => group.formationIds ?? []).length === 0) {
-      throw new Error("The D+1 first attack did not freeze a real sector and formations on both sides.");
+      throw new Error("The D+1 first attack did not freeze its sector, formations, and in-range Western Naval Force support.");
     }
     const planned = state.getRuntimeSnapshot();
     if (!planned) throw new Error("Preparing the shipped engagement removed campaign runtime truth.");

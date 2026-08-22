@@ -174,6 +174,52 @@ registerTest("ENGAGEMENT_CONTEXT_TASK_FORCE_CAPACITY_SUPPORTS_COASTAL_BATTLES", 
   });
 });
 
+registerTest("ENGAGEMENT_CONTEXT_NAVAL_SUPPORT_FRONT_REACHES_ITS_INLAND_APPROACH", async ({ Given, When, Then }) => {
+  const scenario = buildFixtureScenario();
+  let context: ReturnType<typeof buildEngagementContext> = null;
+
+  await Given("an authored naval-support front whose tactical target sits one operational hex inland", async () => {
+    scenario.fronts = [{
+      key: "omaha_approach",
+      label: "Omaha approach",
+      hexKeys: ["4,5"],
+      edges: [{ friendlyHexKey: "4,5", opposingHexKey: "5,5" }],
+      initiative: "Player",
+      modifiers: ["navalSupport"]
+    }];
+    scenario.tilePalette.playerTaskForce = {
+      role: "taskForce",
+      factionControl: "Player",
+      navalCapacity: 14,
+      mapLabel: "Western Naval Force"
+    };
+    scenario.tiles.push({ tile: "playerTaskForce", hex: { q: 2, r: 3 } });
+    const adjacentPlayer = scenario.tiles.find((tile) => tile.hex.q === 4 && tile.hex.r === 3);
+    if (adjacentPlayer?.forces) {
+      adjacentPlayer.forces = adjacentPlayer.forces.filter((force) => force.unitType !== "Battleship");
+    }
+  });
+
+  await When("the exact front target builds its tactical context", async () => {
+    context = buildEngagementContext(scenario, {
+      engagementId: "eng_inland_naval_support",
+      battleHexKey: "5,5",
+      attacker: "Player",
+      frontKey: "omaha_approach"
+    });
+  });
+
+  await Then("the in-range task force remains available without reclassifying the ground as coastal", async () => {
+    if (!context || context.coastal || context.allocationCaps.shoreFireControlParty !== 1) {
+      throw new Error("The authored naval-support front lost its in-range task force on the inland approach.");
+    }
+    const navalGroups = context.availableForces.filter((group) => group.unitType === "Battleship");
+    if (navalGroups.length !== 1 || navalGroups[0]?.hexKey !== "2,4") {
+      throw new Error("The inland front did not retain exactly its in-range naval source.");
+    }
+  });
+});
+
 registerTest("ENGAGEMENT_CONTEXT_MISSION_TYPES_AND_BANDS", async ({ Given, When, Then }) => {
   const scenario = buildFixtureScenario();
 

@@ -180,6 +180,13 @@ export function buildEngagementContext(
   }
 
   const coastal = isCoastal(scenario, coords.q, coords.r);
+  const front = options.frontKey
+    ? scenario.fronts.find((candidate) => candidate.key === options.frontKey)
+    : null;
+  // Authored naval-support fronts can extend one or more operational hexes inland from the
+  // shoreline. The task force still has to pass its calibrated range check below; this flag
+  // only preserves the front's explicit support contract when the battle hex itself is inland.
+  const navalSupportAuthorized = coastal || Boolean(front?.modifiers?.includes("navalSupport"));
   const battleInfrastructure = battleTile?.infrastructure;
 
   // Gather attacker forces: the battle hex (if attacker-held) plus adjacent attacker tiles.
@@ -217,10 +224,11 @@ export function buildEngagementContext(
     }
   }
 
-  // Naval support: one operational entitlement per friendly task force in range of a coastal battle.
+  // Naval support: one operational entitlement per friendly task force in range of a coastal
+  // battle or an authored shoreline front whose tactical objective extends inland.
   // Task-force tiles intentionally carry capacity instead of fake ground formations; translating that
   // capacity here makes the visible fleet operational without placing warships in the ground roster.
-  if (coastal) {
+  if (navalSupportAuthorized) {
     for (const tile of scenario.tiles) {
       const def = scenario.tilePalette[tile.tile];
       if (!def || def.role !== "taskForce" || (def.navalCapacity ?? 0) <= 0) continue;
