@@ -160,12 +160,13 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     });
   });
 
-  await When("the English Channel marker is painted", () => {});
+  await When("the two historically organized Channel task forces are painted", () => {});
 
-  await Then("the player sees a directionally authored assault fleet and no infantry counter at that water hex", () => {
-    const channelOffsetKey = "20,28";
-    const fleet = svg.querySelector<SVGGElement>(`.campaign-task-force[data-hex="${channelOffsetKey}"]`);
-    const ships = fleet?.querySelectorAll<SVGImageElement>(".campaign-task-force__ship") ?? [];
+  await Then("each force uses spread directional ship art and no ground counter at its water station", () => {
+    const channelOffsetKeys = ["3,18", "8,18"];
+    channelOffsetKeys.forEach((channelOffsetKey) => {
+      const fleet = svg.querySelector<SVGGElement>(`.campaign-task-force[data-hex="${channelOffsetKey}"]`);
+      const ships = fleet?.querySelectorAll<SVGImageElement>(".campaign-task-force__ship") ?? [];
     const shipAssets = Array.from(ships).map((ship) => ship.getAttribute("href") ?? "");
     const station = fleet?.querySelector<SVGCircleElement>(".campaign-task-force__station") ?? null;
     const battleship = fleet?.querySelector<SVGImageElement>(".campaign-task-force__battleship") ?? null;
@@ -208,9 +209,9 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
       || shipAssets.filter((asset) => asset.includes("Destroyer_USA_Southview")).length !== 2
       || shipAssets.filter((asset) => asset.includes("Battleship_USA_Southview")).length !== 1
       || shipAssets.some((asset) => asset.includes("task_force.svg"))
-      || fleet.dataset.facing !== "SE"
+      || fleet.dataset.facing !== "SW"
       || fleet.getAttribute("role") !== "img"
-      || fleet.getAttribute("aria-label") !== "Allied assault fleet on station supporting the Normandy lodgment · hex 20,28"
+      || !fleet.getAttribute("aria-label")?.includes("Naval Task Force supporting")
       || station?.getAttribute("data-authoritative-anchor") !== "true"
       || station?.getAttribute("cx") !== channelHex?.dataset.cx
       || station?.getAttribute("cy") !== channelHex?.dataset.cy
@@ -218,6 +219,10 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
       || !supportSilhouettesRemainVisible
       || groundCounters.length !== 0) {
       throw new Error("The Channel fleet still lacks a centered station, readable spread, authored vessel silhouettes, correct facing, or clean naval-only projection.");
+    }
+    });
+    if (svg.querySelectorAll(".campaign-task-force").length !== 2) {
+      throw new Error("The D+1 map did not retain distinct Western and Eastern naval support forces.");
     }
   });
 });
@@ -246,9 +251,9 @@ registerTest("CAMPAIGN_RENDERER_CENTERS_STRENGTH_FORMATIONS_INSIDE_AUTHORITATIVE
 
   await Then("actors communicate broad strength inside one centered safe footprint without leaking opposing formations", () => {
     const expectedActorCounts = new Map<string, number>([
-      ["29,39", 1],
-      ["27,37", 2],
-      ["26,25", 4]
+      ["1,21", 4],
+      ["2,20", 4],
+      ["4,20", 4]
     ]);
 
     expectedActorCounts.forEach((expectedActorCount, hexKey) => {
@@ -285,13 +290,14 @@ registerTest("CAMPAIGN_RENDERER_CENTERS_STRENGTH_FORMATIONS_INSIDE_AUTHORITATIVE
       }
     });
 
-    const beachhead = svg.querySelector<SVGGElement>('.campaign-force-stack[data-hex="27,37"]');
+    const beachhead = svg.querySelector<SVGGElement>('.campaign-force-stack[data-hex="4,20"]');
     const exactName = beachhead?.getAttribute("aria-label") ?? "";
-    const opposingTruth = svg.querySelector('.campaign-force-stack[data-hex="28,38"]');
+    const opposingTruth = svg.querySelector('.campaign-force-stack[data-hex="5,20"]');
     const floatingCounts = svg.querySelectorAll(".campaign-force-count");
-    if (!exactName.includes("Friendly force · 6 formations · hex 27,37")
-      || !exactName.includes("5 Port Approach Battalion")
-      || !exactName.includes("1 Port Approach Battery")
+    if (!exactName.includes("Friendly force · 14 formations · hex 4,20")
+      || !exactName.includes("7 U.S. 1st Infantry Division battalions")
+      || !exactName.includes("5 U.S. 29th Infantry Division battalions")
+      || !exactName.includes("2 V Corps engineer groups")
       || exactName.includes("Infantry_42")
       || opposingTruth
       || floatingCounts.length !== 0) {
@@ -330,9 +336,10 @@ registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_E
         state: "current",
         confidenceBand: "medium",
         locationHexKey: "1,1",
-        uncertaintyRadius: 0,
+        uncertaintyRadius: 1,
         domain: "ground",
         label: "Infantry formation",
+        classificationBand: "Infantry formation",
         strengthBand: "light",
         lastObservedSegment: 0,
         ageSegments: 0,
@@ -348,15 +355,40 @@ registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_E
 
   await When("the intelligence overlay marker is painted", () => {});
 
-  await Then("plain-language domain and recency replace physical-looking shorthand", () => {
+  await Then("a bounded sprite token replaces all map-covering enemy text while preserving useful selection detail", () => {
     const marker = svg.querySelector<SVGGElement>('.campaign-intel-contact[data-contact-id="contact-1"]');
-    const visibleText = marker?.textContent ?? "";
+    const visibleText = Array.from(marker?.querySelectorAll("text") ?? []).map((node) => node.textContent ?? "").join("");
     const accessibleName = marker?.getAttribute("aria-label") ?? "";
+    const token = marker?.querySelector<SVGCircleElement>("circle:not(.campaign-intel-uncertainty)") ?? null;
+    const uncertainty = marker?.querySelector<SVGCircleElement>(".campaign-intel-uncertainty") ?? null;
+    const sprite = marker?.querySelector<SVGImageElement>(".campaign-intel-contact__sprite") ?? null;
+    const contactCenter = renderer.getHexCenter("1,1");
+    const neighborCenter = renderer.getHexCenter("0,1");
+    const centerSpacing = contactCenter && neighborCenter
+      ? Math.hypot(contactCenter.cx - neighborCenter.cx, contactCenter.cy - neighborCenter.cy)
+      : 0;
+    let clickedContact = "";
+    renderer.onHexClick((_hexKey, _tile, contactId) => { clickedContact = contactId ?? ""; });
+    sprite?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    const keyboardActivation = new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    marker?.dispatchEvent(keyboardActivation);
     if (!marker
-      || !visibleText.includes("ENEMY")
-      || !visibleText.includes("Ground contact · current intel")
-      || /\bGRD\b|\bNOW\b/.test(visibleText)
-      || !accessibleName.includes("Infantry formation, identified, medium confidence, light strength, current observation")) {
+      || visibleText.trim() !== ""
+      || /ENEMY|Ground contact|\bGRD\b|\bNOW\b/i.test(visibleText)
+      || marker.getAttribute("role") !== "button"
+      || marker.getAttribute("tabindex") !== "0"
+      || !token || !sprite || !uncertainty
+      || centerSpacing <= 0
+      || Number(token.getAttribute("r")) >= centerSpacing * 0.45
+      || token.getAttribute("cx") !== String(contactCenter?.cx)
+      || token.getAttribute("cy") !== String(contactCenter?.cy)
+      || uncertainty.getAttribute("pointer-events") !== "none"
+      || uncertainty.getAttribute("aria-hidden") !== "true"
+      || clickedContact !== "contact-1"
+      || !keyboardActivation.defaultPrevented
+      || !accessibleName.includes("Infantry formation, identified, medium confidence, light strength, current observation")
+      || !accessibleName.includes("within 1 hex")
+      || !accessibleName.includes("Select to review")) {
       throw new Error(`Enemy contact presentation remained ambiguous: '${visibleText}' / '${accessibleName}'.`);
     }
   });

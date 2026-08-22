@@ -136,6 +136,19 @@ function assertLegacyScenarioCanSplit(scenario: CampaignScenarioData): void {
       { path: "scenario.hexScaleKm", value: String(scale) }
     );
   }
+  scenario.tiles.forEach((tile, index) => {
+    const col = tile.hex.q;
+    const row = tile.hex.r + Math.floor(tile.hex.q / 2);
+    if (!Number.isInteger(tile.hex.q) || !Number.isInteger(tile.hex.r)
+      || col < 0 || col >= scenario.dimensions.cols
+      || row < 0 || row >= scenario.dimensions.rows) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign tile ${index} falls outside the declared ${scenario.dimensions.cols}x${scenario.dimensions.rows} operational grid.`,
+        { path: `scenario.tiles.${index}.hex`, q: tile.hex.q, r: tile.hex.r, col, row }
+      );
+    }
+  });
 }
 
 /**

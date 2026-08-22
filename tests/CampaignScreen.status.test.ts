@@ -2,7 +2,7 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import campaignScenarioData from "../src/data/campaign01.json";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
-import { CampaignScreen } from "../src/ui/screens/CampaignScreen";
+import { CampaignScreen, resolveCampaignCounterattackStageLabel } from "../src/ui/screens/CampaignScreen";
 import { ensureCampaignState } from "../src/state/CampaignState";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 
@@ -14,6 +14,27 @@ function mountCampaignScreenRoot(): HTMLElement {
   }
   return root;
 }
+
+registerTest("CAMPAIGNSCREEN_COUNTERATTACK_STAGE_STOPS_ADVERTISING_A_RESOLVED_THREAT", async ({ Given, When, Then }) => {
+  let before = "";
+  let active = "";
+  let resolved = "";
+
+  await Given("one authored counterattack cadence with retained terminal ledger history", () => {});
+  await When("the front stage is projected before, during, and after the battle", () => {
+    before = resolveCampaignCounterattackStageLabel({ cadenceSegment: 2, currentSegment: 0, active: false, priorStatus: null, timeLabel: "D+1 · 06:00" }) ?? "";
+    active = resolveCampaignCounterattackStageLabel({ cadenceSegment: 2, currentSegment: 2, active: true, priorStatus: "inBattle", timeLabel: "D+1 · 06:00" }) ?? "";
+    resolved = resolveCampaignCounterattackStageLabel({ cadenceSegment: 2, currentSegment: 3, active: false, priorStatus: "resolved", timeLabel: "D+1 · 06:00" }) ?? "";
+  });
+  await Then("timing, mandatory command, and completion remain distinct and truthful", () => {
+    if (!before.includes("expected in 6 hours")
+      || active !== "Enemy counterattack requires command now."
+      || resolved !== "Enemy counterattack resolved."
+      || /requires command|next campaign resolution/i.test(resolved)) {
+      throw new Error(`Counterattack stage copy is stale: before='${before}' active='${active}' resolved='${resolved}'.`);
+    }
+  });
+});
 
 registerTest("CAMPAIGNSCREEN_RENDERS_HEADQUARTERS_STATUS_HANDOFF", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
@@ -128,7 +149,7 @@ registerTest("CAMPAIGNSCREEN_EDITOR_REPORTS_INVALID_BASE_MOVE_SAFELY", async ({ 
     campaignState.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
     screen = new CampaignScreen({ showScreenById() {} } as any, {} as any);
     screen.initialize();
-    (screen as any).selectedHexKey = "20,28";
+    (screen as any).selectedHexKey = "6,20";
     selectionInfo = document.getElementById("campaignSelectionInfo");
   });
 
@@ -138,7 +159,7 @@ registerTest("CAMPAIGNSCREEN_EDITOR_REPORTS_INVALID_BASE_MOVE_SAFELY", async ({ 
 
   await Then("the campaign remains intact and the editor explains the rejected move without a page error", async () => {
     const scenario = campaignState.getScenario();
-    if (!scenario?.tiles.some((tile) => tile.hex.q === 20 && tile.hex.r === 18)) {
+    if (!scenario?.tiles.some((tile) => tile.hex.q === 6 && tile.hex.r === 17)) {
       throw new Error("Rejected base move removed the objective-bearing campaign tile.");
     }
     if (selectionInfo?.getAttribute("data-status") !== "warning"
@@ -208,23 +229,25 @@ registerTest("CAMPAIGNSCREEN_FRONT_COPY_USES_THE_LAUNCH_INTELLIGENCE_ASSESSMENT"
   await When("the front card assesses the same exact edge used by tactical launch", () => {
     const prepared = campaignState.prepareCampaignFrontEngagement({
       engagementId: "front-copy-assessment",
-      frontKey: "normandy_coast",
+      frontKey: "omaha_gold",
       attacker: "Player",
-      requestedTargetHexKey: "28,38"
+      requestedTargetHexKey: "5,20"
     });
     if (!prepared.ok) throw new Error(prepared.reason);
     const briefing = prepared.engagement.context.intelligenceBriefing;
     if (!briefing) throw new Error("The shipped launch did not provide a Player-safe briefing.");
-    expected = `${briefing.contacts.length} assessed opposing contact${briefing.contacts.length === 1 ? "" : "s"} · ${briefing.resistanceBand} resistance · ${briefing.confidenceBand} confidence.`;
-    assessment = (screen as any).getPlayerFrontAssessment("normandy_coast");
+    expected = briefing.resistanceBand === "unknown"
+      ? `${briefing.contacts.length} assessed contact area${briefing.contacts.length === 1 ? "" : "s"} · strength and formation count unknown · ${briefing.confidenceBand} confidence.`
+      : `${briefing.contacts.length} assessed opposing contact${briefing.contacts.length === 1 ? "" : "s"} · ${briefing.resistanceBand} resistance · ${briefing.confidenceBand} confidence.`;
+    assessment = (screen as any).getPlayerFrontAssessment("omaha_gold");
   });
 
   await Then("front copy and launch availability agree without claiming there is no contact", () => {
     if (!assessment.canLaunch || assessment.pressureLabel !== expected || /no assessed hostile contact/i.test(assessment.pressureLabel)) {
       throw new Error(`Front assessment diverged from launch briefing: ${JSON.stringify(assessment)} expected ${expected}`);
     }
-    if (assessment.target?.targetHexKey !== "28,38"
-      || assessment.target?.missionLabel !== "Port Assault"
+    if (assessment.target?.targetHexKey !== "5,20"
+      || assessment.target?.missionLabel !== "Fortified Assault"
       || assessment.target?.roleLabel !== "Player attacks · Bot defends") {
       throw new Error(`Front assessment dropped campaign-to-tactical identity: ${JSON.stringify(assessment.target)}.`);
     }
@@ -441,7 +464,7 @@ registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Gi
     (screen as any).intelOperationType = null;
     (screen as any).intelTargetContactId = null;
     (screen as any).editingIntelOrderId = null;
-    (screen as any).selectedHexKey = "27,37";
+    (screen as any).selectedHexKey = "2,20";
     (screen as any).campaignState = {
       getIntelOperationRules: () => rules,
       getCampaignDraftReservations: () => ({ intelligenceCapacity: 0 }),
@@ -543,6 +566,80 @@ registerTest("CAMPAIGNSCREEN_PRODUCTION_ALLOCATION_IS_ONE_COMPACT_DECISION", asy
       || body.querySelector(".production-source-row")
       || !body.textContent?.includes("Set the four allocations to 100% total.")) {
       throw new Error(`Production planning remained verbose or incomplete: ${body.textContent}`);
+    }
+  });
+});
+
+registerTest("CAMPAIGNSCREEN_ORDER_CANCELLATION_ESCAPE_RESTORES_THE_EXACT_TRIGGER", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  const order = {
+    id: "order-cancel-1",
+    faction: "Player",
+    kind: "production",
+    status: "committed",
+    issuedSegment: 0,
+    earliestStartSegment: 1,
+    targetHexKeys: [],
+    formationIds: [],
+    dependencies: [],
+    reservationIds: [],
+    acknowledgementKeys: [],
+    executionRefId: null,
+    validation: { valid: true, issues: [] },
+    payload: {
+      allocation: { supplies: 25, fuel: 25, ammo: 25, manpower: 25 },
+      effectiveSegment: 8
+    }
+  };
+  let trigger: HTMLButtonElement;
+  let layer: HTMLElement;
+
+  await Given("a committed order whose cancellation review was opened from its Cancel control", () => {
+    document.body.innerHTML = `
+      <main id="campaignScreen">
+        <article data-order-id="order-cancel-1">
+          <button type="button" data-order-action="cancel">Cancel</button>
+        </article>
+      </main>
+      <div id="battlePopupLayer" class="hidden" aria-hidden="true">
+        <section class="battle-popup">
+          <h2 data-popup-title></h2>
+          <div data-popup-body></div>
+          <button id="battlePopupClose" type="button">Close</button>
+        </section>
+      </div>`;
+    trigger = document.querySelector<HTMLButtonElement>("[data-order-action='cancel']")!;
+    layer = document.getElementById("battlePopupLayer")!;
+    (screen as any).element = document.getElementById("campaignScreen");
+    (screen as any).campaignPopupInvoker = null;
+    (screen as any).campaignState = {
+      getCampaignOrders: () => [order],
+      getCampaignOrderReservations: () => [],
+      previewCampaignOrderCancellation: () => ({
+        canCancel: true,
+        releasedReservations: [],
+        sunkCostSummary: "No sunk cost.",
+        delaySummary: "No delay.",
+        exposureSummary: "No additional exposure.",
+        reasonCode: null,
+        reason: "The order can be cancelled before execution.",
+        correctiveAction: null
+      }),
+      segmentToTimeDisplay: () => "D+1 · 7 June 1944, 03:00–06:00"
+    };
+    trigger.focus();
+    (screen as any).openOrderCancellationPreview(order.id);
+  });
+
+  await When("Escape is pressed without confirming cancellation", () => {
+    layer.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  });
+
+  await Then("the review closes and focus returns to the exact Cancel control", () => {
+    if (!layer.classList.contains("hidden")
+      || layer.getAttribute("aria-hidden") !== "true"
+      || document.activeElement !== trigger) {
+      throw new Error("Escape did not close the cancellation review and restore the invoking Cancel control.");
     }
   });
 });
