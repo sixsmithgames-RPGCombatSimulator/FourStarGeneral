@@ -36,7 +36,7 @@ import { CampaignSaveRepository } from "../src/game/campaign/persistence/Campaig
 import {
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
-  CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
+  CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
   migrateCampaignRuntimeContent
 } from "../src/game/campaign/persistence/CampaignContentMigration";
 import {
@@ -351,7 +351,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_V1_DETERMINISTICALLY", async ({ Given, When
   });
 });
 
-registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_WHILE_ENABLING_THE_CAEN_COUNTERATTACK", async ({ Given, When, Then }) => {
+registerTest("CAMPAIGN_SAVE_REJECTS_PROGRESS_FROM_THE_UNREGISTERED_DPLUS1_MAP", async ({ Given, When, Then }) => {
   const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
   const definition = splitLegacyCampaignScenario(scenario);
   const state = new CampaignState({ legacyStorage: null });
@@ -360,27 +360,25 @@ registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_WHILE_ENABLING_THE_CAEN_COUNTERAT
   if (!runtime) throw new Error("Counterattack migration fixture did not create a runtime.");
   const prior = {
     ...structuredClone(runtime),
-    scenarioContentHash: CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
+    scenarioContentHash: CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
   };
   prior.currentSegment = 12;
   prior.revision = 12;
-  const caen = prior.compatibility.initialFronts.find((front) => front.key === "caen_airborne_flank");
-  if (!caen) throw new Error("Counterattack migration fixture lost the Caen front.");
-  caen.modifiers = caen.modifiers?.filter((modifier) => !modifier.startsWith("counterattack@"));
-  let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
+  let failure: CampaignSaveError | null = null;
 
-  await Given("a progressed save from the immediately preceding D+1 build", () => {});
-  await When("the executable counterattack cadence is added without changing campaign geometry", () => {
-    migrated = migrateCampaignRuntimeContent(prior, definition);
+  await Given("a progressed save from the unregistered D+1 map", () => {});
+  await When("the registered shoreline build refuses to guess its locations", () => {
+    try {
+      migrateCampaignRuntimeContent(prior, definition);
+    } catch (error) {
+      failure = error instanceof CampaignSaveError ? error : null;
+    }
   });
-  await Then("progress is retained and only the current authored front modifier and content identity are reconciled", () => {
-    const repaired = migrated.runtime.compatibility.initialFronts.find((front) => front.key === "caen_airborne_flank");
-    if (!migrated.migrated
-      || migrated.runtime.currentSegment !== 12
-      || migrated.runtime.revision !== 12
-      || migrated.runtime.scenarioContentHash !== CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH
-      || !repaired?.modifiers?.includes("counterattack@2")) {
-      throw new Error("The compatible counterattack migration reset progress or omitted its authored cadence.");
+  await Then("the save is preserved behind explicit recovery guidance", () => {
+    if (failure?.code !== "CONTENT_MISMATCH"
+      || !failure.message.includes("retired, unregistered campaign geography")
+      || !failure.message.includes("preserved")) {
+      throw new Error(`Progressed unregistered content did not fail closed: ${failure?.message ?? "none"}.`);
     }
   });
 });
@@ -400,7 +398,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
 
   await Given("an unplayed save carrying the exact retired production content identity", () => {
     const currentHash = computeCampaignContentHash(definition);
-    if (currentHash !== CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH
+    if (currentHash !== CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
       || retiredOpening.currentSegment !== 0
       || retiredOpening.revision !== 0) {
       throw new Error(`Normandy content identity or pristine boundary drifted: ${currentHash}.`);
@@ -415,12 +413,12 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
     const result = migrated.runtime;
     if (!migrated.migrated
       || result.campaignId !== runtime.campaignId
-      || result.scenarioContentHash !== CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH
+      || result.scenarioContentHash !== CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
       || result.currentSegment !== 0
       || result.revision !== 0
-      || result.tiles["2,19"]?.tileKey !== "utahBeach"
-      || result.tiles["4,18"]?.tileKey !== "omahaBeach"
-      || result.tiles["10,15"]?.tileKey !== "swordBeach"
+      || result.tiles["22,13"]?.tileKey !== "utahBeach"
+      || result.tiles["24,11"]?.tileKey !== "omahaBeach"
+      || result.tiles["30,7"]?.tileKey !== "swordBeach"
       || result.compatibility.initialFronts.length !== 4
       || !result.knowledgeByFaction.Player
       || !result.knowledgeByFaction.Bot) {
@@ -454,7 +452,7 @@ registerTest("CAMPAIGN_SAVE_PRESERVES_BUT_REJECTS_PROGRESS_ON_RETIRED_GEOGRAPHY"
   });
   await Then("the save fails closed with explicit recovery guidance instead of silently changing history", () => {
     if (failure?.code !== "CONTENT_MISMATCH"
-      || !failure.message.includes("progress on the retired out-of-bounds campaign geography")
+      || !failure.message.includes("progress on retired, unregistered campaign geography")
       || !failure.message.includes("preserved")
       || !failure.message.includes("compatible earlier build")) {
       throw new Error(`Progressed retired content did not fail closed with recovery guidance: ${failure?.message ?? "none"}.`);

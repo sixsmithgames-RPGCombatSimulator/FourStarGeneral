@@ -431,6 +431,12 @@ export interface CampaignScenarioData {
   background: {
     imageUrl: string;
     attribution?: string;
+    /**
+     * Registered campaign-grid projection. `flatTopOddQ` matches the campaign's axial/odd-q
+     * neighbor math while covering rectangular background art without a skewed overscan lattice.
+     * Missing values preserve the legacy pointy-top renderer for older and test scenarios.
+     */
+    gridLayout?: "flatTopOddQ";
     /** Describes how the background illustration should scale within the SVG view box. Defaults to "cover". */
     stretchMode?: "cover" | "contain" | "stretch";
     /**

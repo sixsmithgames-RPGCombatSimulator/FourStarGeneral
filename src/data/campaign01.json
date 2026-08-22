@@ -4,43 +4,105 @@
   "description": "D+1, 7 June 1944. The five Allied beachheads are ashore from Utah in the west to Sword in the east, airborne forces hold both flanks, and German formations are organizing local counterattacks. Consolidate the lodgment, secure Cherbourg, and take Caen.",
   "historicalCalendar": { "startDateIso": "1944-06-07", "operationDayOffset": 1 },
   "hexScaleKm": 10,
-  "dimensions": { "cols": 50, "rows": 35 },
+  "dimensions": { "cols": 58, "rows": 50 },
   "mapExtents": {
     "description": "Northwestern Europe with the Normandy assault area plotted on the French coast. Coordinates use odd-q offset display over an axial game grid; each hex represents about 10 km.",
     "corners": {
       "nw": { "q": 0, "r": 0, "label": "Southern England" },
-      "ne": { "q": 49, "r": 0, "label": "North Sea approaches" },
-      "sw": { "q": 0, "r": 34, "label": "Cotentin and western France" },
-      "se": { "q": 49, "r": 34, "label": "Northern France" }
+      "ne": { "q": 57, "r": -28, "label": "North Sea approaches" },
+      "sw": { "q": 0, "r": 49, "label": "Brittany and western France" },
+      "se": { "q": 57, "r": 21, "label": "Northern France" }
     },
-    "zones": [
-      { "rMin": 0, "rMax": 15, "terrain": "land", "label": "Southern England" },
-      { "rMin": 16, "rMax": 19, "terrain": "water", "label": "English Channel" },
-      { "rMin": 20, "rMax": 34, "terrain": "land", "label": "Normandy" }
-    ],
+    "zones": [],
     "waterHexes": [
-      "0,16", "0,17", "0,18", "0,19", "1,16", "1,17", "1,18", "1,19",
-      "2,15", "2,16", "2,17", "2,18", "3,15", "3,16", "3,17", "3,18",
-      "4,14", "4,15", "4,16", "4,17", "5,14", "5,15", "5,16", "5,17",
-      "6,13", "6,14", "6,15", "6,16", "7,13", "7,14", "7,15", "7,16",
-      "8,12", "8,13", "8,14", "8,15", "9,12", "9,13", "9,14", "9,15",
-      "10,11", "10,12", "10,13", "10,14", "11,11", "11,12", "11,13", "11,14",
-      "12,10", "12,11", "12,12", "12,13"
+      "0,14", "0,15", "0,16", "0,17", "0,18", "0,19", "0,20", "0,21", "0,22", "0,23",
+      "0,24", "0,25", "0,26", "0,27", "0,28", "0,29", "0,30", "0,31", "0,32", "0,33",
+      "0,34", "1,14", "1,15", "1,16", "1,17", "1,18", "1,19", "1,20", "1,21", "1,22",
+      "1,23", "1,24", "1,25", "1,26", "1,27", "1,28", "1,29", "1,30", "1,31", "1,32",
+      "1,33", "2,12", "2,13", "2,14", "2,15", "2,16", "2,17", "2,18", "2,19", "2,20",
+      "2,21", "2,22", "2,26", "2,27", "2,28", "2,29", "2,30", "2,31", "2,32", "2,33",
+      "2,34", "3,11", "3,12", "3,13", "3,14", "3,15", "3,16", "3,17", "3,18", "3,19",
+      "3,20", "3,21", "3,27", "3,28", "3,29", "3,30", "3,31", "3,32", "3,33", "4,11",
+      "4,12", "4,13", "4,14", "4,15", "4,16", "4,17", "4,18", "4,19", "4,20", "4,21",
+      "4,33", "5,10", "5,11", "5,12", "5,13", "5,14", "5,15", "5,16", "5,17", "5,18",
+      "5,19", "5,20", "5,21", "6,8", "6,9", "6,11", "6,12", "6,13", "6,14", "6,15",
+      "6,16", "6,17", "6,18", "6,19", "6,20", "7,8", "7,11", "7,12", "7,13", "7,14",
+      "7,15", "7,16", "7,17", "7,18", "7,19", "7,20", "7,21", "7,22", "8,8", "8,10",
+      "8,11", "8,12", "8,13", "8,14", "8,15", "8,16", "8,17", "8,18", "8,19", "8,20",
+      "8,21", "8,22", "8,23", "9,8", "9,9", "9,10", "9,11", "9,12", "9,13", "9,14",
+      "9,15", "9,16", "9,17", "9,18", "9,19", "9,20", "9,21", "9,22", "10,7", "10,8",
+      "10,9", "10,10", "10,11", "10,12", "10,13", "10,14", "10,15", "10,16", "10,17", "10,18",
+      "10,19", "10,20", "10,21", "10,22", "11,8", "11,9", "11,10", "11,11", "11,12", "11,13",
+      "11,14", "11,15", "11,16", "11,17", "11,18", "11,19", "11,20", "11,21", "11,22", "12,7",
+      "12,8", "12,9", "12,10", "12,11", "12,12", "12,13", "12,14", "12,15", "12,16", "12,17",
+      "12,18", "12,19", "12,20", "12,21", "12,22", "13,6", "13,7", "13,8", "13,9", "13,10",
+      "13,11", "13,12", "13,13", "13,14", "13,15", "13,16", "13,17", "13,18", "13,19", "13,20",
+      "13,21", "14,6", "14,7", "14,8", "14,9", "14,10", "14,11", "14,12", "14,13", "14,14",
+      "14,15", "14,16", "14,17", "14,18", "14,19", "14,20", "14,21", "15,5", "15,6", "15,7",
+      "15,8", "15,9", "15,10", "15,11", "15,12", "15,13", "15,14", "15,15", "15,16", "15,17",
+      "15,18", "15,19", "15,20", "16,4", "16,5", "16,6", "16,7", "16,8", "16,9", "16,10",
+      "16,11", "16,12", "16,13", "16,14", "16,15", "16,16", "16,17", "16,18", "16,19", "16,20",
+      "16,21", "17,4", "17,5", "17,6", "17,7", "17,8", "17,9", "17,10", "17,11", "17,12",
+      "17,13", "17,14", "17,15", "17,16", "17,17", "17,18", "17,19", "17,20", "18,4", "18,5",
+      "18,6", "18,7", "18,8", "18,9", "18,10", "18,11", "18,12", "18,13", "18,14", "18,15",
+      "18,16", "18,17", "18,18", "18,19", "19,4", "19,5", "19,6", "19,7", "19,8", "19,9",
+      "19,10", "19,11", "19,12", "19,13", "19,14", "19,15", "19,16", "19,17", "19,18", "20,3",
+      "20,4", "20,5", "20,6", "20,7", "20,8", "20,9", "20,10", "20,11", "20,12", "20,13",
+      "20,14", "20,17", "21,3", "21,4", "21,5", "21,6", "21,7", "21,8", "21,9", "21,10",
+      "21,11", "21,12", "21,13", "21,17", "22,2", "22,3", "22,4", "22,5", "22,6", "22,7",
+      "22,8", "22,9", "22,10", "22,11", "22,12", "22,16", "23,-7", "23,1", "23,2", "23,3",
+      "23,4", "23,5", "23,6", "23,7", "23,8", "23,9", "23,10", "23,11", "24,-8", "24,0",
+      "24,1", "24,2", "24,3", "24,4", "24,5", "24,6", "24,7", "24,8", "24,9", "24,10",
+      "25,-8", "25,-7", "25,-1", "25,0", "25,1", "25,2", "25,3", "25,4", "25,5", "25,6",
+      "25,7", "25,8", "25,9", "25,10", "26,-9", "26,-8", "26,-7", "26,-1", "26,0", "26,1",
+      "26,2", "26,3", "26,4", "26,5", "26,6", "26,7", "26,8", "26,9", "27,-11", "27,-10",
+      "27,-9", "27,-8", "27,-2", "27,-1", "27,0", "27,1", "27,2", "27,3", "27,4", "27,5",
+      "27,6", "27,7", "27,8", "28,-11", "28,-10", "28,-9", "28,-8", "28,-4", "28,-3", "28,-2",
+      "28,-1", "28,0", "28,1", "28,2", "28,3", "28,4", "28,5", "28,6", "28,7", "28,8",
+      "29,-14", "29,-13", "29,-12", "29,-11", "29,-10", "29,-9", "29,-5", "29,-4", "29,-3", "29,-2",
+      "29,-1", "29,0", "29,1", "29,2", "29,3", "29,4", "29,5", "29,6", "29,7", "30,-15",
+      "30,-14", "30,-13", "30,-12", "30,-11", "30,-10", "30,-9", "30,-5", "30,-4", "30,-3", "30,-2",
+      "30,-1", "30,0", "30,1", "30,2", "30,3", "30,4", "30,5", "30,6", "31,-15", "31,-14",
+      "31,-13", "31,-12", "31,-11", "31,-10", "31,-6", "31,-5", "31,-4", "31,-3", "31,-2", "31,-1",
+      "31,0", "31,1", "31,2", "31,3", "31,4", "31,5", "32,-16", "32,-15", "32,-14", "32,-13",
+      "32,-12", "32,-11", "32,-10", "32,-9", "32,-8", "32,-7", "32,-6", "32,-5", "32,-4", "32,-3",
+      "32,-2", "32,-1", "32,0", "32,1", "32,2", "32,3", "33,-16", "33,-15", "33,-14", "33,-13",
+      "33,-12", "33,-11", "33,-10", "33,-9", "33,-8", "33,-7", "33,-6", "33,-5", "33,-4", "33,-3",
+      "34,-17", "34,-16", "34,-15", "34,-14", "34,-13", "34,-12", "34,-11", "34,-10", "34,-9", "34,-8",
+      "34,-7", "34,-6", "35,-17", "35,-16", "35,-15", "35,-14", "35,-13", "35,-12", "35,-11", "35,-10",
+      "35,-9", "35,-8", "35,-7", "36,-18", "36,-17", "36,-16", "36,-15", "36,-14", "36,-13", "36,-12",
+      "36,-11", "36,-10", "36,-9", "36,-8", "37,-18", "37,-17", "37,-16", "37,-15", "37,-14", "37,-13",
+      "37,-12", "37,-11", "37,-10", "37,-9", "37,-8", "38,-19", "38,-18", "38,-17", "38,-16", "38,-15",
+      "38,-14", "38,-13", "38,-12", "38,-11", "38,-10", "38,-9", "39,-19", "39,-18", "39,-17", "39,-16",
+      "39,-15", "39,-14", "39,-13", "39,-12", "39,-11", "39,-10", "40,-20", "40,-19", "40,-18", "40,-17",
+      "40,-16", "40,-15", "40,-14", "40,-13", "40,-12", "40,-11", "41,-20", "41,-19", "41,-18", "41,-17",
+      "41,-16", "41,-15", "41,-14", "41,-13", "41,-12", "41,-11", "42,-21", "42,-20", "42,-19", "42,-18",
+      "42,-17", "42,-16", "42,-15", "42,-14", "42,-13", "42,-12", "43,-21", "43,-20", "43,-19", "43,-18",
+      "43,-17", "43,-16", "43,-15", "43,-14", "43,-13", "44,-22", "44,-21", "44,-20", "44,-19", "44,-18",
+      "44,-17", "44,-16", "44,-15", "44,-14", "45,-22", "45,-21", "45,-20", "45,-19", "45,-18", "45,-17",
+      "45,-16", "45,-15", "46,-23", "46,-22", "46,-21", "46,-20", "46,-19", "46,-18", "46,-17", "46,-16",
+      "47,-23", "47,-22", "47,-21", "47,-20", "47,-19", "47,-18", "47,-17", "48,-24", "48,-23", "48,-22",
+      "48,-21", "48,-20", "48,-19", "48,-18", "48,-17", "49,-24", "49,-23", "49,-22", "49,-21", "49,-20",
+      "49,-19", "49,-18", "50,-25", "50,-24", "50,-23", "50,-22", "50,-21", "50,-19", "51,-25", "51,-24",
+      "51,-23", "51,-22", "51,-19", "52,-26", "52,-25", "52,-24", "52,-22", "52,-19", "53,-26", "53,-25",
+      "53,-23", "53,-20", "54,-27", "54,-25", "54,-23", "54,-21", "55,-25", "55,-23", "55,-21", "56,-25",
+      "56,-23", "57,-25"
     ]
   },
   "background": {
     "imageUrl": "/src/assets/campaign/Campaign Map -- Central Channel.png",
     "attribution": "Stylized Northwestern Europe operational map",
-    "stretchMode": "cover",
-    "nativeWidth": 2500,
-    "nativeHeight": 1750,
+    "gridLayout": "flatTopOddQ",
+    "stretchMode": "contain",
+    "nativeWidth": 1024,
+    "nativeHeight": 1024,
     "nominalWidthKm": 500
   },
   "tilePalette": {
     "southernEnglandAirfields": { "role": "airbase", "factionControl": "Player", "spriteKey": "airbase", "supplyValue": 5, "airSortieCapacity": 20, "intelConfirmed": true, "notes": "Allied tactical air forces operating from southern England." },
     "southCoastStaging": { "role": "logisticsHub", "factionControl": "Player", "spriteKey": "logisticsHub", "supplyValue": 14, "intelConfirmed": true, "notes": "Cross-Channel embarkation, supply, and replacement staging area." },
-    "westernNavalForce": { "role": "taskForce", "factionControl": "Player", "mapLabel": "Western Fleet", "spriteKey": "taskForce", "navalCapacity": 14, "intelConfirmed": true, "notes": "Western Naval Task Force supporting Utah and Omaha from assigned Channel fire-support stations." },
-    "easternNavalForce": { "role": "taskForce", "factionControl": "Player", "mapLabel": "Eastern Fleet", "spriteKey": "taskForce", "navalCapacity": 16, "intelConfirmed": true, "notes": "Eastern Naval Task Force supporting Gold, Juno, and Sword from assigned Channel fire-support stations." },
+    "westernNavalForce": { "role": "taskForce", "factionControl": "Player", "mapLabel": "Western Naval Force", "spriteKey": "taskForce", "navalCapacity": 14, "intelConfirmed": true, "notes": "Western Naval Task Force supporting Utah and Omaha from assigned Channel fire-support stations." },
+    "easternNavalForce": { "role": "taskForce", "factionControl": "Player", "mapLabel": "Eastern Naval Force", "spriteKey": "taskForce", "navalCapacity": 16, "intelConfirmed": true, "notes": "Eastern Naval Task Force supporting Gold, Juno, and Sword from assigned Channel fire-support stations." },
     "utahBeach": { "role": "fortificationLight", "factionControl": "Player", "mapLabel": "Utah", "spriteKey": "fortificationLight", "supplyValue": 4, "intelConfirmed": true, "notes": "Utah Beach lodgment held by the U.S. 4th Infantry Division and VII Corps elements." },
     "omahaBeach": { "role": "fortificationLight", "factionControl": "Player", "mapLabel": "Omaha", "spriteKey": "fortificationLight", "supplyValue": 4, "intelConfirmed": true, "notes": "Omaha Beach lodgment held by the U.S. 1st and 29th Infantry Divisions." },
     "goldBeach": { "role": "fortificationLight", "factionControl": "Player", "mapLabel": "Gold", "spriteKey": "fortificationLight", "supplyValue": 4, "intelConfirmed": true, "notes": "Gold Beach lodgment held by the British 50th Division with 8th Armoured Brigade support." },
@@ -55,121 +117,125 @@
     "caenHub": { "role": "logisticsHub", "factionControl": "Bot", "mapLabel": "Caen", "spriteKey": "logisticsHub", "supplyValue": 10, "intelConfirmed": false, "notes": "Caen road and rail hub, the eastern operational objective of the lodgment." }
   },
   "tiles": [
-    { "tile": "southernEnglandAirfields", "hex": { "q": 4, "r": 8 }, "forces": [
+    { "tile": "southernEnglandAirfields", "hex": { "q": 15, "r": 1 }, "forces": [
       { "unitType": "Fighter", "count": 12, "label": "Allied tactical fighter groups" },
       { "unitType": "Bomber", "count": 8, "label": "Allied medium bomber groups" }
     ] },
-    { "tile": "southCoastStaging", "hex": { "q": 4, "r": 12 }, "forces": [
+    { "tile": "southCoastStaging", "hex": { "q": 24, "r": -2 }, "forces": [
       { "unitType": "Supply_Truck", "count": 12, "label": "Cross-Channel supply columns" },
       { "unitType": "Infantry_42", "count": 6, "label": "Follow-on infantry battalions" }
     ] },
-    { "tile": "westernNavalForce", "hex": { "q": 3, "r": 17 }, "rotation": 90 },
-    { "tile": "easternNavalForce", "hex": { "q": 8, "r": 14 }, "rotation": 90 },
-    { "tile": "usAirborneLodgment", "hex": { "q": 1, "r": 21 }, "forces": [
+    { "tile": "westernNavalForce", "hex": { "q": 22, "r": 9 }, "rotation": 90 },
+    { "tile": "easternNavalForce", "hex": { "q": 26, "r": 5 }, "rotation": 90 },
+    { "tile": "usAirborneLodgment", "hex": { "q": 21, "r": 16 }, "forces": [
       { "unitType": "Paratrooper", "count": 6, "label": "U.S. 82nd Airborne Division groups" },
       { "unitType": "Paratrooper", "count": 6, "label": "U.S. 101st Airborne Division groups" }
     ] },
-    { "tile": "utahBeach", "hex": { "q": 2, "r": 19 }, "forces": [
+    { "tile": "utahBeach", "hex": { "q": 22, "r": 13 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "U.S. 4th Infantry Division battalions" },
       { "unitType": "Engineer", "count": 2, "label": "VII Corps engineer groups" }
     ] },
-    { "tile": "omahaBeach", "hex": { "q": 4, "r": 18 }, "forces": [
+    { "tile": "omahaBeach", "hex": { "q": 24, "r": 11 }, "forces": [
       { "unitType": "Infantry_42", "count": 7, "label": "U.S. 1st Infantry Division battalions" },
       { "unitType": "Infantry_42", "count": 5, "label": "U.S. 29th Infantry Division battalions" },
       { "unitType": "Engineer", "count": 2, "label": "V Corps engineer groups" }
     ] },
-    { "tile": "goldBeach", "hex": { "q": 6, "r": 17 }, "forces": [
+    { "tile": "goldBeach", "hex": { "q": 26, "r": 10 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "British 50th Infantry Division battalions" },
       { "unitType": "Medium_Tank", "count": 3, "label": "British 8th Armoured Brigade regiments" }
     ] },
-    { "tile": "junoBeach", "hex": { "q": 8, "r": 16 }, "forces": [
+    { "tile": "junoBeach", "hex": { "q": 28, "r": 9 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "3rd Canadian Infantry Division battalions" },
       { "unitType": "Medium_Tank", "count": 3, "label": "2nd Canadian Armoured Brigade regiments" }
     ] },
-    { "tile": "swordBeach", "hex": { "q": 10, "r": 15 }, "forces": [
+    { "tile": "swordBeach", "hex": { "q": 30, "r": 7 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "British 3rd Infantry Division battalions" },
       { "unitType": "Medium_Tank", "count": 3, "label": "British 27th Armoured Brigade regiments" }
     ] },
-    { "tile": "britishAirborneLodgment", "hex": { "q": 11, "r": 15 }, "forces": [
+    { "tile": "britishAirborneLodgment", "hex": { "q": 31, "r": 7 }, "forces": [
       { "unitType": "Paratrooper", "count": 6, "label": "British 6th Airborne Division groups" }
     ] },
-    { "tile": "germanCoastalDefense", "hex": { "q": 2, "r": 20 }, "forces": [
+    { "tile": "germanCoastalDefense", "hex": { "q": 22, "r": 14 }, "forces": [
       { "unitType": "Infantry_42", "count": 6, "label": "709th Infantry Division coastal battalions" },
       { "unitType": "Artillery_105mm", "count": 2, "label": "Utah coastal artillery batteries" }
     ] },
-    { "tile": "germanFieldPosition", "hex": { "q": 1, "r": 22 }, "forces": [
+    { "tile": "germanFieldPosition", "hex": { "q": 21, "r": 15 }, "forces": [
       { "unitType": "Infantry_Elite", "count": 6, "label": "91st Air Landing Division battalions" }
     ] },
-    { "tile": "germanFieldPosition", "hex": { "q": 2, "r": 21 }, "forces": [
+    { "tile": "germanFieldPosition", "hex": { "q": 22, "r": 15 }, "forces": [
       { "unitType": "Light_Tank", "count": 2, "label": "100th Panzer Training Battalion mixed training companies" }
     ] },
-    { "tile": "germanFieldPosition", "hex": { "q": 1, "r": 23 }, "forces": [
+    { "tile": "germanFieldPosition", "hex": { "q": 20, "r": 18 }, "forces": [
       { "unitType": "Paratrooper", "count": 3, "label": "6th Fallschirmjaeger Regiment battalions" }
     ] },
-    { "tile": "germanFieldPosition", "hex": { "q": 0, "r": 21 }, "forces": [
+    { "tile": "germanFieldPosition", "hex": { "q": 20, "r": 16 }, "forces": [
       { "unitType": "Infantry_42", "count": 4, "label": "Cherbourg approach security battalions" },
       { "unitType": "Artillery_105mm", "count": 1, "label": "Cotentin field battery" }
     ] },
-    { "tile": "cherbourgPort", "hex": { "q": 0, "r": 20 }, "forces": [
+    { "tile": "cherbourgPort", "hex": { "q": 20, "r": 15 }, "forces": [
       { "unitType": "Infantry_42", "count": 5, "label": "Cherbourg fortress battalions" },
       { "unitType": "Artillery_155mm", "count": 2, "label": "Cherbourg fortress artillery" }
     ] },
-    { "tile": "germanStrongpoint", "hex": { "q": 5, "r": 18 }, "forces": [
+    { "tile": "germanStrongpoint", "hex": { "q": 24, "r": 12 }, "forces": [
       { "unitType": "Infantry_42", "count": 9, "label": "352nd Infantry Division battalions" },
       { "unitType": "Artillery_105mm", "count": 3, "label": "352nd divisional artillery batteries" }
     ] },
-    { "tile": "germanStrongpoint", "hex": { "q": 9, "r": 16 }, "forces": [
-      { "unitType": "Infantry_42", "count": 7, "label": "716th Infantry Division battalions" },
-      { "unitType": "Artillery_105mm", "count": 2, "label": "716th coastal artillery batteries" }
+    { "tile": "germanStrongpoint", "hex": { "q": 27, "r": 10 }, "forces": [
+      { "unitType": "Infantry_42", "count": 4, "label": "716th Infantry Division western battalions" },
+      { "unitType": "Artillery_105mm", "count": 1, "label": "716th western coastal artillery battery" }
     ] },
-    { "tile": "germanFieldPosition", "hex": { "q": 11, "r": 16 }, "forces": [
+    { "tile": "germanStrongpoint", "hex": { "q": 29, "r": 8 }, "forces": [
+      { "unitType": "Infantry_42", "count": 3, "label": "716th Infantry Division eastern battalions" },
+      { "unitType": "Artillery_105mm", "count": 1, "label": "716th eastern coastal artillery battery" }
+    ] },
+    { "tile": "germanFieldPosition", "hex": { "q": 31, "r": 8 }, "forces": [
       { "unitType": "Medium_Tank", "count": 6, "label": "21st Panzer Division armoured groups" },
       { "unitType": "Infantry_Elite", "count": 4, "label": "21st Panzergrenadier battalions" }
     ] },
-    { "tile": "caenHub", "hex": { "q": 11, "r": 17 }, "forces": [
+    { "tile": "caenHub", "hex": { "q": 31, "r": 10 }, "forces": [
       { "unitType": "Infantry_42", "count": 4, "label": "Caen defense battalions" },
       { "unitType": "Supply_Truck", "count": 3, "label": "Caen supply columns" }
     ] },
-    { "tile": "germanFieldPosition", "hex": { "q": 7, "r": 21 }, "forces": [
+    { "tile": "germanFieldPosition", "hex": { "q": 28, "r": 13 }, "forces": [
       { "unitType": "Medium_Tank", "count": 3, "label": "Panzer Lehr Division assembling armoured groups" },
       { "unitType": "Infantry_42", "count": 4, "label": "Panzer Lehr Division assembling panzergrenadier battalions" }
     ] },
-    { "tile": "germanFieldPosition", "hex": { "q": 9, "r": 20 }, "forces": [
+    { "tile": "germanFieldPosition", "hex": { "q": 32, "r": 11 }, "forces": [
       { "unitType": "Medium_Tank", "count": 3, "label": "12th SS Panzer Division arriving armoured groups" },
       { "unitType": "Infantry_42", "count": 4, "label": "12th SS Panzer Division arriving panzergrenadier battalions" }
     ] }
   ],
   "fronts": [
-    { "key": "utah_cotentin", "label": "Utah and Cotentin Airborne Sector", "hexKeys": ["2,20", "1,21"], "edges": [
-      { "friendlyHexKey": "1,21", "opposingHexKey": "1,22" },
-      { "friendlyHexKey": "1,21", "opposingHexKey": "0,21" },
-      { "friendlyHexKey": "1,21", "opposingHexKey": "2,21" },
-      { "friendlyHexKey": "2,20", "opposingHexKey": "2,21" }
+    { "key": "utah_cotentin", "label": "Utah and Cotentin Airborne Sector", "hexKeys": ["22,24", "21,26"], "edges": [
+      { "friendlyHexKey": "21,26", "opposingHexKey": "21,25" },
+      { "friendlyHexKey": "21,26", "opposingHexKey": "20,26" },
+      { "friendlyHexKey": "21,26", "opposingHexKey": "22,26" },
+      { "friendlyHexKey": "22,24", "opposingHexKey": "22,25" }
     ], "initiative": "Player", "modifiers": ["airborne", "navalSupport"] },
-    { "key": "omaha_gold", "label": "Omaha-Gold Sector", "hexKeys": ["4,20", "6,20"], "edges": [
-      { "friendlyHexKey": "4,20", "opposingHexKey": "5,20" },
-      { "friendlyHexKey": "6,20", "opposingHexKey": "5,20" }
+    { "key": "omaha_gold", "label": "Omaha-Gold Sector", "hexKeys": ["24,23", "26,23"], "edges": [
+      { "friendlyHexKey": "24,23", "opposingHexKey": "24,24" },
+      { "friendlyHexKey": "26,23", "opposingHexKey": "27,23" }
     ], "initiative": "Player", "modifiers": ["fortified", "navalSupport"] },
-    { "key": "juno_sword", "label": "Juno-Sword Sector", "hexKeys": ["8,20", "10,20"], "edges": [
-      { "friendlyHexKey": "8,20", "opposingHexKey": "9,20" },
-      { "friendlyHexKey": "10,20", "opposingHexKey": "9,20" }
+    { "key": "juno_sword", "label": "Juno-Sword Sector", "hexKeys": ["28,23", "30,22"], "edges": [
+      { "friendlyHexKey": "28,23", "opposingHexKey": "27,23" },
+      { "friendlyHexKey": "30,22", "opposingHexKey": "29,22" }
     ], "initiative": "Player", "modifiers": ["fortified", "navalSupport"] },
-    { "key": "caen_airborne_flank", "label": "Caen-Orne Counterattack Sector", "hexKeys": ["11,21"], "edges": [
-      { "friendlyHexKey": "11,21", "opposingHexKey": "11,20" }
+    { "key": "caen_airborne_flank", "label": "Caen-Orne Counterattack Sector", "hexKeys": ["31,22"], "edges": [
+      { "friendlyHexKey": "31,22", "opposingHexKey": "31,23" }
     ], "initiative": "Bot", "modifiers": ["armoured", "airborne", "counterattack@2"] }
   ],
   "objectives": [
     {
       "key": "hold_lodgment", "label": "Hold the Normandy Lodgment", "description": "Keep Utah, Omaha, Gold, Juno, and Sword under Allied control while the beach exits and follow-on routes are organized.",
-      "hex": { "q": 6, "r": 17 }, "owner": "Player", "category": "primary", "visibility": "briefed", "phaseKey": "lodgment", "completionMode": "all",
+      "hex": { "q": 26, "r": 10 }, "owner": "Player", "category": "primary", "visibility": "briefed", "phaseKey": "lodgment", "completionMode": "all",
       "conditions": [
-        { "kind": "controlHex", "hex": { "q": 2, "r": 19 }, "faction": "Player", "holdSegments": 2 },
-        { "kind": "controlHex", "hex": { "q": 4, "r": 18 }, "faction": "Player", "holdSegments": 2 },
-        { "kind": "controlHex", "hex": { "q": 6, "r": 17 }, "faction": "Player", "holdSegments": 2 },
-        { "kind": "controlHex", "hex": { "q": 8, "r": 16 }, "faction": "Player", "holdSegments": 2 },
-        { "kind": "controlHex", "hex": { "q": 10, "r": 15 }, "faction": "Player", "holdSegments": 2 },
-        { "kind": "controlHex", "hex": { "q": 1, "r": 21 }, "faction": "Player", "holdSegments": 2 },
-        { "kind": "controlHex", "hex": { "q": 11, "r": 15 }, "faction": "Player", "holdSegments": 2 }
+        { "kind": "controlHex", "hex": { "q": 22, "r": 13 }, "faction": "Player", "holdSegments": 2 },
+        { "kind": "controlHex", "hex": { "q": 24, "r": 11 }, "faction": "Player", "holdSegments": 2 },
+        { "kind": "controlHex", "hex": { "q": 26, "r": 10 }, "faction": "Player", "holdSegments": 2 },
+        { "kind": "controlHex", "hex": { "q": 28, "r": 9 }, "faction": "Player", "holdSegments": 2 },
+        { "kind": "controlHex", "hex": { "q": 30, "r": 7 }, "faction": "Player", "holdSegments": 2 },
+        { "kind": "controlHex", "hex": { "q": 21, "r": 16 }, "faction": "Player", "holdSegments": 2 },
+        { "kind": "controlHex", "hex": { "q": 31, "r": 7 }, "faction": "Player", "holdSegments": 2 }
       ],
       "score": 100, "rewards": ["beachSupplyNetwork", "followOnForces"], "rewardEffects": [
         { "kind": "resource", "resource": "supplies", "amount": 15000, "label": "The five beach supply routes are coordinated: +15,000 supply." },
@@ -178,7 +244,7 @@
     },
     {
       "key": "capture_cherbourg", "label": "Secure Cherbourg", "description": "Advance through the Cotentin and capture Cherbourg so heavy supply can move through a deep-water port.",
-      "hex": { "q": 0, "r": 20 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "expansion", "requiresObjectives": ["hold_lodgment"],
+      "hex": { "q": 20, "r": 15 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "expansion", "requiresObjectives": ["hold_lodgment"],
       "conditions": [{ "kind": "controlHex", "faction": "Player", "holdSegments": 1, "minimumInfrastructureEffectiveness": 0.25 }],
       "score": 125, "rewards": ["deepWaterPort", "supplyBonus"], "rewardEffects": [
         { "kind": "resource", "resource": "supplies", "amount": 25000, "label": "Cherbourg unloading capacity established: +25,000 supply." },
@@ -187,7 +253,7 @@
     },
     {
       "key": "secure_caen", "label": "Take Caen", "description": "Break the eastern counterattack and take the Caen road and rail hub to open the ground for an operational breakout.",
-      "hex": { "q": 11, "r": 17 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "expansion", "requiresObjectives": ["hold_lodgment"],
+      "hex": { "q": 31, "r": 10 }, "owner": "Bot", "category": "primary", "visibility": "briefed", "phaseKey": "expansion", "requiresObjectives": ["hold_lodgment"],
       "conditions": [{ "kind": "controlHex", "faction": "Player", "holdSegments": 1, "minimumInfrastructureEffectiveness": 0.25 }],
       "score": 100, "rewards": ["easternBreakout", "roadRailHub"], "rewardEffects": [
         { "kind": "resource", "resource": "fuel", "amount": 15000, "label": "Caen transport stocks secured: +15,000 fuel." },

@@ -285,12 +285,14 @@ export class CampaignScreen {
     this.renderer.render(svg, canvas, view);
     this.renderer.setTerrainOverlayVisible(this.editMode);
     this.renderer.setIntelCoverageVisible(this.intelCoverageVisible);
+    (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
+      .setIntelContactsVisible?.(this.commandInterface?.getActiveWorkspace() === "intelligence");
     this.syncViewportAfterRender();
   }
 
   /** Opens a fresh campaign on its current primary objective instead of an empty corner of the theater. */
-  private focusOpeningObjective(scenario: CampaignScenarioData): void {
-    if (this.selectedHexKey || !this.viewport) return;
+  private focusOpeningObjective(scenario: CampaignScenarioData, force = false): void {
+    if ((!force && this.selectedHexKey) || !this.viewport) return;
     const objective = scenario.objectives.find((candidate) => candidate.category === "primary")
       ?? scenario.objectives[0];
     if (!objective) return;
@@ -298,7 +300,14 @@ export class CampaignScreen {
     const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
     const center = (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>).getHexCenter?.(hexKey);
     if (!center) return;
-    requestAnimationFrame(() => this.viewport?.centerOn(center.cx, center.cy));
+    const openingZoom = scenario.background?.gridLayout === "flatTopOddQ" ? 1.5 : 1;
+    requestAnimationFrame(() => {
+      const viewport = this.viewport;
+      if (!viewport) return;
+      const transform = viewport.getTransform();
+      viewport.setTransform(openingZoom, transform.panX, transform.panY);
+      viewport.centerOn(center.cx, center.cy);
+    });
   }
 
   /** Binds campaign zoom/pan buttons present in the sidebar to MapViewport operations. */
@@ -310,7 +319,11 @@ export class CampaignScreen {
     const pans = Array.from(this.element.querySelectorAll<HTMLButtonElement>("[data-campaign-pan]"));
     zoomIn?.addEventListener("click", () => this.viewport?.adjustZoom(0.2));
     zoomOut?.addEventListener("click", () => this.viewport?.adjustZoom(-0.2));
-    reset?.addEventListener("click", () => this.viewport?.reset());
+    reset?.addEventListener("click", () => {
+      this.viewport?.reset();
+      const scenario = this.campaignState.getCampaignMapView("Player")?.scenario;
+      if (scenario) this.focusOpeningObjective(scenario, true);
+    });
     pans.forEach((btn) =>
       btn.addEventListener("click", () => {
         const dir = btn.dataset.campaignPan;
@@ -761,6 +774,8 @@ export class CampaignScreen {
 
     this.mountCampaignDeveloperTools();
     this.commandInterface = new CampaignCommandInterface(this.element, {
+      onWorkspaceChanged: (workspace) => (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
+        .setIntelContactsVisible?.(workspace === "intelligence"),
       onOpenIntelligence: () => {
         this.intelTab = "situation";
         this.resetIntelComposer();

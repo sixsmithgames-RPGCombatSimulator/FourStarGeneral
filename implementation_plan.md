@@ -151,7 +151,7 @@
 
 ### Expected new behavior
 - The background renders at its actual 1024×1024 aspect with no crop or stretch. A registered flat-top odd-q lattice covers it edge-to-edge; every official coordinate has one visible hex and every visible neighbor relationship matches campaign axial math.
-- The five beaches span approximately five adjacent campaign hexes, consistent with the roughly 48 km historical landing frontage. Cherbourg-to-Caen is approximately 8–10 campaign hexes, consistent with the operational abstraction.
+- The five beaches span eight campaign hexes, consistent with the U.S. Army's 50-mile description of the historical landing frontage. Cherbourg-to-Caen remains a source-art-registered operational abstraction.
 - Water classification is derived and then explicitly authored from the painted background. Task forces must occupy water; every ground formation, infrastructure tile, objective, and front endpoint must occupy land.
 - No synthetic terrain row may override the painted shoreline. Registration tests prove the asset dimensions, grid geometry, named anchors, land/water legality, front adjacency, and scale.
 
@@ -165,7 +165,7 @@
 - Capture background-only, registered-grid, anchor-overlay, and live opening frames at native aspect before certification.
 - Assert 10 km scale, 1024×1024 source registration, 58×50 flat-top odd-q dimensions, regular neighbor spacing, and no background distortion.
 - Assert both fleets are water; all non-naval authored tiles are land; every objective/front reference is in bounds and adjacent where required.
-- Assert Utah → Omaha → Gold → Juno → Sword ordering and approximate 48 km frontage; assert Cherbourg northwest of Utah and Caen inland/east of Sword.
+- Assert Utah → Omaha → Gold → Juno → Sword ordering and approximately 80 km frontage; assert Cherbourg northwest of Utah and Caen inland/east of Sword.
 - Run focused renderer/shipped-scenario/persistence tests, TypeScript, campaign suite, full suite, build, diff checks, and a live external-Chrome acceptance pass before one batched push.
 
 ---

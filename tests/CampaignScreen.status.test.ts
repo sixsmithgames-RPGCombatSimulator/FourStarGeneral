@@ -149,7 +149,7 @@ registerTest("CAMPAIGNSCREEN_EDITOR_REPORTS_INVALID_BASE_MOVE_SAFELY", async ({ 
     campaignState.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
     screen = new CampaignScreen({ showScreenById() {} } as any, {} as any);
     screen.initialize();
-    (screen as any).selectedHexKey = "6,20";
+    (screen as any).selectedHexKey = "26,23";
     selectionInfo = document.getElementById("campaignSelectionInfo");
   });
 
@@ -159,7 +159,7 @@ registerTest("CAMPAIGNSCREEN_EDITOR_REPORTS_INVALID_BASE_MOVE_SAFELY", async ({ 
 
   await Then("the campaign remains intact and the editor explains the rejected move without a page error", async () => {
     const scenario = campaignState.getScenario();
-    if (!scenario?.tiles.some((tile) => tile.hex.q === 6 && tile.hex.r === 17)) {
+    if (!scenario?.tiles.some((tile) => tile.hex.q === 26 && tile.hex.r === 10)) {
       throw new Error("Rejected base move removed the objective-bearing campaign tile.");
     }
     if (selectionInfo?.getAttribute("data-status") !== "warning"
@@ -231,7 +231,7 @@ registerTest("CAMPAIGNSCREEN_FRONT_COPY_USES_THE_LAUNCH_INTELLIGENCE_ASSESSMENT"
       engagementId: "front-copy-assessment",
       frontKey: "omaha_gold",
       attacker: "Player",
-      requestedTargetHexKey: "5,20"
+      requestedTargetHexKey: "24,24"
     });
     if (!prepared.ok) throw new Error(prepared.reason);
     const briefing = prepared.engagement.context.intelligenceBriefing;
@@ -239,14 +239,14 @@ registerTest("CAMPAIGNSCREEN_FRONT_COPY_USES_THE_LAUNCH_INTELLIGENCE_ASSESSMENT"
     expected = briefing.resistanceBand === "unknown"
       ? `${briefing.contacts.length} assessed contact area${briefing.contacts.length === 1 ? "" : "s"} · strength and formation count unknown · ${briefing.confidenceBand} confidence.`
       : `${briefing.contacts.length} assessed opposing contact${briefing.contacts.length === 1 ? "" : "s"} · ${briefing.resistanceBand} resistance · ${briefing.confidenceBand} confidence.`;
-    assessment = (screen as any).getPlayerFrontAssessment("omaha_gold");
+    assessment = (screen as any).getPlayerFrontAssessment("omaha_gold", "24,24");
   });
 
   await Then("front copy and launch availability agree without claiming there is no contact", () => {
     if (!assessment.canLaunch || assessment.pressureLabel !== expected || /no assessed hostile contact/i.test(assessment.pressureLabel)) {
       throw new Error(`Front assessment diverged from launch briefing: ${JSON.stringify(assessment)} expected ${expected}`);
     }
-    if (assessment.target?.targetHexKey !== "5,20"
+    if (assessment.target?.targetHexKey !== "24,24"
       || assessment.target?.missionLabel !== "Fortified Assault"
       || assessment.target?.roleLabel !== "Player attacks · Bot defends") {
       throw new Error(`Front assessment dropped campaign-to-tactical identity: ${JSON.stringify(assessment.target)}.`);
@@ -464,7 +464,7 @@ registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Gi
     (screen as any).intelOperationType = null;
     (screen as any).intelTargetContactId = null;
     (screen as any).editingIntelOrderId = null;
-    (screen as any).selectedHexKey = "2,20";
+    (screen as any).selectedHexKey = "22,24";
     (screen as any).campaignState = {
       getIntelOperationRules: () => rules,
       getCampaignDraftReservations: () => ({ intelligenceCapacity: 0 }),

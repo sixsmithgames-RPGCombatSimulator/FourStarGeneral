@@ -736,6 +736,7 @@ registerTest("CAMPAIGN_MAP_CLICK_IS_SELECTION_ONLY", async ({ Given, When, Then 
 registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let centered: { x: number; y: number } | null = null;
+  let openingZoom: number | null = null;
 
   await Given("a fresh D+1 campaign whose forces sit well below the map's northwest origin", async () => {
     campaignState.reset();
@@ -748,7 +749,7 @@ registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", as
       setTerrainOverlayVisible() {},
       setIntelCoverageVisible() {},
       getViewportRoot() { return null; },
-      getHexCenter(hexKey: string) { return hexKey === "6,20" ? { cx: 640, cy: 980 } : null; },
+      getHexCenter(hexKey: string) { return hexKey === "26,23" ? { cx: 640, cy: 980 } : null; },
       onHexClick() {},
       clearAllHighlights() {},
       highlightHex() {}
@@ -758,7 +759,7 @@ registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", as
     (screen as any).viewport = {
       centerOn(x: number, y: number) { centered = { x, y }; },
       getTransform() { return { zoom: 1, panX: 0, panY: 0 }; },
-      setTransform() {}
+      setTransform(zoom: number) { openingZoom = zoom; }
     };
     screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
     if (centered !== null) {
@@ -770,8 +771,50 @@ registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", as
 
   await Then("the first frame centers the active lodgment rather than empty southern England", async () => {
     const actual = centered as { x: number; y: number } | null;
-    if (!actual || actual.x !== 640 || actual.y !== 980) {
-      throw new Error(`Opening camera did not frame the Normandy objective: ${JSON.stringify(actual)}.`);
+    if (!actual || actual.x !== 640 || actual.y !== 980 || openingZoom !== 1.5) {
+      throw new Error(`Opening camera did not frame the Normandy objective at command scale: ${JSON.stringify({ actual, openingZoom })}.`);
+    }
+    campaignState.reset();
+  });
+});
+
+registerTest("CAMPAIGN_RESET_RESTORES_THE_NORMANDY_COMMAND_FRAME", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let centered: { x: number; y: number } | null = null;
+  let openingZoom: number | null = null;
+  let resetCount = 0;
+  let root: HTMLElement;
+
+  await Given("a commander who has panned away from the active lodgment", () => {
+    campaignState.reset();
+    root = mountCommandShellFixture();
+  });
+
+  await When("Reset is used on the campaign map", async () => {
+    const renderer = {
+      render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {}, setIntelContactsVisible() {},
+      getViewportRoot() { return null; },
+      getHexCenter(hexKey: string) { return hexKey === "26,23" ? { cx: 640, cy: 980 } : null; },
+      onHexClick() {}, clearAllHighlights() {}, highlightHex() {}
+    };
+    const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+    screen.initialize();
+    (screen as any).viewport = {
+      reset() { resetCount += 1; },
+      centerOn(x: number, y: number) { centered = { x, y }; },
+      getTransform() { return { zoom: 1, panX: 0, panY: 0 }; },
+      setTransform(zoom: number) { openingZoom = zoom; }
+    };
+    (screen as any).bindCampaignControls();
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    root.querySelector<HTMLButtonElement>("#campaignResetView")?.click();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+
+  await Then("the default zoom is followed by a return to the primary Normandy objective", () => {
+    const actual = centered as { x: number; y: number } | null;
+    if (resetCount !== 1 || !actual || actual.x !== 640 || actual.y !== 980 || openingZoom !== 1.5) {
+      throw new Error(`Campaign Reset did not restore the command area: ${JSON.stringify({ resetCount, actual, openingZoom })}.`);
     }
     campaignState.reset();
   });
@@ -802,7 +845,7 @@ registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_AC
 
   await When("the player selects the fleet symbol", () => {
     if (!onHexClick) throw new Error("Campaign map click handling is unavailable.");
-    onHexClick("3,18");
+    onHexClick("22,20");
   });
 
   await Then("the inspector names its naval purpose and omits unrelated ground actions", () => {
@@ -812,7 +855,7 @@ registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_AC
     const compatibilityActions = root.querySelector<HTMLElement>(".action-section");
     const hiddenSelectionCopy = root.querySelector<HTMLElement>("#campaignSelectionInfo")?.textContent ?? "";
     if (inspector?.dataset.routeMode !== "projected"
-      || inspector.querySelector("h2")?.textContent !== "Western Fleet"
+      || inspector.querySelector("h2")?.textContent !== "Western Naval Force"
       || !route?.textContent?.includes("English Channel")
       || !route.textContent.includes("Naval task force")
       || compatibilitySelection?.hidden !== true

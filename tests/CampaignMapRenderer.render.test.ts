@@ -140,6 +140,55 @@ registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_ON_SHARED_HEX_BORDERS", asy
   });
 });
 
+registerTest("CAMPAIGN_RENDERER_REGISTERS_THE_SHIPPED_GRID_TO_THE_NATIVE_BACKGROUND", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const renderer = new CampaignMapRenderer();
+
+  await Given("the native square Central Channel artwork and its 10 km registered lattice", () => {
+    renderer.render(svg, canvas as HTMLDivElement, {
+      observerFaction: "Player",
+      scenario,
+      enemyContacts: [],
+      coverage: [],
+      capacity: { total: 0, committed: 0, available: 0 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+  });
+
+  await When("the complete operational grid is projected", () => {});
+
+  await Then("the artwork keeps its aspect and every official odd-q neighbor uses one regular flat-top spacing", () => {
+    const background = svg.querySelector<SVGImageElement>("#campaign-map-background-image");
+    const origin = renderer.getHexCenter("20,20");
+    const east = renderer.getHexCenter("21,20");
+    const south = renderer.getHexCenter("20,21");
+    const originPolygon = svg.querySelector<SVGPolygonElement>('.campaign-hex[data-hex="20,20"] polygon');
+    const points = originPolygon?.getAttribute("points")?.split(" ").map((point) => point.split(",").map(Number)) ?? [];
+    const eastSpacing = origin && east ? Math.hypot(east.cx - origin.cx, east.cy - origin.cy) : Number.NaN;
+    const southSpacing = origin && south ? Math.hypot(south.cx - origin.cx, south.cy - origin.cy) : Number.NaN;
+    const officialHexes = svg.querySelectorAll(".campaign-hex:not(.campaign-hex-padding)");
+    if (!background || !origin || !east || !south
+      || canvas.style.width !== "1024px" || canvas.style.height !== "1024px"
+      || svg.getAttribute("viewBox") !== "0 0 1024 1024"
+      || background.getAttribute("width") !== "1024" || background.getAttribute("height") !== "1024"
+      || background.getAttribute("preserveAspectRatio") !== "xMidYMid meet"
+      || canvas.dataset.campaignHexScaleKm !== "10"
+      || officialHexes.length !== 58 * 50
+      || svg.querySelectorAll(".campaign-hex-padding").length !== 0
+      || !Number.isFinite(eastSpacing) || Math.abs(eastSpacing - southSpacing) > 0.001
+      || points.length !== 6
+      || Math.abs(points[0][1] - origin.cy) > 0.001
+      || points[0][0] <= origin.cx) {
+      throw new Error("The shipped grid is distorted, incomplete, or no longer registered as a regular flat-top lattice on the native image.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANNEL", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -163,7 +212,7 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
   await When("the two historically organized Channel task forces are painted", () => {});
 
   await Then("each force uses spread directional ship art and no ground counter at its water station", () => {
-    const channelOffsetKeys = ["3,18", "8,18"];
+    const channelOffsetKeys = ["22,20", "26,18"];
     channelOffsetKeys.forEach((channelOffsetKey) => {
       const fleet = svg.querySelector<SVGGElement>(`.campaign-task-force[data-hex="${channelOffsetKey}"]`);
       const ships = fleet?.querySelectorAll<SVGImageElement>(".campaign-task-force__ship") ?? [];
@@ -201,6 +250,7 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
       ? Math.max(...shipRects.map((rect) => rect.x + rect.width)) - Math.min(...shipRects.map((rect) => rect.x))
       : 0;
     const stationDiameter = station ? Number(station.getAttribute("r")) * 2 : 0;
+    const fleetSilhouetteContrast = Array.from(ships).every((ship) => ship.getAttribute("style")?.includes("drop-shadow"));
     const channelHex = svg.querySelector<SVGGElement>(`.campaign-hex[data-hex="${channelOffsetKey}"]`);
     const groundCounters = svg.querySelectorAll(`.campaign-force-icon[data-hex="${channelOffsetKey}"]`);
     if (!fleet
@@ -215,6 +265,7 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
       || station?.getAttribute("data-authoritative-anchor") !== "true"
       || station?.getAttribute("cx") !== channelHex?.dataset.cx
       || station?.getAttribute("cy") !== channelHex?.dataset.cy
+      || !fleetSilhouetteContrast
       || formationWidth <= stationDiameter * 2
       || !supportSilhouettesRemainVisible
       || groundCounters.length !== 0) {
@@ -223,6 +274,27 @@ registerTest("CAMPAIGN_RENDERER_SHOWS_TASK_FORCE_WITHOUT_GROUND_COUNTER_IN_CHANN
     });
     if (svg.querySelectorAll(".campaign-task-force").length !== 2) {
       throw new Error("The D+1 map did not retain distinct Western and Eastern naval support forces.");
+    }
+    const mapLabels = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-map-location-label"));
+    const mapLabelText = mapLabels.map((label) => label.textContent?.trim() ?? "");
+    const estimatedBoxes = mapLabels.map((label) => {
+      const text = label.querySelector<SVGTextElement>("text");
+      const fontSize = Number(text?.getAttribute("font-size"));
+      const width = fontSize * ((text?.textContent?.length ?? 0) * 0.61 + 0.8);
+      const anchor = text?.getAttribute("text-anchor");
+      const x = Number(text?.getAttribute("x"));
+      const y = Number(text?.getAttribute("y"));
+      const left = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+      return { label: text?.textContent ?? "", left, right: left + width, top: y - fontSize * 1.2, bottom: y };
+    });
+    const overlap = estimatedBoxes.some((box, index) => estimatedBoxes.slice(index + 1).some((other) => (
+      box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top
+    )));
+    if (mapLabelText.some((label) => /Fleet/i.test(label))
+      || !mapLabelText.includes("Sword")
+      || !mapLabelText.includes("Orne")
+      || overlap) {
+      throw new Error(`Formation names leaked into geographic labels or map labels still collide: ${JSON.stringify(estimatedBoxes)}.`);
     }
   });
 });
@@ -251,9 +323,9 @@ registerTest("CAMPAIGN_RENDERER_CENTERS_STRENGTH_FORMATIONS_INSIDE_AUTHORITATIVE
 
   await Then("actors communicate broad strength inside one centered safe footprint without leaking opposing formations", () => {
     const expectedActorCounts = new Map<string, number>([
-      ["1,21", 4],
-      ["2,20", 4],
-      ["4,20", 4]
+      ["21,26", 4],
+      ["22,24", 4],
+      ["24,23", 4]
     ]);
 
     expectedActorCounts.forEach((expectedActorCount, hexKey) => {
@@ -290,11 +362,11 @@ registerTest("CAMPAIGN_RENDERER_CENTERS_STRENGTH_FORMATIONS_INSIDE_AUTHORITATIVE
       }
     });
 
-    const beachhead = svg.querySelector<SVGGElement>('.campaign-force-stack[data-hex="4,20"]');
+    const beachhead = svg.querySelector<SVGGElement>('.campaign-force-stack[data-hex="24,23"]');
     const exactName = beachhead?.getAttribute("aria-label") ?? "";
-    const opposingTruth = svg.querySelector('.campaign-force-stack[data-hex="5,20"]');
+    const opposingTruth = svg.querySelector('.campaign-force-stack[data-hex="24,24"]');
     const floatingCounts = svg.querySelectorAll(".campaign-force-count");
-    if (!exactName.includes("Friendly force · 14 formations · hex 4,20")
+    if (!exactName.includes("Friendly force · 14 formations · hex 24,23")
       || !exactName.includes("7 U.S. 1st Infantry Division battalions")
       || !exactName.includes("5 U.S. 29th Infantry Division battalions")
       || !exactName.includes("2 V Corps engineer groups")
@@ -372,6 +444,11 @@ registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_E
     sprite?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     const keyboardActivation = new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     marker?.dispatchEvent(keyboardActivation);
+    renderer.setIntelContactsVisible(false);
+    const contactLayer = svg.querySelector<SVGGElement>("#campaign-map-intel-contacts");
+    const hiddenOutsideIntel = contactLayer?.style.display === "none";
+    renderer.setIntelContactsVisible(true);
+    const visibleInIntel = contactLayer?.style.display === "block";
     if (!marker
       || visibleText.trim() !== ""
       || /ENEMY|Ground contact|\bGRD\b|\bNOW\b/i.test(visibleText)
@@ -386,6 +463,8 @@ registerTest("CAMPAIGN_RENDERER_DISTINGUISHES_ENEMY_INTELLIGENCE_FROM_PHYSICAL_E
       || uncertainty.getAttribute("aria-hidden") !== "true"
       || clickedContact !== "contact-1"
       || !keyboardActivation.defaultPrevented
+      || !hiddenOutsideIntel
+      || !visibleInIntel
       || !accessibleName.includes("Infantry formation, identified, medium confidence, light strength, current observation")
       || !accessibleName.includes("within 1 hex")
       || !accessibleName.includes("Select to review")) {

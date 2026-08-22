@@ -33,8 +33,23 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT
       .filter(({ palette }) => ["Utah", "Omaha", "Gold", "Juno", "Sword"].includes(palette?.mapLabel ?? ""))
       .sort((left, right) => left.tile.hex.q - right.tile.hex.q)
       .map(({ palette }) => palette.mapLabel);
+    const utah = scenario.tiles.find((tile) => scenario.tilePalette[tile.tile]?.mapLabel === "Utah");
+    const sword = scenario.tiles.find((tile) => scenario.tilePalette[tile.tile]?.mapLabel === "Sword");
+    const beachFrontageHexes = utah && sword
+      ? Math.max(
+        Math.abs(sword.hex.q - utah.hex.q),
+        Math.abs(sword.hex.r - utah.hex.r),
+        Math.abs((-sword.hex.q - sword.hex.r) - (-utah.hex.q - utah.hex.r))
+      )
+      : Number.NaN;
     if (outOfBounds.length > 0
       || beachLabels.join("|") !== "Utah|Omaha|Gold|Juno|Sword"
+      || scenario.hexScaleKm !== 10
+      || scenario.dimensions.cols !== 58 || scenario.dimensions.rows !== 50
+      || scenario.background.gridLayout !== "flatTopOddQ"
+      || scenario.background.nativeWidth !== 1024 || scenario.background.nativeHeight !== 1024
+      || scenario.background.stretchMode !== "contain"
+      || beachFrontageHexes !== 8
       || scenario.historicalCalendar?.startDateIso !== "1944-06-07"
       || scenario.historicalCalendar.operationDayOffset !== 1
       || !scenario.description.includes("five Allied beachheads")) {
@@ -67,9 +82,9 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT
       || wronglyPlaced.length > 0
       || !cherbourg || !utah
       || cherbourg.hex.q >= utah.hex.q
-      || cherbourgDisplayRow > utahDisplayRow
-      || !heldHexes.has("1,21")
-      || !heldHexes.has("11,15")) {
+      || Math.abs(cherbourgDisplayRow - utahDisplayRow) > 1
+      || !heldHexes.has("21,16")
+      || !heldHexes.has("31,7")) {
       throw new Error(`Land/water or Cotentin geography is incoherent: invalidWater=${invalidWater.join(",")} wronglyPlaced=${wronglyPlaced.map((tile) => tile.tile).join(",")}.`);
     }
   });
@@ -98,7 +113,7 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_COHERENT
     const missing = required.filter((name) => !labels.some((label) => label.includes(name)));
     const fleets = scenario.tiles.filter((tile) => scenario.tilePalette[tile.tile]?.role === "taskForce");
     const fleetKeys = fleets.map((tile) => `${tile.hex.q},${tile.hex.r + Math.floor(tile.hex.q / 2)}`).sort();
-    if (missing.length > 0 || fleetKeys.join("|") !== "3,18|8,18" || fleets.some((tile) => (tile.forces?.length ?? 0) > 0)) {
+    if (missing.length > 0 || fleetKeys.join("|") !== "22,20|26,18" || fleets.some((tile) => (tile.forces?.length ?? 0) > 0)) {
       throw new Error(`D+1 order of battle is incomplete: missing=${missing.join(",")} fleets=${fleetKeys.join("|")}.`);
     }
   });
@@ -109,7 +124,7 @@ registerTest("CAMPAIGN_SCENARIO_REJECTS_AUTHORED_TILES_OUTSIDE_ITS_GRID", async 
   let rejected = false;
 
   await Given("an otherwise valid campaign with one overscan-only tile", () => {
-    scenario.tiles[0] = { ...scenario.tiles[0], hex: { q: 12, r: 40 } };
+    scenario.tiles[0] = { ...scenario.tiles[0], hex: { q: scenario.dimensions.cols, r: 0 } };
   });
 
   await When("the authored scenario is split into runtime content", () => {
@@ -198,7 +213,7 @@ registerTest("CAMPAIGN_SHIPPED_CAEN_COUNTERATTACK_NATURALLY_INTERRUPTS_TIME", as
     }, {});
     if (!engagementId || !engagement || engagement.status !== "inBattle" || !pkg
       || engagement.engagement.frontKey !== "caen_airborne_flank"
-      || engagement.engagement.context?.battleHexKey !== "11,20"
+      || engagement.engagement.context?.battleHexKey !== "31,22"
       || attackers.length === 0 || defenders.length === 0
       || Object.keys(defenderAllocations).length !== 3
       || defenderAllocations.airborneDetachment !== 6 || defenderAllocations.infantry !== 9 || defenderAllocations.tank !== 3
@@ -234,11 +249,16 @@ registerTest("CAMPAIGN_SHIPPED_FIRST_ATTACK_FREEZES_REAL_TARGET_AND_FORCES", asy
   const engagementId = "shipped-omaha-gold-attack";
   let prepared: ReturnType<CampaignState["prepareCampaignFrontEngagement"]>;
 
-  await Given("the shared 352nd Infantry Division position between Omaha and Gold", () => {
+  await Given("the 352nd Infantry Division position immediately inland from Omaha", () => {
     state.setScenario(buildShippedScenario());
   });
   await When("CampaignState prepares and commits the first Player attack", () => {
-    prepared = state.prepareCampaignFrontEngagement({ engagementId, frontKey: "omaha_gold", attacker: "Player" });
+    prepared = state.prepareCampaignFrontEngagement({
+      engagementId,
+      frontKey: "omaha_gold",
+      attacker: "Player",
+      requestedTargetHexKey: "24,24"
+    });
     if (!prepared.ok) throw new Error(prepared.reason);
     state.setPendingEngagements([prepared.engagement]);
     state.setActiveEngagementId(engagementId);
@@ -246,7 +266,7 @@ registerTest("CAMPAIGN_SHIPPED_FIRST_ATTACK_FREEZES_REAL_TARGET_AND_FORCES", asy
   await Then("the 352nd position, both Allied staging sectors, and tactical provenance remain linked", () => {
     if (!prepared.ok) throw new Error(prepared.reason);
     const context = prepared.engagement.context;
-    if (context.battleHexKey !== "5,20" || context.defender !== "Bot"
+    if (context.battleHexKey !== "24,24" || context.defender !== "Bot"
       || context.missionType !== "fortifiedAssault"
       || context.availableForces.flatMap((group) => group.formationIds ?? []).length === 0
       || context.enemyForces.flatMap((group) => group.formationIds ?? []).length === 0) {
@@ -273,7 +293,7 @@ registerTest("CAMPAIGN_SHIPPED_FIRST_ATTACK_FREEZES_REAL_TARGET_AND_FORCES", asy
     };
     const tacticalBotIds = new Set(generated.sides.Bot.units.flatMap((unit) => unit.campaignProvenance?.formationId ?? []));
     if (generated.campaignBattlePackageId !== committed.package.packageId
-      || generated.campaignBattleHexKey !== "5,20"
+      || generated.campaignBattleHexKey !== "24,24"
       || generated.sides.Player.units.length !== 0
       || botCommitments.length === 0
       || botCommitments.some((entry) => !tacticalBotIds.has(entry.formationId))) {

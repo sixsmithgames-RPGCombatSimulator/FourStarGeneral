@@ -6,7 +6,9 @@ The Western Europe campaign opens at 00:00 on 7 June 1944 (D+1), after the initi
 
 The five assault beaches run west to east as Utah, Omaha, Gold, Juno, and Sword. U.S. airborne forces are behind Utah near Ste-Mère-Église; British 6th Airborne is east of Sword at the Orne crossings. Cherbourg is northwest of Utah in the Cotentin. Caen is southeast of Sword. The Western and Eastern naval task forces occupy separate Channel fire-support stations because the invasion fleet was organized into western and eastern naval forces supporting different beach groups.
 
-The campaign background is stylized. Named hexes and their adjacency are authoritative; the painted coastline is atmosphere and must not override the land/water mask or the named geography.
+The 1024×1024 campaign background is the authoritative geographic surface. It is rendered without crop or distortion beneath a regular 58×50 flat-top odd-q lattice. Neighboring centers represent 10 km. The explicit water mask was sampled from the painted hex footprints and filtered to the connected sea component; it follows the illustration's Channel and coastline rather than synthetic row bands.
+
+The five beach anchors span eight hexes (about 80 km), matching the U.S. Army's 50-mile description of the landing frontage. Cherbourg sits at the painted Cotentin tip, the beaches follow the Normandy shoreline west-to-east, and Caen sits inland to the east. A ground anchor is accepted only when the majority of its registered image footprint is land; a naval station is accepted only when the majority is water.
 
 ## Opening order of battle
 
@@ -30,6 +32,7 @@ German opening formations represented:
 
 - U.S. Army University Press, *Normandy Staff Ride Instructor Notes*: German dispositions and formation roles around the Cotentin, Omaha/Gold, Juno/Sword, and Caen. https://www.armyupress.army.mil/Portals/7/educational-services/staff-rides/VSR/Normandy/Campaign-Background/Normandy_VSR_Instructor_Notes-Introduction.pdf
 - National Army Museum, *D-Day*: beach order, national sectors, airborne purpose, and scale of the landings. https://www.nam.ac.uk/explore/d-day
+- The United States Army, *D-Day – Operation Overlord*: the five named beaches covered a 50-mile stretch of the Normandy coast. https://www.army.mil/d-day/
 - U.S. Army Center of Military History, *Omaha Beachhead*: D+1 Omaha lodgment and U.S. 1st/29th Division context. https://history.army.mil/portals/143/Images/Publications/catalog/100-11-1.pdf
 - U.S. Army Center of Military History, Normandy campaign brochure: Gold/Juno/Sword formations, British airborne linkage, and the Caen counterattack context. https://history.army.mil/portals/143/Images/Publications/catalog/72-18.pdf
 - Government of Canada, *D-Day: Canada's three services on Operation Overlord*: 3rd Canadian Infantry Division, 2nd Canadian Armoured Brigade, 1st Canadian Parachute Battalion, and Canadian landing scale. https://www.canada.ca/en/department-national-defence/maple-leaf/rcaf/2019/06/d-day-canada-s-three-services-on-operation-overlord.html
@@ -38,6 +41,8 @@ German opening formations represented:
 ## Acceptance rules
 
 - Every authored tile and water key must resolve inside the declared grid.
+- The background must remain at its native 1024×1024 aspect and the renderer must use the registered flat-top odd-q projection.
+- The Utah-to-Sword frontage must remain eight 10 km hexes; any future scale change requires re-registering the whole image and every anchor.
 - Task-force stations must be water; every ground force, beach, airborne zone, port, and inland objective must be land.
 - No objective or front may depend on renderer overscan.
 - The D+1 lodgment objective includes all five beaches and both airborne flanks.

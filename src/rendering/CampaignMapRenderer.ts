@@ -57,6 +57,36 @@ export class CampaignMapRenderer {
   private mapPixelWidth = 0;
   private mapPixelHeight = 0;
 
+  private usesRegisteredFlatTopGrid(): boolean {
+    return this.scenario?.background.gridLayout === "flatTopOddQ";
+  }
+
+  /** Radius and origin for a regular flat-top odd-q lattice registered to the full image bounds. */
+  private getRegisteredGridGeometry(): { radius: number; originX: number; originY: number } | null {
+    if (!this.scenario || !this.usesRegisteredFlatTopGrid()) return null;
+    const { cols, rows } = this.scenario.dimensions;
+    if (cols <= 0 || rows <= 0) return null;
+    const radiusForWidth = this.mapPixelWidth / (2 + 1.5 * (cols - 1));
+    const radiusForHeight = this.mapPixelHeight / (Math.sqrt(3) * (rows + 0.5));
+    const radius = Math.min(radiusForWidth, radiusForHeight);
+    const gridWidth = radius * (2 + 1.5 * (cols - 1));
+    const gridHeight = Math.sqrt(3) * radius * (rows + 0.5);
+    return {
+      radius,
+      originX: (this.mapPixelWidth - gridWidth) / 2 + radius,
+      originY: (this.mapPixelHeight - gridHeight) / 2 + Math.sqrt(3) * radius / 2
+    };
+  }
+
+  private registeredHexCenter(col: number, row: number): { x: number; y: number } | null {
+    const geometry = this.getRegisteredGridGeometry();
+    if (!geometry) return null;
+    return {
+      x: geometry.originX + 1.5 * geometry.radius * col,
+      y: geometry.originY + Math.sqrt(3) * geometry.radius * (row + 0.5 * Math.abs(col % 2))
+    };
+  }
+
   /**
    * Computes pixel width/height using existing hex math and campaign dimensions.
    * Exported so screens can calculate scroll container sizes without invoking render.
@@ -78,7 +108,8 @@ export class CampaignMapRenderer {
   }
 
   /**
-   * Calculates pixel dimensions for the campaign map. Prefers native background size so the map respects its 5 km per hex reference scale.
+   * Calculates pixel dimensions for the campaign map. Native dimensions are the authoritative
+   * artwork registration surface; scenario.hexScaleKm owns geographic scale independently.
    */
   private derivePixelDimensions(scenario: CampaignScenarioData): { width: number; height: number } {
     const { background } = scenario;
@@ -119,6 +150,9 @@ export class CampaignMapRenderer {
     if (!this.scenario || !Number.isFinite(this.mapPixelWidth)) {
       return 1.0;
     }
+
+    const registered = this.getRegisteredGridGeometry();
+    if (registered) return registered.radius / HEX_RADIUS;
 
     const { cols, rows } = this.scenario.dimensions;
 
@@ -200,7 +234,7 @@ export class CampaignMapRenderer {
     // Keep the HTML canvas sized to the actual illustration so scrollbars expose the full theater art without scaling artifacts.
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-    // Expose the strategic scale so tooltips or other UI helpers can explain the 5km-per-hex abstraction.
+    // Expose the authoritative scenario scale so UI helpers can explain strategic distance.
     canvas.dataset.campaignHexScaleKm = String(scenario.hexScaleKm ?? CAMPAIGN_HEX_SCALE_KM);
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("width", `${width}`);
@@ -270,6 +304,13 @@ export class CampaignMapRenderer {
   setIntelCoverageVisible(visible: boolean): void {
     if (!this.svgElement) return;
     const layer = this.svgElement.querySelector<SVGGElement>(`#${INTEL_COVERAGE_LAYER_ID}`);
+    if (layer) layer.style.display = visible ? "block" : "none";
+  }
+
+  /** Keeps contact symbology in the dedicated Intelligence workspace instead of crowding operations. */
+  setIntelContactsVisible(visible: boolean): void {
+    if (!this.svgElement) return;
+    const layer = this.svgElement.querySelector<SVGGElement>(`#${INTEL_CONTACT_LAYER_ID}`);
     if (layer) layer.style.display = visible ? "block" : "none";
   }
 
@@ -381,8 +422,10 @@ export class CampaignMapRenderer {
     image.setAttribute("width", String(this.mapPixelWidth));
     image.setAttribute("height", String(this.mapPixelHeight));
     const hasNative = Boolean(scenario.background.nativeWidth && scenario.background.nativeHeight);
-    // When native dimensions are supplied and we sized the canvas to match, never crop the background art.
-    if (hasNative) {
+    // Registered artwork must preserve every contour at its native aspect ratio.
+    if (scenario.background.gridLayout === "flatTopOddQ") {
+      image.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    } else if (hasNative) {
       image.setAttribute("preserveAspectRatio", "none");
     } else {
       const stretchMode = scenario.background.stretchMode ?? "cover";
@@ -409,6 +452,34 @@ export class CampaignMapRenderer {
    */
   private renderHexGrid(layer: SVGGElement, scenario: CampaignScenarioData, density: number): void {
     const { cols, rows } = scenario.dimensions;
+
+    if (this.usesRegisteredFlatTopGrid()) {
+      const geometry = this.getRegisteredGridGeometry();
+      if (!geometry) return;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const center = this.registeredHexCenter(col, row);
+          if (!center) continue;
+          const hexKey = CoordinateSystem.makeHexKey(col, row);
+          const group = document.createElementNS(SVG_NS, "g");
+          group.dataset.hex = hexKey;
+          group.dataset.cx = String(center.x);
+          group.dataset.cy = String(center.y);
+          group.classList.add("campaign-hex");
+
+          const outline = document.createElementNS(SVG_NS, "polygon");
+          outline.setAttribute("points", this.buildFlatTopHexPolygon(center.x, center.y, geometry.radius));
+          outline.setAttribute("fill", "rgba(14, 26, 43, 0.035)");
+          outline.setAttribute("stroke", HEX_STROKE);
+          outline.setAttribute("stroke-width", String(HEX_STROKE_WIDTH));
+          group.appendChild(outline);
+          layer.appendChild(group);
+          this.hexGroups.set(hexKey, group);
+        }
+      }
+      this.gridBounds = { minX: 0, maxX: this.mapPixelWidth, minY: 0, maxY: this.mapPixelHeight };
+      return;
+    }
 
     // Extend rendering range far beyond official coordinates to ensure corner coverage.
     // Official gameplay hexes: 0-77 cols, 0-47 rows
@@ -502,6 +573,26 @@ export class CampaignMapRenderer {
     return points.map(([px, py]) => `${px},${py}`).join(" ");
   }
 
+  private buildFlatTopHexPolygon(cx: number, cy: number, radius: number): string {
+    const halfHeight = Math.sqrt(3) * radius / 2;
+    const points: Array<[number, number]> = [
+      [cx + radius, cy],
+      [cx + radius / 2, cy + halfHeight],
+      [cx - radius / 2, cy + halfHeight],
+      [cx - radius, cy],
+      [cx - radius / 2, cy - halfHeight],
+      [cx + radius / 2, cy - halfHeight]
+    ];
+    return points.map(([px, py]) => `${px},${py}`).join(" ");
+  }
+
+  private buildActiveHexPolygon(cx: number, cy: number, density: number): string {
+    const registered = this.getRegisteredGridGeometry();
+    return registered
+      ? this.buildFlatTopHexPolygon(cx, cy, registered.radius)
+      : this.buildHexPolygon(cx, cy, density);
+  }
+
   /**
    * Renders terrain overlay showing water hexes in blue and unmarked hexes in subtle green.
    * Only visible in edit mode.
@@ -529,6 +620,28 @@ export class CampaignMapRenderer {
       });
     }
     const density = this.getHexDensityScalar();
+
+    if (this.usesRegisteredFlatTopGrid()) {
+      const geometry = this.getRegisteredGridGeometry();
+      if (!geometry) return;
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const center = this.registeredHexCenter(col, row);
+          if (!center) continue;
+          const { q, r } = CoordinateSystem.offsetToAxial(col, row);
+          const axialKey = `${q},${r}`;
+          const isWater = waterHexSet.has(axialKey);
+          const hexagon = document.createElementNS(SVG_NS, "polygon");
+          hexagon.setAttribute("points", this.buildFlatTopHexPolygon(center.x, center.y, geometry.radius));
+          hexagon.setAttribute("fill", isWater ? "rgba(0, 100, 200, 0.25)" : "rgba(50, 150, 50, 0.15)");
+          hexagon.setAttribute("stroke", "none");
+          hexagon.setAttribute("data-hex-key", axialKey);
+          hexagon.setAttribute("data-terrain", isWater ? "water" : "unmarked");
+          layer.appendChild(hexagon);
+        }
+      }
+      return;
+    }
 
     // Use same extended range as hex grid to cover full rectangular viewport
     const padding = Math.max(cols, rows);
@@ -669,6 +782,10 @@ export class CampaignMapRenderer {
       ship.setAttribute("x", String(cx + dx - width / 2));
       ship.setAttribute("y", String(cy + dy - height / 2));
       ship.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      ship.setAttribute(
+        "style",
+        "filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 3px rgba(175, 225, 245, 0.9));"
+      );
       ship.setAttribute("aria-hidden", "true");
       ship.setAttribute("data-hex", hexKey);
       ship.classList.add("campaign-task-force__ship", className);
@@ -679,21 +796,21 @@ export class CampaignMapRenderer {
     const station = document.createElementNS(SVG_NS, "circle");
     station.setAttribute("cx", String(cx));
     station.setAttribute("cy", String(cy));
-    station.setAttribute("r", String(iconSize * 0.58));
-    station.setAttribute("fill", "rgba(8, 23, 34, 0.34)");
-    station.setAttribute("stroke", "rgba(216, 190, 118, 0.9)");
-    station.setAttribute("stroke-width", String(Math.max(1, iconSize * 0.055)));
+    station.setAttribute("r", String(iconSize * 0.42));
+    station.setAttribute("fill", "rgba(7, 25, 38, 0.5)");
+    station.setAttribute("stroke", "rgba(120, 210, 235, 0.78)");
+    station.setAttribute("stroke-width", String(Math.max(0.9, iconSize * 0.035)));
     station.setAttribute("data-hex", hexKey);
     station.setAttribute("data-authoritative-anchor", "true");
     station.setAttribute("aria-hidden", "true");
     station.classList.add("campaign-task-force__station");
     marker.appendChild(station);
 
-    const primaryShip = addShip(battleship, iconSize * 1.12, iconSize * 0.79, 0, 0, "campaign-task-force__battleship");
-    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 1.22, -iconSize * 0.58, "campaign-task-force__transport");
-    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 0.92, iconSize * 0.72, "campaign-task-force__transport");
-    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 0.92, -iconSize * 0.72, "campaign-task-force__destroyer");
-    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 1.22, iconSize * 0.58, "campaign-task-force__destroyer");
+    const primaryShip = addShip(battleship, iconSize * 1.34, iconSize * 0.94, 0, 0, "campaign-task-force__battleship");
+    addShip(transport, iconSize * 0.96, iconSize * 0.68, -iconSize * 1.38, -iconSize * 0.66, "campaign-task-force__transport");
+    addShip(transport, iconSize * 0.96, iconSize * 0.68, -iconSize * 1.06, iconSize * 0.82, "campaign-task-force__transport");
+    addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.06, -iconSize * 0.82, "campaign-task-force__destroyer");
+    addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.38, iconSize * 0.66, "campaign-task-force__destroyer");
     if (facing.endsWith("W")) {
       marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
     }
@@ -873,38 +990,85 @@ export class CampaignMapRenderer {
     });
   }
 
-  /** Renders only explicitly authored geographic names as lightweight map annotations. */
+  /** Renders geographic names with a small collision-aware placement pass. */
   private renderNamedLocations(layer: SVGGElement, scenario: CampaignScenarioData): void {
     layer.style.pointerEvents = "none";
     const density = this.getHexDensityScalar();
-    const fontSize = Math.max(5.5, density * 40);
-    const verticalInset = HEX_RADIUS * density * 0.72;
-    scenario.tiles.forEach((instance) => {
-      const label = scenario.tilePalette[instance.tile]?.mapLabel?.trim();
+    const fontSize = Math.max(5.5, density * 32);
+    const inset = HEX_RADIUS * density * 0.8;
+    type Placement = "above" | "below" | "left" | "right";
+    type LabelBox = { left: number; right: number; top: number; bottom: number };
+    const occupied: LabelBox[] = [];
+    const intersects = (a: LabelBox, b: LabelBox): boolean => (
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+    );
+    const labeledTiles = scenario.tiles
+      .map((instance) => ({ instance, palette: scenario.tilePalette[instance.tile] }))
+      // Fleets are formations, not places. Their ship art and selectable inspector carry identity.
+      .filter(({ palette }) => palette?.mapLabel?.trim() && palette.role !== "taskForce")
+      .sort((a, b) => {
+        const priority = (role: string): number => role === "navalBase" || role === "logisticsHub" ? 3 : role.startsWith("fortification") ? 2 : 1;
+        return priority(b.palette.role) - priority(a.palette.role);
+      });
+
+    labeledTiles.forEach(({ instance, palette }) => {
+      const label = palette.mapLabel?.trim();
       if (!label) return;
       const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
       const hexKey = CoordinateSystem.makeHexKey(col, row);
       const center = this.getHexCenter(hexKey);
       if (!center) return;
 
+      const preferred: Placement[] = palette.role === "region"
+        ? ["above", "right", "left", "below"]
+        : palette.role.startsWith("fortification")
+          ? ["below", "above", "right", "left"]
+          : ["right", "above", "below", "left"];
+      const placements = preferred.filter((placement) => (
+        !(col === 0 && placement === "left")
+        && !(col === scenario.dimensions.cols - 1 && placement === "right")
+      ));
+      const estimatedWidth = fontSize * (label.length * 0.61 + 0.8);
+      const estimatedHeight = fontSize * 1.2;
+      const padding = fontSize * 0.38;
+      let chosen: { placement: Placement; x: number; y: number; anchor: "start" | "middle" | "end"; box: LabelBox } | null = null;
+
+      for (const placement of placements) {
+        const anchor: "start" | "middle" | "end" = placement === "right" ? "start" : placement === "left" ? "end" : "middle";
+        const x = center.cx + (placement === "right" ? inset : placement === "left" ? -inset : 0);
+        const y = center.cy + (placement === "below" ? inset + fontSize * 0.72 : placement === "above" ? -inset + fontSize * 0.3 : fontSize * 0.3);
+        const left = anchor === "start" ? x : anchor === "end" ? x - estimatedWidth : x - estimatedWidth / 2;
+        const box = {
+          left: left - padding,
+          right: left + estimatedWidth + padding,
+          top: y - estimatedHeight - padding,
+          bottom: y + padding
+        };
+        if (box.left < 0 || box.right > this.mapPixelWidth || box.top < 0 || box.bottom > this.mapPixelHeight) continue;
+        if (occupied.some((existing) => intersects(box, existing))) continue;
+        chosen = { placement, x, y, anchor, box };
+        break;
+      }
+      if (!chosen) return;
+      occupied.push(chosen.box);
+
       const marker = document.createElementNS(SVG_NS, "g");
       marker.classList.add("campaign-map-location-label");
       marker.setAttribute("data-hex", hexKey);
+      marker.setAttribute("data-placement", chosen.placement);
       marker.setAttribute("aria-hidden", "true");
 
       const text = document.createElementNS(SVG_NS, "text");
       text.textContent = label;
-      const isWesternEdge = col === 0;
-      const isEasternEdge = col === scenario.dimensions.cols - 1;
-      text.setAttribute("x", String(center.cx + (isWesternEdge ? fontSize * 0.3 : isEasternEdge ? -fontSize * 0.3 : 0)));
-      text.setAttribute("y", String(center.cy + verticalInset));
-      text.setAttribute("text-anchor", isWesternEdge ? "start" : isEasternEdge ? "end" : "middle");
+      text.setAttribute("x", String(chosen.x));
+      text.setAttribute("y", String(chosen.y));
+      text.setAttribute("text-anchor", chosen.anchor);
       text.setAttribute("font-size", String(fontSize));
-      text.setAttribute("font-weight", "800");
-      text.setAttribute("letter-spacing", String(Math.max(0.15, density * 1.1)));
+      text.setAttribute("font-weight", "700");
+      text.setAttribute("letter-spacing", String(Math.max(0.1, density * 0.75)));
       text.setAttribute("fill", "#fff1bd");
       text.setAttribute("stroke", "rgba(10, 16, 17, 0.96)");
-      text.setAttribute("stroke-width", String(Math.max(0.9, density * 5)));
+      text.setAttribute("stroke-width", String(Math.max(0.8, density * 3.6)));
       text.setAttribute("paint-order", "stroke");
       marker.appendChild(text);
       layer.appendChild(marker);
@@ -923,7 +1087,7 @@ export class CampaignMapRenderer {
       const cy = Number(group.dataset.cy ?? NaN);
       if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
       const polygon = document.createElementNS(SVG_NS, "polygon");
-      polygon.setAttribute("points", this.buildHexPolygon(cx, cy, density));
+      polygon.setAttribute("points", this.buildActiveHexPolygon(cx, cy, density));
       polygon.setAttribute("fill",
         coverage.strength === "priority"
           ? "rgba(72, 200, 214, 0.28)"
