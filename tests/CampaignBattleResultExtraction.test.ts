@@ -7,6 +7,7 @@ import type { PersonnelStatusPool, ScenarioUnit } from "../src/core/types";
 import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
 import { calculateFormationReadiness } from "../src/data/unitSystem/status";
 import type { SerializedBattleState } from "../src/game/GameEngine";
+import { buildCampaignTacticalSupportAssets } from "../src/game/campaign/CampaignTacticalSupportAdapter";
 import { createCampaignFormationBattleSeed } from "../src/game/campaign/formations/CampaignFormationBattleAdapter";
 import {
   assertCampaignBattlePackage,
@@ -103,6 +104,40 @@ export function commitFixture(saveBackend?: CampaignSaveStorageBackend): { campa
   if (!committed.ok) throw new Error(committed.reason);
   const runtime = campaign.getRuntimeSnapshot();
   if (!runtime) throw new Error("Committed campaign runtime was unavailable.");
+  return { campaign, runtime, pkg: committed.package };
+}
+
+export function commitNavalFixture(): ReturnType<typeof commitFixture> {
+  const campaign = new CampaignState({ legacyStorage: null });
+  campaign.setScenario(scenarioFixture());
+  const context = contextFixture();
+  context.coastal = true;
+  context.allocationCaps.shoreFireControlParty = 1;
+  const engagement: CampaignPendingEngagement = {
+    id: context.engagementId,
+    frontKey: context.frontKey,
+    objectiveKey: null,
+    attacker: context.attacker,
+    defender: context.defender,
+    hexKeys: [context.battleHexKey],
+    tags: ["result", "navalSupport"],
+    context
+  };
+  campaign.setPendingEngagements([engagement]);
+  campaign.setActiveEngagementId(engagement.id);
+  const planned = campaign.getRuntimeSnapshot();
+  if (!planned) throw new Error("Naval campaign runtime was not created.");
+  const committed = campaign.commitCampaignEngagement({
+    engagementId: engagement.id,
+    expectedRevision: planned.revision,
+    selections: [
+      { allocationKey: "infantry", category: "units", quantity: 1, unitRpCost: 50 },
+      { allocationKey: "shoreFireControlParty", category: "support", quantity: 1, unitRpCost: 70 }
+    ]
+  });
+  if (!committed.ok) throw new Error(committed.reason);
+  const runtime = campaign.getRuntimeSnapshot();
+  if (!runtime) throw new Error("Committed naval campaign runtime was unavailable.");
   return { campaign, runtime, pkg: committed.package };
 }
 
@@ -305,6 +340,60 @@ registerTest("CAMPAIGN_BATTLE_RESULT_REJECTS_MISSING_OR_TAMPERED_COMMITMENTS", a
 
   await Then("the extraction and integrity gates reject both unsafe packages", () => {
     if (!missingRejected || !tamperRejected) throw new Error("C20-022 accepted incomplete or modified tactical truth.");
+  });
+});
+
+registerTest("CAMPAIGN_NAVAL_SUPPORT_REACHES_TACTICAL_PLAY_AND_RECONCILES_CHARGE_USE", async ({ Given, When, Then }) => {
+  const { campaign, runtime, pkg } = commitNavalFixture();
+  const tacticalState = tacticalStateFixture(runtime, pkg);
+  const assets = buildCampaignTacticalSupportAssets(pkg);
+  if (assets.length !== 1) throw new Error("Naval fixture did not create exactly one support asset.");
+  tacticalState.supportAssets = assets.map((asset) => ({ ...asset, charges: asset.maxCharges - 1 }));
+  let result: CampaignBattleResultPackage;
+  let missingRejected = false;
+
+  await Given("a frozen naval-support commitment whose tactical asset expended one fire mission", () => {});
+
+  await When("the terminal tactical state is extracted and applied to campaign accounting", () => {
+    result = extractCampaignBattleResultPackage({
+      battlePackage: pkg,
+      tacticalState,
+      missionStatus,
+      result: "attackerVictory"
+    });
+    const missing = structuredClone(tacticalState);
+    missing.supportAssets = [];
+    try {
+      extractCampaignBattleResultPackage({
+        battlePackage: pkg,
+        tacticalState: missing,
+        missionStatus,
+        result: "attackerVictory"
+      });
+    } catch {
+      missingRejected = true;
+    }
+    const applied = campaign.applyCampaignBattleResult(result);
+    if (!applied.applied || applied.duplicate) {
+      throw new Error("The naval-support result did not apply once.");
+    }
+  });
+
+  await Then("the exact NGFS asset, charge use, and campaign cost reconcile without a fake ground unit", () => {
+    const delta = result.supportDeltas[0];
+    const consequence = campaign.getCampaignBattleConsequenceReport(pkg.engagementId)?.supportConsequences[0];
+    if (!missingRejected
+      || !delta
+      || delta.trackingMode !== "supportAsset"
+      || delta.tacticalElementIds[0] !== assets[0]?.id
+      || delta.chargesUsed !== 1
+      || delta.survivingElements !== 1
+      || delta.lostElements !== 0
+      || consequence?.chargesUsed !== 1
+      || consequence.consumedRequisitionPoints !== 70
+      || consequence.refundedRequisitionPoints !== 0) {
+      throw new Error("Tactical NGFS availability, use, or campaign consequence accounting diverged.");
+    }
   });
 });
 

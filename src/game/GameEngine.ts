@@ -126,6 +126,7 @@ import {
   type DamageRecord
 } from "../state/hqDamageTracking";
 import { formationList, getFormation, isUnitAllocationKey } from "../data/unitSystem/formations";
+import { createOffMapSupportAsset } from "./support/SupportAssetFactory";
 import type { UnitAllocationKey } from "../data/unitSystem/types";
 import { ensureUnlockState } from "../state/UnlockState";
 import type { CampaignBattlePackage } from "./campaign/engagements/CampaignEngagementLedgerTypes";
@@ -135,7 +136,7 @@ import type { CampaignBattlePackage } from "./campaign/engagements/CampaignEngag
  * We start with a read-only surface describing the active scenario and any pending battles that should spawn.
  */
 export interface CampaignBridgeState {
-  /** Current campaign scenario the commander operates in (5km hex scale). */
+  /** Current campaign scenario; its authored hexScaleKm remains the sole strategic scale authority. */
   scenario: CampaignScenarioData | null;
   /** Snapshot of campaign turn data including resources and triggered engagements. */
   turnState: CampaignTurnState | null;
@@ -1536,6 +1537,11 @@ export interface GameEngineConfig {
     rations: number;
     parts: number;
   };
+  /**
+   * Exact off-map assets granted before turn one. Undefined retains the legacy standalone fixture;
+   * an empty array authoritatively declares that the mission committed no support assets.
+   */
+  initialSupportAssets?: readonly SupportAssetSnapshot[];
   /** Optional ally faction side. Predeployed allied units can be transferred into player command at mission start. */
   allySide?: ScenarioSide;
   /** Optional override that selects the tactical planner driving enemy turns. Defaults to "Heuristic". */
@@ -7222,7 +7228,7 @@ private automateSupplyConvoys(
         `GameEngine initialization failed: seeded 0 bot placements from ${(this.botSide.units ?? []).length} bot units. Ensure scenario bot units are present and valid.`
       );
     }
-    this.seedSupportAssets();
+    this.seedSupportAssets(config.initialSupportAssets);
     this.resetSupplyHistory();
     this.recordSupplySnapshot("Player");
     this.recordSupplySnapshot("Bot");
@@ -7236,12 +7242,32 @@ private automateSupplyConvoys(
     }
   }
 
-  /**
-   * Placeholder helper seeding a tiny roster of support assets so UI scaffolding can render meaningful
-   * cards until the real campaign data is wired. Intentional TODO marker keeps the follow-up visible.
-   */
-  private seedSupportAssets(): void {
+  /** Seeds exact mission support when supplied, otherwise preserves the legacy standalone fallback roster. */
+  private seedSupportAssets(initialSupportAssets?: readonly SupportAssetSnapshot[]): void {
     if (this.privateSupportAssets.length > 0) {
+      return;
+    }
+    if (initialSupportAssets !== undefined) {
+      initialSupportAssets.forEach((asset) => {
+        this.privateSupportAssets.push({
+          id: asset.id,
+          label: asset.label,
+          type: asset.type,
+          status: asset.status,
+          charges: Math.max(0, Math.round(asset.charges)),
+          maxCharges: Math.max(0, Math.round(asset.maxCharges)),
+          cooldown: Math.max(0, Math.round(asset.cooldown)),
+          maxCooldown: Math.max(0, Math.round(asset.maxCooldown)),
+          assignedHex: asset.assignedHex ?? null,
+          notes: asset.notes ?? null,
+          queuedHex: asset.queuedHex ?? null,
+          queuedByHex: asset.queuedByHex ?? null,
+          strikeDamageCap: typeof asset.strikeDamageCap === "number"
+            ? Math.max(1, Math.round(asset.strikeDamageCap))
+            : undefined
+        });
+      });
+      this.invalidateSupportSnapshot();
       return;
     }
     this.privateSupportAssets.push(
@@ -7766,38 +7792,8 @@ private automateSupplyConvoys(
   }
 
   private createBattleRequisitionSupportAsset(entry: BattleRequisitionPending): InternalSupportAsset | null {
-    const formation = getFormation(entry.unitKey);
-    if (!formation || formation.requisition.category !== "support") {
-      return null;
-    }
-    const isArtillery = entry.unitKey === "corpsArtilleryGroup" || formation.purpose.includes("indirectFire");
-    const maxCharges = entry.unitKey === "corpsArtilleryGroup"
-      ? 3
-      : entry.unitKey === "shoreFireControlParty"
-        ? 2
-        : 1;
-    const strikeDamageCap = entry.unitKey === "shoreFireControlParty"
-      ? 30
-      : entry.unitKey === "corpsArtilleryGroup"
-        ? 24
-        : 22;
-    return {
-      id: `support-${entry.id}`,
-      label: entry.label,
-      type: isArtillery ? "artillery" : "other",
-      status: "ready",
-      charges: maxCharges,
-      maxCharges,
-      cooldown: 0,
-      maxCooldown: isArtillery ? 3 : 2,
-      assignedHex: null,
-      notes: isArtillery
-        ? "Requisitioned off-map fire missions. Use an infantry, recon, or leg specialist observer to call fire on observed enemy hexes."
-        : formation.gameplayDescription,
-      queuedHex: null,
-      queuedByHex: null,
-      strikeDamageCap
-    };
+    const asset = createOffMapSupportAsset(entry.unitKey, `support-${entry.id}`, entry.label);
+    return asset ? { ...asset } : null;
   }
 
   private awardObjectiveProgressRequisitionPoints(): void {

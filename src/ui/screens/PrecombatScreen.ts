@@ -32,7 +32,11 @@ import { clearCampaignScenarioCache, resolveScenarioForMission } from "../../gam
 import type { CampaignEngagementContext } from "../../core/campaignTypes";
 import type { CampaignBattlePackage } from "../../game/campaign/engagements/CampaignEngagementLedgerTypes";
 import { describeForceRatio, MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
-import { RESERVE_PURCHASABLE_KEYS } from "../../game/campaign/campaignForceMapping";
+import {
+  CAMPAIGN_AIR_UNIT_TYPES,
+  CAMPAIGN_NAVAL_UNIT_TYPES,
+  RESERVE_PURCHASABLE_KEYS
+} from "../../game/campaign/campaignForceMapping";
 
 type AllocationListElement = HTMLElement & {
   __allocationListenersAttached?: boolean;
@@ -1808,6 +1812,10 @@ export class PrecombatScreen {
     const committedDefenseLine = committedAirborne > 0
       ? `${committedGroups} formations: ${committedLine} line formation${committedLine === 1 ? "" : "s"} · ${committedAirborne} airborne formation${committedAirborne === 1 ? "" : "s"} already on the ground`
       : `${committedGroups} formation${committedGroups === 1 ? "" : "s"} locked to this battle`;
+    const groundGroupsInRange = context.availableForces
+      .filter((group) => !CAMPAIGN_AIR_UNIT_TYPES.includes(group.unitType) && !CAMPAIGN_NAVAL_UNIT_TYPES.includes(group.unitType))
+      .reduce((sum, group) => sum + group.count, 0);
+    const navalSupport = context.allocationCaps?.shoreFireControlParty ?? 0;
     const intelligenceLine = briefing
       ? `${briefing.resistanceBand.charAt(0).toUpperCase()}${briefing.resistanceBand.slice(1)} resistance · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
       : legacyRatio.label;
@@ -1817,7 +1825,7 @@ export class PrecombatScreen {
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
       ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     ` : `
-      <span style="display:block;"><strong>Forces in range</strong> · ${committedGroups} ground groups · ${context.airSorties} air sorties · ${context.rpReserve.toLocaleString()} RP reserve</span>
+      <span style="display:block;"><strong>Forces in range</strong> · ${groundGroupsInRange} ground formations · ${context.airSorties} air sorties${navalSupport > 0 ? ` · ${navalSupport} naval fire-support option${navalSupport === 1 ? "" : "s"}` : ""} · ${context.rpReserve.toLocaleString()} RP reserve</span>
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
       ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     `;

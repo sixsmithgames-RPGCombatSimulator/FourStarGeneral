@@ -109,6 +109,108 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
   });
 });
 
+registerTest("CAMPAIGN_RENDERER_REVEALS_FRIENDLY_BASES_WITHOUT_PERMANENT_LABEL_CLUTTER", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario: CampaignScenarioData = {
+    key: "base-disclosure",
+    title: "Base Disclosure",
+    description: "Friendly bases use progressive disclosure.",
+    dimensions: { cols: 6, rows: 4 },
+    background: { imageUrl: "about:blank" },
+    tilePalette: {
+      bristol: {
+        role: "logisticsHub",
+        factionControl: "Player",
+        mapLabel: "Bristol",
+        spriteKey: "logisticsHub",
+        supplyValue: 3
+      },
+      portsmouth: {
+        role: "logisticsHub",
+        factionControl: "Player",
+        mapLabel: "Portsmouth",
+        spriteKey: "logisticsHub",
+        supplyValue: 4
+      },
+      england: { role: "region", factionControl: "Player", mapLabel: "Southern England" }
+    },
+    tiles: [
+      { tile: "bristol", hex: CoordinateSystem.offsetToAxial(1, 1) },
+      {
+        tile: "portsmouth",
+        hex: CoordinateSystem.offsetToAxial(4, 1),
+        forces: [{ unitType: "Supply_Truck", count: 2, label: "Sword supply columns" }]
+      },
+      { tile: "england", hex: CoordinateSystem.offsetToAxial(2, 2) }
+    ],
+    fronts: [],
+    objectives: [],
+    economies: [{ faction: "Player", manpower: 0, supplies: 0, fuel: 0, ammo: 0, airPower: 0, navalPower: 0, intelCoverage: 0 }]
+  };
+  const renderer = new CampaignMapRenderer();
+
+  await Given("two friendly historical bases and one genuine geographic label", () => {
+    renderer.render(svg, canvas as HTMLDivElement, {
+      observerFaction: "Player",
+      scenario,
+      enemyContacts: [],
+      knownStrategicSites: [],
+      coverage: [],
+      capacity: { total: 0, committed: 0, available: 0 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+  });
+
+  await When("the player points, focuses, clicks, or keyboard-activates a base", () => {});
+
+  await Then("base identity expands from one bounded focusable marker while permanent labels remain geographic", () => {
+    const persistentLabels = Array.from(svg.querySelectorAll(".campaign-map-location-label"))
+      .map((entry) => entry.textContent?.trim() ?? "");
+    const markers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-base-marker"));
+    const bristol = svg.querySelector<SVGGElement>('.campaign-base-marker[data-base-name="Bristol"]');
+    const portsmouth = svg.querySelector<SVGGElement>('.campaign-base-marker[data-base-name="Portsmouth"]');
+    const bristolCard = bristol?.querySelector<SVGGElement>(".campaign-base-disclosure");
+    const portsmouthCard = portsmouth?.querySelector<SVGGElement>(".campaign-base-disclosure");
+    const cardsStayInsideMap = [bristolCard, portsmouthCard].every((card) => {
+      const rect = card?.querySelector<SVGRectElement>("rect");
+      if (!rect) return false;
+      const x = Number(rect.getAttribute("x"));
+      const y = Number(rect.getAttribute("y"));
+      const width = Number(rect.getAttribute("width"));
+      const height = Number(rect.getAttribute("height"));
+      const [, , mapWidth = 0, mapHeight = 0] = (svg.getAttribute("viewBox") ?? "")
+        .split(/\s+/)
+        .map(Number);
+      return x >= 0 && y >= 0 && x + width <= mapWidth && y + height <= mapHeight;
+    });
+    if (persistentLabels.includes("Bristol")
+      || persistentLabels.includes("Portsmouth")
+      || !persistentLabels.includes("Southern England")
+      || markers.length !== 2
+      || bristol?.getAttribute("role") !== "button"
+      || bristol.getAttribute("tabindex") !== "0"
+      || !bristol.getAttribute("aria-label")?.includes("Bristol, Logistics Hub, no formations currently ready")
+      || !bristolCard?.textContent?.includes("No formations currently ready")
+      || !portsmouthCard?.textContent?.includes("Sword supply columns · 2")
+      || !cardsStayInsideMap) {
+      throw new Error("Friendly-base disclosure lost historical identity, accessibility, bounded geometry, or decluttering.");
+    }
+
+    const activations: string[] = [];
+    renderer.onHexClick((hexKey) => activations.push(hexKey));
+    bristol.querySelector(".campaign-base-marker__hit-target")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    bristol.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    bristol.dispatchEvent(new window.KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    if (activations.join("|") !== "1,1|1,1|1,1") {
+      throw new Error(`Pointer and keyboard base activation diverged: ${activations.join("|")}.`);
+    }
+  });
+});
+
 registerTest("CAMPAIGN_RENDERER_OMITS_UNCONFIRMED_HOSTILE_SITES_FROM_THE_DOM", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");

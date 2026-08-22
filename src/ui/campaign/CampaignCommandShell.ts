@@ -105,6 +105,7 @@ export interface CampaignCommandHexView {
   readonly sourceLabel?: string;
   readonly hasContextActions?: boolean;
   readonly forces: readonly string[];
+  readonly capabilities?: readonly string[];
   readonly infrastructure: string | null;
   readonly objectives: readonly string[];
   readonly fronts: readonly string[];
@@ -743,7 +744,13 @@ export class CampaignCommandShell {
       this.syncInspectorState();
     });
     this.root.querySelector("#campaignContextInspector")?.addEventListener("click", (event) => {
-      const location = (event.target as Element).closest<HTMLButtonElement>("[data-campaign-map-hex-target]");
+      const target = event.target as Element;
+      const formation = target.closest<HTMLButtonElement>("[data-campaign-formation-id]");
+      if (formation?.dataset.campaignFormationId) {
+        this.requestSelection({ kind: "formation", id: formation.dataset.campaignFormationId }, true);
+        return;
+      }
+      const location = target.closest<HTMLButtonElement>("[data-campaign-map-hex-target]");
       if (location?.dataset.campaignMapHexTarget) {
         this.requestSelection({ kind: "hex", id: location.dataset.campaignMapHexTarget }, true);
       }

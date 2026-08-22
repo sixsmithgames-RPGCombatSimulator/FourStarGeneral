@@ -1,6 +1,6 @@
 /** Typed context-inspector shell and Player-safe route rendering. */
 
-import type { CampaignCommandShellView } from "../CampaignCommandShell";
+import type { CampaignCommandFormationView, CampaignCommandShellView } from "../CampaignCommandShell";
 import type { CampaignCommandSelection } from "../CampaignCommandUIState";
 
 interface InspectorFact {
@@ -13,6 +13,7 @@ interface CampaignInspectorRoute {
   readonly title: string;
   readonly summary: string;
   readonly facts: readonly InspectorFact[];
+  readonly formations?: readonly CampaignCommandFormationView[];
   readonly mode: "compatibility" | "projected" | "projectedWithActions" | "empty";
   readonly mapTarget?: { readonly hexKey: string; readonly label: string };
 }
@@ -73,6 +74,31 @@ export function renderCampaignContextInspector(
   });
   const content: HTMLElement[] = [createText("p", "campaign-context-inspector__summary", route.summary)];
   if (route.facts.length > 0) content.push(facts);
+  if (route.formations && route.formations.length > 0) {
+    const formationSection = document.createElement("section");
+    formationSection.className = "campaign-context-inspector__formations";
+    formationSection.appendChild(createText("h3", "", "Formations at this base"));
+    const formationList = document.createElement("div");
+    formationList.className = "campaign-context-inspector__formation-list";
+    route.formations.forEach((formation) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "campaign-context-inspector__formation";
+      button.dataset.campaignFormationId = formation.id;
+      const availability = formation.availabilityLabel ? ` · Available ${formation.availabilityLabel}` : "";
+      button.append(
+        createText("strong", "", formation.name),
+        createText(
+          "span",
+          "",
+          `${formation.typeLabel} · ${formation.statusLabel} · Readiness ${formation.readiness} · Cohesion ${formation.cohesion}${availability}`
+        )
+      );
+      formationList.appendChild(button);
+    });
+    formationSection.appendChild(formationList);
+    content.push(formationSection);
+  }
   if (route.mapTarget) {
     const mapAction = createText("button", "campaign-context-inspector__map-action", route.mapTarget.label) as HTMLButtonElement;
     mapAction.type = "button";
@@ -92,6 +118,7 @@ function resolveInspectorRoute(
   }
   if (selection.kind === "hex") {
     const hex = view?.hexes?.find((entry) => entry.hexKey === selection.id);
+    const locatedFormations = view?.formations?.filter((formation) => formation.locationHexKey === selection.id) ?? [];
     return {
       kind: "hex",
       title: hex?.displayLabel ?? `Operational hex ${selection.id}`,
@@ -105,11 +132,13 @@ function resolveInspectorRoute(
           { label: "Type", value: hex.roleLabel },
           ...(hex.sourceLabel ? [{ label: "Source", value: hex.sourceLabel }] : []),
           ...(hex.forces.length > 0 ? [{ label: "Projected forces", value: hex.forces.join("; ") }] : []),
+          ...(hex.capabilities?.length ? [{ label: "Operational contribution", value: hex.capabilities.join(" · ") }] : []),
           ...(hex.infrastructure ? [{ label: "Infrastructure", value: hex.infrastructure }] : []),
           ...(hex.objectives.length > 0 ? [{ label: "Objectives", value: hex.objectives.join(", ") }] : []),
           ...(hex.fronts.length > 0 ? [{ label: "Fronts", value: hex.fronts.join(", ") }] : [])
         ] : [])
       ],
+      formations: locatedFormations,
       mode: hex && hex.hasContextActions !== false ? "projectedWithActions" : "projected"
     };
   }
@@ -193,6 +222,12 @@ function resolveInspectorRoute(
   if (selection.kind === "formation") {
     const rosterFormation = view.formations?.find((entry) => entry.id === selection.id);
     if (rosterFormation) {
+      const currentOrder = rosterFormation.currentOrderId
+        ? view.orders.find((entry) => entry.id === rosterFormation.currentOrderId)
+        : null;
+      const currentOrderLabel = currentOrder
+        ? `${currentOrder.label} · ${currentOrder.status}${currentOrder.eta ? ` · ${currentOrder.eta}` : ""}`
+        : rosterFormation.currentOrderId ? "Assigned to an active operation" : "None";
       return {
         kind: "formation",
         title: rosterFormation.name,
@@ -210,7 +245,7 @@ function resolveInspectorRoute(
           { label: "Equipment", value: rosterFormation.equipment },
           { label: "Supply", value: rosterFormation.supply },
           { label: "Experience", value: `${rosterFormation.experience} · ${rosterFormation.battles} battle${rosterFormation.battles === 1 ? "" : "s"}` },
-          { label: "Current order", value: rosterFormation.currentOrderId ?? "None" },
+          { label: "Current order", value: currentOrderLabel },
           { label: "Honors", value: rosterFormation.honors.join(", ") || "None" }
         ],
         mode: "projected"

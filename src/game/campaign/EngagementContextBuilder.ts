@@ -29,6 +29,9 @@ import { hasBattleTemplatesForCampaign, selectBattleTemplate } from "./battleTem
 /** Operational radius (in campaign hexes) from which air wings can support a battle. 1 hex = 10 km. */
 export const AIR_SORTIE_RANGE_HEXES = 15;
 
+/** Bounded task-force fire-support radius (about 60 km at the authored 10 km theater scale). */
+export const NAVAL_SUPPORT_RANGE_HEXES = 6;
+
 /** Discretionary consumables reserve bounds (RP). Tuned to sit below authored-mission budgets. */
 const RP_RESERVE_FLOOR = 150;
 const RP_RESERVE_CEILING = 600;
@@ -211,6 +214,22 @@ export function buildEngagementContext(
     for (const group of tileForces(tile)) {
       if (!CAMPAIGN_AIR_UNIT_TYPES.includes(group.unitType)) continue;
       availableForces.push({ hexKey: key, unitType: group.unitType, count: group.count });
+    }
+  }
+
+  // Naval support: one operational entitlement per friendly task force in range of a coastal battle.
+  // Task-force tiles intentionally carry capacity instead of fake ground formations; translating that
+  // capacity here makes the visible fleet operational without placing warships in the ground roster.
+  if (coastal) {
+    for (const tile of scenario.tiles) {
+      const def = scenario.tilePalette[tile.tile];
+      if (!def || def.role !== "taskForce" || (def.navalCapacity ?? 0) <= 0) continue;
+      if (tileOwner(scenario, tile) !== attacker || hexDistance(tile.hex, coords) > NAVAL_SUPPORT_RANGE_HEXES) continue;
+      availableForces.push({
+        hexKey: axialToOffsetKey(tile.hex.q, tile.hex.r),
+        unitType: "Battleship",
+        count: 1
+      });
     }
   }
 

@@ -17,6 +17,7 @@ const INTEL_COVERAGE_LAYER_ID = "campaign-map-intel-coverage";
 const INTEL_CONTACT_LAYER_ID = "campaign-map-intel-contacts";
 const KNOWN_SITE_LAYER_ID = "campaign-map-known-sites";
 const LOCATION_LABEL_LAYER_ID = "campaign-map-location-labels";
+const FRIENDLY_BASE_DISCLOSURE_LAYER_ID = "campaign-map-friendly-base-disclosures";
 const MAX_CAMPAIGN_FORCE_ACTORS = 4;
 const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
 
@@ -145,7 +146,7 @@ export class CampaignMapRenderer {
    *   - Target map size: 1024×768 pixels
    *   - Required density: ~0.15 (hexes become ~15% of tactical size)
    *
-   * This ensures the 5km-per-hex scale is maintained visually while fitting the grid.
+   * This fits the complete authored grid; strategic distance remains governed by scenario.hexScaleKm.
    */
   private getHexDensityScalar(): number {
     if (!this.scenario || !Number.isFinite(this.mapPixelWidth)) {
@@ -255,6 +256,7 @@ export class CampaignMapRenderer {
     const frontGroup = this.ensureLayer(viewportRoot, FRONT_LAYER_ID);
     const locationLabelGroup = this.ensureLayer(viewportRoot, LOCATION_LABEL_LAYER_ID);
     const forceGroup = this.ensureLayer(viewportRoot, FORCE_LAYER_ID);
+    const friendlyBaseDisclosureGroup = this.ensureLayer(viewportRoot, FRIENDLY_BASE_DISCLOSURE_LAYER_ID);
     const coverageGroup = this.ensureLayer(viewportRoot, INTEL_COVERAGE_LAYER_ID);
     const knownSiteGroup = this.ensureLayer(viewportRoot, KNOWN_SITE_LAYER_ID);
     const contactGroup = this.ensureLayer(viewportRoot, INTEL_CONTACT_LAYER_ID);
@@ -269,6 +271,7 @@ export class CampaignMapRenderer {
     this.renderFronts(frontGroup, scenario);
     this.renderSprites(spriteGroup, scenario);
     this.renderForceGroups(forceGroup, scenario);
+    this.renderFriendlyBaseDisclosures(friendlyBaseDisclosureGroup, scenario);
     this.renderIntelCoverage(coverageGroup, viewModel);
     this.renderKnownStrategicSites(knownSiteGroup, viewModel);
     this.renderIntelContacts(contactGroup, viewModel);
@@ -297,6 +300,7 @@ export class CampaignMapRenderer {
     frontGroup.setAttribute("transform", transform);
     spriteGroup.setAttribute("transform", transform);
     forceGroup.setAttribute("transform", transform);
+    friendlyBaseDisclosureGroup.setAttribute("transform", transform);
     coverageGroup.setAttribute("transform", transform);
     knownSiteGroup.setAttribute("transform", transform);
     contactGroup.setAttribute("transform", transform);
@@ -734,8 +738,13 @@ export class CampaignMapRenderer {
       image.setAttribute("height", String(iconSize));
       image.setAttribute("x", String(cx - iconSize / 2));
       image.setAttribute("y", String(cy - iconSize / 2));
-      image.setAttribute("role", "img");
-      image.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
+      if (this.isFriendlyInstallation(instance, scenario) && Boolean(paletteEntry?.mapLabel?.trim())) {
+        // The focusable disclosure marker owns the interactive accessible name.
+        image.setAttribute("aria-hidden", "true");
+      } else {
+        image.setAttribute("role", "img");
+        image.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
+      }
       image.classList.add("campaign-sprite");
 
       // Apply rotation if specified
@@ -831,6 +840,150 @@ export class CampaignMapRenderer {
     if (normalized >= 210 && normalized < 270) return "NW";
     if (normalized >= 270 && normalized < 330) return "NE";
     return "E";
+  }
+
+  /** Returns true only for a player-visible fixed installation that can own progressive map disclosure. */
+  private isFriendlyInstallation(instance: CampaignTileInstance, scenario: CampaignScenarioData): boolean {
+    const palette = scenario.tilePalette[instance.tile];
+    const controller = instance.factionControl ?? palette?.factionControl;
+    const role = palette?.role;
+    return controller === this.viewModel?.observerFaction
+      && (role === "airbase" || role === "logisticsHub" || role === "navalBase");
+  }
+
+  /**
+   * Adds one focusable interaction anchor per friendly base without permanently painting its name over the map.
+   * The disclosure is intentionally projection-only: ready aggregate groups are safe, while scheduled identities stay in the inspector.
+   */
+  private renderFriendlyBaseDisclosures(layer: SVGGElement, scenario: CampaignScenarioData): void {
+    const density = this.getHexDensityScalar();
+    const iconSize = HEX_RADIUS * density * 1.6;
+    const fontSize = 10;
+    const titleSize = 12;
+    const lineHeight = 13;
+
+    scenario.tiles.forEach((instance) => {
+      if (!this.isFriendlyInstallation(instance, scenario)) return;
+      const palette = scenario.tilePalette[instance.tile];
+      const baseName = palette?.mapLabel?.trim();
+      if (!palette || !baseName) return;
+      const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(col, row);
+      const center = this.getHexCenter(hexKey);
+      if (!center) return;
+
+      const readyForces = this.resolveForces(instance, scenario)?.filter((force) => force.count > 0) ?? [];
+      const forceLines = readyForces.slice(0, 2).map((force) => (
+        `${this.formatMarkerLabel(force.label ?? force.unitType)} · ${force.count}`
+      ));
+      if (readyForces.length > 2) forceLines.push(`+${readyForces.length - 2} more formation groups`);
+      if (forceLines.length === 0) forceLines.push("No formations currently ready");
+      const roleLabel = this.formatMarkerLabel(palette.role);
+      const disclosureLines = [roleLabel, ...forceLines, "Select for full roster"];
+      const longestLine = [baseName, ...disclosureLines].reduce((longest, line) => Math.max(longest, line.length), 0);
+      const cardWidth = Math.min(230, Math.max(138, longestLine * fontSize * 0.56 + 24));
+      const cardHeight = 19 + disclosureLines.length * lineHeight + 12;
+      const gap = Math.max(12, iconSize * 0.95);
+      const prefersRight = center.cx < this.mapPixelWidth * 0.58;
+      const unclampedX = prefersRight ? center.cx + gap : center.cx - gap - cardWidth;
+      const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
+      const cardY = Math.max(6, Math.min(this.mapPixelHeight - cardHeight - 6, center.cy - cardHeight / 2));
+      const cardEdgeX = prefersRight ? cardX : cardX + cardWidth;
+      const triggerRadius = Math.max(iconSize * 0.55, HEX_RADIUS * density * 0.76);
+      const formationSummary = readyForces.length > 0
+        ? readyForces.map((force) => `${force.count} ${this.formatMarkerLabel(force.label ?? force.unitType)}`).join(", ")
+        : "no formations currently ready";
+      const accessibleName = `${baseName}, ${roleLabel}, ${formationSummary}. Select for base and formation details.`;
+
+      const marker = document.createElementNS(SVG_NS, "g");
+      marker.classList.add("campaign-base-marker");
+      marker.setAttribute("data-hex", hexKey);
+      marker.setAttribute("data-base-name", baseName);
+      marker.setAttribute("data-disclosure-side", prefersRight ? "right" : "left");
+      marker.setAttribute("role", "button");
+      marker.setAttribute("tabindex", "0");
+      marker.setAttribute("aria-label", accessibleName);
+
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = accessibleName;
+      marker.appendChild(title);
+
+      const hitTarget = document.createElementNS(SVG_NS, "circle");
+      hitTarget.classList.add("campaign-base-marker__hit-target");
+      hitTarget.setAttribute("cx", String(center.cx));
+      hitTarget.setAttribute("cy", String(center.cy));
+      hitTarget.setAttribute("r", String(triggerRadius));
+      hitTarget.setAttribute("fill", "rgba(0, 0, 0, 0.001)");
+      hitTarget.setAttribute("stroke", "transparent");
+      hitTarget.setAttribute("pointer-events", "all");
+      hitTarget.setAttribute("data-hex", hexKey);
+      hitTarget.setAttribute("aria-hidden", "true");
+      marker.appendChild(hitTarget);
+
+      const focusRing = document.createElementNS(SVG_NS, "circle");
+      focusRing.classList.add("campaign-base-marker__focus-ring");
+      focusRing.setAttribute("cx", String(center.cx));
+      focusRing.setAttribute("cy", String(center.cy));
+      focusRing.setAttribute("r", String(triggerRadius));
+      focusRing.setAttribute("fill", "rgba(82, 177, 131, 0.12)");
+      focusRing.setAttribute("stroke", "#8bd3a9");
+      focusRing.setAttribute("stroke-width", "1.5");
+      focusRing.setAttribute("vector-effect", "non-scaling-stroke");
+      focusRing.setAttribute("pointer-events", "none");
+      focusRing.setAttribute("aria-hidden", "true");
+      marker.appendChild(focusRing);
+
+      const disclosure = document.createElementNS(SVG_NS, "g");
+      disclosure.classList.add("campaign-base-disclosure");
+      disclosure.setAttribute("data-base-disclosure", hexKey);
+      disclosure.setAttribute("pointer-events", "none");
+      disclosure.setAttribute("aria-hidden", "true");
+
+      const connector = document.createElementNS(SVG_NS, "line");
+      connector.setAttribute("x1", String(center.cx + (prefersRight ? triggerRadius : -triggerRadius)));
+      connector.setAttribute("y1", String(center.cy));
+      connector.setAttribute("x2", String(cardEdgeX));
+      connector.setAttribute("y2", String(Math.max(cardY + 10, Math.min(cardY + cardHeight - 10, center.cy))));
+      connector.setAttribute("stroke", "rgba(139, 211, 169, 0.9)");
+      connector.setAttribute("stroke-width", "1.4");
+      connector.setAttribute("vector-effect", "non-scaling-stroke");
+      disclosure.appendChild(connector);
+
+      const backdrop = document.createElementNS(SVG_NS, "rect");
+      backdrop.setAttribute("x", String(cardX));
+      backdrop.setAttribute("y", String(cardY));
+      backdrop.setAttribute("width", String(cardWidth));
+      backdrop.setAttribute("height", String(cardHeight));
+      backdrop.setAttribute("rx", "7");
+      backdrop.setAttribute("fill", "rgba(10, 18, 18, 0.96)");
+      backdrop.setAttribute("stroke", "rgba(209, 177, 96, 0.92)");
+      backdrop.setAttribute("stroke-width", "1.25");
+      backdrop.setAttribute("vector-effect", "non-scaling-stroke");
+      disclosure.appendChild(backdrop);
+
+      const heading = document.createElementNS(SVG_NS, "text");
+      heading.textContent = baseName;
+      heading.setAttribute("x", String(cardX + 11));
+      heading.setAttribute("y", String(cardY + 17));
+      heading.setAttribute("font-size", String(titleSize));
+      heading.setAttribute("font-weight", "700");
+      heading.setAttribute("fill", "#fff2c9");
+      disclosure.appendChild(heading);
+
+      disclosureLines.forEach((line, index) => {
+        const text = document.createElementNS(SVG_NS, "text");
+        text.textContent = line;
+        text.setAttribute("x", String(cardX + 11));
+        text.setAttribute("y", String(cardY + 34 + index * lineHeight));
+        text.setAttribute("font-size", String(index === disclosureLines.length - 1 ? fontSize - 1 : fontSize));
+        text.setAttribute("font-weight", index === 0 ? "600" : "400");
+        text.setAttribute("fill", index === disclosureLines.length - 1 ? "#d1b160" : "#d9e1d5");
+        disclosure.appendChild(text);
+      });
+
+      marker.appendChild(disclosure);
+      layer.appendChild(marker);
+    });
   }
 
   private formatMarkerLabel(value: string): string {
@@ -953,6 +1106,8 @@ export class CampaignMapRenderer {
       stack.setAttribute("data-safe-radius", String(safeRadius));
       stack.setAttribute("role", "img");
       stack.setAttribute("aria-label", accessibleName);
+      // The installation/hex beneath the visual formation remains the interaction owner.
+      stack.setAttribute("pointer-events", "none");
 
       const title = document.createElementNS(SVG_NS, "title");
       title.textContent = accessibleName;
@@ -1008,8 +1163,12 @@ export class CampaignMapRenderer {
     );
     const labeledTiles = scenario.tiles
       .map((instance) => ({ instance, palette: scenario.tilePalette[instance.tile] }))
-      // Fleets are formations, not places. Their ship art and selectable inspector carry identity.
-      .filter(({ palette }) => palette?.mapLabel?.trim() && palette.role !== "taskForce")
+      // Interactive formations and friendly bases carry identity through their sprite, disclosure, and inspector.
+      // This layer stays geographic so permanent text never becomes a second entity layer.
+      .filter(({ palette }) => palette?.mapLabel?.trim()
+        && palette.role !== "taskForce"
+        && !(palette.factionControl === this.viewModel?.observerFaction
+          && (palette.role === "airbase" || palette.role === "logisticsHub" || palette.role === "navalBase")))
       .sort((a, b) => {
         const priority = (role: string): number => role === "navalBase" || role === "logisticsHub" ? 3 : role.startsWith("fortification") ? 2 : 1;
         return priority(b.palette.role) - priority(a.palette.role);
@@ -1431,7 +1590,9 @@ export class CampaignMapRenderer {
     const keydownListener = (event: KeyboardEvent): void => {
       if (event.key !== "Enter" && event.key !== " ") return;
       const target = event.target as Element | null;
-      if (!target?.closest(".campaign-intel-contact[data-contact-id], .campaign-known-site[data-known-site-id]")) return;
+      if (!target?.closest(
+        ".campaign-intel-contact[data-contact-id], .campaign-known-site[data-known-site-id], .campaign-base-marker[data-hex]"
+      )) return;
       event.preventDefault();
       activateTarget(target);
     };

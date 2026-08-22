@@ -34,6 +34,7 @@ import {
 } from "../src/game/campaign/persistence/CampaignSaveMigration";
 import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
 import {
+  CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH,
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH,
   CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
@@ -399,7 +400,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
 
   await Given("an unplayed save carrying the exact retired production content identity", () => {
     const currentHash = computeCampaignContentHash(definition);
-    if (currentHash !== CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
+    if (currentHash !== CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
       || retiredOpening.currentSegment !== 0
       || retiredOpening.revision !== 0) {
       throw new Error(`Normandy content identity or pristine boundary drifted: ${currentHash}.`);
@@ -414,7 +415,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
     const result = migrated.runtime;
     if (!migrated.migrated
       || result.campaignId !== runtime.campaignId
-      || result.scenarioContentHash !== CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
+      || result.scenarioContentHash !== CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
       || result.currentSegment !== 0
       || result.revision !== 0
       || result.tiles["22,13"]?.tileKey !== "utahBeach"
@@ -482,12 +483,43 @@ registerTest("CAMPAIGN_STATE_LOAD_REACHES_THE_CERTIFIED_FULL_THEATER_MIGRATION",
     const runtime = loadState.getRuntimeSnapshot();
     if (!load
       || !load.ok
-      || runtime?.scenarioContentHash !== CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
+      || runtime?.scenarioContentHash !== CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
       || runtime.currentSegment !== 0
       || runtime.revision !== 0
       || runtime.tiles["5,8"]?.tileKey !== "westernEmbarkation"
       || runtime.tiles["44,4"]?.tileKey !== "rouenHub") {
       throw new Error(`Normal load did not reach the certified full-theater migration: ${load?.ok ? "stale runtime" : load?.error.message ?? "no result"}.`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_ACROSS_HISTORICAL_BASE_RENAMING", async ({ Given, When, Then }) => {
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const definition = splitLegacyCampaignScenario(scenario);
+  const state = new CampaignState({ legacyStorage: null });
+  state.setScenario(scenario);
+  const runtime = state.getRuntimeSnapshot();
+  if (!runtime) throw new Error("Base-renaming migration fixture did not create a runtime.");
+  const prior = {
+    ...structuredClone(runtime),
+    scenarioContentHash: CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
+  };
+  prior.factions.Player.economy.supplies -= 37;
+  const expected = {
+    ...structuredClone(prior),
+    scenarioContentHash: CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+  };
+  let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
+
+  await Given("a valid full-theater save with player economy progress before concise base naming", () => {});
+  await When("the presentation-only base naming migration is applied", () => {
+    migrated = migrateCampaignRuntimeContent(prior, definition);
+  });
+  await Then("only the certified content identity changes", () => {
+    if (!migrated.migrated
+      || computeCampaignContentHash(migrated.runtime) !== computeCampaignContentHash(expected)
+      || migrated.runtime.factions.Player.economy.supplies !== prior.factions.Player.economy.supplies) {
+      throw new Error("Presentation-only base naming migration changed campaign progress or failed to stamp the current identity.");
     }
   });
 });

@@ -4,7 +4,7 @@
  * WHY: Tactical launch needs an atomic formation lock and a frozen, integrity-checked package that cannot be duplicated.
  */
 
-import { mapCampaignUnitToAllocationKey } from "../campaignForceMapping";
+import { CAMPAIGN_NON_FORMATION_SUPPORT_KEYS, mapCampaignUnitToAllocationKey } from "../campaignForceMapping";
 import {
   createStableCampaignRecordId,
   computeCampaignContentHash
@@ -207,6 +207,12 @@ function selectAttackerCommitments(
   const commitments: CampaignFormationCommitment[] = [];
   selections.forEach((selection) => {
     const cap = context.allocationCaps[selection.allocationKey] ?? 0;
+    if (CAMPAIGN_NON_FORMATION_SUPPORT_KEYS.includes(selection.allocationKey)) {
+      if (selection.quantity > cap) {
+        throw new Error(`${selection.allocationKey} requests ${selection.quantity}, above the campaign cap of ${cap}.`);
+      }
+      return;
+    }
     const candidateIds = context.availableForces
       .filter((group) => mapCampaignUnitToAllocationKey(group.unitType) === selection.allocationKey)
       .flatMap((group) => group.formationIds ?? []);

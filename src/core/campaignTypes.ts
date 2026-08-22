@@ -54,7 +54,7 @@ export interface CampaignInfrastructureState {
 }
 
 /**
- * Describes the strategic value of a single campaign tile at 5km scale.
+ * Describes the strategic value of a single campaign tile at the authored theater scale.
  * Tactical terrain is intentionally omitted; instead we capture control, capacity, and sprite metadata.
  */
 export interface CampaignForceGroup {
@@ -304,7 +304,7 @@ export interface TransportMode {
   key: string;
   /** Display name shown in UI. */
   label: string;
-  /** Movement speed in hexes per day (remember: 1 hex = 5km). */
+  /** Movement speed in campaign hexes per modeled time interval; distance comes from scenario.hexScaleKm. */
   speedHexPerDay: number;
   /** Supply cost per unit per hex traveled. */
   suppliesCostPerUnitPerHex: number;
@@ -490,7 +490,7 @@ export interface CampaignScenarioData {
     nativeHeight?: number;
     /**
      * Approximate theater width represented by the illustration in kilometers. Lets UI surfaces translate pixels into strategic distance
-     * (e.g., to keep overlays roughly 5 km edge-to-edge when matching real-world references like the Channel coast).
+     * (e.g., to keep overlays registered at the authored kilometer scale when matching real-world coastlines).
      */
     nominalWidthKm?: number;
   };

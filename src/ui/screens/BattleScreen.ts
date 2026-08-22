@@ -40,6 +40,7 @@ import type {
 } from "../../game/campaign/persistence/CampaignSaveTypes";
 import { createStableCampaignRecordId } from "../../game/campaign/runtime/CampaignCanonical";
 import { extractCampaignBattleResultPackage } from "../../game/campaign/results/CampaignBattleResultExtractor";
+import { buildCampaignTacticalSupportAssets } from "../../game/campaign/CampaignTacticalSupportAdapter";
 import { EnhancedInitiativeTurnControls } from "../components/EnhancedInitiativeTurnControls";
 import {
   TacticalSaveCenter,
@@ -12151,6 +12152,9 @@ export class BattleScreen {
       terrain: this.cloneTerrain(),
       playerSide,
       initialPlayerDepotStock: this.resolveInitialPlayerDepotStock(),
+      ...(this.resolveActiveMissionKey() === "campaign"
+        ? { initialSupportAssets: this.resolveInitialCampaignSupportAssets() }
+        : {}),
       botSide: this.cloneScenarioSide(this.scenario.sides.Bot),
       allySide: this.scenario.sides.Ally ? this.cloneScenarioSide(this.scenario.sides.Ally) : undefined,
       // Enable the heuristic planner so campaign battles use the upgraded enemy AI rather than the legacy simple bot.
@@ -12160,6 +12164,14 @@ export class BattleScreen {
     };
     this.battleState.initializeEngine(config);
     this.assertBotUnitsHydrated();
+  }
+
+  private resolveInitialCampaignSupportAssets(): SupportAssetSnapshot[] {
+    const battlePackage = this.battleState.getCampaignBridgeState()?.battlePackage;
+    if (!battlePackage) {
+      throw new Error("Campaign battle support cannot initialize without its frozen battle package.");
+    }
+    return buildCampaignTacticalSupportAssets(battlePackage);
   }
 
   private resolveInitialPlayerDepotStock(): { ammo: number; fuel: number; rations: number; parts: number } {

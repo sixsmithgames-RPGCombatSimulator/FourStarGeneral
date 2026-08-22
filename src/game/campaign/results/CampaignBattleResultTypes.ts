@@ -81,7 +81,7 @@ export interface CampaignTacticalObjectiveResult {
   readonly detail: string | null;
 }
 
-export type CampaignSupportTrackingMode = "tacticalElements" | "resourcePool" | "reservationOnly";
+export type CampaignSupportTrackingMode = "tacticalElements" | "resourcePool" | "supportAsset" | "reservationOnly";
 
 /** Tactical evidence for a non-persistent support or consumable commitment. */
 export interface CampaignSupportDelta {

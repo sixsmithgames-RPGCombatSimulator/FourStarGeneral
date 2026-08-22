@@ -20,7 +20,7 @@ import {
 } from "../src/state/CampaignState";
 
 const ORIGIN = "24,23";
-const DESTINATION = "26,23";
+const DESTINATION = "27,23";
 
 function buildState(backend = new InMemoryCampaignSaveBackend()): CampaignState {
   const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
@@ -306,6 +306,131 @@ registerTest("CAMPAIGN_REDEPLOY_PREVIEW_REJECTS_MISSING_MAP_DESTINATION", async 
     const hostileDraft = state.createRedeployDraft(ORIGIN, hostileDestination, [{ unitType: "Infantry_42", count: 8 }], "foot");
     if (hostileDraft.ok || state.getCampaignOrders().length !== 0) {
       throw new Error("Opposing-controlled destination reached the authoritative order tray.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_CROSS_CHANNEL_REDEPLOYMENT_USES_COASTAL_SEA_LIFT", async ({ Given, When, Then }) => {
+  const state = buildState();
+  const plymouth = "5,10";
+  const utah = "22,24";
+
+  await Given("a ready formation at Plymouth and a secured coastal destination at Utah", async () => {
+    const formation = state.getCampaignFormationRoster("Player")
+      .find((candidate) => candidate.locationHexKey === "5,8" && candidate.campaignUnitType === "Infantry_42");
+    if (!formation) throw new Error("Plymouth follow-on formation is missing from the shipped D+1 roster.");
+  });
+
+  await When("the same cross-Channel route is assessed for land movement and sea lift", async () => {});
+
+  await Then("land movement is rejected and coastal sea lift is accepted by the shared route contract", async () => {
+    const march = state.getTransportRouteEligibility(plymouth, utah, "foot");
+    const truck = state.getTransportRouteEligibility(plymouth, utah, "truck");
+    const sea = state.getTransportRouteEligibility(plymouth, utah, "naval");
+    if (march.available || truck.available || !march.crossesWater || !truck.crossesWater
+      || !march.reason?.includes("cannot cross declared water")) {
+      throw new Error("A land transport mode remained available across the declared English Channel water route.");
+    }
+    if (!sea.available || !sea.crossesWater || sea.reason !== null) {
+      throw new Error(`Coastal Plymouth-to-Utah Sea Lift was rejected: ${sea.reason ?? "unknown reason"}.`);
+    }
+    const inlandScenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+    inlandScenario.tiles.push({ tile: "easternBeachheadLink", hex: { q: 30, r: 14 } });
+    const inlandState = new CampaignState({ legacyStorage: null });
+    inlandState.setScenario(inlandScenario);
+    const inlandAirborne = inlandState.getCampaignRedeployDestinationPreview(plymouth, "30,29");
+    if (inlandAirborne.availability !== "blocked"
+      || inlandAirborne.reasonCode !== "ORDER_TRANSPORT_INVALID"
+      || !inlandAirborne.reason?.includes("No available transport mode")) {
+      throw new Error("An inland Normandy destination across the Channel was still advertised as a legal redeployment target.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_REDEPLOY_ACTION_EXCLUDES_EXACTLY_HELD_FORMATIONS", async ({ Given, When, Then }) => {
+  const state = buildState();
+  const origin = "5,10";
+  const destination = "22,24";
+  const formations = state.getCampaignRedeployAvailableFormations(origin);
+
+  await Given("every ready formation at Plymouth is uncommitted and available by exact identity", async () => {
+    if (formations.length === 0) throw new Error("Plymouth has no exact ready formations for the hold regression.");
+  });
+
+  await When("one sea-lift draft reserves every named formation at the base", async () => {
+    const counts = new Map<string, number>();
+    formations.forEach((formation) => counts.set(
+      formation.campaignUnitType,
+      (counts.get(formation.campaignUnitType) ?? 0) + 1
+    ));
+    const draft = state.createRedeployDraft(
+      origin,
+      destination,
+      Array.from(counts, ([unitType, count]) => ({ unitType, count })),
+      "naval",
+      undefined,
+      formations.map((formation) => formation.id)
+    );
+    if (!draft.ok || !draft.order.validation.valid) {
+      throw new Error(draft.ok ? draft.order.validation.issues[0]?.message ?? "Plymouth draft is invalid." : draft.reason);
+    }
+  });
+
+  await Then("the base action and available roster both report that no uncommitted formation remains", async () => {
+    if (state.getCampaignRedeployAvailableFormations(origin).length !== 0) {
+      throw new Error("Exact formation holds remained selectable at the redeployment origin.");
+    }
+    const action = state.getCampaignRedeployActionPreview(origin);
+    if (action.availability !== "blocked" || action.reasonCode !== "ORDER_FORCE_UNAVAILABLE") {
+      throw new Error("A base whose exact formations are all held still advertised Plan redeployment.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_REDEPLOY_DRAFT_RETAINS_EXACT_NAMED_FORMATIONS", async ({ Given, When, Then }) => {
+  const state = buildState();
+  const formations = state.getCampaignFormationRoster("Player")
+    .filter((formation) => formation.locationHexKey === "24,11" && formation.campaignUnitType === "Infantry_42")
+    .slice(0, 2);
+  let orderId = "";
+
+  await Given("two exact ready Omaha formations selected by persistent identity", async () => {
+    if (formations.length !== 2 || new Set(formations.map((formation) => formation.name)).size === 0) {
+      throw new Error("Named Omaha formation fixture is incomplete.");
+    }
+  });
+
+  await When("the player creates a land redeployment draft with those formation IDs", async () => {
+    const result = state.createRedeployDraft(
+      ORIGIN,
+      DESTINATION,
+      [{ unitType: "Infantry_42", count: 2 }],
+      "foot",
+      undefined,
+      formations.map((formation) => formation.id)
+    );
+    if (!result.ok) throw new Error(result.reason);
+    orderId = result.order.id;
+  });
+
+  await Then("the draft and its reservations retain exactly those named formations", async () => {
+    const runtime = state.getRuntimeSnapshot();
+    const order = runtime?.orders[orderId];
+    if (!runtime || !order || order.kind !== "redeploy" || !order.validation.valid) {
+      throw new Error("Exact-formation redeployment draft was not retained as a valid typed order.");
+    }
+    const expected = formations.map((formation) => formation.id).sort();
+    const payloadIds = [...(order.payload.formationIds ?? [])].sort();
+    const orderIds = [...order.formationIds].sort();
+    const reservationKeys = order.reservationIds
+      .map((id) => runtime.reservations[id])
+      .filter((reservation) => reservation.kind === "formation")
+      .map((reservation) => reservation.poolKey)
+      .sort();
+    if (JSON.stringify(payloadIds) !== JSON.stringify(expected)
+      || JSON.stringify(orderIds) !== JSON.stringify(expected)
+      || JSON.stringify(reservationKeys) !== JSON.stringify(expected.map((id) => `formation-id:${id}`).sort())) {
+      throw new Error("Named formation identity diverged between the planner payload, order, and reservation ledger.");
     }
   });
 });

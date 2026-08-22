@@ -29,8 +29,13 @@ import type {
 } from "../src/game/campaign/engagements/CampaignEngagementLedgerTypes";
 import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
 import { generateCampaignBattleScenario } from "../src/game/campaign/CampaignBattleGenerator";
+import { buildCampaignTacticalSupportAssets } from "../src/game/campaign/CampaignTacticalSupportAdapter";
+import { GameEngine } from "../src/game/GameEngine";
 import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
 import { CampaignState } from "../src/state/CampaignState";
+import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
+import terrainData from "../src/data/terrain.json";
+import type { TerrainDictionary, UnitTypeDictionary } from "../src/core/types";
 
 function buildLedgerScenario(): CampaignScenarioData {
   return {
@@ -185,6 +190,80 @@ registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_LOCKS_EXACT_REVISION_BOUND_PACKAGE", as
     }
     const issues = validateCampaignRuntimeState(committed);
     if (issues.length > 0) throw new Error(`Committed runtime failed invariants: ${issues[0].message}`);
+  });
+});
+
+registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_COMMITS_NAVAL_SUPPORT_WITHOUT_A_FAKE_FORMATION", async ({ Given, When, Then }) => {
+  let planned: CampaignRuntimeState;
+  let committed: CampaignRuntimeState;
+  let pkg: CampaignBattlePackage;
+
+  await Given("a coastal package with one task-force fire-support entitlement and persistent ground formations", () => {
+    const runtime = createLedgerRuntime();
+    const context = runtime.engagements["ledger-engagement"]?.engagement.context;
+    if (!context) throw new Error("Ledger fixture lost its engagement context.");
+    context.coastal = true;
+    context.availableForces.push({ hexKey: "0,1", unitType: "Battleship", count: 1 });
+    context.allocationCaps.shoreFireControlParty = 1;
+    planned = planRuntime(runtime);
+  });
+
+  await When("the commander commits infantry and the advertised naval gunfire option", () => {
+    let frozen: CampaignBattlePackage | null = null;
+    const request: CampaignEngagementCommitmentRequest = {
+      engagementId: "ledger-engagement",
+      expectedRevision: planned.revision,
+      selections: [
+        { allocationKey: "infantry", category: "units", quantity: 1, unitRpCost: 50 },
+        { allocationKey: "shoreFireControlParty", category: "support", quantity: 1, unitRpCost: 70 }
+      ]
+    };
+    const result = runCampaignRuntimeTransaction(planned, "test:commit-naval-support", (draft) => {
+      frozen = commitCampaignEngagement(draft, request).package;
+      return [];
+    });
+    if (!result.ok) throw result.error;
+    if (!frozen) throw new Error("Naval-support commitment produced no package.");
+    committed = result.state;
+    pkg = frozen;
+  });
+
+  await Then("the fleet becomes an exact support commitment while only real formations enter the ground roster", () => {
+    const naval = pkg.supportCommitments.find((entry) => entry.allocationKey === "shoreFireControlParty");
+    if (!naval || naval.quantity !== 1 || naval.reservedRp !== 70) {
+      throw new Error("The in-range task force did not become a frozen naval support commitment.");
+    }
+    if (pkg.formationCommitments.some((entry) => entry.allocationKey === "shoreFireControlParty")) {
+      throw new Error("Naval support was misrepresented as a persistent ground formation.");
+    }
+    const raw = generateCampaignBattleScenario(pkg.context, committed, pkg);
+    const normalized = normalizeScenarioSource(raw as RawScenarioInput, { turnLimit: 10 });
+    const supportAssets = buildCampaignTacticalSupportAssets(pkg);
+    const engine = new GameEngine({
+      scenario: normalized,
+      unitTypes: unitTypesData as UnitTypeDictionary,
+      terrain: terrainData as TerrainDictionary,
+      playerSide: normalized.sides.Player,
+      botSide: normalized.sides.Bot,
+      initialSupportAssets: supportAssets
+    });
+    const seeded = engine.supportAssets;
+    if (normalized.sides.Bot.units.length === 0
+      || supportAssets.length !== 1
+      || seeded.length !== 1
+      || seeded[0]?.id !== supportAssets[0]?.id
+      || seeded[0]?.label !== "Naval Gunfire Support (NGFS)"
+      || seeded[0]?.charges !== 2
+      || seeded[0]?.strikeDamageCap !== 30) {
+      throw new Error("The committed naval support package did not seed one real tactical NGFS asset.");
+    }
+    const noSupport: CampaignBattlePackage = {
+      ...structuredClone(pkg),
+      supportCommitments: []
+    };
+    if (buildCampaignTacticalSupportAssets(noSupport).length !== 0) {
+      throw new Error("A package without naval selection received a tactical support asset.");
+    }
   });
 });
 

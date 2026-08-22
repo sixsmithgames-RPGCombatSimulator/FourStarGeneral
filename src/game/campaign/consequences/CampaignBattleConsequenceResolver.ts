@@ -247,7 +247,7 @@ function reconcileSupport(
       : 0;
     const utilization = delta.trackingMode === "resourcePool"
       ? Math.max(payloadUseRatio, chargeUseRatio)
-      : 1;
+      : delta.trackingMode === "supportAsset" ? chargeUseRatio : 1;
     const consumedRp = Math.min(delta.reservedRp, Math.ceil(delta.reservedRp * utilization));
     return {
       allocationKey: delta.allocationKey,

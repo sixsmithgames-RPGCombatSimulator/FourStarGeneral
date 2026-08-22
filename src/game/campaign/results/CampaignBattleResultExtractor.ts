@@ -19,6 +19,10 @@ import type {
   CampaignFormationCommitment
 } from "../engagements/CampaignEngagementLedgerTypes";
 import {
+  buildCampaignTacticalSupportAssets,
+  campaignSupportAssetId
+} from "../CampaignTacticalSupportAdapter";
+import {
   computeCampaignContentHash,
   createStableCampaignRecordId
 } from "../runtime/CampaignCanonical";
@@ -183,8 +187,12 @@ function extractFormationDelta(
 
 function extractSupportDeltas(
   pkg: CampaignBattlePackage,
-  locatedUnits: ReadonlyMap<string, LocatedTacticalUnit>
+  locatedUnits: ReadonlyMap<string, LocatedTacticalUnit>,
+  state: SerializedBattleState
 ): CampaignSupportDelta[] {
+  const expectedCampaignAssets = buildCampaignTacticalSupportAssets(pkg);
+  const expectedCampaignAssetById = new Map(expectedCampaignAssets.map((asset) => [asset.id, asset]));
+  const serializedAssets = new Map((state.supportAssets ?? []).map((asset) => [asset.id, asset]));
   return pkg.supportCommitments.map((commitment) => {
     const option = getAllocationOption(commitment.allocationKey);
     const resourcePayloadCommitted = {
@@ -197,9 +205,25 @@ function extractSupportDeltas(
       .filter(({ unit }) => !unit.campaignProvenance && unit.formationKey === commitment.allocationKey)
       .sort((left, right) => (left.unit.unitId ?? "").localeCompare(right.unit.unitId ?? ""))
       .slice(0, commitment.quantity);
-    const tacticalElementIds = candidates.flatMap(({ unit }) => unit.unitId ? [unit.unitId] : []);
     const lostElements = candidates.filter((entry) => entry.disposition === "casualty").length;
     const hasResourcePayload = Object.values(resourcePayloadCommitted).some((amount) => amount > 0);
+    const expectedAssets = Array.from({ length: commitment.quantity }, (_, ordinal) =>
+      expectedCampaignAssetById.get(campaignSupportAssetId(pkg, commitment.allocationKey, ordinal))
+    ).filter((asset): asset is NonNullable<typeof asset> => Boolean(asset));
+    const campaignAssets = expectedAssets.map((expected) => {
+      const actual = serializedAssets.get(expected.id);
+      if (!actual || actual.maxCharges !== expected.maxCharges || actual.strikeDamageCap !== expected.strikeDamageCap) {
+        throw new Error(`Campaign support ${commitment.allocationKey} is missing or does not match its frozen tactical profile.`);
+      }
+      return actual;
+    });
+    const tacticalElementIds = campaignAssets.length > 0
+      ? campaignAssets.map((asset) => asset.id)
+      : candidates.flatMap(({ unit }) => unit.unitId ? [unit.unitId] : []);
+    const chargesUsed = campaignAssets.reduce(
+      (sum, asset) => sum + Math.max(0, asset.maxCharges - asset.charges),
+      0
+    );
     return {
       allocationKey: commitment.allocationKey,
       category: commitment.category,
@@ -207,12 +231,15 @@ function extractSupportDeltas(
       reservedRp: commitment.reservedRp,
       trackingMode: hasResourcePayload
         ? "resourcePool"
-        : candidates.length > 0 ? "tacticalElements" : "reservationOnly",
+        : campaignAssets.length > 0
+          ? "supportAsset"
+          : candidates.length > 0 ? "tacticalElements" : "reservationOnly",
       tacticalElementIds,
-      survivingElements: Math.max(0, candidates.length - lostElements),
-      lostElements,
-      // Current tactical support charges have no campaign commitment identity. Report zero rather than misattribute them.
-      chargesUsed: 0,
+      survivingElements: campaignAssets.length > 0
+        ? campaignAssets.length
+        : Math.max(0, candidates.length - lostElements),
+      lostElements: campaignAssets.length > 0 ? 0 : lostElements,
+      chargesUsed,
       resourcePayloadCommitted
     };
   });
@@ -408,7 +435,7 @@ export function extractCampaignBattleResultPackage(
     tacticalStateHash,
     objectiveResults,
     formationDeltas,
-    supportDeltas: extractSupportDeltas(pkg, locatedUnits),
+    supportDeltas: extractSupportDeltas(pkg, locatedUnits, state),
     resourcesConsumed: extractResourceDeltas(pkg, state),
     infrastructureDamage: extractInfrastructureDamage(state, pkg),
     observedEvidenceByFaction: extractEvidence(pkg, state, input.result, input.missionStatus, formationDeltas),

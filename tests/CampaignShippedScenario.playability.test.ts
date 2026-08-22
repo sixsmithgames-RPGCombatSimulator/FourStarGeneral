@@ -143,11 +143,23 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
       return row <= 10 && palette?.factionControl === "Player" && Boolean(palette.mapLabel)
         && (palette.role === "airbase" || palette.role === "logisticsHub");
     });
+    const namedEnglishHubLabels = namedEnglishHubs
+      .map((tile) => scenario.tilePalette[tile.tile]?.mapLabel ?? "")
+      .sort();
+    const expectedEnglishHubLabels = [
+      "Bristol",
+      "Exeter",
+      "Plymouth",
+      "Portland",
+      "Portsmouth",
+      "Southampton",
+      "Tangmere"
+    ].sort();
     if (missing.length > 0
       || fleetKeys.join("|") !== "22,20|26,18"
       || fleets.some((tile) => (tile.forces?.length ?? 0) > 0)
       || new Set(airborneLocations).size !== 2
-      || namedEnglishHubs.length < 7) {
+      || namedEnglishHubLabels.join("|") !== expectedEnglishHubLabels.join("|")) {
       throw new Error(`D+1 order of battle is incomplete: missing=${missing.join(",")} fleets=${fleetKeys.join("|")}.`);
     }
   });

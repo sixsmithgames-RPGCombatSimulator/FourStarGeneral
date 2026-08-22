@@ -51,6 +51,9 @@ export const CAMPAIGN_AIR_UNIT_TYPES: readonly string[] = Object.freeze(["Fighte
 /** Naval campaign types: contribute support eligibility rather than ground formations. */
 export const CAMPAIGN_NAVAL_UNIT_TYPES: readonly string[] = Object.freeze(["Battleship", "Destroyer", "Transport_Ship"]);
 
+/** Strategic support entitlements are committed as support, not as persistent ground formations. */
+export const CAMPAIGN_NON_FORMATION_SUPPORT_KEYS: readonly string[] = Object.freeze(["shoreFireControlParty"]);
+
 /**
  * Consumable/support allocation keys purchasable from the discretionary RP reserve even when
  * the engagement context caps combat formations. Kept deliberately small: the reserve buys

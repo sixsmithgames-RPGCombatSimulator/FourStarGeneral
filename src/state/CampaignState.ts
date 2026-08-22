@@ -16,9 +16,9 @@ import type {
   CampaignKnowledgeState,
   CampaignMapViewModel
 } from "../core/campaignIntelTypes";
-import { hexDistance } from "../core/Hex";
+import { axialKey, hexDistance, hexLine, neighbors } from "../core/Hex";
 import type { ScenarioUnit } from "../core/types";
-import { getTransportMode } from "../data/transportModes";
+import { getTransportMode, TRANSPORT_MODES } from "../data/transportModes";
 import {
   buildEngagementContext,
   type BuildEngagementContextOptions
@@ -108,6 +108,7 @@ import { IndexedDbCampaignSaveBackend } from "../game/campaign/persistence/Campa
 import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../game/campaign/persistence/CampaignSaveEnvelope";
 import { migrateLegacyCampaignSave } from "../game/campaign/persistence/CampaignSaveMigration";
 import {
+  CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH,
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
   CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH,
@@ -256,7 +257,7 @@ export type CampaignFrontEngagementPreparation = {
 };
 
 // Hexes per day by unit type. Slowest selected unit determines redeploy ETA.
-// Each hex = 5km, so multiply by 5 to get km/day, or divide 10 by (speed × 5) to get days per 10km.
+// Legacy relative-speed table retained for compatibility; physical distance comes from scenario.hexScaleKm.
 const UNIT_SPEEDS_HEX_PER_DAY: Record<string, number> = {
   // Air units (very fast strategic movement)
   Fighter: 60,           // 300 km/day → 0.03 days per 10km
@@ -813,6 +814,47 @@ export class CampaignState {
     return { availability, reasonCode, reason, correctiveAction, mapHexKeys: [...mapHexKeys] };
   }
 
+  /** Returns exact ready formations not already held by another redeployment draft/order. */
+  getCampaignRedeployAvailableFormations(
+    originOffsetKey: string,
+    faction: CampaignFactionKey = "Player",
+    excludeOrderId?: string
+  ): CampaignFormationRecord[] {
+    if (!this.runtime) return [];
+    const runtimeHexKey = campaignOffsetKeyToRuntimeHexKey(originOffsetKey);
+    if (!runtimeHexKey) return [];
+    const exactHeld = new Set<string>();
+    const aggregateHeld = new Map<string, number>();
+    this.runtime.reservationOrder.forEach((reservationId) => {
+      const reservation = this.runtime?.reservations[reservationId];
+      const ownerOrder = reservation ? this.runtime?.orders[reservation.orderId] : null;
+      if (!reservation || reservation.faction !== faction || reservation.kind !== "formation"
+        || reservation.status !== "held" || ownerOrder?.id === excludeOrderId) return;
+      if (reservation.poolKey.startsWith("formation-id:")) {
+        exactHeld.add(reservation.poolKey.slice("formation-id:".length));
+        return;
+      }
+      const prefix = `${runtimeHexKey}|`;
+      if (reservation.poolKey.startsWith(prefix)) {
+        const unitType = reservation.poolKey.slice(prefix.length);
+        aggregateHeld.set(unitType, (aggregateHeld.get(unitType) ?? 0) + reservation.amount);
+      }
+    });
+    const skippedByType = new Map<string, number>();
+    return this.runtime.formationOrder.flatMap((formationId) => {
+      const formation = this.runtime?.formations[formationId];
+      if (!formation || formation.faction !== faction || formation.locationHexKey !== runtimeHexKey
+        || formation.status !== "ready" || formation.currentOrderId || exactHeld.has(formation.id)) return [];
+      const skipped = skippedByType.get(formation.campaignUnitType) ?? 0;
+      const heldCount = aggregateHeld.get(formation.campaignUnitType) ?? 0;
+      if (skipped < heldCount) {
+        skippedByType.set(formation.campaignUnitType, skipped + 1);
+        return [];
+      }
+      return [structuredClone(formation)];
+    });
+  }
+
   /** Returns authoritative selected-origin availability for the common redeployment action. */
   getCampaignRedeployActionPreview(originOffsetKey: string, faction: CampaignFactionKey = "Player"): CampaignOrderActionPreview {
     if (!this.runtime || !this.scenario) {
@@ -826,19 +868,7 @@ export class CampaignState {
     if (controller !== faction) {
       return this.campaignActionPreview("blocked", "ORDER_SOURCE_INVALID", "Redeployment must begin from a friendly-controlled hex.", "Select a friendly formation or force concentration.", [originOffsetKey]);
     }
-    const runtimeHexKey = campaignOffsetKeyToRuntimeHexKey(originOffsetKey);
-    const movable = (origin.forces ?? []).some((force) => {
-      const held = runtimeHexKey ? this.runtime?.reservationOrder.reduce((sum, id) => {
-        const reservation = this.runtime?.reservations[id];
-        return reservation?.faction === faction
-          && reservation.kind === "formation"
-          && reservation.status === "held"
-          && reservation.poolKey === `${runtimeHexKey}|${force.unitType}`
-          ? sum + reservation.amount
-          : sum;
-      }, 0) ?? 0 : 0;
-      return force.count - held > 0;
-    });
+    const movable = this.getCampaignRedeployAvailableFormations(originOffsetKey, faction).length > 0;
     if (!movable) {
       return this.campaignActionPreview("blocked", "ORDER_FORCE_UNAVAILABLE", "No uncommitted force is available at this origin.", "Remove or reprioritize an earlier movement draft, or select another friendly force.", [originOffsetKey]);
     }
@@ -883,7 +913,97 @@ export class CampaignState {
         [originOffsetKey, destinationOffsetKey]
       );
     }
+    const movableFormations = this.getCampaignRedeployAvailableFormations(originOffsetKey, faction);
+    const hasCompatibleRoute = Object.values(TRANSPORT_MODES).some((mode) => {
+      if (!this.getTransportRouteEligibility(originOffsetKey, destinationOffsetKey, mode.key).available) return false;
+      return movableFormations.some((formation) => (
+        !mode.applicableUnitTypes
+        || mode.applicableUnitTypes.length === 0
+        || mode.applicableUnitTypes.includes(formation.campaignUnitType)
+      ));
+    });
+    if (!hasCompatibleRoute) {
+      return this.campaignActionPreview(
+        "blocked",
+        "ORDER_TRANSPORT_INVALID",
+        "No available transport mode can move the stationed formations over this route.",
+        "Choose a destination connected by land, or a coastal destination that can receive a sea lift.",
+        [originOffsetKey, destinationOffsetKey]
+      );
+    }
     return this.campaignActionPreview("available", null, null, null, [originOffsetKey, destinationOffsetKey]);
+  }
+
+  /**
+   * Classifies one redeployment route against the authored land/water map.
+   * The planner, preview, and legacy scheduler all call this boundary so the UI
+   * cannot offer a land march across the Channel or hide a valid coastal sea lift.
+   */
+  getTransportRouteEligibility(
+    originOffsetKey: string,
+    destinationOffsetKey: string,
+    transportModeKey: string
+  ): { available: boolean; reason: string | null; correctiveAction: string | null; crossesWater: boolean } {
+    const unavailable = (reason: string, correctiveAction: string, crossesWater = false) => ({
+      available: false,
+      reason,
+      correctiveAction,
+      crossesWater
+    });
+    if (!this.scenario) return unavailable("No campaign route is loaded.", "Load or start a campaign before planning movement.");
+    const mode = getTransportMode(transportModeKey);
+    const origin = this.parseOffsetKeyToAxial(originOffsetKey);
+    const destination = this.parseOffsetKeyToAxial(destinationOffsetKey);
+    if (!mode || !origin || !destination) {
+      return unavailable("The selected transport route is invalid.", "Choose a published origin, destination, and transport mode.");
+    }
+    const originTile = this.findTileByOffsetKey(originOffsetKey);
+    const destinationTile = this.findTileByOffsetKey(destinationOffsetKey);
+    if (!originTile || !destinationTile) {
+      return unavailable("The route endpoint is not part of the operational map.", "Choose two published theater locations.");
+    }
+
+    const water = new Set(this.scenario.mapExtents?.waterHexes ?? []);
+    const line = hexLine(origin, destination);
+    const crossesWater = line.some((hex) => water.has(axialKey(hex)));
+    const isCoastal = (hex: { q: number; r: number }): boolean => (
+      !water.has(axialKey(hex)) && neighbors(hex).some((neighbor) => water.has(axialKey(neighbor)))
+    );
+    const originRole = this.scenario.tilePalette[originTile.tile]?.role;
+    const destinationRole = this.scenario.tilePalette[destinationTile.tile]?.role;
+
+    if ((transportModeKey === "foot" || transportModeKey === "truck" || transportModeKey === "armor") && crossesWater) {
+      return unavailable(
+        `${mode.label} cannot cross declared water on this route.`,
+        "Use Sea Lift between coastal embarkation points, or choose a land-only destination.",
+        true
+      );
+    }
+    if (mode.requiresNavalBase) {
+      const originSupportsSeaLift = originRole === "navalBase" || isCoastal(origin);
+      const destinationSupportsSeaLift = destinationRole === "navalBase" || isCoastal(destination);
+      if (!crossesWater) {
+        return unavailable(
+          "Sea Lift is only used for a route that crosses declared water.",
+          "Choose a land transport mode, or select a destination across the Channel."
+        );
+      }
+      if (!originSupportsSeaLift || !destinationSupportsSeaLift) {
+        return unavailable(
+          "Sea Lift requires a coastal embarkation point at both ends.",
+          "Choose a naval base or coastal controlled hex for both origin and destination.",
+          true
+        );
+      }
+    }
+    if (mode.requiresAirbase && (originRole !== "airbase" || destinationRole !== "airbase")) {
+      return unavailable(
+        "Air ferry requires an airbase at both ends.",
+        "Choose two controlled airbases or use another transport mode.",
+        crossesWater
+      );
+    }
+    return { available: true, reason: null, correctiveAction: null, crossesWater };
   }
 
   /** Returns authoritative availability for the exclusive next-delivery production slot. */
@@ -1043,9 +1163,18 @@ export class CampaignState {
     destinationOffsetKey: string,
     selections: Array<{ unitType: string; count: number }>,
     transportModeKey = "foot",
-    replaceOrderId?: string
+    replaceOrderId?: string,
+    formationIds?: readonly string[]
   ): { ok: true; order: CampaignOrder } | { ok: false; reason: string } {
-    const preview = this.previewRedeploy(originOffsetKey, destinationOffsetKey, selections, transportModeKey, replaceOrderId, true);
+    const preview = this.previewRedeploy(
+      originOffsetKey,
+      destinationOffsetKey,
+      selections,
+      transportModeKey,
+      replaceOrderId,
+      true,
+      formationIds
+    );
     const transportMode = getTransportMode(transportModeKey);
     const originRuntimeHexKey = campaignOffsetKeyToRuntimeHexKey(originOffsetKey);
     const destinationRuntimeHexKey = campaignOffsetKeyToRuntimeHexKey(destinationOffsetKey);
@@ -1075,7 +1204,8 @@ export class CampaignState {
       fuelCost: preview.fuelCost,
       suppliesCost: preview.suppliesCost,
       manpowerCost: preview.manpowerLoss,
-      transportCapacityCost: preview.capacityNeeded
+      transportCapacityCost: preview.capacityNeeded,
+      ...(formationIds ? { formationIds: [...formationIds] } : {})
     };
     let createdId: string | null = null;
     const result = this.transactCampaignOrders(
@@ -1801,7 +1931,8 @@ export class CampaignState {
       scenarioKey: this.scenarioDefinition.key,
       scenarioContentHash,
       ...(this.scenarioDefinition.key === "central_channel"
-        && scenarioContentHash === CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH
+        && (scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+          || scenarioContentHash === CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH)
         ? {
             compatiblePriorContentHashes: [
               CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
@@ -1810,7 +1941,10 @@ export class CampaignState {
               CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
               CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
               CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
-              CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
+              CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
+              ...(scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+                ? [CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH]
+                : [])
             ]
           }
         : this.scenarioDefinition.key === "central_channel"
@@ -3013,7 +3147,8 @@ export class CampaignState {
     selections: Array<{ unitType: string; count: number }>,
     transportModeKey: string,
     excludeOrderId?: string,
-    ignoreDraftHolds = false
+    ignoreDraftHolds = false,
+    formationIds?: readonly string[]
   ): {
     ok: boolean;
     issues: string[];
@@ -3044,9 +3179,7 @@ export class CampaignState {
     const distance = Math.max(1, hexDistance(a, b));
 
     const origin = this.findTileByOffsetKey(originOffsetKey);
-    const paletteOrigin = origin ? this.scenario.tilePalette[origin.tile] : null;
     const dest = this.findTileByOffsetKey(destOffsetKey);
-    const paletteDest = dest ? this.scenario.tilePalette[dest.tile] : null;
     const runtimeOriginKey = campaignOffsetKeyToRuntimeHexKey(originOffsetKey);
     const runtimeDestinationKey = campaignOffsetKeyToRuntimeHexKey(destOffsetKey);
     const runtimeOrigin = runtimeOriginKey ? this.runtime?.tiles[runtimeOriginKey] : null;
@@ -3082,11 +3215,13 @@ export class CampaignState {
         addIssue("ORDER_TRANSPORT_INVALID", `${sel.unitType} cannot use ${transportMode.label}.`, "Choose a compatible transport mode or leave that unit type at the origin.");
       }
     }
-    if (transportMode.requiresNavalBase && paletteOrigin?.role !== "navalBase" && paletteDest?.role !== "navalBase") {
-      addIssue("ORDER_TRANSPORT_INVALID", "Requires a naval base at origin or destination.", "Choose a route connected to a naval base or use another transport mode.");
-    }
-    if (transportMode.requiresAirbase && (paletteOrigin?.role !== "airbase" || paletteDest?.role !== "airbase")) {
-      addIssue("ORDER_TRANSPORT_INVALID", "Requires airbases at both origin and destination.", "Choose two airbase hexes or use another transport mode.");
+    const routeEligibility = this.getTransportRouteEligibility(originOffsetKey, destOffsetKey, transportModeKey);
+    if (!routeEligibility.available) {
+      addIssue(
+        "ORDER_TRANSPORT_INVALID",
+        routeEligibility.reason ?? "This transport mode cannot use the selected route.",
+        routeEligibility.correctiveAction ?? "Choose a compatible route or transport mode."
+      );
     }
 
     const heldByPool = (kind: "resource" | "transport" | "formation", poolKey: string): number => {
@@ -3117,6 +3252,34 @@ export class CampaignState {
         );
       }
     });
+    if (formationIds) {
+      const exactIds = [...formationIds];
+      const exactByType = new Map<string, number>();
+      const exactInvalid = exactIds.length === 0
+        || new Set(exactIds).size !== exactIds.length
+        || exactIds.some((formationId) => {
+          const formation = this.runtime?.formations[formationId];
+          if (!formation) return true;
+          exactByType.set(formation.campaignUnitType, (exactByType.get(formation.campaignUnitType) ?? 0) + 1);
+          return formation.faction !== "Player"
+            || formation.locationHexKey !== runtimeOriginKey
+            || formation.status !== "ready"
+            || (formation.currentOrderId !== null && formation.currentOrderId !== excludeOrderId)
+            || heldByPool("formation", `formation-id:${formationId}`) > 0;
+        });
+      const selectedByType = new Map(active.map((selection) => [selection.unitType, selection.count]));
+      const selectionMismatch = selectedByType.size !== exactByType.size
+        || [...selectedByType].some(([unitType, count]) => exactByType.get(unitType) !== count);
+      if (exactInvalid || selectionMismatch) {
+        addIssue(
+          exactInvalid ? "ORDER_FORCE_UNAVAILABLE" : "ORDER_SELECTION_INVALID",
+          exactInvalid
+            ? "One or more selected formations are no longer ready and uncommitted at the origin."
+            : "The named formation selection no longer matches the movement package.",
+          "Review the named formations at the origin and select only ready, uncommitted units."
+        );
+      }
+    }
 
     const costs = calculateCampaignRedeploymentCosts(active, distance, transportMode);
     const player = this.runtime?.factions.Player?.economy ?? this.scenario.economies.find((e) => e.faction === "Player");
@@ -3181,9 +3344,7 @@ export class CampaignState {
     if (owner !== "Player") return { ok: false, reason: "Origin not player-controlled" };
 
     // Validate destination
-    const dest = this.findTileByOffsetKey(destOffsetKey);
-    const paletteDest = dest ? this.scenario.tilePalette[dest.tile] : null;
-
+    if (!this.findTileByOffsetKey(destOffsetKey)) return { ok: false, reason: "Invalid destination" };
     // Get transport mode
     const transportMode = getTransportMode(transportModeKey);
     if (!transportMode) return { ok: false, reason: "Invalid transport mode" };
@@ -3208,23 +3369,8 @@ export class CampaignState {
       }
     }
 
-    // Validate naval base requirements
-    if (transportMode.requiresNavalBase) {
-      const originRole = paletteOrigin?.role;
-      const destRole = paletteDest?.role;
-      if (originRole !== "navalBase" && destRole !== "navalBase") {
-        return { ok: false, reason: "Naval transport requires origin or destination to be a naval base" };
-      }
-    }
-
-    // Validate airbase requirements
-    if (transportMode.requiresAirbase) {
-      const originRole = paletteOrigin?.role;
-      const destRole = paletteDest?.role;
-      if (originRole !== "airbase" || destRole !== "airbase") {
-        return { ok: false, reason: "Air transport requires both origin and destination to be airbases" };
-      }
-    }
+    const routeEligibility = this.getTransportRouteEligibility(originOffsetKey, destOffsetKey, transportModeKey);
+    if (!routeEligibility.available) return { ok: false, reason: routeEligibility.reason ?? "Invalid transport route" };
 
     // Calculate realistic resource costs based on unit types and transport mode
     const costs = calculateCampaignRedeploymentCosts(selections, distance, transportMode);

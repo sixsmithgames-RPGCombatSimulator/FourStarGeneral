@@ -3,6 +3,7 @@ import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
 import { GameEngineInitiativeMethods } from "../src/game/GameEngineInitiativeIntegration";
 import { unitTypesData } from "../src/data/unitSystem/derivedUnitTypes";
 import { summarizeFormationStatus } from "../src/data/unitSystem/damagePackets";
+import { createOffMapSupportAsset } from "../src/game/support/SupportAssetFactory";
 import type {
   ScenarioData,
   ScenarioSide,
@@ -102,7 +103,11 @@ function scenario(): ScenarioData {
   } as unknown as ScenarioData;
 }
 
-function createEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[] = []): GameEngine {
+function createEngine(
+  playerUnits: ScenarioUnit[],
+  botUnits: ScenarioUnit[] = [],
+  initialSupportAssets?: GameEngineConfig["initialSupportAssets"]
+): GameEngine {
   const config: GameEngineConfig = {
     scenario: scenario(),
     unitTypes,
@@ -115,6 +120,7 @@ function createEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[] = []
       { q: 4, r: 2 },
       botUnits.map((unit) => ({ ...unit, preDeployed: true }))
     ),
+    ...(initialSupportAssets !== undefined ? { initialSupportAssets } : {}),
     botStrategyMode: "Simple"
   };
 
@@ -125,6 +131,61 @@ function createEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[] = []
   engine.startPlayerTurnPhase();
   return engine;
 }
+
+registerTest("CAMPAIGN_NGFS_ASSET_IS_REAL_USABLE_AND_SAVE_COMPLETE", async ({ Then }) => {
+  const observer: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const enemy: ScenarioUnit = {
+    type: "Supply_Truck" as unknown as ScenarioUnit["type"],
+    hex: { q: 3, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 0,
+    fuel: 60,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+  const ngfs = createOffMapSupportAsset("shoreFireControlParty", "campaign-support-test");
+  if (!ngfs) throw new Error("NGFS formation did not create an off-map support asset.");
+  const engine = createEngine([observer], [enemy], [ngfs]);
+  const ready = engine.getSupportSnapshot().ready;
+  if (ready.length !== 1 || ready[0]?.id !== ngfs.id || ready[0]?.charges !== 2) {
+    throw new Error("Campaign NGFS did not replace unrelated placeholder support assets.");
+  }
+  if (!engine.queueSupportActionFromUnit(observer.hex, ngfs.id, enemy.hex)) {
+    throw new Error("A campaign-provided NGFS asset could not be called by an eligible observer.");
+  }
+  engine.endTurn();
+  const afterFire = engine.supportAssets[0];
+  if (afterFire?.charges !== 1 || engine.consumeSupportImpactEvents().length !== 1) {
+    throw new Error("Campaign NGFS did not resolve one real fire mission and expend one charge.");
+  }
+  const serialized = engine.serialize();
+  const hydrated = GameEngine.fromSerialized({
+    scenario: scenario(),
+    unitTypes,
+    terrain,
+    playerSide: side({ q: 0, r: 0 }, [observer]),
+    botSide: side({ q: 4, r: 2 }, [enemy]),
+    initialSupportAssets: [ngfs],
+    botStrategyMode: "Simple"
+  }, serialized);
+  if (hydrated.supportAssets.length !== 1
+    || hydrated.supportAssets[0]?.id !== ngfs.id
+    || hydrated.supportAssets[0]?.charges !== 1) {
+    throw new Error("Campaign NGFS identity or remaining charges were lost on tactical hydrate.");
+  }
+
+  await Then("campaign-provided naval fire support remains usable and save-complete", () => {});
+});
 
 registerTest("QUEUED_ARTILLERY_DOES_NOT_CONSUME_THE_CALLER_ACTION_OR_RESET_MOVEMENT_ON_CANCEL", async ({ Then }) => {
   const observer: ScenarioUnit = {

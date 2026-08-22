@@ -334,6 +334,15 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       throw new Error("Typed hex detail did not preserve the domain-owned legal-action surface.");
     }
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
+    screen.revealInspector({ kind: "formation", id: "formation-2" });
+    const orderedFormationInspector = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
+    if (!orderedFormationInspector.includes("Redeploy formation")
+      || !orderedFormationInspector.includes("committed")
+      || !orderedFormationInspector.includes("ETA Day 1")
+      || orderedFormationInspector.includes("order-map-1")) {
+      throw new Error("Formation inspector exposed a raw order ID instead of its player-facing operation state.");
+    }
+    root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='intelligence']")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
     if (!root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")

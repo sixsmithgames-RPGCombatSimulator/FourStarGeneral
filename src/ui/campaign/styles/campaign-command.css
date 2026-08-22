@@ -387,6 +387,57 @@
   line-height: 1.4;
 }
 
+.campaign-context-inspector__formations {
+  display: grid;
+  gap: var(--campaign-space-2);
+  padding-top: var(--campaign-space-2);
+  border-top: 1px solid var(--campaign-color-border);
+}
+
+.campaign-context-inspector__formations h3 {
+  margin: 0;
+  color: var(--campaign-color-accent);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.campaign-context-inspector__formation-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-context-inspector__formation {
+  display: grid;
+  gap: 0.18rem;
+  width: 100%;
+  min-height: 42px;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--campaign-color-border);
+  border-radius: var(--campaign-radius-small);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--campaign-color-text);
+  text-align: left;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-context-inspector__formation:hover,
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-context-inspector__formation:focus-visible {
+  border-color: var(--campaign-color-border-strong);
+  background: rgba(212, 173, 89, 0.08);
+}
+
+.campaign-context-inspector__formation strong {
+  font-size: 0.69rem;
+  line-height: 1.25;
+}
+
+.campaign-context-inspector__formation span {
+  color: var(--campaign-color-text-muted);
+  font-size: 0.61rem;
+  line-height: 1.35;
+}
+
 .campaign-context-inspector[data-route-mode="projectedWithActions"] .selection-section {
   margin-top: 0;
 }

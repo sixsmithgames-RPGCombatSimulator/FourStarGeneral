@@ -125,6 +125,55 @@ registerTest("ENGAGEMENT_CONTEXT_AVAILABILITY_AND_CAPS", async ({ Given, When, T
   });
 });
 
+registerTest("ENGAGEMENT_CONTEXT_TASK_FORCE_CAPACITY_SUPPORTS_COASTAL_BATTLES", async ({ Given, When, Then }) => {
+  const scenario = buildFixtureScenario();
+  let context: ReturnType<typeof buildEngagementContext> = null;
+
+  await Given("a coastal battle and a friendly naval task force inside the operational support radius", async () => {
+    scenario.mapExtents = {
+      description: "Coastal engagement fixture",
+      corners: {
+        nw: { q: 0, r: 0, label: "Northwest" },
+        ne: { q: 39, r: -19, label: "Northeast" },
+        sw: { q: 0, r: 39, label: "Southwest" },
+        se: { q: 39, r: 20, label: "Southeast" }
+      },
+      zones: [],
+      waterHexes: ["5,2"]
+    };
+    scenario.tilePalette.playerTaskForce = {
+      role: "taskForce",
+      factionControl: "Player",
+      navalCapacity: 14,
+      mapLabel: "Western Naval Force"
+    };
+    scenario.tiles.push({ tile: "playerTaskForce", hex: { q: 2, r: 3 } });
+    scenario.tiles.push({ tile: "playerTaskForce", hex: { q: 20, r: 3 } });
+    const adjacentPlayer = scenario.tiles.find((tile) => tile.hex.q === 4 && tile.hex.r === 3);
+    if (adjacentPlayer?.forces) {
+      adjacentPlayer.forces = adjacentPlayer.forces.filter((force) => force.unitType !== "Battleship");
+    }
+  });
+
+  await When("the engagement context is built without adding fake fleet ground formations", async () => {
+    context = buildEngagementContext(scenario, {
+      engagementId: "eng_naval_support",
+      battleHexKey: "5,5",
+      attacker: "Player"
+    });
+  });
+
+  await Then("one shore-fire support entitlement is available from task-force capacity", async () => {
+    if (!context?.coastal || context.allocationCaps.shoreFireControlParty !== 1) {
+      throw new Error("An in-range operational task force did not provide one bounded coastal fire-support entitlement.");
+    }
+    const navalGroups = context.availableForces.filter((group) => group.unitType === "Battleship");
+    if (navalGroups.length !== 1 || navalGroups[0].hexKey !== "2,4") {
+      throw new Error("Task-force support did not retain exactly the in-range naval source.");
+    }
+  });
+});
+
 registerTest("ENGAGEMENT_CONTEXT_MISSION_TYPES_AND_BANDS", async ({ Given, When, Then }) => {
   const scenario = buildFixtureScenario();
 

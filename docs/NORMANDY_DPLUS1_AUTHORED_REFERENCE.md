@@ -26,7 +26,7 @@ Required Allied opening representation:
 - Airborne: distinct U.S. 82nd and 101st Airborne lodgments; British 6th Airborne Division, including Canadian parachute participation.
 - Follow-up forces: 51st Highland Division ashore in the Juno area and the 7th Armoured Division / 22nd Armoured Brigade landing through Gold at the source-backed D+1 posture.
 - U.S. build-up: the 2nd Infantry Division remains a D+1 convoy/landing arrival rather than a complete formation already available ashore at 00:00.
-- United Kingdom staging: named, scale-consolidated hubs for Plymouth/Torbay/Dartmouth, Portland/Weymouth/Poole, Southampton/Solent, Portsmouth/Newhaven/Shoreham, the Bristol Channel, and the Thames/Felixstowe/Harwich build-up routes replace an unexplained generic south-coast stack.
+- United Kingdom staging: the opening command network uses named, scale-consolidated hubs for Plymouth/Torbay/Dartmouth, Portland/Weymouth/Poole, Southampton/Solent, Portsmouth/Newhaven/Shoreham, and the Bristol Channel. The Thames/Felixstowe/Harwich build-up route is named in scenario scope copy but remains outside the opening D+1 order network until source-backed arrivals or responsibilities make it an actionable base; do not add a decorative capacity marker without a gameplay use.
 - Pointe du Hoc: the isolated Ranger position remains a visible operational fact until relieved.
 
 Required German opening representation:

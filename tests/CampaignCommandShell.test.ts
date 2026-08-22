@@ -738,12 +738,13 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
   let onHexClick: ((hexKey: string) => void) | null = null;
   let stagingHexKey = "";
 
-  await Given("the Bristol build-up base before any scheduled formation becomes available", () => {
+  await Given("the Bristol base before any scheduled formation becomes available", () => {
     campaignState.reset();
     mountCommandShellFixture();
     const renderer = {
       render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {},
       getViewportRoot() { return null; },
+      getHexCenter() { return { cx: 0, cy: 0 }; },
       onHexClick(handler: (hexKey: string) => void) { onHexClick = handler; },
       clearAllHighlights() {}, highlightHex() {}
     };
@@ -763,15 +764,30 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
     onHexClick?.(stagingHexKey);
   });
 
-  await Then("infrastructure context remains visible without an unusable redeployment action", () => {
+  await Then("the base exposes scheduled formation identities and ETAs without an unusable redeployment action", () => {
+    const route = document.getElementById("campaignContextInspectorRoute");
     const inspectorCopy = [
-      document.getElementById("campaignContextInspectorRoute")?.textContent,
+      route?.textContent,
       document.getElementById("campaignSelectionInfo")?.textContent
     ].filter(Boolean).join(" ");
+    const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
     if (!inspectorCopy.includes("Bristol")
       || !inspectorCopy.includes("Logistics Hub")
+      || !inspectorCopy.includes("U.S. 2nd Infantry Division advance groups")
+      || !inspectorCopy.includes("U.S. 90th Infantry Division advance groups")
+      || !inspectorCopy.includes("Available D+1 · 7 June 1944")
+      || /segment\s+[68]/i.test(inspectorCopy)
+      || formationButtons.length !== 6
       || inspectorCopy.includes("Plan redeployment")) {
       throw new Error(`Empty staging base exposed a misleading ground action: ${inspectorCopy}`);
+    }
+    formationButtons[0]?.click();
+    const formationTitle = document.getElementById("campaignInspectorTitle")?.textContent ?? "";
+    const formationCopy = route?.textContent ?? "";
+    if (!formationTitle.includes("U.S. 2nd Infantry Division advance groups")
+      || !formationCopy.includes("Unavailable")
+      || !formationCopy.includes("Readiness")) {
+      throw new Error("A scheduled base formation did not route to its detailed persistent-formation inspector.");
     }
     campaignState.reset();
   });

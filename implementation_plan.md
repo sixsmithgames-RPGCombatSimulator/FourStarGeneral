@@ -54,6 +54,62 @@
 
 ---
 
+## Friendly Base Progressive-Disclosure Plan — 2026-08-22
+
+### Intended behavior
+- Friendly installations use concise historical place names: Plymouth, Portland, Southampton, Portsmouth, Bristol, Exeter, and Tangmere.
+- The normal map frame contains the installation sprite without a permanent operational-description label.
+- Pointer hover and keyboard focus reveal a compact card that expands outward from the authoritative base hex with the place name and ready formation summary.
+- Click, Enter, and Space select the same base and open an inspector roster whose formation rows lead to the existing detailed formation route.
+- The map-list alternative, map marker, hover/focus card, selected base, formation roster, logistics effects, arrivals, and order eligibility all retain one identity.
+- Fleet support advertised by the operational map becomes an exact tactical support asset whose fire missions, remaining charges, save state, and campaign cost all reconcile.
+
+### Current behavior
+- Friendly staging sites use planning phrases such as `Bristol Build-up`, `Western Ports`, and `Air Support West` as permanent map labels.
+- The label layer treats these interactive installations as geographic annotation, creating avoidable obstruction around the base and nearby hexes.
+- Selecting a base shows one semicolon-joined force sentence; the detailed persistent formation roster is available elsewhere but is not connected to the base inspector.
+- Base sprites are images rather than keyboard-focusable entity markers, so the map itself cannot provide equivalent focus disclosure.
+
+### Expected new behavior
+- Persistent labels remain limited to true geographic annotations such as beaches, towns, and regions.
+- Every friendly base marker exposes a stable accessible name, a generous but bounded hit target, hover/focus disclosure, and click/keyboard selection.
+- The disclosure card is player-safe, names only ready projected groups, never covers its anchor, and stays inside the registered map bounds.
+- The inspector lists formations at the selected base with status, readiness, cohesion, availability, and a direct route to full formation details.
+- A committed in-range naval support option seeds one real NGFS asset; declining support seeds none, and unrelated placeholder assets never enter a campaign battle.
+
+### Edge cases
+- An empty or future-arrival base says that no formations are currently ready while the inspector still shows scheduled formations and their real calendar ETA.
+- Dense neighboring bases do not leave persistent label clutter; only the currently hovered/focused marker expands.
+- Compact/touch layouts do not depend on hover: click and the map list provide the same details.
+- Force art layered over an installation must not prevent base selection or hover/focus disclosure.
+- Content-label changes migrate the exact previous full-theater hash without resetting progressed campaigns because no rules truth changes.
+
+### Impact analysis
+- Systems consuming this output:
+  - authored campaign presentation labels and content-hash migration
+  - CampaignMapRenderer sprite, label, force, keyboard, and pointer layers
+  - CampaignScreen command projection
+  - CampaignContextInspector and CampaignCommandShell selection routing
+- Events depending on this structure:
+  - map hex selection, inspector reveal, formation selection, keyboard activation, renderer rebuild, and save load
+- Visual behaviors that could shift:
+  - southern England loses permanent base-name clutter
+  - one selected/hovered base gains a bounded anchored disclosure card
+  - the inspector gains a formation roster below installation facts
+
+### Risk assessment
+- Renderer changes remain player-projection-only and use existing authoritative hex centers.
+- Order and tactical support changes cross state boundaries, so exact formation reservations, water-aware routes, package-derived support identity, charge use, and save/hydration require direct regressions.
+- Migration accepts only the exact preceding full-theater hash and changes presentation identity without mutating campaign progress.
+
+### Verification
+- Add renderer geometry, pointer/focus visibility, keyboard activation, persistent-label exclusion, and no-ready-force regressions.
+- Add base-inspector formation routing and projected-detail regressions.
+- Add shipped historical-name and exact presentation-only save-migration regressions.
+- Run focused tests, `npm run test:campaign`, `npm test`, `npm run build`, zero-warning lint, skill validation, and `git diff --check` before one deployment-triggering push.
+
+---
+
 ## 2026-08-22 — Restore the full D+1 theater picture
 
 ### Intent

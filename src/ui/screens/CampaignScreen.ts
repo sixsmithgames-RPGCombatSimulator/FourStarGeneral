@@ -7,7 +7,7 @@ import type {
   CampaignReservation
 } from "../../game/campaign/orders/CampaignOrderTypes";
 import type { CampaignAdvanceAlert, CampaignAdvanceStopReason } from "../../game/campaign/runtime/campaignRuntimeTypes";
-import { MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
+import { MISSION_TYPE_LABELS, NAVAL_SUPPORT_RANGE_HEXES } from "../../game/campaign/EngagementContextBuilder";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
 import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
@@ -378,7 +378,7 @@ export class CampaignScreen {
 
   /**
    * Opens the redeployment planner. Only route- and force-relevant modes render as selectable cards,
-   * units use sliders with quick-pick buttons, and the summary is a
+   * exact named formations use one checkbox model, and the summary is a
    * live engine-accurate preview via CampaignState.previewRedeploy. Add Draft never spends resources;
    * the authoritative validator rechecks every shared reservation before atomic commit.
    */
@@ -406,39 +406,33 @@ export class CampaignScreen {
 
     const originTile = scenario.tiles.find((t) => t.hex.q === aAx.q && t.hex.r === aAx.r);
     const destTile = scenario.tiles.find((t) => t.hex.q === bAx.q && t.hex.r === bAx.r);
-    const forceGroups = new Map<string, {
-      unitType: string;
-      count: number;
-      groups: Array<{ label: string; count: number }>;
-    }>();
-    for (const force of originTile?.forces ?? []) {
-      const existing = forceGroups.get(force.unitType) ?? {
-        unitType: force.unitType,
-        count: 0,
-        groups: []
-      };
-      existing.count += force.count;
-      const groupLabel = force.label?.trim() || this.formatCampaignUnitLabel(force.unitType);
-      const existingGroup = existing.groups.find((group) => group.label === groupLabel);
-      if (existingGroup) existingGroup.count += force.count;
-      else existing.groups.push({ label: groupLabel, count: force.count });
-      forceGroups.set(force.unitType, existing);
-    }
-    const originForces = Array.from(forceGroups.values()).map((force) => {
-      const typeLabel = this.formatCampaignUnitLabel(force.unitType);
-      return {
-        unitType: force.unitType,
-        count: force.count,
-        label: force.groups.length === 1 ? force.groups[0].label : typeLabel,
-        detail: force.groups.length === 1
-          ? `${typeLabel} · ${force.count} available`
-          : `${force.count} available · ${force.groups.map((group) => `${group.label} (${group.count})`).join(" · ")}`
-      };
+    const originFormations = this.campaignState.getCampaignRedeployAvailableFormations(
+      originOffsetKey,
+      "Player",
+      editingOrder?.id
+    )
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+    const forceCounts = new Map<string, number>();
+    originFormations.forEach((formation) => {
+      forceCounts.set(formation.campaignUnitType, (forceCounts.get(formation.campaignUnitType) ?? 0) + 1);
     });
-    if (!originTile || originForces.length === 0) return;
+    const originForces = Array.from(forceCounts, ([unitType, count]) => ({ unitType, count }));
+    if (!originTile || originFormations.length === 0) {
+      this.commandCommitFeedback = {
+        feedback: "No uncommitted formation remains available at this origin.",
+        feedbackTone: "warning"
+      };
+      this.renderCommandShell();
+      return;
+    }
 
     const originRole = scenario.tilePalette[originTile.tile]?.role ?? null;
     const destRole = destTile ? (scenario.tilePalette[destTile.tile]?.role ?? null) : null;
+    const originLabel = scenario.tilePalette[originTile.tile]?.mapLabel?.trim()
+      || this.formatCampaignLabel(originRole ?? "Operational hex");
+    const destinationLabel = destTile
+      ? scenario.tilePalette[destTile.tile]?.mapLabel?.trim() || this.formatCampaignLabel(destRole ?? "Operational hex")
+      : this.formatCampaignLabel(destRole ?? "Operational hex");
 
     const requireModeSprite = (scenarioType: string): string => {
       const sprite = getSpriteForScenarioType(scenarioType, "Player", "E");
@@ -450,7 +444,7 @@ export class CampaignScreen {
       foot: { sprite: requireModeSprite("Infantry_42"), name: "March", note: "Infantry only" },
       truck: { sprite: requireModeSprite("Supply_Truck"), name: "Truck", note: "Infantry and towed guns" },
       armor: { sprite: requireModeSprite("APC_Halftrack"), name: "Motorized", note: "Vehicles move themselves" },
-      naval: { sprite: requireModeSprite("Transport_Ship"), name: "Sea Lift", note: "From a naval base" },
+      naval: { sprite: requireModeSprite("Transport_Ship"), name: "Sea Lift", note: "Coastal embarkation" },
       warship: { sprite: requireModeSprite("Battleship"), name: "Warship", note: "Combat vessels" },
       fighter: { sprite: requireModeSprite("Fighter"), name: "Fighter Ferry", note: "Airbase to airbase" },
       bomber: { sprite: requireModeSprite("Bomber"), name: "Bomber Ferry", note: "Airbase to airbase" }
@@ -458,15 +452,19 @@ export class CampaignScreen {
 
     const availableModeKeys = Object.keys(TRANSPORT_MODES).filter((key) => {
       const mode = TRANSPORT_MODES[key];
-      if (mode.requiresNavalBase && originRole !== "navalBase" && destRole !== "navalBase") return false;
-      if (mode.requiresAirbase && (originRole !== "airbase" || destRole !== "airbase")) return false;
+      if (!this.campaignState.getTransportRouteEligibility(originOffsetKey, destOffsetKey, key).available) return false;
       if (!mode.applicableUnitTypes || mode.applicableUnitTypes.length === 0) {
-        return key === "naval" && (originRole === "navalBase" || destRole === "navalBase");
+        return key === "naval";
       }
       return originForces.some((force) => mode.applicableUnitTypes?.includes(force.unitType));
     });
     if (availableModeKeys.length === 0) {
-      throw new Error(`[CampaignScreen] No redeployment mode can move forces from ${originOffsetKey} to ${destOffsetKey}.`);
+      this.commandCommitFeedback = {
+        feedback: `No available transport mode can move formations from ${originLabel} to ${destinationLabel}. Choose a land-connected or coastal destination.`,
+        feedbackTone: "warning"
+      };
+      this.renderCommandShell();
+      return;
     }
 
     // Default mode: recommended mode of the largest usable force group, else first usable mode.
@@ -488,6 +486,15 @@ export class CampaignScreen {
     }
 
     title.textContent = editingOrder ? "Edit Redeployment Draft" : "Plan Redeployment";
+    const initiallySelectedFormationIds = new Set<string>(editingOrder?.payload.formationIds ?? []);
+    if (editingOrder && initiallySelectedFormationIds.size === 0) {
+      editingOrder.payload.selections.forEach((selection) => {
+        originFormations
+          .filter((formation) => formation.campaignUnitType === selection.unitType)
+          .slice(0, selection.count)
+          .forEach((formation) => initiallySelectedFormationIds.add(formation.id));
+      });
+    }
 
     const modeCards = availableModeKeys
       .map((key) => {
@@ -503,28 +510,21 @@ export class CampaignScreen {
       })
       .join("");
 
-    const unitRows = originForces
+    const unitRows = originFormations
       .map(
-        (g, idx) => {
-        const selectedCount = editingOrder?.payload.selections.find((selection) => selection.unitType === g.unitType)?.count ?? g.count;
+        (formation, idx) => {
+        const sprite = getSpriteForScenarioType(formation.campaignUnitType, "Player", "E");
+        const checked = initiallySelectedFormationIds.has(formation.id) ? " checked" : "";
         return `
-        <div class="redeploy-unit-row" data-unit-row="${idx}">
-          <div class="unit-label">
-            <span class="unit-name">${this.escapeHtml(g.label)}</span>
-            <span class="unit-avail">${this.escapeHtml(g.detail)}</span>
-          </div>
-          <div class="unit-count-control">
-            <label for="campaignMoveCount${idx}">Move</label>
-            <input id="campaignMoveCount${idx}" type="number" min="0" max="${g.count}" value="${selectedCount}" data-move-index="${idx}" aria-label="${this.escapeHtml(g.label)} to move" />
-            <span class="unit-count-max">of ${g.count}</span>
-            <div class="unit-quick" aria-label="Quick quantity choices">
-              <button type="button" data-quick="0" data-quick-idx="${idx}" title="Leave all at the origin">None</button>
-              ${g.count > 1 ? `<button type="button" data-quick="half" data-quick-idx="${idx}" title="Move half">Half</button>` : ""}
-              <button type="button" data-quick="all" data-quick-idx="${idx}" title="Move all">All</button>
-            </div>
-          </div>
-          <div class="unit-note" data-unit-note="${idx}"></div>
-        </div>`;
+        <label class="redeploy-formation-row" data-unit-row="${idx}">
+          <input type="checkbox" data-formation-index="${idx}"${checked} />
+          ${sprite ? `<img class="redeploy-formation-sprite" src="${this.escapeHtml(sprite)}" alt="" aria-hidden="true" />` : ""}
+          <span class="redeploy-formation-copy">
+            <strong>${this.escapeHtml(formation.name)}</strong>
+            <small>${this.escapeHtml(this.formatCampaignUnitLabel(formation.campaignUnitType))} · ${Math.round(formation.readiness)}% ready</small>
+            <em data-unit-note="${idx}"></em>
+          </span>
+        </label>`;
         }
       )
       .join("");
@@ -532,16 +532,16 @@ export class CampaignScreen {
     body.innerHTML = `
       <form id="campaignRedeployForm" class="redeploy-modal">
         <div class="redeploy-route">
-          <span class="route-node">${originOffsetKey}${originRole ? ` · ${this.escapeHtml(this.formatCampaignLabel(originRole))}` : ""}</span>
+          <span class="route-node"><strong>${this.escapeHtml(originLabel)}</strong><small>Hex ${this.escapeHtml(originOffsetKey)}</small></span>
           <span class="route-arrow">→</span>
-          <span class="route-node">${destOffsetKey}${destRole ? ` · ${this.escapeHtml(this.formatCampaignLabel(destRole))}` : ""}</span>
+          <span class="route-node"><strong>${this.escapeHtml(destinationLabel)}</strong><small>Hex ${this.escapeHtml(destOffsetKey)}</small></span>
           <span class="route-distance">${distance} hex · ~${distance * hexKm} km</span>
         </div>
         <div class="redeploy-issues" id="campaignRedeployIssues"></div>
         <div class="redeploy-section-label">Transport mode</div>
         <div class="redeploy-modes">${modeCards}</div>
         <div class="redeploy-summary-panel" id="campaignRedeploySummary"></div>
-        <div class="redeploy-section-label">Units to move</div>
+        <div class="redeploy-section-label">Named formations</div>
         <div class="redeploy-units">${unitRows}</div>
         <div class="button-row redeploy-actions">
           <button type="submit" class="primary-button" id="campaignRedeployConfirm">${editingOrder ? "Replace Draft" : "Add Draft"}</button>
@@ -556,7 +556,7 @@ export class CampaignScreen {
     const confirmBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployConfirm");
     const cancelBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployCancel");
     if (!form || !summaryEl || !issuesEl || !confirmBtn || !cancelBtn) return;
-    const numberInputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-index]"));
+    const formationInputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-formation-index]"));
     const modeButtons = Array.from(body.querySelectorAll<HTMLButtonElement>(".redeploy-mode-card"));
 
     const unitAllowedInMode = (unitType: string, modeKey: string): boolean => {
@@ -565,33 +565,45 @@ export class CampaignScreen {
       return !mode.applicableUnitTypes || mode.applicableUnitTypes.length === 0 || mode.applicableUnitTypes.includes(unitType);
     };
 
-    // Units that can't ride the selected mode are excluded (they stay behind) rather than erroring.
-    const currentSelections = (): Array<{ unitType: string; count: number }> =>
-      originForces.map((g, i) => ({
-        unitType: g.unitType,
-        count: unitAllowedInMode(g.unitType, selectedModeKey)
-          ? Math.max(0, Math.min(g.count, Number(numberInputs[i]?.value) || 0))
-          : 0
-      }));
+    const currentFormationIds = (): string[] => originFormations.flatMap((formation, index) => (
+      formationInputs[index]?.checked && unitAllowedInMode(formation.campaignUnitType, selectedModeKey)
+        ? [formation.id]
+        : []
+    ));
+    const currentSelections = (): Array<{ unitType: string; count: number }> => {
+      const counts = new Map<string, number>();
+      const selectedIds = new Set(currentFormationIds());
+      originFormations.forEach((formation) => {
+        if (!selectedIds.has(formation.id)) return;
+        counts.set(formation.campaignUnitType, (counts.get(formation.campaignUnitType) ?? 0) + 1);
+      });
+      return Array.from(counts, ([unitType, count]) => ({ unitType, count }));
+    };
 
     const fmt = (n: number) => n.toLocaleString();
 
     const refresh = (): void => {
       modeButtons.forEach((btnEl) => btnEl.classList.toggle("selected", btnEl.dataset.mode === selectedModeKey));
 
-      originForces.forEach((g, i) => {
-        const allowed = unitAllowedInMode(g.unitType, selectedModeKey);
+      originFormations.forEach((formation, i) => {
+        const allowed = unitAllowedInMode(formation.campaignUnitType, selectedModeKey);
         const row = body.querySelector<HTMLElement>(`[data-unit-row="${i}"]`);
         const note = body.querySelector<HTMLElement>(`[data-unit-note="${i}"]`);
         row?.classList.toggle("unit-row-disabled", !allowed);
-        if (numberInputs[i]) numberInputs[i].disabled = !allowed;
-        body.querySelectorAll<HTMLButtonElement>(`[data-quick-idx="${i}"]`).forEach((qb) => {
-          qb.disabled = !allowed;
-        });
+        if (formationInputs[i]) formationInputs[i].disabled = !allowed;
         if (note) note.textContent = allowed ? "" : "Stays behind — can't travel by this mode";
       });
 
-      const preview = this.campaignState.previewRedeploy(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey, editingOrder?.id);
+      const selectedFormationIds = currentFormationIds();
+      const preview = this.campaignState.previewRedeploy(
+        originOffsetKey,
+        destOffsetKey,
+        currentSelections(),
+        selectedModeKey,
+        editingOrder?.id,
+        false,
+        selectedFormationIds
+      );
       if (!preview) {
         summaryEl.innerHTML = "";
         issuesEl.innerHTML = "";
@@ -636,22 +648,7 @@ export class CampaignScreen {
         refresh();
       })
     );
-    numberInputs.forEach((inp, i) =>
-      inp.addEventListener("input", () => {
-        const clamped = Math.max(0, Math.min(originForces[i].count, Number(inp.value) || 0));
-        inp.value = String(clamped);
-        refresh();
-      })
-    );
-    body.querySelectorAll<HTMLButtonElement>("[data-quick]").forEach((qb) =>
-      qb.addEventListener("click", () => {
-        const i = Number(qb.dataset.quickIdx);
-        const max = originForces[i]?.count ?? 0;
-        const val = qb.dataset.quick === "all" ? max : qb.dataset.quick === "half" ? Math.ceil(max / 2) : 0;
-        if (numberInputs[i]) numberInputs[i].value = String(val);
-        refresh();
-      })
-    );
+    formationInputs.forEach((input) => input.addEventListener("change", refresh));
 
     refresh();
 
@@ -664,7 +661,14 @@ export class CampaignScreen {
 
     form.onsubmit = (ev) => {
       ev.preventDefault();
-      const result = this.campaignState.createRedeployDraft(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey, editingOrder?.id);
+      const result = this.campaignState.createRedeployDraft(
+        originOffsetKey,
+        destOffsetKey,
+        currentSelections(),
+        selectedModeKey,
+        editingOrder?.id,
+        currentFormationIds()
+      );
       if (!result.ok) {
         this.setCampaignStatusMessage({
           title: "Draft not added.",
@@ -682,7 +686,7 @@ export class CampaignScreen {
       this.renderCommandShell();
       this.setCampaignStatusMessage({
         title: result.order.validation.valid ? `Redeployment draft ${editingOrder ? "replaced" : "ready"}.` : "Redeployment draft has a conflict.",
-        detail: result.order.validation.issues[0]?.message ?? `Movement draft ${editingOrder ? "replaced" : "added"} from ${originOffsetKey} to ${destOffsetKey}.`,
+        detail: result.order.validation.issues[0]?.message ?? `Movement draft ${editingOrder ? "replaced" : "added"} from ${originLabel} to ${destinationLabel}.`,
         action: result.order.validation.valid ? "Review the order tray, then commit orders when ready." : "Remove the conflicting draft or free the required capacity before committing.",
         tone: "success"
       });
@@ -1607,7 +1611,7 @@ export class CampaignScreen {
       const preview = this.campaignState.getCampaignRedeployDestinationPreview(this.moveOriginHexKey!, hexKey);
       return {
         hexKey,
-        label: `${this.formatCampaignLabel(palette?.role ?? "Operational hex")} · ${hexKey}`,
+        label: `${palette?.mapLabel?.trim() || this.formatCampaignLabel(palette?.role ?? "Operational hex")} · ${hexKey}`,
         available: preview.availability === "available",
         reason: preview.reason
       };
@@ -1636,6 +1640,15 @@ export class CampaignScreen {
         if (!this.moveOriginHexKey || !this.selectedHexKey || this.moveOriginHexKey === this.selectedHexKey) return;
         const origin = this.moveOriginHexKey;
         const destination = this.selectedHexKey;
+        const preview = this.campaignState.getCampaignRedeployDestinationPreview(origin, destination);
+        if (preview.availability !== "available") {
+          this.commandCommitFeedback = {
+            feedback: `${preview.reason ?? "This redeployment route is unavailable."} ${preview.correctiveAction ?? ""}`.trim(),
+            feedbackTone: "warning"
+          };
+          this.renderCommandShell();
+          return;
+        }
         this.moveOriginHexKey = null;
         this.syncRedeploymentTargetMode();
         this.renderer.clearAllHighlights("origin");
@@ -1774,11 +1787,13 @@ export class CampaignScreen {
     }
     if (this.moveOriginHexKey) {
       const destinationReady = Boolean(this.selectedHexKey && this.selectedHexKey !== this.moveOriginHexKey);
+      const originDisplayLabel = this.getCampaignLocationDisplayLabel(this.moveOriginHexKey);
+      const destinationDisplayLabel = this.selectedHexKey ? this.getCampaignLocationDisplayLabel(this.selectedHexKey) : null;
       items.push(`
         <div class="campaign-redeploy-gesture" role="status">
           <strong>Redeployment origin</strong>
-          <span>${this.escapeHtml(this.moveOriginHexKey)}</span>
-          <p>${destinationReady ? `Destination selected: ${this.escapeHtml(this.selectedHexKey ?? "")}. Review the route before opening the planner.` : "Select a destination hex. Selection will not move the formation."}</p>
+          <span>${this.escapeHtml(originDisplayLabel)} · hex ${this.escapeHtml(this.moveOriginHexKey)}</span>
+          <p>${destinationReady ? `Destination selected: ${this.escapeHtml(destinationDisplayLabel ?? this.selectedHexKey ?? "")}. Review the route before opening the planner.` : "Select a destination hex. Selection will not move the formation."}</p>
           <div class="campaign-context-actions">
             ${destinationReady ? `<button type="button" data-confirm-campaign-redeploy>Plan redeployment here</button>` : ""}
             <button type="button" class="secondary" data-cancel-campaign-redeploy>Cancel planning</button>
@@ -2474,9 +2489,11 @@ export class CampaignScreen {
     let routeSummary: string;
     if (order.kind === "redeploy") {
       label = "Redeploy formation";
-      detail = `${order.payload.originOffsetKey} → ${order.payload.destinationOffsetKey} · ${order.payload.transportModeKey.replace(/_/g, " ")}`;
+      const originLabel = this.getCampaignLocationDisplayLabel(order.payload.originOffsetKey);
+      const destinationLabel = this.getCampaignLocationDisplayLabel(order.payload.destinationOffsetKey);
+      detail = `${originLabel} → ${destinationLabel} · ${this.formatCampaignLabel(order.payload.transportModeKey)}`;
       etaSegment = order.payload.etaSegment;
-      routeSummary = `${order.payload.originOffsetKey} → ${order.payload.destinationOffsetKey} · ${order.payload.distance} hex`;
+      routeSummary = `${originLabel} → ${destinationLabel} · ${order.payload.distance} hex`;
       costSummary = `${order.payload.fuelCost.toLocaleString()} fuel · ${order.payload.suppliesCost.toLocaleString()} supply${order.payload.manpowerCost > 0 ? ` · ${order.payload.manpowerCost.toLocaleString()} estimated personnel loss` : ""}`;
       riskSummary = order.payload.manpowerCost > 0
         ? `${order.payload.manpowerCost.toLocaleString()} modeled transit attrition; destination conditions can change before arrival.`
@@ -2710,6 +2727,13 @@ export class CampaignScreen {
       summary: site.summary,
       sourceLabel: site.sourceLabel
     }));
+    const productionReport = this.campaignState.getProductionReport();
+    const productionByHex = new Map((productionReport?.sources ?? []).map((source) => [source.offsetKey, source.supplyValue]));
+    const nextProductionLabel = productionReport
+      ? this.campaignState.segmentToTimeDisplay(
+          this.campaignState.getCurrentSegment() + productionReport.segmentsUntilNextTick
+        )
+      : null;
     const hexes: CampaignCommandHexView[] = scenario.tiles.map((tile) => {
       const palette = scenario.tilePalette[tile.tile];
       const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
@@ -2724,6 +2748,20 @@ export class CampaignScreen {
       const isAlliedAssaultFleet = controller === "Player" && palette?.role === "taskForce";
       const authoredMapLabel = palette?.mapLabel?.trim();
       const hasPresentForces = groups.some((force) => force.count > 0);
+      const infrastructureEffectiveness = tile.infrastructure?.effectiveness ?? 1;
+      const capabilities = [
+        ...(productionByHex.has(hexKey)
+          ? [`${productionByHex.get(hexKey)!.toLocaleString()} daily production capacity${nextProductionLabel ? ` · next delivery ${nextProductionLabel}` : ""}`]
+          : []),
+        ...((palette?.airSortieCapacity ?? 0) > 0
+          ? [`${Math.floor((palette?.airSortieCapacity ?? 0) * infrastructureEffectiveness).toLocaleString()} air sorties available`]
+          : []),
+        ...((palette?.navalCapacity ?? 0) > 0
+          ? [palette?.role === "taskForce"
+            ? `Naval fire support available for coastal engagements within ${NAVAL_SUPPORT_RANGE_HEXES * (scenario.hexScaleKm ?? 10)} km`
+            : `${Math.floor((palette?.navalCapacity ?? 0) * infrastructureEffectiveness).toLocaleString()} naval support capacity`]
+          : [])
+      ];
       return {
         hexKey,
         roleLabel: isAlliedAssaultFleet ? "Naval task force" : roleLabel,
@@ -2739,6 +2777,7 @@ export class CampaignScreen {
         } : {}),
         hasContextActions: controller === "Player" && hasPresentForces,
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
+        capabilities,
         infrastructure: infrastructure
           ? `${infrastructureRole} · ${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`
           : null,
@@ -2759,6 +2798,7 @@ export class CampaignScreen {
         sourceLabel: site.sourceLabel,
         hasContextActions: false,
         forces: [],
+        capabilities: [],
         infrastructure: null,
         objectives: objectives.filter((objective) => objective.hexKey === site.locationHexKey).map((objective) => objective.label),
         fronts: scenario.fronts.filter((front) => front.hexKeys.includes(site.locationHexKey)).map((front) => front.label)
@@ -4003,6 +4043,15 @@ export class CampaignScreen {
       .split(" ")
       .map((word) => word ? word.charAt(0).toUpperCase() + word.slice(1) : word)
       .join(" ");
+  }
+
+  private getCampaignLocationDisplayLabel(offsetHexKey: string): string {
+    const view = this.campaignState.getCampaignMapView("Player");
+    const parsed = CoordinateSystem.parseHexKey(offsetHexKey);
+    const axial = parsed ? CoordinateSystem.offsetToAxial(parsed.col, parsed.row) : null;
+    const tile = axial ? view?.scenario.tiles.find((entry) => entry.hex.q === axial.q && entry.hex.r === axial.r) : null;
+    const palette = tile && view ? view.scenario.tilePalette[tile.tile] : null;
+    return palette?.mapLabel?.trim() || this.formatCampaignLabel(palette?.role ?? "Operational hex");
   }
 
   private formatCampaignUnitLabel(value: string): string {
