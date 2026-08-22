@@ -50,6 +50,36 @@
 
 ---
 
+## Campaign Map Registration Rollback Plan
+
+### Intended behavior
+- Restore the last campaign map that was visually registered to the existing Central Channel artwork before the D+1 geography rewrite.
+- Preserve later non-map fixes where they remain compatible, including player-facing interface cleanup, tactical handoff safety, and deployed-roster integrity.
+- Establish a measured background-image registration and scale contract before another historical map rewrite is attempted.
+
+### Current behavior
+- The background asset is actually 1024×1024, while the scenario declares 2500×1750 and stretches it non-proportionally.
+- The D+1 rewrite places beaches, airborne lodgments, fleets, and fronts from synthetic horizontal terrain bands rather than the painted coastline.
+- At the default opening view, the operational area is a tiny unreadable cluster plotted in visible Channel water.
+
+### Expected rollback behavior
+- Scenario geometry, renderer presentation, opening focus, and associated persistence/tests return to the pre-rebuild map baseline at `da497d9`.
+- Subsequent interface, reporting, battle, and deployment corrections remain unless they specifically depend on the retired D+1 geometry.
+- The restored build is treated as a rollback baseline, not as historical certification; a future rewrite must begin from image registration rather than coordinate guesses.
+
+### Impact analysis
+- Consumers: campaign runtime creation, map projection, front selection, objective focus, save-content migration, engagement preparation, and visual renderer tests.
+- Events: campaign entry, Reset, map selection, first segment, Player engagement preparation, and save load.
+- Visual shift: the malformed tiny D+1 cluster is removed and the previously shipped Central Channel placements return.
+- Risks: the old map contains known historical and authored-coordinate limitations. Those remain explicit follow-up work and must not be represented as corrected.
+
+### Verification
+- Run TypeScript, the campaign suite, the full suite, build, lint, and diff checks before the single rollback push.
+- Confirm the public build no longer shows the malformed D+1 cluster before starting a registered redesign.
+- For the redesign, verify real asset dimensions/aspect, background-only and grid-overlay evidence, coastline classification at every occupied hex, and a calibrated approximately 10 km-per-hex scale.
+
+---
+
 ## Smoke Screen Implementation Plan
 
 ### Intent

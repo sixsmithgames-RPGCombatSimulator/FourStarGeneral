@@ -1846,6 +1846,26 @@ export class CampaignScreen {
     });
   }
 
+  /** Keeps report-driven contact selection aligned with the player-safe map and inspector. */
+  private focusCampaignContact(contactId: string): boolean {
+    const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts
+      .find((entry) => entry.id === contactId);
+    if (!contact) return false;
+    this.selectedHexKey = contact.locationHexKey;
+    this.selectedFrontKey = null;
+    this.selectedFrontTargetHexKey = null;
+    this.moveOriginHexKey = null;
+    this.renderer.clearAllHighlights("selected");
+    this.renderer.clearAllHighlights("origin");
+    this.renderer.highlightHex(contact.locationHexKey, "selected");
+    const center = this.renderer.getHexCenter(contact.locationHexKey);
+    if (center) this.viewport?.centerOn(center.cx, center.cy);
+    this.renderSelection();
+    this.renderCampaignIntel();
+    this.commandInterface?.revealInspector({ kind: "contact", id: contact.id });
+    return true;
+  }
+
   private scheduleSelectedIntelOperation(): void {
     if (!this.intelOperationType) {
       this.intelFeedback = "Choose an intelligence operation first.";
