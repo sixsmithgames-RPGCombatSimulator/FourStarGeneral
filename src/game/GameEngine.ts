@@ -9474,7 +9474,12 @@ private automateSupplyConvoys(
       } else {
         // Route airborne units to the separate airborne reserves pool.
         // These units are loaded at the airbase for air transport missions, not at the base camp.
-        const isAirborne = allocationKey === "airborneDetachment" || clone.type === "Paratrooper";
+        // Persistent campaign paratroopers represent formations that are already fighting on the
+        // operational map (for example, British 6th Airborne on the Orne flank on D+1). They must
+        // deploy as ordinary ground reserves in the linked tactical battle. Only a newly
+        // requisitioned, non-campaign airborne detachment waits for an Airborne Drop mission.
+        const isAirborne = !clone.campaignProvenance
+          && (allocationKey === "airborneDetachment" || clone.type === "Paratrooper");
         if (isAirborne) {
           this.airborneReserves.push({ unit: clone, definition, allocationKey, sprite });
         } else {
@@ -9501,7 +9506,10 @@ private automateSupplyConvoys(
       deploymentState.registerScenarioAlias(blueprint.unitKey, scenarioType);
       // Route airborne units to the separate airborne reserves pool.
       // These units are loaded at the airbase for air transport missions, not at the base camp.
-      const isAirborne = blueprint.unitKey === "airborneDetachment" || clone.type === "Paratrooper";
+      // Campaign-owned airborne formations are already present on the ground at the engagement
+      // hex. Keep the air-reserve path for newly requisitioned detachments only.
+      const isAirborne = !clone.campaignProvenance
+        && (blueprint.unitKey === "airborneDetachment" || clone.type === "Paratrooper");
       if (isAirborne) {
         this.airborneReserves.push({ unit: clone, definition, allocationKey: blueprint.unitKey, sprite });
       } else {

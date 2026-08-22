@@ -47,6 +47,7 @@ import "./CampaignState.runtimeCutover.test.js";
 import "./CampaignIntelligence.system.test.js";
 import "./EngagementContextBuilder.test.js";
 import "./CampaignBattleGenerator.test.js";
+import "./CampaignAirborneHandoff.test.js";
 import "./CampaignScreen.status.test.js";
 import "./CampaignCommandShell.test.js";
 import "./CampaignCommandFoundation.test.js";

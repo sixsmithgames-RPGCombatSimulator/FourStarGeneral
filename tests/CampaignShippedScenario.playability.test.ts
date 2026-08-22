@@ -187,10 +187,23 @@ registerTest("CAMPAIGN_SHIPPED_CAEN_COUNTERATTACK_NATURALLY_INTERRUPTS_TIME", as
     const pkg = engagementId ? second.state.engagementLedger[engagementId]?.package : null;
     const attackers = pkg?.formationCommitments.filter((entry) => entry.faction === "Bot" && entry.role === "attacker") ?? [];
     const defenders = pkg?.formationCommitments.filter((entry) => entry.faction === "Player" && entry.role === "defender") ?? [];
+    const defenderAllocations = defenders.reduce<Record<string, number>>((counts, entry) => {
+      counts[entry.allocationKey] = (counts[entry.allocationKey] ?? 0) + 1;
+      return counts;
+    }, {});
+    const defenderCampaignTypes = defenders.reduce<Record<string, number>>((counts, entry) => {
+      const campaignType = second.state.formations[entry.formationId]?.campaignUnitType ?? "missing";
+      counts[campaignType] = (counts[campaignType] ?? 0) + 1;
+      return counts;
+    }, {});
     if (!engagementId || !engagement || engagement.status !== "inBattle" || !pkg
       || engagement.engagement.frontKey !== "caen_airborne_flank"
       || engagement.engagement.context?.battleHexKey !== "11,20"
       || attackers.length === 0 || defenders.length === 0
+      || Object.keys(defenderAllocations).length !== 3
+      || defenderAllocations.airborneDetachment !== 6 || defenderAllocations.infantry !== 9 || defenderAllocations.tank !== 3
+      || Object.keys(defenderCampaignTypes).length !== 3
+      || defenderCampaignTypes.Paratrooper !== 6 || defenderCampaignTypes.Infantry_42 !== 9 || defenderCampaignTypes.Medium_Tank !== 3
       || second.state.status !== "engagement"
       || second.report.stopReason !== "engagement") {
       throw new Error("The published Caen counterattack did not produce one exact mandatory defense.");

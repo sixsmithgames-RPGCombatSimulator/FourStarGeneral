@@ -1227,6 +1227,23 @@ export class PrecombatScreen {
     return this.isAllocationImplemented(option) && findTemplateForUnitKey(option.key) !== null;
   }
 
+  /**
+   * Campaign airborne formations at a defensive engagement are already ashore and fighting on the
+   * operational map. Present them with the ground force package instead of implying that the
+   * commander must requisition a new transport flight.
+   */
+  private getAllocationPresentationCategory(option: UnitAllocationOption): AllocationCategory {
+    return this.isPlayerDefensiveEngagement() && option.key === "airborneDetachment"
+      ? "units"
+      : option.category;
+  }
+
+  private getAllocationPresentationDescription(option: UnitAllocationOption): string {
+    return this.isPlayerDefensiveEngagement() && option.key === "airborneDetachment"
+      ? "Airborne infantry already on the ground at the defended operational hex and ready for tactical deployment."
+      : option.description;
+  }
+
   private shouldApplyScenarioRestrictions(option: UnitAllocationOption): boolean {
     return option.category === "units" && this.isDeployableAllocation(option);
   }
@@ -1243,7 +1260,7 @@ export class PrecombatScreen {
         return;
       }
       const { restrictedUnits } = this.getScenarioUnitRestrictions();
-      const filteredAllocations = allocationOptions.filter((option) => categories.includes(option.category)).filter((option) => {
+      const filteredAllocations = allocationOptions.filter((option) => categories.includes(this.getAllocationPresentationCategory(option))).filter((option) => {
         if (!this.isAllocationVisible(option)) {
           return false;
         }
@@ -1314,6 +1331,7 @@ export class PrecombatScreen {
     const decrementDisabled = unavailable || locked || quantity <= missionMinimum;
     const incrementDisabled = unavailable || locked || quantity >= effectiveMax;
     const totalCost = option.costPerUnit * quantity;
+    const presentationDescription = this.getAllocationPresentationDescription(option);
     const composition = Object.prototype.hasOwnProperty.call(unitComposition, option.key)
       ? unitComposition[option.key as keyof typeof unitComposition]
       : null;
@@ -1369,7 +1387,7 @@ export class PrecombatScreen {
               <h4>${option.label}</h4>
               <span class="allocation-cost">${option.costPerUnit.toLocaleString()} RP</span>
             </div>
-            <p class="allocation-copy__description">${option.description}</p>
+            <p class="allocation-copy__description">${this.escapeAllocationHtml(presentationDescription)}</p>
             ${compositionDisplay.summary.length > 0
               ? `<div class="allocation-copy__details">${compositionDisplay.summary.map((detail) => this.renderAllocationChip(detail)).join("")}</div>`
               : ""}
@@ -1781,15 +1799,21 @@ export class PrecombatScreen {
         ? "background:rgba(180,83,9,0.18);border:1px solid rgba(245,196,109,0.55);color:#f5c46d"
         : "background:rgba(34,80,44,0.22);border:1px solid rgba(134,196,144,0.45);color:#b9e0c0"
     ].join(";");
-    const committedGroups = playerDefense
-      ? Object.values(this.getPlayerDefensiveCommitmentCaps()).reduce((sum, count) => sum + count, 0)
+    const defensiveCommitmentCaps = playerDefense ? this.getPlayerDefensiveCommitmentCaps() : null;
+    const committedGroups = defensiveCommitmentCaps
+      ? Object.values(defensiveCommitmentCaps).reduce((sum, count) => sum + count, 0)
       : context.availableForces.reduce((sum, group) => sum + group.count, 0);
+    const committedAirborne = defensiveCommitmentCaps?.airborneDetachment ?? 0;
+    const committedLine = Math.max(0, committedGroups - committedAirborne);
+    const committedDefenseLine = committedAirborne > 0
+      ? `${committedGroups} formations: ${committedLine} line formation${committedLine === 1 ? "" : "s"} · ${committedAirborne} airborne formation${committedAirborne === 1 ? "" : "s"} already on the ground`
+      : `${committedGroups} formation${committedGroups === 1 ? "" : "s"} locked to this battle`;
     const intelligenceLine = briefing
       ? `${briefing.resistanceBand.charAt(0).toUpperCase()}${briefing.resistanceBand.slice(1)} resistance · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
       : legacyRatio.label;
     const unknowns = briefing?.explicitUnknowns ?? [];
     banner.innerHTML = playerDefense ? `
-      <span style="display:block;"><strong>Committed defense</strong> · ${committedGroups} formation${committedGroups === 1 ? "" : "s"} locked to this battle</span>
+      <span style="display:block;"><strong>Committed defense</strong> · ${committedDefenseLine}</span>
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
       ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     ` : `
