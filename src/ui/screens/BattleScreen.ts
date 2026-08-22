@@ -417,6 +417,7 @@ export class BattleScreen {
     callerLabel: string;
     callerUnitId: string | null;
     assetId: string;
+    assetLabel: string;
     targetHexKeys: Set<string>;
   } | null = null;
 
@@ -1391,7 +1392,7 @@ export class BattleScreen {
           hexKey: targetHexKey,
           icon: "crosshair",
           accentColor: "#d7263d",
-          tooltip: `Corps Artillery queued on ${targetHexKey}. Click to cancel and reposition.`,
+          tooltip: `${asset.label} queued on ${targetHexKey}. Click to cancel and reposition.`,
           interactive: !this.playerAttackHexes.has(targetHexKey)
         });
         this.queuedTargetMarkerActions.set(markerId, {
@@ -1473,25 +1474,33 @@ export class BattleScreen {
     const readyAssetId = assetId ?? artilleryState.assetId;
     this.applySelectedHex(callerHexKey);
     if (!artilleryState.available || !readyAssetId) {
-      this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask Corps Artillery right now.`);
+      this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask off-map fire support right now.`);
       return false;
     }
-    this.beginArtilleryTargeting(callerHexKey, callerLabel, unit.unitId ?? null, readyAssetId, artilleryState.targetHexKeys);
+    this.beginArtilleryTargeting(
+      callerHexKey,
+      callerLabel,
+      unit.unitId ?? null,
+      readyAssetId,
+      artilleryState.assetLabel ?? "Off-map fire support",
+      artilleryState.targetHexKeys
+    );
     return true;
   }
 
   private cancelQueuedArtilleryStrike(assetId: string, callerHexKey: string, callerLabel: string, targetHexKey: string): void {
     const engine = this.battleState.ensureGameEngine();
+    const assetLabel = engine.getSupportSnapshot().queued.find((asset) => asset.id === assetId)?.label ?? "Off-map fire support";
     const canceled = engine.cancelQueuedSupport(assetId);
     this.syncQueuedTargetMarkers();
     if (!canceled) {
-      this.announceBattleUpdate("Corps Artillery cancellation failed. The queued mission may have already resolved.");
+      this.announceBattleUpdate(`${assetLabel} cancellation failed. The queued mission may have already resolved.`);
       return;
     }
     this.publishActivityEvent({
       category: "player",
       type: "log",
-      summary: `${callerLabel} canceled Corps Artillery on ${targetHexKey}.`
+      summary: `${callerLabel} canceled ${assetLabel} on ${targetHexKey}.`
     });
     this.battleState.emitBattleUpdate("manual");
     this.restartQueuedArtilleryTargeting(callerHexKey, callerLabel, assetId);
@@ -1573,30 +1582,37 @@ export class BattleScreen {
     unit: ScenarioUnit,
     commandState: UnitCommandState | null,
     hexKey: string
-  ): { available: boolean; reason: string | null; assetId: string | null; targetHexKeys: string[] } {
+  ): { available: boolean; reason: string | null; assetId: string | null; assetLabel: string | null; targetHexKeys: string[] } {
     if (!commandState || commandState.isAutomated || !this.canUnitObserveArtillery(unit)) {
-      return { available: false, reason: null, assetId: null, targetHexKeys: [] };
-    }
-    if (this.isPinnedOrBrokenCommandState(commandState)) {
-      const label = commandState.suppressionState === "broken" ? "Broken" : "Pinned";
-      return {
-        available: false,
-        reason: `${label} battalions cannot adjust Corps Artillery fire until the suppression is broken.`,
-        assetId: null,
-        targetHexKeys: []
-      };
+      return { available: false, reason: null, assetId: null, assetLabel: null, targetHexKeys: [] };
     }
     const engine = this.battleState.ensureGameEngine();
     const supportSnapshot = engine.getSupportSnapshot();
     const readyAsset = supportSnapshot.ready.find((asset) => asset.type === "artillery" && asset.charges > 0) ?? null;
+    const knownAsset = readyAsset
+      ?? supportSnapshot.queued.find((asset) => asset.type === "artillery")
+      ?? supportSnapshot.cooldown.find((asset) => asset.type === "artillery")
+      ?? supportSnapshot.maintenance.find((asset) => asset.type === "artillery")
+      ?? null;
+    if (this.isPinnedOrBrokenCommandState(commandState)) {
+      const label = commandState.suppressionState === "broken" ? "Broken" : "Pinned";
+      return {
+        available: false,
+        reason: `${label} battalions cannot adjust ${knownAsset?.label ?? "off-map fire support"} until the suppression is broken.`,
+        assetId: null,
+        assetLabel: knownAsset?.label ?? null,
+        targetHexKeys: []
+      };
+    }
     if (!readyAsset) {
       const queuedAsset = supportSnapshot.queued.find((asset) => asset.type === "artillery") ?? null;
       return {
         available: false,
         reason: queuedAsset
           ? `${queuedAsset.label} is already tasked.`
-          : "No Corps Artillery is available for this mission.",
+          : `No ${knownAsset?.label ?? "off-map fire support"} is ready for this mission.`,
         assetId: null,
+        assetLabel: knownAsset?.label ?? null,
         targetHexKeys: []
       };
     }
@@ -1604,8 +1620,9 @@ export class BattleScreen {
     if (targetHexKeys.length === 0) {
       return {
         available: false,
-        reason: "No observed enemy hex is close enough to adjust Corps Artillery fire.",
+        reason: `No observed enemy hex is close enough to adjust ${readyAsset.label}.`,
         assetId: readyAsset.id,
+        assetLabel: readyAsset.label,
         targetHexKeys
       };
     }
@@ -1613,6 +1630,7 @@ export class BattleScreen {
       available: true,
       reason: null,
       assetId: readyAsset.id,
+      assetLabel: readyAsset.label,
       targetHexKeys
     };
   }
@@ -1708,6 +1726,7 @@ export class BattleScreen {
     callerLabel: string,
     callerUnitId: string | null,
     assetId: string,
+    assetLabel: string,
     targetHexKeys: readonly string[]
   ): void {
     this.closeSelectionIntelForAnimation();
@@ -1716,6 +1735,7 @@ export class BattleScreen {
       callerLabel,
       callerUnitId,
       assetId,
+      assetLabel,
       targetHexKeys: new Set(targetHexKeys)
     };
     this.artilleryPreviewKeys = new Set(targetHexKeys);
@@ -1727,7 +1747,7 @@ export class BattleScreen {
         TUTORIAL_ORDER_CAMERA_ZOOM
       );
     }
-    this.announceBattleUpdate(`${callerLabel} is spotting for Corps Artillery. Select an observed enemy hex.`);
+    this.announceBattleUpdate(`${callerLabel} is spotting for ${assetLabel}. Select an observed enemy hex.`);
   }
 
   private cancelArtilleryTargeting(restoreSelection = true): void {
@@ -1764,12 +1784,12 @@ export class BattleScreen {
     this.cancelArtilleryTargeting(false);
     if (!queued) {
       this.applySelectedHex(targetingState.callerHexKey);
-      this.announceBattleUpdate("Corps Artillery could not be queued. Select an eligible observer and an observed enemy hex.");
+      this.announceBattleUpdate(`${targetingState.assetLabel} could not be queued. Select an eligible observer and an observed enemy hex.`);
       return;
     }
     this.clearSelectedHexAfterAction();
     this.syncQueuedTargetMarkers();
-    const summary = `${targetingState.callerLabel} requested Corps Artillery on ${targetHexKey}. Impact scheduled for initiative 2 (artillery). Click the red crosshair to cancel and reposition.`;
+    const summary = `${targetingState.callerLabel} requested ${targetingState.assetLabel} on ${targetHexKey}. Impact scheduled for initiative 2 (artillery). Click the red crosshair to cancel and reposition.`;
     this.announceBattleUpdate(summary);
     this.publishActivityEvent({
       category: "player",
@@ -13211,7 +13231,7 @@ export class BattleScreen {
     if (actionId === "repositionArtillery") {
       const queuedArtillery = this.getQueuedArtilleryForCallerHex(this.selectedHexKey);
       if (!queuedArtillery) {
-        this.announceBattleUpdate("No queued Corps Artillery mission is available to reposition.");
+        this.announceBattleUpdate("No queued off-map fire-support mission is available to reposition.");
         return;
       }
       this.cancelQueuedArtilleryStrike(
@@ -13233,6 +13253,7 @@ export class BattleScreen {
         unitLabel,
         actedUnitId,
         artilleryState.assetId,
+        artilleryState.assetLabel ?? "Off-map fire support",
         artilleryState.targetHexKeys
       );
       return;
@@ -14149,17 +14170,18 @@ export class BattleScreen {
       if (queuedArtillery) {
         actions.push({
           id: "repositionArtillery",
-          label: "Reposition Artillery",
-          detail: "Cancel the queued fire mission and immediately pick a new observed enemy hex.",
+          label: `Reposition ${queuedArtillery.label}`,
+          detail: `Cancel the queued ${queuedArtillery.label} mission and immediately pick a new observed enemy hex.`,
           tone: "denial",
           available: true
         });
       } else {
         const artilleryState = this.resolveArtilleryActionState(unit, commandState, hexKey);
+        const assetLabel = artilleryState.assetLabel ?? "Off-map fire support";
         actions.push({
           id: "callArtillery",
-          label: "Call Artillery",
-          detail: "Queue an off-map Corps Artillery strike on an observed enemy hex. Impact lands at initiative 2 (artillery).",
+          label: `Call ${assetLabel}`,
+          detail: `Queue ${assetLabel} on an observed enemy hex. Impact lands at initiative 2 (artillery).`,
           tone: "denial",
           available: artilleryState.available,
           reason: artilleryState.reason

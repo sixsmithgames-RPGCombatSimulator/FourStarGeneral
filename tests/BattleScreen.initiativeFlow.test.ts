@@ -114,6 +114,63 @@ registerTest("BATTLESCREEN_FULL_MOVE_PRESERVES_ACTIVATION_FOR_ARTILLERY_CALL", a
   });
 });
 
+registerTest("BATTLESCREEN_TACTICAL_SUPPORT_ACTION_PRESERVES_CAMPAIGN_ASSET_IDENTITY", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let artilleryAction: {
+    label: string;
+    detail: string;
+    reason?: string | null;
+  } | null = null;
+  const observer = createPlayerUnit("naval-fire-observer", 4, 3);
+
+  await Given("a campaign observer backed by committed Naval Gunfire Support", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).canUnitObserveArtillery = () => true;
+    (screen as any).getQueuedArtilleryForCallerHex = () => null;
+    (screen as any).resolveArtilleryActionState = () => ({
+      available: false,
+      reason: "No observed enemy hex is close enough to adjust Naval Gunfire Support (NGFS).",
+      assetId: "campaign-ngfs",
+      assetLabel: "Naval Gunfire Support (NGFS)",
+      targetHexKeys: []
+    });
+    (screen as any).resolveConsolidationActionState = () => ({
+      available: false,
+      reason: null,
+      targetUnitId: null,
+      targetLabel: null,
+      combinedStrength: null
+    });
+    (screen as any).canUnitDigIn = () => false;
+  });
+
+  await When("the tactical command card is projected", async () => {
+    const actions = (screen as any).buildBattleIntelActions("4,3", observer, {
+      isAutomated: false,
+      towState: null,
+      canEnterSentry: false,
+      sentryReason: "Unavailable",
+      isSmokeCapable: false,
+      canSetFacing: false,
+      facingReason: "Unavailable"
+    }) as Array<{ id: string; label: string; detail: string; reason?: string | null }>;
+    artilleryAction = actions.find((action) => action.id === "callArtillery") ?? null;
+  });
+
+  await Then("the action keeps the naval-support name instead of relabeling it as Corps Artillery", async () => {
+    if (!artilleryAction) {
+      throw new Error("Expected a tactical fire-support action for the campaign observer.");
+    }
+    const visibleCopy = `${artilleryAction.label} ${artilleryAction.detail} ${artilleryAction.reason ?? ""}`;
+    if (!visibleCopy.includes("Naval Gunfire Support (NGFS)")) {
+      throw new Error(`Expected the committed support identity in tactical copy, received: ${visibleCopy}`);
+    }
+    if (/Corps Artillery/i.test(visibleCopy)) {
+      throw new Error(`Campaign naval support was relabeled as Corps Artillery: ${visibleCopy}`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_RESERVE_REGISTRATION_SELECTS_THE_NEW_STACK_MEMBER", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let registeredUnitId: string | null = null;
