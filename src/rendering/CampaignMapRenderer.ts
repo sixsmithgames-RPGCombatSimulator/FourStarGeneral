@@ -273,13 +273,6 @@ export class CampaignMapRenderer {
     if (layer) layer.style.display = visible ? "block" : "none";
   }
 
-  /** Keeps contact symbology in the dedicated Intelligence workspace instead of crowding operations. */
-  setIntelContactsVisible(visible: boolean): void {
-    if (!this.svgElement) return;
-    const layer = this.svgElement.querySelector<SVGGElement>(`#${INTEL_CONTACT_LAYER_ID}`);
-    if (layer) layer.style.display = visible ? "block" : "none";
-  }
-
   /** Allow UI modules to react when the player clicks a campaign hex. */
   onHexClick(handler: CampaignHexClickHandler | null): void {
     this.hexClickHandler = handler;
@@ -676,10 +669,6 @@ export class CampaignMapRenderer {
       ship.setAttribute("x", String(cx + dx - width / 2));
       ship.setAttribute("y", String(cy + dy - height / 2));
       ship.setAttribute("preserveAspectRatio", "xMidYMid meet");
-      ship.setAttribute(
-        "style",
-        "filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 3px rgba(175, 225, 245, 0.9));"
-      );
       ship.setAttribute("aria-hidden", "true");
       ship.setAttribute("data-hex", hexKey);
       ship.classList.add("campaign-task-force__ship", className);
@@ -690,21 +679,21 @@ export class CampaignMapRenderer {
     const station = document.createElementNS(SVG_NS, "circle");
     station.setAttribute("cx", String(cx));
     station.setAttribute("cy", String(cy));
-    station.setAttribute("r", String(iconSize * 0.42));
-    station.setAttribute("fill", "rgba(7, 25, 38, 0.5)");
-    station.setAttribute("stroke", "rgba(120, 210, 235, 0.78)");
-    station.setAttribute("stroke-width", String(Math.max(0.9, iconSize * 0.035)));
+    station.setAttribute("r", String(iconSize * 0.58));
+    station.setAttribute("fill", "rgba(8, 23, 34, 0.34)");
+    station.setAttribute("stroke", "rgba(216, 190, 118, 0.9)");
+    station.setAttribute("stroke-width", String(Math.max(1, iconSize * 0.055)));
     station.setAttribute("data-hex", hexKey);
     station.setAttribute("data-authoritative-anchor", "true");
     station.setAttribute("aria-hidden", "true");
     station.classList.add("campaign-task-force__station");
     marker.appendChild(station);
 
-    const primaryShip = addShip(battleship, iconSize * 1.34, iconSize * 0.94, 0, 0, "campaign-task-force__battleship");
-    addShip(transport, iconSize * 0.96, iconSize * 0.68, -iconSize * 1.38, -iconSize * 0.66, "campaign-task-force__transport");
-    addShip(transport, iconSize * 0.96, iconSize * 0.68, -iconSize * 1.06, iconSize * 0.82, "campaign-task-force__transport");
-    addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.06, -iconSize * 0.82, "campaign-task-force__destroyer");
-    addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.38, iconSize * 0.66, "campaign-task-force__destroyer");
+    const primaryShip = addShip(battleship, iconSize * 1.12, iconSize * 0.79, 0, 0, "campaign-task-force__battleship");
+    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 1.22, -iconSize * 0.58, "campaign-task-force__transport");
+    addShip(transport, iconSize * 0.82, iconSize * 0.58, -iconSize * 0.92, iconSize * 0.72, "campaign-task-force__transport");
+    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 0.92, -iconSize * 0.72, "campaign-task-force__destroyer");
+    addShip(destroyer, iconSize * 0.84, iconSize * 0.39, iconSize * 1.22, iconSize * 0.58, "campaign-task-force__destroyer");
     if (facing.endsWith("W")) {
       marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
     }
@@ -884,85 +873,38 @@ export class CampaignMapRenderer {
     });
   }
 
-  /** Renders geographic names with a small collision-aware placement pass. */
+  /** Renders only explicitly authored geographic names as lightweight map annotations. */
   private renderNamedLocations(layer: SVGGElement, scenario: CampaignScenarioData): void {
     layer.style.pointerEvents = "none";
     const density = this.getHexDensityScalar();
-    const fontSize = Math.max(5.5, density * 32);
-    const inset = HEX_RADIUS * density * 0.8;
-    type Placement = "above" | "below" | "left" | "right";
-    type LabelBox = { left: number; right: number; top: number; bottom: number };
-    const occupied: LabelBox[] = [];
-    const intersects = (a: LabelBox, b: LabelBox): boolean => (
-      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
-    );
-    const labeledTiles = scenario.tiles
-      .map((instance) => ({ instance, palette: scenario.tilePalette[instance.tile] }))
-      // Fleets are formations, not places. Their ship art and selectable inspector carry identity.
-      .filter(({ palette }) => palette?.mapLabel?.trim() && palette.role !== "taskForce")
-      .sort((a, b) => {
-        const priority = (role: string): number => role === "navalBase" || role === "logisticsHub" ? 3 : role.startsWith("fortification") ? 2 : 1;
-        return priority(b.palette.role) - priority(a.palette.role);
-      });
-
-    labeledTiles.forEach(({ instance, palette }) => {
-      const label = palette.mapLabel?.trim();
+    const fontSize = Math.max(5.5, density * 40);
+    const verticalInset = HEX_RADIUS * density * 0.72;
+    scenario.tiles.forEach((instance) => {
+      const label = scenario.tilePalette[instance.tile]?.mapLabel?.trim();
       if (!label) return;
       const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
       const hexKey = CoordinateSystem.makeHexKey(col, row);
       const center = this.getHexCenter(hexKey);
       if (!center) return;
 
-      const preferred: Placement[] = palette.role === "region"
-        ? ["above", "right", "left", "below"]
-        : palette.role.startsWith("fortification")
-          ? ["below", "above", "right", "left"]
-          : ["right", "above", "below", "left"];
-      const placements = preferred.filter((placement) => (
-        !(col === 0 && placement === "left")
-        && !(col === scenario.dimensions.cols - 1 && placement === "right")
-      ));
-      const estimatedWidth = fontSize * (label.length * 0.61 + 0.8);
-      const estimatedHeight = fontSize * 1.2;
-      const padding = fontSize * 0.38;
-      let chosen: { placement: Placement; x: number; y: number; anchor: "start" | "middle" | "end"; box: LabelBox } | null = null;
-
-      for (const placement of placements) {
-        const anchor: "start" | "middle" | "end" = placement === "right" ? "start" : placement === "left" ? "end" : "middle";
-        const x = center.cx + (placement === "right" ? inset : placement === "left" ? -inset : 0);
-        const y = center.cy + (placement === "below" ? inset + fontSize * 0.72 : placement === "above" ? -inset + fontSize * 0.3 : fontSize * 0.3);
-        const left = anchor === "start" ? x : anchor === "end" ? x - estimatedWidth : x - estimatedWidth / 2;
-        const box = {
-          left: left - padding,
-          right: left + estimatedWidth + padding,
-          top: y - estimatedHeight - padding,
-          bottom: y + padding
-        };
-        if (box.left < 0 || box.right > this.mapPixelWidth || box.top < 0 || box.bottom > this.mapPixelHeight) continue;
-        if (occupied.some((existing) => intersects(box, existing))) continue;
-        chosen = { placement, x, y, anchor, box };
-        break;
-      }
-      if (!chosen) return;
-      occupied.push(chosen.box);
-
       const marker = document.createElementNS(SVG_NS, "g");
       marker.classList.add("campaign-map-location-label");
       marker.setAttribute("data-hex", hexKey);
-      marker.setAttribute("data-placement", chosen.placement);
       marker.setAttribute("aria-hidden", "true");
 
       const text = document.createElementNS(SVG_NS, "text");
       text.textContent = label;
-      text.setAttribute("x", String(chosen.x));
-      text.setAttribute("y", String(chosen.y));
-      text.setAttribute("text-anchor", chosen.anchor);
+      const isWesternEdge = col === 0;
+      const isEasternEdge = col === scenario.dimensions.cols - 1;
+      text.setAttribute("x", String(center.cx + (isWesternEdge ? fontSize * 0.3 : isEasternEdge ? -fontSize * 0.3 : 0)));
+      text.setAttribute("y", String(center.cy + verticalInset));
+      text.setAttribute("text-anchor", isWesternEdge ? "start" : isEasternEdge ? "end" : "middle");
       text.setAttribute("font-size", String(fontSize));
-      text.setAttribute("font-weight", "700");
-      text.setAttribute("letter-spacing", String(Math.max(0.1, density * 0.75)));
+      text.setAttribute("font-weight", "800");
+      text.setAttribute("letter-spacing", String(Math.max(0.15, density * 1.1)));
       text.setAttribute("fill", "#fff1bd");
       text.setAttribute("stroke", "rgba(10, 16, 17, 0.96)");
-      text.setAttribute("stroke-width", String(Math.max(0.8, density * 3.6)));
+      text.setAttribute("stroke-width", String(Math.max(0.9, density * 5)));
       text.setAttribute("paint-order", "stroke");
       marker.appendChild(text);
       layer.appendChild(marker);

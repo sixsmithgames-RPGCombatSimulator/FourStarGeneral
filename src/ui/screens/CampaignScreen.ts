@@ -285,8 +285,6 @@ export class CampaignScreen {
     this.renderer.render(svg, canvas, view);
     this.renderer.setTerrainOverlayVisible(this.editMode);
     this.renderer.setIntelCoverageVisible(this.intelCoverageVisible);
-    (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
-      .setIntelContactsVisible?.(this.commandInterface?.getActiveWorkspace() === "intelligence");
     this.syncViewportAfterRender();
   }
 
@@ -763,8 +761,6 @@ export class CampaignScreen {
 
     this.mountCampaignDeveloperTools();
     this.commandInterface = new CampaignCommandInterface(this.element, {
-      onWorkspaceChanged: (workspace) => (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
-        .setIntelContactsVisible?.(workspace === "intelligence"),
       onOpenIntelligence: () => {
         this.intelTab = "situation";
         this.resetIntelComposer();
