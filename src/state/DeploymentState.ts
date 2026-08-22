@@ -654,12 +654,15 @@ export class DeploymentState {
       let engineRemaining = this.reserveCountMap.get(entry.key);
       if (engineRemaining === undefined) {
         const deployedCount = placementCounts.get(entry.key) ?? 0;
-        // Only warn once per unit key to reduce console noise
-        if (!this.hasLoggedExhaustedWarning.has(entry.key)) {
+        const totalBudget = this.getUnitCount(entry.key);
+        const isExpectedExhaustion = totalBudget > 0 && deployedCount === totalBudget;
+        // A reserve snapshot naturally omits a key after its final formation is placed. Warn only
+        // when the engine cannot be reconciled with the complete committed allocation.
+        if (!isExpectedExhaustion && !this.hasLoggedExhaustedWarning.has(entry.key)) {
           this.hasLoggedExhaustedWarning.add(entry.key);
           console.warn("[DeploymentState] Engine snapshot omitted exhausted unit key; normalizing totals.", {
             unitKey: entry.key,
-            totalBudget: this.getUnitCount(entry.key),
+            totalBudget,
             deployedCount
           });
         }

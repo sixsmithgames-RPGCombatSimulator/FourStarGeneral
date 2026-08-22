@@ -123,6 +123,7 @@ registerTest("DEPLOYMENT_MIRROR_SYNCHRONIZES_COUNTS", async ({ Given, When, Then
 
 registerTest("DEPLOYMENT_MIRROR_NORMALIZES_PLACEMENTS_TO_OFFSET_KEYS", async ({ Given, When, Then }) => {
   const deploymentState = new DeploymentState();
+  const exhaustedWarnings: string[] = [];
 
   await Given("a deployment state with a registered recon alias and an odd-column player placement", async () => {
     deploymentState.initialize([{ key: "recon", label: "Recon", remaining: 1 }]);
@@ -136,10 +137,21 @@ registerTest("DEPLOYMENT_MIRROR_NORMALIZES_PLACEMENTS_TO_OFFSET_KEYS", async ({ 
       getReserveSnapshot: () => []
     } as unknown as GameEngineAPI;
 
-    deploymentState.mirrorEngineState(engine);
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      const message = args.map((entry) => String(entry)).join(" ");
+      if (message.includes("Engine snapshot omitted exhausted unit key")) {
+        exhaustedWarnings.push(message);
+      }
+    };
+    try {
+      deploymentState.mirrorEngineState(engine);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
-  await Then("the mirrored placement is indexed by offset hex key instead of axial key", async () => {
+  await Then("the mirrored placement is indexed by offset hex key without treating normal exhaustion as an anomaly", async () => {
     const offsetPlacement = deploymentState.getPlacement("2,4");
     const axialPlacement = deploymentState.getPlacement("2,3");
 
@@ -148,6 +160,9 @@ registerTest("DEPLOYMENT_MIRROR_NORMALIZES_PLACEMENTS_TO_OFFSET_KEYS", async ({ 
     }
     if (axialPlacement) {
       throw new Error("Expected mirrored placement map to stop exposing axial key 2,3 for UI occupancy checks.");
+    }
+    if (exhaustedWarnings.length > 0) {
+      throw new Error(`A completely deployed allocation emitted an exhausted-key warning: ${exhaustedWarnings.join(" | ")}`);
     }
   });
 });
