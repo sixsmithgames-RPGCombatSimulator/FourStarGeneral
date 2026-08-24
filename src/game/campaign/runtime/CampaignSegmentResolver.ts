@@ -341,7 +341,7 @@ function incrementEconomy(economy: CampaignFactionEconomy, output: ProductionAll
   economy.manpower += output.manpower;
 }
 
-/** Applies daily output using only control and allocation frozen at the start of the boundary. */
+/** Applies daily theater-support deliveries using only control and allocation frozen at the start of the boundary. */
 function resolveLogistics(
   source: CampaignRuntimeState,
   candidate: CampaignRuntimeState,
@@ -353,10 +353,13 @@ function resolveLogistics(
   const capacityByFaction = new Map<string, number>();
   source.tileOrder.forEach((hexKey) => {
     const tile = source.tiles[hexKey];
-    const supplyValue = (definition.map.tilePalette[tile?.tileKey ?? ""]?.supplyValue ?? 0)
+    const sourceDefinition = definition.map.tilePalette[tile?.tileKey ?? ""];
+    const productionCapacity = (tile?.controller === sourceDefinition?.factionControl
+      ? sourceDefinition.productionCapacity ?? 0
+      : 0)
       * (tile ? campaignTileCapacityFactor(tile) : 1);
-    if (tile && supplyValue > 0) {
-      capacityByFaction.set(String(tile.controller), (capacityByFaction.get(String(tile.controller)) ?? 0) + supplyValue);
+    if (tile && productionCapacity > 0) {
+      capacityByFaction.set(String(tile.controller), (capacityByFaction.get(String(tile.controller)) ?? 0) + productionCapacity);
     }
   });
 
@@ -374,7 +377,7 @@ function resolveLogistics(
     events.push({
       type: "stateChanged",
       category: "logistics",
-      summary: `${faction} daily production delivered.`,
+      summary: `${faction} daily theater support delivered.`,
       details: {
         faction,
         capacity,

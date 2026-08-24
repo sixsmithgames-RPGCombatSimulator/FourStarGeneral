@@ -81,6 +81,8 @@ export interface CampaignTileDefinition {
   spriteKey?: string;
   /** Supply throughput contributed by this location each campaign turn. */
   supplyValue?: number;
+  /** Daily theater-resource allocation delivered while this node remains under its authored faction's control. */
+  productionCapacity?: number;
   /** Optional authored structural ceiling; role-specific defaults apply when omitted. */
   infrastructureMaxIntegrity?: number;
   /** Optional authored structural points restored per three-hour repair segment. */
@@ -327,7 +329,7 @@ export interface TransportMode {
 }
 
 /**
- * Player-set split of daily industrial capacity across resources.
+ * Player-set split of the daily theater-support delivery across resources.
  * Values are percentages that must sum to 100.
  */
 export interface ProductionAllocation {
@@ -355,7 +357,7 @@ export interface CampaignFactionEconomy {
   intelCoverage: number;
   /** Transport assets available for force redeployment. */
   transportCapacity?: TransportCapacity;
-  /** Player-controlled split of daily industrial output. Persists with the scenario in saves. */
+  /** Player-controlled split of daily theater support. Persists with the scenario in saves. */
   productionAllocation?: ProductionAllocation;
 }
 

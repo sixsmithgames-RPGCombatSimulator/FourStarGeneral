@@ -1479,47 +1479,222 @@ export class CampaignMapRenderer {
     return Array.from(merged.values()).sort((a, b) => b.count - a.count);
   }
 
-  /** Draws derived shared-border segments, with authored center polylines retained as a legacy fallback. */
+  /**
+   * Orders sparse authored contact points into one readable sector route.
+   *
+   * Runtime-derived fronts normally arrive as connected shared edges, but the opening campaign also
+   * uses a handful of representative engagement edges. Rendering each representative edge on its own
+   * made the operational front look like accidental colored pieces of the hex grid. A nearest-neighbor
+   * pass gives both data shapes one stable, continuous cartographic route without changing their game
+   * semantics.
+   */
+  private orderFrontPoints<T extends { x: number; y: number }>(points: readonly T[]): T[] {
+    if (points.length < 3) return [...points];
+
+    let first = 0;
+    let second = 1;
+    let longestDistance = -1;
+    for (let left = 0; left < points.length; left += 1) {
+      for (let right = left + 1; right < points.length; right += 1) {
+        const distance = Math.hypot(points[right].x - points[left].x, points[right].y - points[left].y);
+        if (distance > longestDistance) {
+          first = left;
+          second = right;
+          longestDistance = distance;
+        }
+      }
+    }
+
+    const startsBefore = points[first].x < points[second].x
+      || (points[first].x === points[second].x && points[first].y <= points[second].y);
+    const startIndex = startsBefore ? first : second;
+    const remaining = new Set(points.map((_, index) => index));
+    remaining.delete(startIndex);
+    const ordered = [points[startIndex]];
+
+    while (remaining.size > 0) {
+      const previous = ordered[ordered.length - 1];
+      let nextIndex = -1;
+      let nextDistance = Number.POSITIVE_INFINITY;
+      remaining.forEach((candidateIndex) => {
+        const candidate = points[candidateIndex];
+        const distance = Math.hypot(candidate.x - previous.x, candidate.y - previous.y);
+        if (distance < nextDistance || (distance === nextDistance && candidateIndex < nextIndex)) {
+          nextIndex = candidateIndex;
+          nextDistance = distance;
+        }
+      });
+      if (nextIndex < 0) break;
+      ordered.push(points[nextIndex]);
+      remaining.delete(nextIndex);
+    }
+
+    return ordered;
+  }
+
+  /** Softens changes of direction while keeping the two ends anchored to their exact shared borders. */
+  private buildFrontPath(points: readonly { x: number; y: number }[]): string {
+    if (points.length === 0) return "";
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+
+    const commands = [`M ${points[0].x} ${points[0].y}`];
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const current = points[index];
+      const next = points[index + 1];
+      commands.push(`Q ${current.x} ${current.y} ${(current.x + next.x) / 2} ${(current.y + next.y) / 2}`);
+    }
+    const last = points[points.length - 1];
+    commands.push(`L ${last.x} ${last.y}`);
+    return commands.join(" ");
+  }
+
+  /** Draws a cased operational ribbon and keeps faction color on one initiative marker. */
+  private appendFrontRibbon(
+    layer: SVGGElement,
+    front: CampaignScenarioData["fronts"][number],
+    route: readonly { x: number; y: number; friendlyX?: number; friendlyY?: number; opposingX?: number; opposingY?: number }[],
+    edgeKeys: readonly string[]
+  ): void {
+    if (route.length < 2) return;
+
+    const pathData = this.buildFrontPath(route);
+    const accent = front.initiative === "Player" ? "#73c9f4" : front.initiative === "Bot" ? "#e67870" : "#d8c276";
+    const initiativeLabel = front.initiative === this.viewModel?.observerFaction
+      ? "Friendly initiative"
+      : front.initiative === "Neutral"
+        ? "No side holds initiative"
+        : "Opposing initiative";
+    const density = this.getHexDensityScalar();
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("campaign-front", `front-${front.key}`, "campaign-front-ribbon");
+    group.setAttribute("data-front-key", front.key);
+    group.setAttribute("data-initiative", front.initiative);
+    if (edgeKeys.length > 0) group.setAttribute("data-front-edges", edgeKeys.join(" "));
+    group.setAttribute("role", "img");
+    group.setAttribute("aria-label", `${front.label}. ${initiativeLabel} operational front.`);
+    group.setAttribute("pointer-events", "none");
+
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = `${front.label} · ${initiativeLabel}`;
+    group.appendChild(title);
+
+    const appendPath = (className: string, stroke: string, strokeWidth: number, opacity: number): void => {
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", pathData);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", stroke);
+      path.setAttribute("stroke-width", String(strokeWidth));
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("stroke-linejoin", "round");
+      path.setAttribute("opacity", String(opacity));
+      path.setAttribute("aria-hidden", "true");
+      path.classList.add(className);
+      group.appendChild(path);
+    };
+
+    // A low-opacity area establishes the contested corridor; the dark casing separates it from both
+    // the background illustration and the permanent hex grid. The warm center line is faction-neutral.
+    appendPath("campaign-front-ribbon__zone", "#ead79b", Math.max(10, density * 50), 0.16);
+    appendPath("campaign-front-ribbon__casing", "#101611", Math.max(6.5, density * 30), 0.9);
+    appendPath("campaign-front-ribbon__line", "#f0d48a", Math.max(2.6, density * 11), 1);
+
+    const markerIndex = Math.floor((route.length - 1) / 2);
+    const markerPoint = route[markerIndex];
+    const markerNext = route[Math.min(route.length - 1, markerIndex + 1)];
+    let directionX = (markerPoint.opposingX ?? markerNext.x) - (markerPoint.friendlyX ?? markerPoint.x);
+    let directionY = (markerPoint.opposingY ?? markerNext.y) - (markerPoint.friendlyY ?? markerPoint.y);
+    if (Math.hypot(directionX, directionY) < 0.001) {
+      directionX = markerNext.x - markerPoint.x;
+      directionY = markerNext.y - markerPoint.y;
+    }
+    const direction = Math.atan2(directionY, directionX) * 180 / Math.PI;
+    const markerRadius = Math.max(3.2, density * 14);
+    const marker = document.createElementNS(SVG_NS, "g");
+    marker.classList.add("campaign-front-ribbon__initiative");
+    marker.setAttribute("data-initiative", front.initiative);
+    marker.setAttribute("transform", `translate(${markerPoint.x} ${markerPoint.y}) rotate(${direction})`);
+    marker.setAttribute("aria-hidden", "true");
+
+    const markerPlate = document.createElementNS(SVG_NS, "circle");
+    markerPlate.setAttribute("r", String(markerRadius));
+    markerPlate.setAttribute("fill", "#101611");
+    markerPlate.setAttribute("stroke", "#f0d48a");
+    markerPlate.setAttribute("stroke-width", String(Math.max(1, density * 4)));
+    marker.appendChild(markerPlate);
+
+    const arrow = document.createElementNS(SVG_NS, "path");
+    const arrowLength = markerRadius * 1.05;
+    const arrowHalfHeight = markerRadius * 0.56;
+    arrow.setAttribute("d", `M ${-arrowLength * 0.55} ${-arrowHalfHeight} L ${arrowLength * 0.65} 0 L ${-arrowLength * 0.55} ${arrowHalfHeight} Z`);
+    arrow.setAttribute("fill", accent);
+    arrow.setAttribute("stroke", "#101611");
+    arrow.setAttribute("stroke-width", String(Math.max(0.65, density * 2.4)));
+    arrow.setAttribute("stroke-linejoin", "round");
+    marker.appendChild(arrow);
+    group.appendChild(marker);
+    layer.appendChild(group);
+  }
+
+  /** Draws derived shared borders as intentional operational ribbons, with legacy center routes as a fallback. */
   private renderFronts(layer: SVGGElement, scenario: CampaignScenarioData): void {
     if (!scenario.fronts || scenario.fronts.length === 0) {
       return;
     }
 
     scenario.fronts.forEach((front) => {
-      const color = front.initiative === "Player" ? "#5bc0ff" : front.initiative === "Bot" ? "#ff6b6b" : "#ffd166";
       if (front.edges && front.edges.length > 0) {
         const density = this.getHexDensityScalar();
-        front.edges.forEach((edge, index) => {
+        const edgePoints = front.edges.flatMap((edge) => {
           const friendly = this.getHexCenter(edge.friendlyHexKey);
           const opposing = this.getHexCenter(edge.opposingHexKey);
-          if (!friendly || !opposing) return;
+          if (!friendly || !opposing) return [];
           const dx = opposing.cx - friendly.cx;
           const dy = opposing.cy - friendly.cy;
           const magnitude = Math.hypot(dx, dy);
-          if (magnitude <= 0) return;
+          if (magnitude <= 0) return [];
           const midpointX = (friendly.cx + opposing.cx) / 2;
           const midpointY = (friendly.cy + opposing.cy) / 2;
-          const halfLength = HEX_RADIUS * density * 0.48;
+          const halfLength = HEX_RADIUS * density * 0.5;
           const perpendicularX = (-dy / magnitude) * halfLength;
           const perpendicularY = (dx / magnitude) * halfLength;
-          const segment = document.createElementNS(SVG_NS, "line");
-          segment.setAttribute("x1", String(midpointX - perpendicularX));
-          segment.setAttribute("y1", String(midpointY - perpendicularY));
-          segment.setAttribute("x2", String(midpointX + perpendicularX));
-          segment.setAttribute("y2", String(midpointY + perpendicularY));
-          segment.setAttribute("stroke", color);
-          segment.setAttribute("stroke-width", "4.5");
-          segment.setAttribute("stroke-linecap", "round");
-          segment.setAttribute("opacity", "0.95");
-          segment.setAttribute("pointer-events", "none");
-          segment.setAttribute("data-front-edge", `${edge.friendlyHexKey}|${edge.opposingHexKey}`);
-          segment.classList.add("campaign-front", `front-${front.key}`, "campaign-front-edge");
-          if (index === 0) segment.setAttribute("aria-label", front.label);
-          layer.appendChild(segment);
+          return [{
+            x: midpointX,
+            y: midpointY,
+            friendlyX: friendly.cx,
+            friendlyY: friendly.cy,
+            opposingX: opposing.cx,
+            opposingY: opposing.cy,
+            start: { x: midpointX - perpendicularX, y: midpointY - perpendicularY },
+            end: { x: midpointX + perpendicularX, y: midpointY + perpendicularY },
+            edgeKey: `${edge.friendlyHexKey}|${edge.opposingHexKey}`
+          }];
         });
+
+        const ordered = this.orderFrontPoints(edgePoints);
+        if (ordered.length === 0) return;
+        if (ordered.length === 1) {
+          this.appendFrontRibbon(layer, front, [
+            { ...ordered[0].start, friendlyX: ordered[0].friendlyX, friendlyY: ordered[0].friendlyY, opposingX: ordered[0].opposingX, opposingY: ordered[0].opposingY },
+            { ...ordered[0].end, friendlyX: ordered[0].friendlyX, friendlyY: ordered[0].friendlyY, opposingX: ordered[0].opposingX, opposingY: ordered[0].opposingY }
+          ], [ordered[0].edgeKey]);
+          return;
+        }
+
+        const startEdge = ordered[0];
+        const nextPoint = ordered[1];
+        const start = Math.hypot(startEdge.start.x - nextPoint.x, startEdge.start.y - nextPoint.y)
+          > Math.hypot(startEdge.end.x - nextPoint.x, startEdge.end.y - nextPoint.y)
+          ? startEdge.start : startEdge.end;
+        const endEdge = ordered[ordered.length - 1];
+        const previousPoint = ordered[ordered.length - 2];
+        const end = Math.hypot(endEdge.start.x - previousPoint.x, endEdge.start.y - previousPoint.y)
+          > Math.hypot(endEdge.end.x - previousPoint.x, endEdge.end.y - previousPoint.y)
+          ? endEdge.start : endEdge.end;
+        this.appendFrontRibbon(layer, front, [start, ...ordered, end], ordered.map((point) => point.edgeKey));
         return;
       }
-      const points: string[] = [];
+      const points: Array<{ x: number; y: number }> = [];
       front.hexKeys.forEach((hexKey) => {
         let center = this.getHexCenter(hexKey);
         if (!center) {
@@ -1527,7 +1702,7 @@ export class CampaignMapRenderer {
           if (maybeOffset) center = this.getHexCenter(maybeOffset);
         }
         if (center) {
-          points.push(`${center.cx},${center.cy}`);
+          points.push({ x: center.cx, y: center.cy });
         }
       });
 
@@ -1535,14 +1710,7 @@ export class CampaignMapRenderer {
         return;
       }
 
-      const poly = document.createElementNS(SVG_NS, "polyline");
-      poly.setAttribute("points", points.join(" "));
-      poly.setAttribute("stroke", color);
-      poly.setAttribute("stroke-width", "3.5");
-      poly.setAttribute("fill", "none");
-      poly.setAttribute("opacity", "0.9");
-      poly.classList.add("campaign-front", `front-${front.key}`);
-      layer.appendChild(poly);
+      this.appendFrontRibbon(layer, front, points, []);
     });
   }
 

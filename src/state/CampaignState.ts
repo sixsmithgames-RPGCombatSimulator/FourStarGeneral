@@ -117,6 +117,7 @@ import {
   CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
   CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
   CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
+  CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH,
   migrateCampaignRuntimeContent
 } from "../game/campaign/persistence/CampaignContentMigration";
 import {
@@ -1009,13 +1010,13 @@ export class CampaignState {
   /** Returns authoritative availability for the exclusive next-delivery production slot. */
   getCampaignProductionActionPreview(faction: CampaignFactionKey = "Player", excludeOrderId?: string): CampaignOrderActionPreview {
     if (!this.runtime || !this.getProductionReport()) {
-      return this.campaignActionPreview("hidden", "ORDER_ALLOCATION_INVALID", "Theater production is unavailable.", "Load a campaign with controlled industrial capacity.");
+      return this.campaignActionPreview("hidden", "ORDER_ALLOCATION_INVALID", "Theater support allocation is unavailable.", "Load a campaign with controlled rear-area staging capacity.");
     }
     const priorDraft = this.runtime.orderOrder
       .map((id) => this.runtime?.orders[id])
       .find((order) => order?.id !== excludeOrderId && order?.faction === faction && order.kind === "production" && order.status === "draft");
     if (priorDraft) {
-      return this.campaignActionPreview("blocked", "ORDER_RESERVATION_CONFLICT", "Another draft already holds the next production-allocation slot.", "Edit or remove the earlier production draft before creating another.");
+      return this.campaignActionPreview("blocked", "ORDER_RESERVATION_CONFLICT", "Another draft already holds the next support-allocation slot.", "Edit or remove the earlier support draft before creating another.");
     }
     return this.campaignActionPreview("available", null, null, null);
   }
@@ -1031,7 +1032,7 @@ export class CampaignState {
     const normalizedAllocation = this.normalizeProductionAllocation(allocation);
     if (!normalizedAllocation) {
       return {
-        action: this.campaignActionPreview("blocked", "ORDER_ALLOCATION_INVALID", "Production allocation must assign more than zero percent.", "Assign output to at least one resource."),
+        action: this.campaignActionPreview("blocked", "ORDER_ALLOCATION_INVALID", "Support allocation must assign more than zero percent.", "Assign the next delivery to at least one resource."),
         normalizedAllocation: null,
         dailyOutput: null,
         effectiveSegment: null
@@ -1130,7 +1131,7 @@ export class CampaignState {
       return result(this.campaignActionPreview("blocked", "ORDER_CAPACITY_INSUFFICIENT", `This operation needs ${rule.capacityCost} intelligence capacity; ${capacityAvailable} remains uncommitted.`, "Remove, reprioritize, or wait for an earlier intelligence operation.", targetKeys));
     }
     if (rule.suppliesCost > suppliesAvailable || rule.fuelCost > fuelAvailable) {
-      return result(this.campaignActionPreview("blocked", "ORDER_RESOURCE_INSUFFICIENT", `This operation needs ${rule.suppliesCost} supply and ${rule.fuelCost} fuel; ${suppliesAvailable} supply and ${fuelAvailable} fuel remain uncommitted.`, "Remove a competing draft, wait for production, or choose a less costly operation.", targetKeys));
+      return result(this.campaignActionPreview("blocked", "ORDER_RESOURCE_INSUFFICIENT", `This operation needs ${rule.suppliesCost} supply and ${rule.fuelCost} fuel; ${suppliesAvailable} supply and ${fuelAvailable} fuel remain uncommitted.`, "Remove a competing draft, wait for the next support delivery, or choose a less costly operation.", targetKeys));
     }
     return result(this.campaignActionPreview("available", null, null, null, targetKeys));
   }
@@ -1152,7 +1153,7 @@ export class CampaignState {
     const correctiveAction = code === "ORDER_FORCE_UNAVAILABLE"
       ? "Station a ready, uncommitted formation at the facility."
       : code === "ORDER_RESOURCE_INSUFFICIENT"
-        ? "Release held stocks or wait for the next production delivery."
+        ? "Release held stocks or wait for the next support delivery."
         : "Allow the current reconstruction to finish or select a damaged friendly facility.";
     return this.campaignActionPreview("blocked", code, reason, correctiveAction, [targetOffsetHexKey]);
   }
@@ -1249,7 +1250,7 @@ export class CampaignState {
     return normalized;
   }
 
-  /** Adds an exclusive next-delivery production draft without changing the active allocation. */
+  /** Adds an exclusive next-delivery support draft without changing the active allocation. */
   createProductionDraft(allocation: ProductionAllocation, replaceOrderId?: string): { ok: true; order: CampaignOrder } | { ok: false; reason: string } {
     if (!this.runtime) return { ok: false, reason: "No campaign runtime is loaded." };
     const preview = this.previewProductionDraft(allocation, replaceOrderId);
@@ -1261,18 +1262,18 @@ export class CampaignState {
     let createdId: string | null = null;
     const result = this.transactCampaignOrders(
       "orders:create-production-draft",
-      `Production allocation draft ${replaceOrderId ? "replaced" : "added"}.`,
+      `Support allocation draft ${replaceOrderId ? "replaced" : "added"}.`,
       (draft) => {
-        if (replaceOrderId && !removeCampaignOrderDraft(draft, replaceOrderId)) throw new Error("The production draft is no longer editable.");
+        if (replaceOrderId && !removeCampaignOrderDraft(draft, replaceOrderId)) throw new Error("The support draft is no longer editable.");
         const created = createProductionOrderDraft(draft, { faction: "Player", allocation: normalized, effectiveSegment });
-        if (replaceOrderId && !created.validation.valid) throw new Error(created.validation.issues[0]?.message ?? "The replacement production draft is invalid.");
+        if (replaceOrderId && !created.validation.valid) throw new Error(created.validation.issues[0]?.message ?? "The replacement support draft is invalid.");
         createdId = created.id;
       },
       { kind: "production", effectiveSegment, replaceOrderId: replaceOrderId ?? null }
     );
     if (!result.ok) return result;
     const order = createdId && this.runtime?.orders[createdId];
-    return order ? { ok: true, order: structuredClone(order) } : { ok: false, reason: "The production draft was not retained." };
+    return order ? { ok: true, order: structuredClone(order) } : { ok: false, reason: "The support draft was not retained." };
   }
 
   /** Returns a faction-safe facility condition and exact reconstruction preview for the campaign inspector. */
@@ -1549,7 +1550,7 @@ export class CampaignState {
       return unavailable("ORDER_OPERATION_INVALID", "This is still a draft and has not been committed.", "Use Remove draft to release its proposed holds.");
     }
     if (order.kind === "production") {
-      return unavailable("ORDER_OPERATION_INVALID", "A committed production allocation cannot be cancelled.", "Create and commit a new allocation to supersede it at the next delivery.");
+      return unavailable("ORDER_OPERATION_INVALID", "A committed support allocation cannot be cancelled.", "Create and commit a new allocation to supersede it at the next delivery.");
     }
     if (order.status !== "committed") {
       return unavailable("ORDER_OPERATION_INVALID", "This order has already started or ended.", "Allow it to resolve or issue a follow-on order.");
@@ -1633,7 +1634,7 @@ export class CampaignState {
     if (!order) return { ok: false, reason: "Order not found." };
     if (order.status === "draft") return this.removeCampaignOrder(orderId);
     if (order.status !== "committed") return { ok: false, reason: "This order has already started or ended." };
-    if (order.kind === "production") return { ok: false, reason: "A committed production allocation cannot be cancelled; issue a new allocation draft." };
+    if (order.kind === "production") return { ok: false, reason: "A committed support allocation cannot be cancelled; issue a new allocation draft." };
     return this.transactCampaignOrders(
       "orders:cancel",
       `Committed ${order.kind} order ${orderId} cancelled before execution.`,
@@ -1673,7 +1674,7 @@ export class CampaignState {
           infrastructure.activeRepairOrderId = null;
           if (engineer?.currentOrderId === candidate.id) engineer.currentOrderId = null;
         } else {
-          if (candidate.kind === "production") throw new Error("A production allocation cannot be cancelled after commit.");
+          if (candidate.kind === "production") throw new Error("A support allocation cannot be cancelled after commit.");
           const knowledge = draft.knowledgeByFaction[String(candidate.faction)];
           const index = knowledge?.operations.findIndex((entry) => entry.id === candidate.executionRefId) ?? -1;
           const operation = index >= 0 ? knowledge?.operations[index] : null;
@@ -1931,7 +1932,8 @@ export class CampaignState {
       scenarioKey: this.scenarioDefinition.key,
       scenarioContentHash,
       ...(this.scenarioDefinition.key === "central_channel"
-        && (scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+        && (scenarioContentHash === CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+          || scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
           || scenarioContentHash === CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH)
         ? {
             compatiblePriorContentHashes: [
@@ -1942,9 +1944,11 @@ export class CampaignState {
               CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
               CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
               CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
-              ...(scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
-                ? [CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH]
-                : [])
+              ...(scenarioContentHash === CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+                ? [CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH, CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH]
+                : scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+                  ? [CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH]
+                  : [])
             ]
           }
         : this.scenarioDefinition.key === "central_channel"
@@ -2873,10 +2877,7 @@ export class CampaignState {
     this.advanceCampaign({ mode: "day" });
   }
 
-  /**
-   * Processes daily resource generation based on controlled tiles.
-   * Each controlled tile contributes to faction economy based on its supplyValue.
-   */
+  /** Processes daily theater-support deliveries from controlled strategic support nodes. */
   private processDailyResourceGeneration(): void {
     if (!this.scenario) return;
 
@@ -2889,15 +2890,17 @@ export class CampaignState {
       const palette = this.scenario.tilePalette[tile.tile];
       if (!palette) continue;
 
-      const supplyValue = (palette.supplyValue ?? 0) * (tile.infrastructure?.effectiveness ?? 1);
       const faction = tile.factionControl ?? palette.factionControl;
+      const productionCapacity = faction === palette.factionControl
+        ? (palette.productionCapacity ?? 0) * (tile.infrastructure?.effectiveness ?? 1)
+        : 0;
 
       if (faction === "Player") {
-        playerCapacity += supplyValue;
+        playerCapacity += productionCapacity;
       } else if (faction === "Bot") {
-        botIncome.supplies += supplyValue;
-        botIncome.fuel += Math.round(supplyValue * 0.8);
-        botIncome.manpower += Math.round(supplyValue * 100);
+        botIncome.supplies += productionCapacity;
+        botIncome.fuel += Math.round(productionCapacity * 0.8);
+        botIncome.manpower += Math.round(productionCapacity * 100);
       }
     }
 
@@ -2933,7 +2936,7 @@ export class CampaignState {
   }
 
   /**
-   * Stores a new industrial allocation on the Player economy (so it persists through
+   * Stores a new theater-support allocation on the Player economy (so it persists through
    * both localStorage snapshots and JSON exports). Values are clamped to >= 0 and
    * normalized to sum to exactly 100.
    */
@@ -2970,37 +2973,34 @@ export class CampaignState {
     return { ok: true };
   }
 
-  /**
-   * Snapshot of the player's war economy production: total capacity, where it comes
-   * from, what today's allocation yields, and when the next production tick lands.
-   */
+  /** Snapshot of the Player's daily theater-support pipeline and its next delivery. */
   getProductionReport(): {
     capacity: number;
     allocation: ProductionAllocation;
     daily: ProductionAllocation;
-    sources: Array<{ offsetKey: string; tile: string; role: string | null; supplyValue: number }>;
+    sources: Array<{ offsetKey: string; tile: string; role: string | null; capacity: number }>;
     segmentsUntilNextTick: number;
   } | null {
     if (!this.scenario) return null;
 
-    const sources: Array<{ offsetKey: string; tile: string; role: string | null; supplyValue: number }> = [];
+    const sources: Array<{ offsetKey: string; tile: string; role: string | null; capacity: number }> = [];
     let capacity = 0;
     for (const tile of this.scenario.tiles) {
       const palette = this.scenario.tilePalette[tile.tile];
       if (!palette) continue;
       const faction = tile.factionControl ?? palette.factionControl;
-      if (faction !== "Player") continue;
-      const supplyValue = (palette.supplyValue ?? 0) * (tile.infrastructure?.effectiveness ?? 1);
-      if (supplyValue <= 0) continue;
-      capacity += supplyValue;
+      if (faction !== "Player" || palette.factionControl !== "Player") continue;
+      const sourceCapacity = (palette.productionCapacity ?? 0) * (tile.infrastructure?.effectiveness ?? 1);
+      if (sourceCapacity <= 0) continue;
+      capacity += sourceCapacity;
       sources.push({
         offsetKey: this.axialToOffsetKey(tile.hex.q, tile.hex.r),
         tile: tile.tile,
         role: palette.role ?? null,
-        supplyValue
+        capacity: sourceCapacity
       });
     }
-    sources.sort((a, b) => b.supplyValue - a.supplyValue);
+    sources.sort((a, b) => b.capacity - a.capacity);
 
     const allocation = this.getProductionAllocation();
     const remainder = this.currentSegment % 8;
@@ -3287,10 +3287,10 @@ export class CampaignState {
     const fuelAvailable = Math.max(0, grossFuel - heldByPool("resource", "fuel"));
     const suppliesAvailable = Math.max(0, grossSupplies - heldByPool("resource", "supplies"));
     if (fuelAvailable < costs.fuelCost) {
-      addIssue(grossFuel >= costs.fuelCost ? "ORDER_RESERVATION_CONFLICT" : "ORDER_RESOURCE_INSUFFICIENT", `Insufficient fuel: ${costs.fuelCost.toLocaleString()} required, ${fuelAvailable.toLocaleString()} uncommitted.`, "Reduce the movement package, remove a competing draft, or wait for production.");
+      addIssue(grossFuel >= costs.fuelCost ? "ORDER_RESERVATION_CONFLICT" : "ORDER_RESOURCE_INSUFFICIENT", `Insufficient fuel: ${costs.fuelCost.toLocaleString()} required, ${fuelAvailable.toLocaleString()} uncommitted.`, "Reduce the movement package, remove a competing draft, or wait for the next support delivery.");
     }
     if (suppliesAvailable < costs.suppliesCost) {
-      addIssue(grossSupplies >= costs.suppliesCost ? "ORDER_RESERVATION_CONFLICT" : "ORDER_RESOURCE_INSUFFICIENT", `Insufficient supply: ${costs.suppliesCost.toLocaleString()} required, ${suppliesAvailable.toLocaleString()} uncommitted.`, "Reduce the movement package, remove a competing draft, or wait for production.");
+      addIssue(grossSupplies >= costs.suppliesCost ? "ORDER_RESERVATION_CONFLICT" : "ORDER_RESOURCE_INSUFFICIENT", `Insufficient supply: ${costs.suppliesCost.toLocaleString()} required, ${suppliesAvailable.toLocaleString()} uncommitted.`, "Reduce the movement package, remove a competing draft, or wait for the next support delivery.");
     }
 
     let capacityAvailable: number | null = null;

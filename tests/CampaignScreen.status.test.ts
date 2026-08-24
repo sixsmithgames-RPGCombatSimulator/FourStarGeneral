@@ -626,7 +626,7 @@ registerTest("CAMPAIGNSCREEN_PRODUCTION_ALLOCATION_IS_ONE_COMPACT_DECISION", asy
     (screen as any).campaignState = {
       getProductionReport: () => ({
         capacity: 100,
-        sources: [{ tile: "industry", offsetKey: "1,1", supplyValue: 60 }, { tile: "port", offsetKey: "2,2", supplyValue: 40 }],
+        sources: [{ tile: "plymouth", offsetKey: "1,1", capacity: 60 }, { tile: "portsmouth", offsetKey: "2,2", capacity: 40 }],
         segmentsUntilNextTick: 2,
         allocation: { supplies: 25, fuel: 25, ammo: 25, manpower: 25 }
       }),
@@ -647,14 +647,17 @@ registerTest("CAMPAIGNSCREEN_PRODUCTION_ALLOCATION_IS_ONE_COMPACT_DECISION", asy
     body = mounted;
   });
 
-  await Then("four allocations, their daily output, one effective-time consequence, and no redundant stages or site roster remain", () => {
+  await Then("four delivery shares, their daily output, one effective-time consequence, and no redundant stages or site roster remain", () => {
     if (body.querySelectorAll("[data-alloc-slider]").length !== 4
       || body.querySelectorAll("[data-alloc-out]").length !== 4
       || body.querySelectorAll("#productionOrderPreview dt").length !== 1
       || body.querySelector(".campaign-order-stage-strip")
       || body.querySelector(".production-source-row")
-      || !body.textContent?.includes("Set the four allocations to 100% total.")) {
-      throw new Error(`Production planning remained verbose or incomplete: ${body.textContent}`);
+      || !body.textContent?.includes("Theater delivery capacity")
+      || !body.textContent.includes("rear-area staging network")
+      || !body.textContent.includes("Replacements")
+      || /Industrial capacity|Manpower|Production Allocation/i.test(body.textContent)) {
+      throw new Error(`Theater-support planning remained misleading, verbose, or incomplete: ${body.textContent}`);
     }
   });
 });

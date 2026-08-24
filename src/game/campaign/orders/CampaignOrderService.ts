@@ -125,7 +125,7 @@ export function createRedeployOrderDraft(runtime: CampaignRuntimeState, input: C
   return appendOrder(runtime, order, reservations);
 }
 
-/** Creates one exclusive next-tick production allocation draft. */
+/** Creates one exclusive next-delivery theater-support allocation draft. */
 export function createProductionOrderDraft(runtime: CampaignRuntimeState, input: CampaignProductionDraftInput): CampaignOrder {
   const payload = { allocation: structuredClone(input.allocation), effectiveSegment: input.effectiveSegment };
   const id = createOrderId(runtime, "production", payload);
@@ -291,7 +291,7 @@ function validateStaticOrder(runtime: CampaignRuntimeState, order: CampaignOrder
     const values = Object.values(order.payload.allocation);
     const total = values.reduce((sum, value) => sum + value, 0);
     if (values.some((value) => !Number.isFinite(value) || value < 0) || Math.abs(total - 100) > 0.0001) {
-      issues.push(issue("ORDER_ALLOCATION_INVALID", "Production shares must be non-negative and total 100%."));
+      issues.push(issue("ORDER_ALLOCATION_INVALID", "Support shares must be non-negative and total 100%."));
     }
   } else if (order.kind === "infrastructureRepair") {
     const tile = runtime.tiles[order.payload.targetRuntimeHexKey];

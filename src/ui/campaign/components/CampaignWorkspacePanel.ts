@@ -73,7 +73,7 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
     compactHeader,
     createSituationWorkspace(),
     createWorkspaceOverview("forces", "Forces by location", "Select a group to inspect every formation at that location.", "campaignForcesWorkspaceList"),
-    createWorkspaceOverview("logistics", "Production", "Review the next delivery and adjust its allocation.", "campaignLogisticsWorkspaceIntro"),
+    createWorkspaceOverview("logistics", "Allied support", "Allocate the next theater delivery from rear-area staging hubs.", "campaignLogisticsWorkspaceIntro"),
     createWorkspaceOverview("intelligence", "Intelligence", "Review contacts or plan a collection operation.", "campaignIntelligenceWorkspaceIntro")
   );
 

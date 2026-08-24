@@ -218,7 +218,7 @@ function validateFactionEconomy(runtime: CampaignRuntimeState, factionKey: strin
       addIssue(issues, {
         code: "ECONOMY_INVALID",
         path: `factions.${factionKey}.economy.productionAllocation`,
-        message: `${factionKey} production allocation must contain non-negative finite values totaling 100.`
+        message: `${factionKey} support allocation must contain non-negative finite values totaling 100.`
       });
     }
   }

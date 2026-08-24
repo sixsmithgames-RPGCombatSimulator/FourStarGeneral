@@ -2125,12 +2125,21 @@
       stroke: rgba(245, 196, 109, 0.85);
       stroke-width: 1.25;
     }
-    /* Front lines slightly thinner and more transparent for readability over map */
+    /* Operational fronts read as continuous cartographic ribbons, not colored pieces of the hex grid. */
     .campaign-front {
-      filter: drop-shadow(0 1px 0 rgba(0,0,0,0.35));
-      opacity: 0.8;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+      isolation: isolate;
+    }
+    .campaign-front-ribbon__zone {
+      filter: blur(1.25px);
+    }
+    .campaign-front-ribbon__casing {
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
+    }
+    .campaign-front-ribbon__line {
+      filter: drop-shadow(0 0 1px rgba(255, 231, 165, 0.36));
+    }
+    .campaign-front-ribbon__initiative {
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.78));
     }
     /* Campaign layout: sidebar on left, map on right */
     .campaign-layout {
@@ -5893,7 +5902,7 @@
       .redeploy-formation-row { grid-template-columns: auto 2.7rem minmax(0, 1fr); }
       .redeploy-formation-sprite { width: 2.55rem; height: 1.95rem; }
     }
-    /* ===== Campaign War Production ===== */
+    /* ===== Campaign Theater Support ===== */
     .production-modal { display: flex; flex-direction: column; gap: 0.75rem; overflow: visible; }
     .production-capacity-banner {
       padding: 0.6rem 0.75rem; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08);
@@ -11016,15 +11025,15 @@
               <div id="campaignEconomySummary"></div>
             </section>
 
-            <!-- PRODUCTION SECTION -->
+            <!-- THEATER SUPPORT SECTION -->
             <section class="sidebar-section production-section">
               <h3 class="sidebar-heading">
                 <span class="heading-icon">IND</span>
-                <span>Production</span>
+                <span>Allied Support</span>
               </h3>
               <div id="campaignProductionSummary"></div>
-              <button id="campaignProductionManage" type="button" class="session-btn" style="width:100%;margin-top:0.5rem;" title="Adjust industrial allocation">
-                <span>Adjust Production</span>
+              <button id="campaignProductionManage" type="button" class="session-btn" style="width:100%;margin-top:0.5rem;" title="Allocate the next cross-Channel delivery">
+                <span>Allocate Support</span>
               </button>
             </section>
 

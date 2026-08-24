@@ -32,10 +32,10 @@ function buildSegmentScenario(): CampaignScenarioData {
     dimensions: { cols: 4, rows: 2 },
     background: { imageUrl: "about:blank", stretchMode: "contain" },
     tilePalette: {
-      playerHub: { role: "logisticsHub", factionControl: "Player", supplyValue: 1 },
-      neutralFactory: { role: "logisticsHub", factionControl: "Neutral", supplyValue: 10 },
+      playerHub: { role: "logisticsHub", factionControl: "Player", supplyValue: 1, productionCapacity: 1 },
+      neutralFactory: { role: "logisticsHub", factionControl: "Neutral", supplyValue: 10, productionCapacity: 10 },
       neutralRoad: { role: "region", factionControl: "Neutral", supplyValue: 0 },
-      botPost: { role: "logisticsHub", factionControl: "Bot", supplyValue: 2 }
+      botPost: { role: "logisticsHub", factionControl: "Bot", supplyValue: 2, productionCapacity: 2 }
     },
     tiles: [
       { tile: "playerHub", hex: { q: 0, r: 0 }, forces: [{ unitType: "Infantry_42", count: 10 }] },
@@ -197,6 +197,39 @@ registerTest("CAMPAIGN_SEGMENT_ROLLS_BACK_THROW_AND_INVARIANT_FAILURE", async ({
       || computeCampaignContentHash(invalid.state) !== sourceHash
       || computeCampaignContentHash(runtime) !== sourceHash) {
       throw new Error("Invariant-invalid phase did not return structured rollback diagnostics and exact safe truth.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_CAPTURED_SUPPORT_HUB_DENIES_BUT_DOES_NOT_TRANSFER_EXTERNAL_OUTPUT", async ({ Given, When, Then }) => {
+  const scenario = buildSegmentScenario();
+  scenario.tiles[3] = { ...scenario.tiles[3], factionControl: "Player" };
+  const definition = splitLegacyCampaignScenario(scenario);
+  const runtime = createCampaignRuntime(definition, {
+    campaignId: "campaign_captured_support_hub",
+    seed: 0x5e6d3a22,
+    currentSegment: 7,
+    turnState: null,
+    queuedDecisions: [],
+    engagements: [],
+    activeEngagementId: null,
+    knowledgeByFaction: {
+      Player: createCampaignKnowledgeState(scenario, "Player", 7),
+      Bot: createCampaignKnowledgeState(scenario, "Bot", 7)
+    }
+  });
+
+  await Given("a Player-controlled Bot support hub immediately before the daily delivery", async () => {});
+  const result = resolveCampaignSegment(runtime, definition);
+  await When("the external support networks resolve from authored ownership and current control", async () => {});
+  await Then("the captured hub denies Bot output without becoming an Allied factory or recruiting center", async () => {
+    if (!result.ok) throw new Error(result.error.message);
+    const playerDelivery = result.state.eventLog.find((event) => event.category === "logistics"
+      && event.details.faction === "Player" && event.details.capacity === 1);
+    const botDelivery = result.state.eventLog.find((event) => event.category === "logistics"
+      && event.details.faction === "Bot" && event.details.capacity === 0);
+    if (!playerDelivery || !botDelivery || result.state.factions.Player.economy.supplies !== 101) {
+      throw new Error("Captured enemy support infrastructure incorrectly transferred its external production pipeline to the Player.");
     }
   });
 });

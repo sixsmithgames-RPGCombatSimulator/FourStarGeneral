@@ -274,6 +274,17 @@ registerTest("CAMPAIGN_RUNTIME_LEGACY_ADAPTER_ROUND_TRIPS", async ({ Given, When
   });
 });
 
+registerTest("CAMPAIGN_RUNTIME_REJECTS_INVALID_THEATER_SUPPORT_CAPACITY", async ({ Given, When, Then }) => {
+  const invalid = buildLegacyScenario();
+  invalid.tilePalette.playerHub.productionCapacity = -1;
+
+  await Given("an authored support node with negative daily capacity", async () => {});
+  await When("the legacy campaign is split into immutable definition and runtime truth", async () => {});
+  await Then("the invalid source is rejected rather than becoming negative resource output", async () => {
+    assertRuntimeError(() => splitLegacyCampaignScenario(invalid), "INVALID_SCENARIO");
+  });
+});
+
 registerTest("CAMPAIGN_RUNTIME_INVARIANTS_REPORT_CORRUPTION", async ({ Given, When, Then }) => {
   const scenario = buildLegacyScenario();
   const runtime = createCampaignRuntime(splitLegacyCampaignScenario(scenario), buildRuntimeOptions(scenario));

@@ -163,7 +163,7 @@ export interface CampaignRedeployOrder extends CampaignOrderBase {
   readonly payload: CampaignRedeployOrderPayload;
 }
 
-/** Typed production allocation order. */
+/** Typed theater-support allocation order. */
 export interface CampaignProductionOrder extends CampaignOrderBase {
   readonly kind: "production";
   readonly payload: {
@@ -234,7 +234,7 @@ export interface CampaignRedeployDraftInput {
   readonly payload: CampaignRedeployOrderPayload;
 }
 
-/** Production draft input after normalization. */
+/** Theater-support draft input after normalization. */
 export interface CampaignProductionDraftInput {
   readonly faction: CampaignFactionKey;
   readonly allocation: ProductionAllocation;

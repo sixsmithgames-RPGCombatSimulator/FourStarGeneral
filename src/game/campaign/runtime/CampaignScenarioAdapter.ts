@@ -176,6 +176,14 @@ function assertLegacyScenarioCanSplit(scenario: CampaignScenarioData): void {
     assertForceGroupAvailability(tile.forces, `scenario.tiles.${index}.forces`);
   });
   Object.entries(scenario.tilePalette).forEach(([paletteKey, tile]) => {
+    if (tile.productionCapacity !== undefined
+      && (!Number.isFinite(tile.productionCapacity) || tile.productionCapacity < 0)) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign support capacity ${paletteKey} must be a non-negative finite number.`,
+        { path: `scenario.tilePalette.${paletteKey}.productionCapacity`, value: tile.productionCapacity }
+      );
+    }
     assertForceGroupAvailability(tile.forces, `scenario.tilePalette.${paletteKey}.forces`);
   });
   const registrationAnchors = new Map((scenario.mapExtents?.registrationAnchors ?? []).map((anchor, index) => {

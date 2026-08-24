@@ -837,6 +837,7 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
     const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
     if (!inspectorCopy.includes("Bristol")
       || !inspectorCopy.includes("Logistics Hub")
+      || !inspectorCopy.includes("9 daily Allied support capacity")
       || !inspectorCopy.includes("U.S. 2nd Infantry Division advance groups")
       || !inspectorCopy.includes("U.S. 90th Infantry Division advance groups")
       || !inspectorCopy.includes("Available D+1 · 7 June 1944")
@@ -852,6 +853,47 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
       || !formationCopy.includes("Unavailable")
       || !formationCopy.includes("Readiness")) {
       throw new Error("A scheduled base formation did not route to its detailed persistent-formation inspector.");
+    }
+    campaignState.reset();
+  });
+});
+
+registerTest("CAMPAIGN_BEACHHEAD_IS_A_RECEIVING_LODGMENT_NOT_A_PRODUCTION_SITE", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let onHexClick: ((hexKey: string) => void) | null = null;
+  let omahaHexKey = "";
+
+  await Given("the shipped D+1 campaign and its held Omaha lodgment", () => {
+    campaignState.reset();
+    mountCommandShellFixture();
+    const renderer = {
+      render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {},
+      getViewportRoot() { return null; },
+      getHexCenter() { return { cx: 0, cy: 0 }; },
+      onHexClick(handler: (hexKey: string) => void) { onHexClick = handler; },
+      clearAllHighlights() {}, highlightHex() {}
+    };
+    const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+    screen.initialize();
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    const view = campaignState.getCampaignMapView("Player");
+    const omaha = view?.scenario.tiles.find((tile) => view.scenario.tilePalette[tile.tile]?.mapLabel === "Omaha");
+    if (!omaha || !onHexClick) throw new Error("The Omaha inspector fixture was unavailable.");
+    const offset = CoordinateSystem.axialToOffset(omaha.hex.q, omaha.hex.r);
+    omahaHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+  });
+
+  await When("the commander selects Omaha", () => {
+    onHexClick?.(omahaHexKey);
+  });
+
+  await Then("the inspector presents a defended receiving lodgment without production or recruiting claims", () => {
+    const routeCopy = document.getElementById("campaignContextInspectorRoute")?.textContent ?? "";
+    if (!routeCopy.includes("Omaha")
+      || !routeCopy.includes("Fortification Light")
+      || !routeCopy.includes("U.S. 1st Infantry Division")
+      || /daily (?:Allied support|production) capacity|next delivery|recruit/i.test(routeCopy)) {
+      throw new Error(`Omaha still presented a beachhead as a production site: ${routeCopy}`);
     }
     campaignState.reset();
   });

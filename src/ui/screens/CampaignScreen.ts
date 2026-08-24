@@ -1345,7 +1345,7 @@ export class CampaignScreen {
       </div>`;
   }
 
-  /** Renders the compact production summary in the sidebar (daily output + next tick countdown). */
+  /** Renders the compact theater-support summary and next delivery. */
   private renderProduction(): void {
     if (!this.productionContainer) {
       return;
@@ -1365,14 +1365,14 @@ export class CampaignScreen {
     this.productionContainer.innerHTML = `
       <div style="padding:0.75rem;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
         <div style="display:flex;justify-content:space-between;font-size:0.8em;color:rgba(180,190,205,0.75);margin-bottom:0.4rem;">
-          <span>Industry: <strong style="color:rgba(220,240,255,0.95);">${fmt(report.capacity)}</strong></span>
-          <span>${report.sources.length} site${report.sources.length !== 1 ? "s" : ""}</span>
+          <span>Delivery capacity: <strong style="color:rgba(220,240,255,0.95);">${fmt(report.capacity)}</strong></span>
+          <span>${report.sources.length} staging hub${report.sources.length !== 1 ? "s" : ""}</span>
         </div>
-        <div style="font-size:0.72em;text-transform:uppercase;letter-spacing:0.05em;color:rgba(180,190,205,0.6);margin-bottom:0.25rem;">Daily output</div>
+        <div style="font-size:0.72em;text-transform:uppercase;letter-spacing:0.05em;color:rgba(180,190,205,0.6);margin-bottom:0.25rem;">Next daily delivery</div>
         ${row("Supplies", report.daily.supplies)}
         ${row("Fuel", report.daily.fuel)}
         ${row("Ammo", report.daily.ammo)}
-        ${row("Manpower", report.daily.manpower)}
+        ${row("Replacements", report.daily.manpower)}
         <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.1);font-size:0.78em;color:rgba(245,196,109,0.9);">
           Next delivery in ${report.segmentsUntilNextTick} segment${report.segmentsUntilNextTick !== 1 ? "s" : ""} (${hoursUntil}h)
         </div>
@@ -1386,12 +1386,12 @@ export class CampaignScreen {
       this.productionManageButton.disabled = action.availability !== "available";
       this.productionManageButton.dataset.reasonCode = action.reasonCode ?? "";
       this.productionManageButton.title = action.availability === "available"
-        ? "Plan the next industrial allocation."
-        : `${action.reason ?? "Production planning is unavailable."} ${action.correctiveAction ?? ""}`.trim();
+        ? "Allocate the next cross-Channel delivery."
+        : `${action.reason ?? "Support allocation is unavailable."} ${action.correctiveAction ?? ""}`.trim();
     }
   }
 
-  /** Opens the industrial allocation modal: sliders per resource with a live daily-output preview. */
+  /** Opens the theater-support allocation modal with a live daily-delivery preview. */
   private openProductionModal(editingOrder?: Extract<CampaignOrder, { kind: "production" }>): void {
     const layer = document.getElementById("battlePopupLayer");
     const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
@@ -1403,14 +1403,14 @@ export class CampaignScreen {
     const report = this.campaignState.getProductionReport();
     if (!report) return;
 
-    title.textContent = editingOrder ? "Edit Production Allocation" : "Production Allocation";
+    title.textContent = editingOrder ? "Edit Allied Support Allocation" : "Allied Support Allocation";
     const fmt = (n: number) => n.toLocaleString();
 
     const RESOURCES: Array<{ key: keyof ProductionAllocation; label: string; hint: string }> = [
       { key: "supplies", label: "Supplies", hint: "Rations, spares, consumables" },
       { key: "fuel", label: "Fuel", hint: "Powers armor, ships, aircraft" },
       { key: "ammo", label: "Ammunition", hint: "Feeds tactical battles" },
-      { key: "manpower", label: "Manpower", hint: "Replacements and new drafts" }
+      { key: "manpower", label: "Replacements", hint: "Personnel recruited and trained before arrival" }
     ];
 
     const sliderRows = RESOURCES.map(
@@ -1429,12 +1429,12 @@ export class CampaignScreen {
     body.innerHTML = `
       <div class="production-modal">
         <div class="production-capacity-banner">
-          Industrial capacity <strong>${fmt(report.capacity)}</strong> from ${report.sources.length} controlled site${report.sources.length !== 1 ? "s" : ""}
+          Theater delivery capacity <strong>${fmt(report.capacity)}</strong> from ${report.sources.length} rear-area staging hub${report.sources.length !== 1 ? "s" : ""}
           · next delivery in ${report.segmentsUntilNextTick} segment${report.segmentsUntilNextTick !== 1 ? "s" : ""}
         </div>
         <div class="redeploy-section-label">Allocation <span class="alloc-total" id="productionAllocTotal"></span></div>
         <div class="production-alloc">${sliderRows}</div>
-        <div class="production-alloc-note">Set the four allocations to 100% total.</div>
+        <div class="production-alloc-note">Set the four delivery shares to 100% total. Resources enter through the rear-area staging network; forward positions receive them.</div>
         <div id="productionOrderPreview" class="campaign-order-preview-contract" aria-live="polite"></div>
         <div class="button-row redeploy-actions">
           <button type="button" class="primary-button" id="productionApply">${editingOrder ? "Update Draft" : "Save Allocation Draft"}</button>
@@ -1477,7 +1477,7 @@ export class CampaignScreen {
         const normalized = preview.normalizedAllocation;
         previewEl.innerHTML = preview.action.availability === "available" && normalized && preview.effectiveSegment !== null
           ? `<div class="campaign-order-preview-clear"><dt>Effective</dt><dd>${this.escapeHtml(this.campaignState.segmentToTimeDisplay(preview.effectiveSegment))} · the current mix remains active until delivery.</dd></div>`
-          : `<div class="redeploy-issue" data-reason-code="${preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID"}"><strong>Production unavailable</strong><span>${this.escapeHtml(preview.action.reason ?? "The allocation is unavailable.")}</span><small>${this.escapeHtml(preview.action.correctiveAction ?? "Adjust the allocation and review it again.")}</small></div>`;
+          : `<div class="redeploy-issue" data-reason-code="${preview.action.reasonCode ?? "ORDER_ALLOCATION_INVALID"}"><strong>Support allocation unavailable</strong><span>${this.escapeHtml(preview.action.reason ?? "The allocation is unavailable.")}</span><small>${this.escapeHtml(preview.action.correctiveAction ?? "Adjust the allocation and review it again.")}</small></div>`;
       }
       applyBtn.disabled = preview.action.availability !== "available" || !preview.normalizedAllocation;
     };
@@ -1502,19 +1502,19 @@ export class CampaignScreen {
       if (!result.ok) {
         this.setCampaignStatusMessage({
           title: "Draft not added.",
-          detail: result.reason ?? "The production allocation draft could not be stored.",
+          detail: result.reason ?? "The support allocation draft could not be stored.",
           action: "Adjust the sliders so at least one resource receives output.",
           tone: "warning"
         });
         return;
       }
       hide();
-      this.commandCommitFeedback = { feedback: `Production draft ${editingOrder ? "replaced" : "added"}; the next-delivery slot is held without spending stocks.`, feedbackTone: "success" };
+      this.commandCommitFeedback = { feedback: `Support draft ${editingOrder ? "replaced" : "added"}; the next-delivery slot is held without spending stocks.`, feedbackTone: "success" };
       this.renderCommandShell();
       this.setCampaignStatusMessage({
-        title: result.order.validation.valid ? `Production draft ${editingOrder ? "replaced" : "ready"}.` : "Production draft has a conflict.",
+        title: result.order.validation.valid ? `Support draft ${editingOrder ? "replaced" : "ready"}.` : "Support draft has a conflict.",
         detail: result.order.validation.issues[0]?.message ?? `The ${editingOrder ? "revised" : "new"} output mix is waiting in the order tray.`,
-        action: result.order.validation.valid ? "Review and commit the draft before the next daily delivery." : "Remove the earlier production draft before committing.",
+        action: result.order.validation.valid ? "Review and commit the draft before the next daily delivery." : "Remove the earlier support draft before committing.",
         tone: "success"
       });
     };
@@ -2280,7 +2280,7 @@ export class CampaignScreen {
     if (reservation.kind === "resource") return `${amount} ${reservation.poolKey}`;
     if (reservation.kind === "transport") return `${amount} ${reservation.poolKey} transport`;
     if (reservation.kind === "intelligenceCapacity") return `${amount} intelligence capacity`;
-    if (reservation.kind === "productionSlot") return "next production-allocation slot";
+    if (reservation.kind === "productionSlot") return "next support-allocation slot";
     if (reservation.kind === "formation") return `${amount} formation or force quantity`;
     return `${amount} assigned asset`;
   }
@@ -2519,14 +2519,14 @@ export class CampaignScreen {
         : "No modeled transit attrition; destination conditions can change before arrival.";
       objectiveEffect = "No direct score change; formation position affects later control, engagement, and objective checks.";
     } else if (order.kind === "production") {
-      label = "Set production allocation";
+      label = "Set Allied support allocation";
       const allocation = order.payload.allocation;
       detail = `Supply ${allocation.supplies}% · Fuel ${allocation.fuel}% · Ammo ${allocation.ammo}% · Personnel ${allocation.manpower}%`;
       etaSegment = order.payload.effectiveSegment;
-      routeSummary = "Theater-wide industrial allocation";
-      costSummary = "No stock spent; controlled industrial capacity is redirected.";
-      riskSummary = "Output depends on controlled industrial capacity when the next delivery resolves.";
-      objectiveEffect = "Indirect only; production supports later force, logistics, and objective conditions.";
+      routeSummary = "Allied theater-support pipeline";
+      costSummary = "No stock spent; the next cross-Channel delivery is reprioritized.";
+      riskSummary = "Output depends on controlled rear-area staging capacity when the next delivery resolves.";
+      objectiveEffect = "Indirect only; delivered resources support later force, logistics, and objective conditions.";
     } else if (order.kind === "infrastructureRepair") {
       label = `Repair ${order.payload.role.replace(/([A-Z])/g, " $1").trim()}`;
       detail = `${order.payload.targetOffsetHexKey} · ${order.payload.sourceIntegrity} → ${order.payload.targetIntegrity} integrity · ${order.payload.suppliesCost} supply · ${order.payload.manpowerCost} personnel`;
@@ -2747,7 +2747,7 @@ export class CampaignScreen {
       sourceLabel: site.sourceLabel
     }));
     const productionReport = this.campaignState.getProductionReport();
-    const productionByHex = new Map((productionReport?.sources ?? []).map((source) => [source.offsetKey, source.supplyValue]));
+    const productionByHex = new Map((productionReport?.sources ?? []).map((source) => [source.offsetKey, source.capacity]));
     const nextProductionLabel = productionReport
       ? this.campaignState.segmentToTimeDisplay(
           this.campaignState.getCurrentSegment() + productionReport.segmentsUntilNextTick
@@ -2770,7 +2770,7 @@ export class CampaignScreen {
       const infrastructureEffectiveness = tile.infrastructure?.effectiveness ?? 1;
       const capabilities = [
         ...(productionByHex.has(hexKey)
-          ? [`${productionByHex.get(hexKey)!.toLocaleString()} daily production capacity${nextProductionLabel ? ` · next delivery ${nextProductionLabel}` : ""}`]
+          ? [`${productionByHex.get(hexKey)!.toLocaleString()} daily Allied support capacity${nextProductionLabel ? ` · next delivery ${nextProductionLabel}` : ""}`]
           : []),
         ...((palette?.airSortieCapacity ?? 0) > 0
           ? [`${Math.floor((palette?.airSortieCapacity ?? 0) * infrastructureEffectiveness).toLocaleString()} air sorties available`]

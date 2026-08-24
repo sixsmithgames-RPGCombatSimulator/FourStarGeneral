@@ -1,6 +1,6 @@
 /**
  * MODULE: CampaignProductionRules
- * WHAT: Defines deterministic campaign production allocation defaults, rates, and output math.
+ * WHAT: Defines deterministic campaign theater-support allocation defaults, rates, and output math.
  * WHY: Planning previews and segment resolution must share one pure production rule without importing the CampaignState facade.
  */
 
@@ -22,7 +22,7 @@ export const PRODUCTION_RATES: ProductionAllocation = {
   manpower: 500
 };
 
-/** Converts frozen industrial capacity and allocation percentages into one daily delivery. */
+/** Converts frozen theater-entry capacity and allocation percentages into one daily delivery. */
 export function computeDailyProduction(capacity: number, allocation: ProductionAllocation): ProductionAllocation {
   return {
     supplies: Math.round(capacity * (allocation.supplies / 100) * PRODUCTION_RATES.supplies),

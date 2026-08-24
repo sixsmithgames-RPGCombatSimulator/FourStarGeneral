@@ -179,6 +179,33 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
     }
   });
 
+  await Then("daily Allied support enters through English staging while beachheads remain receiving lodgments", () => {
+    const playerTiles = scenario.tiles.map((tile) => ({ tile, palette: scenario.tilePalette[tile.tile] }))
+      .filter(({ tile, palette }) => (tile.factionControl ?? palette?.factionControl) === "Player");
+    const beaches = playerTiles.filter(({ palette }) => ["Utah", "Omaha", "Gold", "Juno", "Sword"].includes(palette?.mapLabel ?? ""));
+    const supportSources = playerTiles.filter(({ palette }) => (palette?.productionCapacity ?? 0) > 0);
+    const sourceLabels = supportSources.map(({ palette }) => palette?.mapLabel ?? "").sort();
+    const supportCapacity = supportSources.reduce((sum, { palette }) => sum + (palette?.productionCapacity ?? 0), 0);
+    const botProductionCapacity = scenario.tiles.reduce((sum, tile) => {
+      const palette = scenario.tilePalette[tile.tile];
+      return (tile.factionControl ?? palette?.factionControl) === "Bot"
+        ? sum + (palette?.productionCapacity ?? 0)
+        : sum;
+    }, 0);
+    if (beaches.length !== 5
+      || beaches.some(({ palette }) => (palette?.productionCapacity ?? 0) !== 0 || (palette?.supplyValue ?? 0) <= 0)
+      || sourceLabels.join("|") !== ["Bristol", "Plymouth", "Portland", "Portsmouth", "Southampton"].sort().join("|")
+      || supportSources.some(({ tile, palette }) => palette?.role !== "logisticsHub" || tile.hex.r + Math.floor(tile.hex.q / 2) > 10)
+      || supportCapacity !== 46
+      || botProductionCapacity !== 59
+      || scenario.tiles.some((tile) => {
+        const palette = scenario.tilePalette[tile.tile];
+        return palette?.role?.startsWith("fortification") && (palette.productionCapacity ?? 0) > 0;
+      })) {
+      throw new Error(`D+1 support origins are incoherent: beaches=${beaches.length} sources=${sourceLabels.join("|")} Player=${supportCapacity} Bot=${botProductionCapacity}.`);
+    }
+  });
+
   await Then("the full campaign arc remains visible from the lodgment through the Seine", () => {
     const phases = scenario.campaignArc?.phases.map((phase) => phase.key) ?? [];
     const victoryKeys = new Set(scenario.campaignArc?.victoryObjectiveKeys ?? []);

@@ -68,7 +68,7 @@ const INTELLIGENCE_ACTIONS: readonly CampaignIntelOperationType[] = [
 
 const ACTION_DEFINITIONS: readonly CampaignActionDefinition[] = [
   { id: "redeploy", label: "Plan redeployment", selectionKinds: ["hex", "formation"], orderKind: "redeploy" },
-  { id: "production", label: "Adjust production", selectionKinds: ["none"], orderKind: "production" },
+  { id: "production", label: "Allocate support", selectionKinds: ["none"], orderKind: "production" },
   { id: "infrastructureRepair", label: "Plan reconstruction", selectionKinds: ["hex"], orderKind: "infrastructureRepair" },
   ...INTELLIGENCE_ACTIONS.map((type): CampaignActionDefinition => ({
     id: `intelligence:${type}`,
@@ -141,7 +141,7 @@ const CORRECTIVE_ACTIONS: Readonly<Record<CampaignOrderValidationCode, string>> 
   ORDER_TARGET_INVALID: "Choose a legal target from the current Player-visible operational picture.",
   ORDER_SELECTION_INVALID: "Correct the selected participants or quantities before committing.",
   ORDER_TRANSPORT_INVALID: "Choose a compatible transport mode or route and refresh the preview.",
-  ORDER_ALLOCATION_INVALID: "Assign a non-negative production mix totaling 100 percent.",
+  ORDER_ALLOCATION_INVALID: "Assign a non-negative support mix totaling 100 percent.",
   ORDER_OPERATION_INVALID: "Reopen the planner and rebuild the operation from current rules.",
   ORDER_INFRASTRUCTURE_INVALID: "Review the facility's current condition and create a fresh reconstruction plan.",
   ORDER_RESERVATION_CONFLICT: "Remove, edit, or reprioritize the earlier draft that holds the same pool.",
@@ -200,7 +200,7 @@ export function getCampaignOrderComposerSchema(kind: CampaignOrderKind): Campaig
   return {
     kind,
     eyebrow: kind === "redeploy" ? "Movement order"
-      : kind === "production" ? "Industrial directive"
+      : kind === "production" ? "Support directive"
         : kind === "infrastructureRepair" ? "Reconstruction order"
           : kind === "counterIntelligence" ? "Counterintelligence order"
             : "Intelligence collection order",

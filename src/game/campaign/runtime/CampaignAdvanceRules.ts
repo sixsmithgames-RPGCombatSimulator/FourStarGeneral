@@ -38,7 +38,7 @@ const severityRank: Readonly<Record<CampaignAdvanceAlert["severity"], number>> =
 
 function playerOrderLabel(kind: CampaignRuntimeState["orders"][string]["kind"]): string {
   if (kind === "redeploy") return "Redeployment";
-  if (kind === "production") return "Production order";
+  if (kind === "production") return "Support allocation";
   if (kind === "infrastructureRepair") return "Reconstruction order";
   if (kind === "counterIntelligence") return "Counterintelligence operation";
   return "Reconnaissance operation";
@@ -293,8 +293,8 @@ export function appendCampaignAdvanceStepRecord(
     drafts.push({
       severity: "routine",
       category: "logistics",
-      title: "Daily production delivered",
-      detail: "Controlled infrastructure added output using the current production allocation.",
+      title: "Daily theater support delivered",
+      detail: "Controlled staging capacity delivered resources using the current support allocation.",
       targetKind: "campaign",
       targetId: candidate.campaignId,
       requiresStop: false

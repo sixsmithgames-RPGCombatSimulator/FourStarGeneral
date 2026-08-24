@@ -102,6 +102,7 @@ registerTest("CAMPAIGN_BRIEFED_SITES_PROJECT_WITHOUT_HOSTILE_RUNTIME_TRUTH", asy
     mapLabel: "Hidden runtime name",
     notes: "Hidden live installation note",
     supplyValue: 99,
+    productionCapacity: 88,
     navalCapacity: 77
   };
   scenario.tiles.push({
@@ -137,7 +138,7 @@ registerTest("CAMPAIGN_BRIEFED_SITES_PROJECT_WITHOUT_HOSTILE_RUNTIME_TRUTH", asy
       || view.scenario.tiles.some((tile) => tile.factionControl === "Bot")
       || view.scenario.tilePalette.botRegion
       || view.scenario.briefedStrategicSites
-      || /Hidden runtime name|Hidden live installation note|Hidden second garrison|Secret 12th Panzer|navalCapacity|supplyValue/.test(serialized)
+      || /Hidden runtime name|Hidden live installation note|Hidden second garrison|Secret 12th Panzer|navalCapacity|productionCapacity|supplyValue/.test(serialized)
       || /observerFaction|factionControl":"Bot/.test(JSON.stringify(sites))) {
       throw new Error(`Known-site projection crossed the opposing-truth boundary: ${serialized}`);
     }

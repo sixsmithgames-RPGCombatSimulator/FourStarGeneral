@@ -36,7 +36,7 @@ export function scenarioFixture(): CampaignScenarioData {
     dimensions: { cols: 3, rows: 2 },
     background: { imageUrl: "about:blank", stretchMode: "contain" },
     tilePalette: {
-      player: { role: "logisticsHub", factionControl: "Player", supplyValue: 4 },
+      player: { role: "logisticsHub", factionControl: "Player", supplyValue: 4, productionCapacity: 4 },
       bot: { role: "fortificationLight", factionControl: "Bot", supplyValue: 2 }
     },
     tiles: [

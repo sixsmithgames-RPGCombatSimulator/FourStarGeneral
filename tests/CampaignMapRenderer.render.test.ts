@@ -274,7 +274,7 @@ registerTest("CAMPAIGN_RENDERER_OMITS_UNCONFIRMED_HOSTILE_SITES_FROM_THE_DOM", a
   });
 });
 
-registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_ON_SHARED_HEX_BORDERS", async ({ Given, When, Then }) => {
+registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_AS_OPERATIONAL_RIBBONS", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   canvas.appendChild(svg);
@@ -284,15 +284,18 @@ registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_ON_SHARED_HEX_BORDERS", asy
     title: "Derived Front Render",
     description: "Shared-border rendering certification.",
     hexScaleKm: 5,
-    dimensions: { cols: 2, rows: 2 },
+    dimensions: { cols: 4, rows: 2 },
     background: { imageUrl: "about:blank" },
     tilePalette: { region: { role: "region", factionControl: "Neutral" } },
     tiles: [],
     fronts: [{
       key: "derived-front",
       label: "Derived Front",
-      hexKeys: ["0,0"],
-      edges: [{ friendlyHexKey: "0,0", opposingHexKey: "1,0" }],
+      hexKeys: ["0,0", "2,0"],
+      edges: [
+        { friendlyHexKey: "0,0", opposingHexKey: "1,0" },
+        { friendlyHexKey: "2,0", opposingHexKey: "3,0" }
+      ],
       initiative: "Player"
     }],
     objectives: [],
@@ -300,7 +303,7 @@ registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_ON_SHARED_HEX_BORDERS", asy
   };
   const renderer = new CampaignMapRenderer();
 
-  await Given("a front defined by exact adjacent friendly and opposing hexes", () => {
+  await Given("a front defined by sparse exact friendly and opposing shared edges", () => {
     renderer.render(svg, canvas as HTMLDivElement, {
       observerFaction: "Player",
       scenario,
@@ -314,15 +317,26 @@ registerTest("CAMPAIGN_RENDERER_DRAWS_DERIVED_FRONTS_ON_SHARED_HEX_BORDERS", asy
 
   await When("the campaign renderer builds the front layer", () => {});
 
-  await Then("one non-interactive line marks the shared border rather than connecting tile centers", () => {
-    const edge = svg.querySelector<SVGLineElement>(".campaign-front-edge.front-derived-front");
-    if (!edge
-      || edge.getAttribute("data-front-edge") !== "0,0|1,0"
-      || edge.getAttribute("pointer-events") !== "none"
-      || !edge.hasAttribute("x1") || !edge.hasAttribute("y1")
-      || !edge.hasAttribute("x2") || !edge.hasAttribute("y2")
+  await Then("one non-interactive cased ribbon joins the sector while faction color stays on its initiative marker", () => {
+    const ribbon = svg.querySelector<SVGGElement>(".campaign-front-ribbon.front-derived-front");
+    const zone = ribbon?.querySelector<SVGPathElement>(".campaign-front-ribbon__zone");
+    const casing = ribbon?.querySelector<SVGPathElement>(".campaign-front-ribbon__casing");
+    const line = ribbon?.querySelector<SVGPathElement>(".campaign-front-ribbon__line");
+    const marker = ribbon?.querySelector<SVGGElement>('.campaign-front-ribbon__initiative[data-initiative="Player"]');
+    if (!ribbon
+      || ribbon.getAttribute("data-front-edges") !== "0,0|1,0 2,0|3,0"
+      || ribbon.getAttribute("pointer-events") !== "none"
+      || ribbon.getAttribute("role") !== "img"
+      || !ribbon.getAttribute("aria-label")?.includes("Derived Front")
+      || !ribbon.getAttribute("aria-label")?.includes("Friendly initiative")
+      || !zone?.getAttribute("d")
+      || casing?.getAttribute("d") !== zone.getAttribute("d")
+      || line?.getAttribute("d") !== zone.getAttribute("d")
+      || line.getAttribute("stroke") !== "#f0d48a"
+      || !marker
+      || svg.querySelector("line.campaign-front-edge")
       || svg.querySelector("polyline.front-derived-front")) {
-      throw new Error("The derived front did not render as one exact shared-border segment.");
+      throw new Error("The derived front did not render as one accessible operational ribbon.");
     }
   });
 });
