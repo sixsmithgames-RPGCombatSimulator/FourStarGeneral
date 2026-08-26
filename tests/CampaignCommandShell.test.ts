@@ -839,8 +839,8 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
     ].filter(Boolean).join(" ");
     const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
     if (!inspectorCopy.includes("Bristol")
-      || !inspectorCopy.includes("Allied logistics and embarkation base")
-      || !inspectorCopy.includes("Adds 9 support points to the Allied theater pool each day")
+      || !inspectorCopy.includes("Logistics and embarkation")
+      || !inspectorCopy.includes("+9 Allied support points daily")
       || !inspectorCopy.includes("What this is")
       || !inspectorCopy.includes("What is here")
       || !inspectorCopy.includes("What can I do")
@@ -907,7 +907,7 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
     if (!routeCopy.includes("What this is")
       || !routeCopy.includes("Portland, Weymouth, and Poole embarkation sector")
-      || !routeCopy.includes("Allied logistics and embarkation base")
+      || !routeCopy.includes("Logistics and embarkation")
       || !routeCopy.includes("What is here")
       || !routeCopy.includes("Ready now")
       || routeCopy.includes("Projected forces")

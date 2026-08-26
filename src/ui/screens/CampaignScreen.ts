@@ -2783,7 +2783,7 @@ export class CampaignScreen {
             : "No movable formation is currently based here. This installation continues its theater-support role automatically.";
       const capabilities = [
         ...(productionByHex.has(hexKey)
-          ? [`Adds ${productionByHex.get(hexKey)!.toLocaleString()} support points to the Allied theater pool each day${nextProductionLabel ? ` · next allocation ${nextProductionLabel}` : ""}`]
+          ? [`+${productionByHex.get(hexKey)!.toLocaleString()} Allied support points daily${nextProductionLabel ? ` · next allocation ${nextProductionLabel}` : ""}`]
           : []),
         ...((palette?.airSortieCapacity ?? 0) > 0
           ? ["Air-wing staging and fighter/bomber rebase point"]
@@ -2795,11 +2795,11 @@ export class CampaignScreen {
           : [])
       ].filter((entry): entry is string => Boolean(entry));
       const friendlyBaseRoleLabel = palette?.role === "airbase"
-        ? "Allied air base"
+        ? "Air base"
         : palette?.role === "logisticsHub"
-          ? "Allied logistics and embarkation base"
+          ? "Logistics and embarkation"
           : palette?.role === "navalBase"
-            ? "Allied naval base"
+            ? "Naval base"
             : roleLabel;
       return {
         hexKey,
@@ -2824,7 +2824,7 @@ export class CampaignScreen {
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
         capabilities,
         infrastructure: infrastructure
-          ? `${isFriendlyBase ? "" : `${infrastructureRole} · `}${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`
+          ? `${isFriendlyBase ? "" : `${infrastructureRole} · `}${damageState}${isFriendlyBase ? "" : ` · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity`} · ${Math.round(infrastructure.effectiveness * 100)}% effective`
           : null,
         objectives: objectives.filter((objective) => objective.hexKey === hexKey).map((objective) => objective.label),
         fronts: scenario.fronts.filter((front) => front.hexKeys.includes(hexKey)).map((front) => front.label)
