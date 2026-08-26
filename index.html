@@ -2055,39 +2055,59 @@
       min-height: min-content;
     }
 
-    .campaign-base-marker {
+    .campaign-base-marker,
+    .campaign-known-site {
       cursor: pointer;
       outline: none;
     }
     .campaign-base-marker__hit-target,
-    .campaign-base-marker__focus-ring {
+    .campaign-base-marker__focus-ring,
+    .campaign-base-marker__badge,
+    .campaign-known-site__badge-ring,
+    .campaign-known-site__sprite,
+    .campaign-known-site__focus-ring,
+    .campaign-known-site__hit-target {
       transform: scale(var(--campaign-map-inverse-zoom, 1));
       transform-box: fill-box;
       transform-origin: center;
     }
     .campaign-base-marker__focus-ring,
-    .campaign-base-disclosure {
+    .campaign-base-disclosure,
+    .campaign-known-site__focus-ring,
+    .campaign-known-site-disclosure {
       opacity: 0;
       visibility: hidden;
       transition: opacity 140ms ease, transform 140ms ease;
     }
-    .campaign-base-disclosure {
+    .campaign-base-disclosure,
+    .campaign-known-site-disclosure {
       transform: scale(var(--campaign-map-inverse-zoom-resting, 0.92));
       transform-box: fill-box;
     }
-    .campaign-base-marker[data-disclosure-side="right"] .campaign-base-disclosure {
+    .campaign-base-marker[data-disclosure-side="right"] .campaign-base-disclosure,
+    .campaign-known-site[data-disclosure-side="right"] .campaign-known-site-disclosure {
       transform-origin: left center;
     }
-    .campaign-base-marker[data-disclosure-side="left"] .campaign-base-disclosure {
+    .campaign-base-marker[data-disclosure-side="left"] .campaign-base-disclosure,
+    .campaign-known-site[data-disclosure-side="left"] .campaign-known-site-disclosure {
       transform-origin: right center;
     }
     .campaign-base-marker:hover .campaign-base-marker__focus-ring,
     .campaign-base-marker:focus .campaign-base-marker__focus-ring,
     .campaign-base-marker:hover .campaign-base-disclosure,
-    .campaign-base-marker:focus .campaign-base-disclosure {
+    .campaign-base-marker:focus .campaign-base-disclosure,
+    .campaign-known-site:hover .campaign-known-site__focus-ring,
+    .campaign-known-site:focus .campaign-known-site__focus-ring,
+    .campaign-known-site:hover .campaign-known-site-disclosure,
+    .campaign-known-site:focus .campaign-known-site-disclosure {
       opacity: 1;
       visibility: visible;
       transform: scale(var(--campaign-map-inverse-zoom, 1));
+    }
+    .campaign-base-marker__badge,
+    .campaign-known-site__badge-ring,
+    .campaign-known-site__sprite {
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.82));
     }
 
     .campaign-map-viewport::-webkit-scrollbar {
@@ -2451,7 +2471,9 @@
       .campaign-intel-contact,
       .campaign-intel-uncertainty,
       .campaign-base-marker__focus-ring,
-      .campaign-base-disclosure { animation: none !important; transition: none !important; }
+      .campaign-base-disclosure,
+      .campaign-known-site__focus-ring,
+      .campaign-known-site-disclosure { animation: none !important; transition: none !important; }
     }
 
     /* Sidebar Sections */
@@ -9530,14 +9552,14 @@
     .campaign-context-inspector {
       grid-area: inspector;
       z-index: 14;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
       min-width: 0;
-      overflow-y: auto;
+      overflow: hidden;
       border-left: 1px solid rgba(217, 201, 155, 0.13);
       background: linear-gradient(165deg, rgba(22, 27, 22, 0.99), rgba(12, 16, 14, 0.99));
     }
     .campaign-context-inspector__header {
-      position: sticky;
-      top: 0;
       z-index: 2;
       display: flex;
       align-items: center;
@@ -9545,6 +9567,21 @@
       padding: 0.85rem 0.9rem 0.65rem;
       border-bottom: 1px solid rgba(219, 202, 152, 0.13);
       background: rgba(20, 25, 20, 0.97);
+    }
+    .campaign-context-inspector__status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .campaign-context-inspector__body {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
     }
     .campaign-context-inspector__header h2 { margin: 0.18rem 0 0; color: #f0e5c8; font-size: 1rem; }
     .campaign-context-inspector__header button {
@@ -9559,7 +9596,7 @@
       font-size: 1.15rem;
     }
     .campaign-context-inspector .selection-section {
-      margin: 0.8rem;
+      margin: 0;
       padding: 0;
       border: 0;
       background: transparent;
@@ -9577,7 +9614,7 @@
     }
     .campaign-context-actions { display: grid; gap: 0.4rem; margin-top: 0.25rem; }
     .campaign-context-actions button {
-      min-height: 40px;
+      min-height: 44px;
       border: 1px solid rgba(206, 172, 89, 0.38);
       border-radius: 4px;
       background: rgba(137, 105, 45, 0.24);
@@ -9607,13 +9644,35 @@
     .campaign-infrastructure-card small { color: #d99a82; line-height: 1.35; }
     .campaign-infrastructure-meter { overflow: hidden; height: 7px; border: 1px solid rgba(225, 208, 159, 0.18); border-radius: 999px; background: rgba(0,0,0,0.32); }
     .campaign-infrastructure-meter > span { display: block; height: 100%; background: linear-gradient(90deg, #b55e49, #d5b460); transition: width 180ms ease; }
-    .campaign-context-inspector .action-section {
-      position: sticky;
+    .campaign-context-inspector__action-footer {
       z-index: 3;
-      bottom: 0;
-      padding: 0.7rem 0.8rem 0.8rem;
-      border-top: 1px solid rgba(219, 202, 152, 0.13);
-      background: linear-gradient(180deg, rgba(20, 25, 20, 0.92), rgba(12, 16, 14, 0.99) 24%);
+      display: grid;
+      gap: 0.5rem;
+      padding: 0.65rem 0.8rem 0.8rem;
+      border-top: 1px solid rgba(219, 202, 152, 0.18);
+      background: linear-gradient(180deg, rgba(24, 30, 24, 0.98), rgba(12, 16, 14, 0.995) 24%);
+      box-shadow: 0 -10px 22px rgba(0,0,0,0.2);
+    }
+    .campaign-context-inspector__action-footer[hidden] { display: none; }
+    .campaign-context-inspector__action-footer > h3 {
+      margin: 0;
+      color: #d8b967;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .campaign-context-inspector__action-summary {
+      margin: 0;
+      color: rgba(231, 222, 197, 0.76);
+      font-size: 0.72rem;
+      line-height: 1.45;
+    }
+    .campaign-context-inspector .action-section {
+      position: static;
+      padding: 0;
+      border: 0;
+      background: transparent;
     }
     .campaign-order-tray {
       grid-area: tray;

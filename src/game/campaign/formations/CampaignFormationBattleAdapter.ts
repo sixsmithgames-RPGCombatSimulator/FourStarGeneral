@@ -20,7 +20,7 @@ import { createStableCampaignRecordId } from "../runtime/CampaignCanonical";
 import type { CampaignRuntimeState } from "../runtime/campaignRuntimeTypes";
 import {
   getCampaignFormationEffectiveExperience,
-  isCampaignFormationPlaced
+  isCampaignFormationPresentAtLocation
 } from "./FormationLifecycleService";
 import type {
   CampaignFormationBattleSeed,
@@ -68,7 +68,7 @@ function attachGroupFormationIds(
         formation
         && formation.faction === faction
         && formation.campaignUnitType === group.unitType
-        && isCampaignFormationPlaced(formation)
+        && isCampaignFormationPresentAtLocation(formation)
       );
     }).slice(0, group.count);
     formationIds.forEach((id) => used.add(id));
@@ -97,7 +97,7 @@ export function attachCampaignFormationProvenanceToContext(
 
 /** True when the formation has a battle representation and is not unavailable for tactical commitment. */
 export function isCampaignFormationBattleEligible(formation: CampaignFormationRecord): boolean {
-  return isCampaignFormationPlaced(formation)
+  return isCampaignFormationPresentAtLocation(formation)
     && (formation.status === "ready" || formation.status === "committed" || formation.status === "isolated")
     && mapCampaignUnitToAllocationKey(formation.campaignUnitType) !== null;
 }
@@ -202,4 +202,3 @@ export function extractCampaignFormationTacticalSnapshot(unit: ScenarioUnit): Ca
     fuel: unit.fuel
   };
 }
-

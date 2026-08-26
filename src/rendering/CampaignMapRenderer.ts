@@ -20,12 +20,16 @@ const LOCATION_LABEL_LAYER_ID = "campaign-map-location-labels";
 const FRIENDLY_BASE_DISCLOSURE_LAYER_ID = "campaign-map-friendly-base-disclosures";
 const MAX_CAMPAIGN_FORCE_ACTORS = 4;
 const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
+const THEATER_MARKER_HIT_RADIUS = 18;
+const THEATER_MARKER_BADGE_RADIUS = 11;
+const THEATER_MARKER_ICON_SIZE = 17;
 
 /** Maps sprite keys declared in campaign data to asset URLs (PNG sprites). */
 const CAMPAIGN_SPRITES: Record<string, string> = {
   airbase: new URL("../assets/campaign/Airbase_Land_Large.png", import.meta.url).href,
   navalBase: new URL("../assets/campaign/Naval_base_large.png", import.meta.url).href,
   logisticsHub: new URL("../assets/campaign/Military_Base_Large.png", import.meta.url).href,
+  intelNode: new URL("../assets/Interface/Recon_Icon.png", import.meta.url).href,
   fortificationHeavy: new URL("../assets/campaign/Fortifications -- Heavy -- Land -- small.png", import.meta.url).href,
   fortificationLight: new URL("../assets/campaign/Fortifications -- Light -- Land -- small.png", import.meta.url).href
 };
@@ -856,8 +860,6 @@ export class CampaignMapRenderer {
    * The disclosure is intentionally projection-only: ready aggregate groups are safe, while scheduled identities stay in the inspector.
    */
   private renderFriendlyBaseDisclosures(layer: SVGGElement, scenario: CampaignScenarioData): void {
-    const density = this.getHexDensityScalar();
-    const iconSize = HEX_RADIUS * density * 1.6;
     const fontSize = 12;
     const titleSize = 15;
     const lineHeight = 15;
@@ -883,17 +885,23 @@ export class CampaignMapRenderer {
       const longestLine = [baseName, ...disclosureLines].reduce((longest, line) => Math.max(longest, line.length), 0);
       const cardWidth = Math.min(300, Math.max(168, longestLine * fontSize * 0.56 + 28));
       const cardHeight = 19 + disclosureLines.length * lineHeight + 12;
-      const gap = Math.max(12, iconSize * 0.95);
+      const gap = THEATER_MARKER_BADGE_RADIUS + 10;
       const prefersRight = center.cx < this.mapPixelWidth * 0.58;
       const unclampedX = prefersRight ? center.cx + gap : center.cx - gap - cardWidth;
       const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
       const cardY = Math.max(6, Math.min(this.mapPixelHeight - cardHeight - 6, center.cy - cardHeight / 2));
       const cardEdgeX = prefersRight ? cardX : cardX + cardWidth;
-      const triggerRadius = Math.max(16, iconSize * 0.55, HEX_RADIUS * density * 0.76);
+      const triggerRadius = THEATER_MARKER_HIT_RADIUS;
       const formationSummary = readyForces.length > 0
         ? readyForces.map((force) => `${force.count} ${this.formatMarkerLabel(force.label ?? force.unitType)}`).join(", ")
         : "no formations currently ready";
       const accessibleName = `${baseName}, ${roleLabel}, ${formationSummary}. Select for base and formation details.`;
+      const spriteKey = palette.spriteKey ?? palette.role;
+      const asset = CAMPAIGN_SPRITES[spriteKey];
+      if (!asset) {
+        console.error("[CampaignMapRenderer] Friendly base marker asset is not registered", { baseName, spriteKey, hexKey });
+        return;
+      }
 
       const marker = document.createElementNS(SVG_NS, "g");
       marker.classList.add("campaign-base-marker");
@@ -907,6 +915,33 @@ export class CampaignMapRenderer {
       const title = document.createElementNS(SVG_NS, "title");
       title.textContent = accessibleName;
       marker.appendChild(title);
+
+      // This badge is the overview-scale identity owner. Counter-scaling in CSS keeps its physical
+      // footprint stable while the authored map and ordinary strategic sprites continue to zoom.
+      const badge = document.createElementNS(SVG_NS, "g");
+      badge.classList.add("campaign-base-marker__badge");
+      badge.setAttribute("pointer-events", "none");
+      badge.setAttribute("aria-hidden", "true");
+      const badgeRing = document.createElementNS(SVG_NS, "circle");
+      badgeRing.setAttribute("cx", String(center.cx));
+      badgeRing.setAttribute("cy", String(center.cy));
+      badgeRing.setAttribute("r", String(THEATER_MARKER_BADGE_RADIUS));
+      badgeRing.setAttribute("fill", "rgba(11, 29, 24, 0.94)");
+      badgeRing.setAttribute("stroke", "#8bd3a9");
+      badgeRing.setAttribute("stroke-width", "1.4");
+      badgeRing.setAttribute("vector-effect", "non-scaling-stroke");
+      badge.appendChild(badgeRing);
+      const badgeIcon = document.createElementNS(SVG_NS, "image");
+      badgeIcon.classList.add("campaign-base-marker__icon");
+      badgeIcon.setAttribute("href", asset);
+      badgeIcon.setAttribute("x", String(center.cx - THEATER_MARKER_ICON_SIZE / 2));
+      badgeIcon.setAttribute("y", String(center.cy - THEATER_MARKER_ICON_SIZE / 2));
+      badgeIcon.setAttribute("width", String(THEATER_MARKER_ICON_SIZE));
+      badgeIcon.setAttribute("height", String(THEATER_MARKER_ICON_SIZE));
+      badgeIcon.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      badgeIcon.setAttribute("data-marker-sprite-key", spriteKey);
+      badge.appendChild(badgeIcon);
+      marker.appendChild(badge);
 
       const hitTarget = document.createElementNS(SVG_NS, "circle");
       hitTarget.classList.add("campaign-base-marker__hit-target");
@@ -1361,7 +1396,6 @@ export class CampaignMapRenderer {
 
   /** Renders immutable briefing sites without consulting hidden runtime tiles. */
   private renderKnownStrategicSites(layer: SVGGElement, viewModel: CampaignMapViewModel): void {
-    const density = this.getHexDensityScalar();
     layer.setAttribute("aria-label", "Briefed strategic sites");
     (viewModel.knownStrategicSites ?? []).forEach((site) => {
       const hex = this.hexGroups.get(site.locationHexKey);
@@ -1370,59 +1404,148 @@ export class CampaignMapRenderer {
       const cy = Number(hex.dataset.cy ?? NaN);
       if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
 
+      const sharesHexWithContact = viewModel.enemyContacts
+        .some((contact) => contact.locationHexKey === site.locationHexKey);
+      // The safe role owns presentation for specialized sites. This corrects Douvres' authored
+      // airbase sprite without reading or mutating the hidden runtime installation at the same hex.
+      const resolvedSpriteKey = site.role === "intelNode" ? "intelNode" : site.spriteKey;
+      const asset = CAMPAIGN_SPRITES[resolvedSpriteKey];
+      if (!asset) {
+        console.error("[CampaignMapRenderer] Briefed-site marker asset is not registered", {
+          siteId: site.id,
+          resolvedSpriteKey,
+          locationHexKey: site.locationHexKey
+        });
+        return;
+      }
+
+      const markerCx = cx - (sharesHexWithContact ? THEATER_MARKER_BADGE_RADIUS + 2 : 0);
+      const roleLabel = this.formatMarkerLabel(site.role);
+      const accessibleName = `${site.label}, briefed ${roleLabel.toLowerCase()}. ${site.summary} Fixed location from ${site.sourceLabel}; current control and status unconfirmed.`;
       const marker = document.createElementNS(SVG_NS, "g");
       marker.classList.add("campaign-known-site");
       marker.setAttribute("data-known-site-id", site.id);
+      marker.setAttribute("data-marker-sprite-key", resolvedSpriteKey);
       marker.setAttribute("data-hex", site.locationHexKey);
       marker.setAttribute("role", "button");
       marker.setAttribute("tabindex", "0");
-      marker.setAttribute(
-        "aria-label",
-        `${site.label}, briefed ${this.formatMarkerLabel(site.role).toLowerCase()}. Fixed location from ${site.sourceLabel}; current control and status unconfirmed.`
-      );
+      marker.setAttribute("aria-label", accessibleName);
 
-      const sharesHexWithContact = viewModel.enemyContacts
-        .some((contact) => contact.locationHexKey === site.locationHexKey);
-      const markerCx = cx - (sharesHexWithContact ? HEX_RADIUS * density * 0.38 : 0);
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = accessibleName;
+      marker.appendChild(title);
+
       const ring = document.createElementNS(SVG_NS, "circle");
-      const radius = HEX_RADIUS * density * (sharesHexWithContact ? 0.36 : 0.58);
+      ring.classList.add("campaign-known-site__badge-ring");
       ring.setAttribute("cx", String(markerCx));
       ring.setAttribute("cy", String(cy));
-      ring.setAttribute("r", String(radius));
-      ring.setAttribute("fill", "rgba(24, 29, 32, 0.78)");
+      ring.setAttribute("r", String(THEATER_MARKER_BADGE_RADIUS));
+      ring.setAttribute("fill", "rgba(24, 29, 32, 0.94)");
       ring.setAttribute("stroke", "#d1b468");
-      ring.setAttribute("stroke-width", String(Math.max(1, density * 5)));
-      ring.setAttribute("data-hex", site.locationHexKey);
+      ring.setAttribute("stroke-width", "1.4");
+      ring.setAttribute("vector-effect", "non-scaling-stroke");
+      ring.setAttribute("pointer-events", "none");
       ring.setAttribute("aria-hidden", "true");
       marker.appendChild(ring);
 
-      const asset = CAMPAIGN_SPRITES[site.spriteKey];
-      if (asset) {
-        const size = radius * 1.55;
-        const image = document.createElementNS(SVG_NS, "image");
-        image.setAttribute("href", asset);
-        image.setAttribute("x", String(markerCx - size / 2));
-        image.setAttribute("y", String(cy - size / 2));
-        image.setAttribute("width", String(size));
-        image.setAttribute("height", String(size));
-        image.setAttribute("preserveAspectRatio", "xMidYMid meet");
-        image.setAttribute("opacity", "0.84");
-        image.setAttribute("data-hex", site.locationHexKey);
-        image.setAttribute("aria-hidden", "true");
-        image.classList.add("campaign-known-site__sprite");
-        marker.appendChild(image);
-      } else {
-        const fallback = document.createElementNS(SVG_NS, "rect");
-        const size = radius * 0.72;
-        fallback.setAttribute("x", String(cx - size / 2));
-        fallback.setAttribute("y", String(cy - size / 2));
-        fallback.setAttribute("width", String(size));
-        fallback.setAttribute("height", String(size));
-        fallback.setAttribute("fill", "#d1b468");
-        fallback.setAttribute("data-hex", site.locationHexKey);
-        fallback.setAttribute("aria-hidden", "true");
-        marker.appendChild(fallback);
-      }
+      const image = document.createElementNS(SVG_NS, "image");
+      image.classList.add("campaign-known-site__sprite");
+      image.setAttribute("href", asset);
+      image.setAttribute("x", String(markerCx - THEATER_MARKER_ICON_SIZE / 2));
+      image.setAttribute("y", String(cy - THEATER_MARKER_ICON_SIZE / 2));
+      image.setAttribute("width", String(THEATER_MARKER_ICON_SIZE));
+      image.setAttribute("height", String(THEATER_MARKER_ICON_SIZE));
+      image.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      image.setAttribute("opacity", "0.9");
+      image.setAttribute("pointer-events", "none");
+      image.setAttribute("aria-hidden", "true");
+      marker.appendChild(image);
+
+      const focusRing = document.createElementNS(SVG_NS, "circle");
+      focusRing.classList.add("campaign-known-site__focus-ring");
+      focusRing.setAttribute("cx", String(markerCx));
+      focusRing.setAttribute("cy", String(cy));
+      focusRing.setAttribute("r", String(THEATER_MARKER_BADGE_RADIUS + 3));
+      focusRing.setAttribute("fill", "rgba(209, 180, 104, 0.1)");
+      focusRing.setAttribute("stroke", "#ffe2a0");
+      focusRing.setAttribute("stroke-width", "1.5");
+      focusRing.setAttribute("vector-effect", "non-scaling-stroke");
+      focusRing.setAttribute("pointer-events", "none");
+      focusRing.setAttribute("aria-hidden", "true");
+      marker.appendChild(focusRing);
+
+      const hitTarget = document.createElementNS(SVG_NS, "circle");
+      hitTarget.classList.add("campaign-known-site__hit-target");
+      hitTarget.setAttribute("cx", String(markerCx));
+      hitTarget.setAttribute("cy", String(cy));
+      hitTarget.setAttribute("r", String(THEATER_MARKER_HIT_RADIUS));
+      hitTarget.setAttribute("fill", "rgba(0, 0, 0, 0.001)");
+      hitTarget.setAttribute("stroke", "transparent");
+      hitTarget.setAttribute("pointer-events", "all");
+      hitTarget.setAttribute("data-hex", site.locationHexKey);
+      hitTarget.setAttribute("aria-hidden", "true");
+      marker.appendChild(hitTarget);
+
+      const disclosureLines = [
+        roleLabel,
+        "Current control and status unconfirmed",
+        "Select for briefing details"
+      ];
+      const fontSize = 11;
+      const lineHeight = 14;
+      const cardWidth = 244;
+      const cardHeight = 21 + disclosureLines.length * lineHeight + 11;
+      const gap = THEATER_MARKER_BADGE_RADIUS + 10;
+      const prefersRight = markerCx < this.mapPixelWidth * 0.58;
+      const unclampedX = prefersRight ? markerCx + gap : markerCx - gap - cardWidth;
+      const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
+      const cardY = Math.max(6, Math.min(this.mapPixelHeight - cardHeight - 6, cy - cardHeight / 2));
+      const cardEdgeX = prefersRight ? cardX : cardX + cardWidth;
+      marker.setAttribute("data-disclosure-side", prefersRight ? "right" : "left");
+
+      const disclosure = document.createElementNS(SVG_NS, "g");
+      disclosure.classList.add("campaign-known-site-disclosure");
+      disclosure.setAttribute("pointer-events", "none");
+      disclosure.setAttribute("aria-hidden", "true");
+      const connector = document.createElementNS(SVG_NS, "line");
+      connector.setAttribute("x1", String(markerCx + (prefersRight ? THEATER_MARKER_BADGE_RADIUS : -THEATER_MARKER_BADGE_RADIUS)));
+      connector.setAttribute("y1", String(cy));
+      connector.setAttribute("x2", String(cardEdgeX));
+      connector.setAttribute("y2", String(Math.max(cardY + 10, Math.min(cardY + cardHeight - 10, cy))));
+      connector.setAttribute("stroke", "rgba(209, 180, 104, 0.9)");
+      connector.setAttribute("stroke-width", "1.4");
+      connector.setAttribute("vector-effect", "non-scaling-stroke");
+      disclosure.appendChild(connector);
+      const backdrop = document.createElementNS(SVG_NS, "rect");
+      backdrop.setAttribute("x", String(cardX));
+      backdrop.setAttribute("y", String(cardY));
+      backdrop.setAttribute("width", String(cardWidth));
+      backdrop.setAttribute("height", String(cardHeight));
+      backdrop.setAttribute("rx", "7");
+      backdrop.setAttribute("fill", "rgba(15, 18, 20, 0.97)");
+      backdrop.setAttribute("stroke", "rgba(209, 180, 104, 0.92)");
+      backdrop.setAttribute("stroke-width", "1.25");
+      backdrop.setAttribute("vector-effect", "non-scaling-stroke");
+      disclosure.appendChild(backdrop);
+      const heading = document.createElementNS(SVG_NS, "text");
+      heading.textContent = site.label;
+      heading.setAttribute("x", String(cardX + 11));
+      heading.setAttribute("y", String(cardY + 17));
+      heading.setAttribute("font-size", "14");
+      heading.setAttribute("font-weight", "700");
+      heading.setAttribute("fill", "#fff2c9");
+      disclosure.appendChild(heading);
+      disclosureLines.forEach((line, index) => {
+        const text = document.createElementNS(SVG_NS, "text");
+        text.textContent = line;
+        text.setAttribute("x", String(cardX + 11));
+        text.setAttribute("y", String(cardY + 34 + index * lineHeight));
+        text.setAttribute("font-size", String(index === disclosureLines.length - 1 ? fontSize - 1 : fontSize));
+        text.setAttribute("font-weight", index === 0 ? "600" : "400");
+        text.setAttribute("fill", index === disclosureLines.length - 1 ? "#d1b468" : "#d9e1d5");
+        disclosure.appendChild(text);
+      });
+      marker.appendChild(disclosure);
       layer.appendChild(marker);
     });
   }

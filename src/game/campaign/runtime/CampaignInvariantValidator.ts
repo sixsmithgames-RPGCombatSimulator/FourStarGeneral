@@ -37,6 +37,7 @@ import { computeCampaignAIPlanningIntegrity } from "../ai/CampaignAIPlanningServ
 import { CAMPAIGN_AI_PLANNING_VERSION, type CampaignAIPlanResources } from "../ai/CampaignAIPlanningTypes";
 import { computeCampaignAIBehaviorIntegrity } from "../ai/CampaignAIBehaviorService";
 import { CAMPAIGN_AI_BEHAVIOR_VERSION } from "../ai/CampaignAIBehaviorTypes";
+import { isCampaignFormationPresentAtLocation } from "../formations/FormationLifecycleService";
 
 /** Valid runtime status values kept in one validator-owned set. */
 const CAMPAIGN_RUNTIME_STATUSES = new Set(["planning", "resolving", "engagement", "victory", "defeat"]);
@@ -464,7 +465,7 @@ function validateCampaignFormations(runtime: CampaignRuntimeState, issues: Campa
         return;
       }
       placedIds.add(formationId);
-      if (formation.status === "unavailable") return;
+      if (!isCampaignFormationPresentAtLocation(formation)) return;
       projected.set(formation.campaignUnitType, (projected.get(formation.campaignUnitType) ?? 0) + 1);
     });
     const aggregate = new Map<string, number>();

@@ -1285,3 +1285,42 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Perform one batched push only after Vercel capacity/concurrency preflight; then rerun the complete live campaign journey through the external browser.
 
 ---
+## Campaign Theater Literacy and Base Inspector Plan — 2026-08-26
+
+### Intended behavior
+- The complete theater overview makes every authored friendly base, naval force, and player-safe briefed strategic site discoverable without permanent labels covering the registered map artwork.
+- Hover, keyboard focus, map-list selection, and click all expose the same safe identity and route to the same inspector.
+- A friendly-base inspector answers three questions in order: `What is this?`, `What is here?`, and `What can I do?`.
+- Exact persistent formations replace duplicate aggregate force copy whenever the roster is available. Ready, committed/in-transit, and arriving formations are visibly separated.
+- Only legal, relevant actions occupy the persistent action area. An inland logistics base never presents a disabled tactical-engagement button as its primary action.
+
+### Current behavior
+- At theater overview scale, seven authored Allied bases and thirteen briefed enemy sites shrink into near-invisible dots, making the otherwise complete theater read as empty.
+- Portland's inspector repeats its place, role, aggregate forces, exact formations, and infrastructure condition while the relevant redeployment action is below the fold.
+- A disabled `Queue tactical engagement` control remains prominent on ordinary friendly bases where no engagement is available.
+- Douvres radar is rendered with airbase artwork, weakening map literacy.
+
+### Expected new behavior
+- Installation and known-site marks retain a bounded physical target and recognizable role sprite at every supported overview zoom; details expand outward only on hover/focus and remain available by click.
+- The base inspector uses one concise identity/purpose block, one exact grouped roster, and one non-scrolling relevant-action footer.
+- The inspector body is the only vertical scroll owner, resets to the top when the selection identity changes, and preserves a direct route back from formation detail to its base.
+- Known hostile sites remain briefing-only: fixed identity/location may be shown, but current control, condition, capacity, and hidden formations remain unknown.
+
+### Edge cases
+- A base with only scheduled arrivals shows `Arriving here` and a human calendar ETA, but no disabled redeployment action.
+- A base whose ready formations are all held by orders gives one concise availability explanation instead of a modal conflict trap.
+- A known site sharing a hex with a contact keeps the safe place name in map/list/inspector context without revealing mobile truth.
+- Dense neighboring markers stay bounded; only the hovered/focused entity expands, and the expansion remains inside the registered map surface.
+
+### Impact analysis
+- Consumers: `CampaignMapRenderer`, `CampaignCommandShell`, `CampaignContextInspector`, `CampaignScreen`, map-list routing, keyboard selection, and campaign command layout CSS.
+- State/event boundary: presentation consumes only `getCampaignMapView("Player")` and the Player formation roster. No runtime control, formation, economy, order, or intelligence truth is added.
+- Visual risk: inverse-zoom marker sizing and the inspector's scroll/footer ownership can affect all supported desktop and compact campaign layouts.
+
+### Verification
+- Add renderer tests for physical marker bounds, safe hover/focus disclosure, keyboard activation, known-site safety, and Douvres role imagery.
+- Add command-shell/inspector tests for the three-section hierarchy, exact formation grouping, no duplicate aggregate copy, relevant footer actions, back routing, and scroll reset.
+- Run focused campaign UI/renderer tests, TypeScript, the full campaign suite, full tests, build, lint, skill validation, and `git diff --check`.
+- Commit and push once, wait for the single production deployment, then recapture complete-theater and base-detail frames through the external Chrome extension.
+
+---

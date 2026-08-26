@@ -112,12 +112,28 @@ registerTest("CAMPAIGN_TYPED_ORDERS_COMMIT_CANCEL_AND_SAVE_ATOMICALLY", async ({
   const initial = state.getRuntimeSnapshot();
   if (!initial) throw new Error("Typed-order fixture did not create a runtime.");
   let redeployId = "";
+  let redeployFormationIds: string[] = [];
   let productionId = "";
   let intelligenceId = "";
   let committedHash = "";
 
   await Given("valid movement, production, and counterintelligence drafts", async () => {
-    const redeploy = state.createRedeployDraft(ORIGIN, DESTINATION, [{ unitType: "Infantry_42", count: 2 }], "foot");
+    redeployFormationIds = initial.formationOrder.filter((id) => {
+      const formation = initial.formations[id];
+      return formation?.faction === "Player"
+        && formation.locationHexKey === "24,11"
+        && formation.campaignUnitType === "Infantry_42"
+        && formation.status === "ready";
+    }).slice(0, 2);
+    if (redeployFormationIds.length !== 2) throw new Error("Exact movement fixture is missing two Omaha formations.");
+    const redeploy = state.createRedeployDraft(
+      ORIGIN,
+      DESTINATION,
+      [{ unitType: "Infantry_42", count: 2 }],
+      "foot",
+      undefined,
+      redeployFormationIds
+    );
     const production = state.createProductionDraft({ supplies: 10, fuel: 20, ammo: 30, manpower: 40 });
     const intelligence = state.createIntelOperationDraft({ type: "phantom", targetHexKey: ORIGIN, faction: "Player" });
     if (!redeploy.ok || !production.ok || !intelligence.ok) {
@@ -155,6 +171,18 @@ registerTest("CAMPAIGN_TYPED_ORDERS_COMMIT_CANCEL_AND_SAVE_ATOMICALLY", async ({
       || !committed.knowledgeByFaction.Player.operations.some((operation) => operation.id === committed.orders[intelligenceId].executionRefId)) {
       throw new Error("Typed commit did not create its movement/intelligence execution adapters.");
     }
+    const redeployOrder = committed.orders[redeployId];
+    const transitIds = redeployOrder.kind === "redeploy" ? [...(redeployOrder.payload.formationIds ?? [])] : [];
+    const sourceInfantry = committed.tiles["24,11"].forces
+      .filter((force) => force.unitType === "Infantry_42")
+      .reduce((sum, force) => sum + force.count, 0);
+    const publicTransit = state.getCampaignFormationRoster("Player")
+      .filter((formation) => transitIds.includes(formation.id));
+    if (transitIds.length !== 2 || sourceInfantry !== 10
+      || transitIds.some((id) => committed.formations[id]?.status !== "inTransit")
+      || publicTransit.length !== 2 || publicTransit.some((formation) => formation.locationHexKey !== null)) {
+      throw new Error("Committed exact redeployment remained in the source force projection.");
+    }
     const allocation = committed.factions.Player.economy.productionAllocation;
     if (!allocation || allocation.supplies !== 10 || allocation.fuel !== 20 || allocation.ammo !== 30 || allocation.manpower !== 40) {
       throw new Error("Typed production order did not apply its normalized allocation.");
@@ -164,6 +192,11 @@ registerTest("CAMPAIGN_TYPED_ORDERS_COMMIT_CANCEL_AND_SAVE_ATOMICALLY", async ({
     const load = await restored.loadPrimaryCampaign(persistenceRequest("2026-08-03T12:01:00.000Z"));
     if (!load.ok || computeCampaignContentHash(restored.getRuntimeSnapshot()) !== committedHash) {
       throw new Error("Typed orders/reservations did not survive the checksummed save/load boundary exactly.");
+    }
+    const loadedTransit = restored.getCampaignFormationRoster("Player")
+      .filter((formation) => transitIds.includes(formation.id));
+    if (loadedTransit.length !== 2 || loadedTransit.some((formation) => formation.locationHexKey !== null)) {
+      throw new Error("Loaded in-transit formations were projected as present at their departure base.");
     }
 
     const cancelMove = restored.cancelCampaignOrder(redeployId);
@@ -183,6 +216,16 @@ registerTest("CAMPAIGN_TYPED_ORDERS_COMMIT_CANCEL_AND_SAVE_ATOMICALLY", async ({
       || cancelled.factions.Player.economy.fuel !== initial.factions.Player.economy.fuel
       || cancelled.factions.Player.economy.manpower !== initial.factions.Player.economy.manpower) {
       throw new Error("Cancellation did not restore committed resources exactly.");
+    }
+    const restoredSourceInfantry = cancelled.tiles["24,11"].forces
+      .filter((force) => force.unitType === "Infantry_42")
+      .reduce((sum, force) => sum + force.count, 0);
+    const cancelledRoster = restored.getCampaignFormationRoster("Player")
+      .filter((formation) => transitIds.includes(formation.id));
+    if (restoredSourceInfantry !== 12
+      || transitIds.some((id) => cancelled.formations[id]?.status !== "ready")
+      || cancelledRoster.some((formation) => formation.locationHexKey !== "24,11")) {
+      throw new Error("Cancelling a committed redeployment did not restore exact source presence.");
     }
   });
 });

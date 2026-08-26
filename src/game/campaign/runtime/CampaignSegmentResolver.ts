@@ -38,7 +38,9 @@ import { campaignOffsetKeyToRuntimeHexKey, revalidateCampaignOrderBook } from ".
 import type { CampaignOrder } from "../orders/CampaignOrderTypes";
 import {
   reconcileCampaignFormationForceCounts,
-  releaseCampaignFormationAvailability
+  relocateCampaignFormation,
+  releaseCampaignFormationAvailability,
+  synchronizeCampaignFormationForceProjection
 } from "../formations/FormationLifecycleService";
 import {
   campaignTileCapacityFactor,
@@ -121,6 +123,7 @@ interface MovementPlan {
   readonly destinationHexKey: string;
   readonly moving: Readonly<Record<string, number>>;
   readonly formationIds: readonly string[];
+  readonly hasExactFormationCommitment: boolean;
   readonly returnDue: boolean;
 }
 
@@ -489,42 +492,16 @@ function resolveMovement(
       return;
     }
 
-    const moving: Record<string, number> = {};
-    selectedQuantities(decision).forEach(({ unitType, count }) => {
-      const pool = `${origin}|${unitType}`;
-      const available = source.tiles[origin].forces
-        .filter((force) => force.unitType === unitType)
-        .reduce((sum, force) => sum + force.count, 0);
-      const quantity = Math.max(0, Math.min(count, available - (allocated.get(pool) ?? 0)));
-      if (quantity > 0) {
-        moving[unitType] = quantity;
-        allocated.set(pool, (allocated.get(pool) ?? 0) + quantity);
-      }
-    });
-    if (Object.keys(moving).length === 0) {
-      updates.set(decision.id, {
-        ...structuredClone(decision),
-        payload: { ...structuredClone(decision.payload), status: "blocked", blockedSegment: targetSegment }
-      });
-      affected.push(decision.id);
-      affected.push(...releaseExactRedeploymentFormations(candidate, decision));
-      releaseTransport(candidate, decision);
-      events.push({
-        type: "stateChanged",
-        category: "movement",
-        summary: `Redeployment ${decision.id} had no start-of-segment force available.`,
-        details: { decisionId: decision.id, faction: decision.faction, reason: "frozen-force-unavailable" }
-      });
-      return;
-    }
     const typedOrderId = typeof decision.payload.typedOrderId === "string" ? decision.payload.typedOrderId : null;
     const exactFormationPayload = Array.isArray(decision.payload.formationIds) ? decision.payload.formationIds : null;
     const hasExactFormationCommitment = exactFormationPayload !== null;
     const exactFormationIds = exactFormationPayload
       ? exactFormationPayload.filter((value): value is string => typeof value === "string")
       : [];
+    const moving: Record<string, number> = {};
     if (hasExactFormationCommitment) {
       const exactByType = new Map<string, number>();
+      const requestedByType = new Map(selectedQuantities(decision).map(({ unitType, count }) => [unitType, count]));
       const exactValid = exactFormationIds.length > 0
         && exactFormationIds.length === exactFormationPayload.length
         && new Set(exactFormationIds).size === exactFormationIds.length
@@ -538,8 +515,8 @@ function resolveMovement(
           exactByType.set(formation.campaignUnitType, (exactByType.get(formation.campaignUnitType) ?? 0) + 1);
           return true;
         })
-        && Object.keys(moving).length === exactByType.size
-        && Object.entries(moving).every(([unitType, count]) => exactByType.get(unitType) === count);
+        && requestedByType.size === exactByType.size
+        && [...requestedByType].every(([unitType, count]) => exactByType.get(unitType) === count);
       if (!exactValid) {
         updates.set(decision.id, {
           ...structuredClone(decision),
@@ -556,6 +533,34 @@ function resolveMovement(
         });
         return;
       }
+      exactByType.forEach((count, unitType) => { moving[unitType] = count; });
+    } else {
+      selectedQuantities(decision).forEach(({ unitType, count }) => {
+        const pool = `${origin}|${unitType}`;
+        const available = source.tiles[origin].forces
+          .filter((force) => force.unitType === unitType)
+          .reduce((sum, force) => sum + force.count, 0);
+        const quantity = Math.max(0, Math.min(count, available - (allocated.get(pool) ?? 0)));
+        if (quantity > 0) {
+          moving[unitType] = quantity;
+          allocated.set(pool, (allocated.get(pool) ?? 0) + quantity);
+        }
+      });
+      if (Object.keys(moving).length === 0) {
+        updates.set(decision.id, {
+          ...structuredClone(decision),
+          payload: { ...structuredClone(decision.payload), status: "blocked", blockedSegment: targetSegment }
+        });
+        affected.push(decision.id);
+        releaseTransport(candidate, decision);
+        events.push({
+          type: "stateChanged",
+          category: "movement",
+          summary: `Redeployment ${decision.id} had no start-of-segment force available.`,
+          details: { decisionId: decision.id, faction: decision.faction, reason: "frozen-force-unavailable" }
+        });
+        return;
+      }
     }
     plans.push({
       decisionId: decision.id,
@@ -564,6 +569,7 @@ function resolveMovement(
       destinationHexKey: destination,
       moving,
       formationIds: exactFormationIds,
+      hasExactFormationCommitment,
       returnDue: Number.isFinite(returnEta) && returnEta <= targetSegment
     });
   });
@@ -575,6 +581,7 @@ function resolveMovement(
     forceDeltas.set(hexKey, tileDeltas);
   };
   plans.forEach((plan) => {
+    if (plan.hasExactFormationCommitment) return;
     Object.entries(plan.moving).forEach(([unitType, count]) => {
       addDelta(plan.originHexKey, unitType, -count);
       addDelta(plan.destinationHexKey, unitType, count);
@@ -584,12 +591,22 @@ function resolveMovement(
     plan.formationIds.forEach((formationId) => {
       const formation = candidate.formations[formationId];
       if (!formation) return;
-      formation.locationHexKey = plan.destinationHexKey;
       formation.currentOrderId = null;
-      if (formation.status === "inTransit") formation.status = "ready";
+      if (!relocateCampaignFormation(
+        candidate,
+        formationId,
+        plan.destinationHexKey,
+        targetSegment,
+        `${formation.name} completed redeployment from ${plan.originHexKey} to ${plan.destinationHexKey}.`
+      )) {
+        throw new Error(`Exact redeployment formation ${formationId} could not arrive at ${plan.destinationHexKey}.`);
+      }
       affected.push(formationId);
     });
   });
+  if (plans.length > 0 || updates.size > 0) {
+    synchronizeCampaignFormationForceProjection(candidate);
+  }
   forceDeltas.forEach((deltas, hexKey) => {
     const tile = candidate.tiles[hexKey];
     if (!tile) return;
@@ -636,7 +653,7 @@ function resolveMovement(
 
   candidate.compatibility.queuedDecisions = candidate.compatibility.queuedDecisions
     .map((decision) => updates.get(decision.id) ?? decision);
-  if (plans.length > 0) {
+  if (plans.length > 0 || updates.size > 0) {
     const reconciled = reconcileCampaignFormationForceCounts(candidate, targetSegment, "segment redeployment arrival");
     affected.push(
       ...reconciled.createdFormationIds,

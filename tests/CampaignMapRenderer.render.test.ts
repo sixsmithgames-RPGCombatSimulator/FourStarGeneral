@@ -213,6 +213,82 @@ registerTest("CAMPAIGN_RENDERER_REVEALS_FRIENDLY_BASES_WITHOUT_PERMANENT_LABEL_C
   });
 });
 
+registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_ACTIONABLE", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const view = buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0);
+  const renderer = new CampaignMapRenderer();
+
+  await Given("the complete Player-safe Normandy theater projection", () => {
+    renderer.render(svg, canvas as HTMLDivElement, view);
+  });
+
+  await When("the theater is presented through bounded progressive-disclosure markers", () => {});
+
+  await Then("all friendly bases and briefed sites have physical icons and hit targets without permanent text clutter", () => {
+    const baseMarkers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-base-marker"));
+    const knownSiteMarkers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-known-site"));
+    const baseNames = new Set(baseMarkers.map((marker) => marker.dataset.baseName));
+    const expectedBases = ["Bristol", "Exeter", "Plymouth", "Portland", "Portsmouth", "Southampton", "Tangmere"];
+    const permanentLabels = new Set(Array.from(svg.querySelectorAll(".campaign-map-location-label"))
+      .map((entry) => entry.textContent?.trim() ?? ""));
+    const expectedKnownLabels = new Set((view.knownStrategicSites ?? []).map((site) => site.label));
+    const baseMarkerContractHolds = baseMarkers.every((marker) => (
+      marker.getAttribute("role") === "button"
+      && marker.getAttribute("tabindex") === "0"
+      && Boolean(marker.querySelector(".campaign-base-marker__badge .campaign-base-marker__icon"))
+      && Number(marker.querySelector(".campaign-base-marker__hit-target")?.getAttribute("r")) >= 18
+      && Boolean(marker.querySelector(".campaign-base-disclosure"))
+    ));
+    const siteMarkerContractHolds = knownSiteMarkers.every((marker) => (
+      marker.getAttribute("role") === "button"
+      && marker.getAttribute("tabindex") === "0"
+      && Boolean(marker.querySelector(".campaign-known-site__badge-ring"))
+      && Boolean(marker.querySelector(".campaign-known-site__sprite"))
+      && Number(marker.querySelector(".campaign-known-site__hit-target")?.getAttribute("r")) >= 18
+      && marker.querySelector(".campaign-known-site-disclosure")?.textContent?.includes("Current control and status unconfirmed")
+    ));
+    if (baseMarkers.length !== 7
+      || knownSiteMarkers.length !== 13
+      || expectedBases.some((label) => !baseNames.has(label) || permanentLabels.has(label))
+      || [...expectedKnownLabels].some((label) => permanentLabels.has(label))
+      || !baseMarkerContractHolds
+      || !siteMarkerContractHolds) {
+      throw new Error(`Complete-theater marker literacy regressed: bases=${baseMarkers.length} sites=${knownSiteMarkers.length}.`);
+    }
+  });
+
+  await Then("Douvres uses safe recon presentation and every marker preserves pointer and keyboard selection parity", () => {
+    const douvres = svg.querySelector<SVGGElement>('.campaign-known-site[data-known-site-id="briefed_douvres"]');
+    const douvresSprite = douvres?.querySelector<SVGImageElement>(".campaign-known-site__sprite");
+    const firstBase = svg.querySelector<SVGGElement>(".campaign-base-marker");
+    const activations: Array<{ hexKey: string; hasTile: boolean }> = [];
+    renderer.onHexClick((hexKey, tile) => activations.push({ hexKey, hasTile: Boolean(tile) }));
+    firstBase?.querySelector(".campaign-base-marker__hit-target")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    douvres?.querySelector(".campaign-known-site__hit-target")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    douvres?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    douvres?.dispatchEvent(new window.KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    if (!douvres
+      || douvres.dataset.markerSpriteKey !== "intelNode"
+      || !douvresSprite?.getAttribute("href")?.includes("Recon_Icon.png")
+      || douvresSprite.getAttribute("href")?.includes("Airbase")
+      || !douvres.getAttribute("aria-label")?.includes("briefed intel node")
+      || activations.length !== 4
+      || activations[0]?.hasTile !== true
+      || activations.slice(1).some((activation) => activation.hexKey !== douvres.dataset.hex || activation.hasTile)) {
+      throw new Error(`Overview activation or Douvres presentation diverged: ${JSON.stringify({ activations, marker: douvres?.outerHTML })}.`);
+    }
+    if (svg.outerHTML.includes("716th surviving coastal artillery group")) {
+      throw new Error("A hidden Douvres runtime formation leaked through the safe known-site marker.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_RENDERER_OMITS_UNCONFIRMED_HOSTILE_SITES_FROM_THE_DOM", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");

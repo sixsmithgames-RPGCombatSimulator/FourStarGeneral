@@ -125,6 +125,17 @@ export function isCampaignFormationAvailable(formation: CampaignFormationRecord)
 }
 
 /**
+ * True when a formation is physically present and can contribute at its recorded location.
+ * Scheduled arrivals and formations travelling under a committed redeployment remain in the
+ * persistent roster, but neither belongs in a location's aggregate force projection.
+ */
+export function isCampaignFormationPresentAtLocation(formation: CampaignFormationRecord): boolean {
+  return isCampaignFormationPlaced(formation)
+    && isCampaignFormationAvailable(formation)
+    && formation.status !== "inTransit";
+}
+
+/**
  * Creates one complete campaign-owned formation record from an explicit stable identity.
  * No runtime collection is mutated by this function.
  */
@@ -259,13 +270,13 @@ export function seedLegacyCampaignFormationRegistry(
 /** Builds the temporary aggregate force projection for one tile from its placed formation identities. */
 export function projectCampaignFormationForces(
   runtime: Pick<CampaignRuntimeState, "formations">,
-  tile: Pick<CampaignTileRuntime, "formationIds">
+  tile: Pick<CampaignTileRuntime, "hexKey" | "formationIds">
 ): CampaignForceGroup[] {
   const groups: CampaignForceGroup[] = [];
   const indexByKey = new Map<string, number>();
   tile.formationIds.forEach((formationId) => {
     const formation = runtime.formations[formationId];
-    if (!formation || !isCampaignFormationPlaced(formation) || !isCampaignFormationAvailable(formation)) return;
+    if (!formation || formation.locationHexKey !== tile.hexKey || !isCampaignFormationPresentAtLocation(formation)) return;
     const label = formation.origin.legacyLabel;
     const key = `${formation.campaignUnitType}\u0000${label ?? ""}`;
     const existingIndex = indexByKey.get(key);
@@ -500,13 +511,13 @@ export function reconcileCampaignFormationForceCounts(
   reason: string
 ): CampaignFormationReconciliation {
   const desired = buildDesiredSlots(runtime);
-  const unavailableIds = runtime.formationOrder.filter((id) => {
+  const nonProjectedIds = runtime.formationOrder.filter((id) => {
     const formation = runtime.formations[id];
-    return Boolean(formation && formation.status === "unavailable" && isCampaignFormationPlaced(formation));
+    return Boolean(formation && isCampaignFormationPlaced(formation) && !isCampaignFormationPresentAtLocation(formation));
   });
   const availableIds = runtime.formationOrder.filter((id) => {
     const formation = runtime.formations[id];
-    return Boolean(formation && isCampaignFormationPlaced(formation) && isCampaignFormationAvailable(formation));
+    return Boolean(formation && isCampaignFormationPresentAtLocation(formation));
   });
   const assigned = new Set<string>();
   const assignments = new Map<number, string>();
@@ -594,7 +605,7 @@ export function reconcileCampaignFormationForceCounts(
     const tile = runtime.tiles[hexKey];
     if (tile) tile.formationIds = [];
   });
-  unavailableIds.forEach((id) => {
+  nonProjectedIds.forEach((id) => {
     const formation = runtime.formations[id];
     if (!formation || formation.locationHexKey === null) return;
     appendPlacement(runtime, formation, {

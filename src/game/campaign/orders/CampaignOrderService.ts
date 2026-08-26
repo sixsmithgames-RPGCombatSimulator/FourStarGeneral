@@ -11,6 +11,7 @@ import { createStableCampaignRecordId } from "../runtime/CampaignCanonical";
 import { getTransportMode } from "../../../data/transportModes";
 import { createIntelOperation, INTEL_OPERATION_RULES } from "../../../state/CampaignIntelligence";
 import type { CampaignRuntimeState } from "../runtime/campaignRuntimeTypes";
+import { synchronizeCampaignFormationForceProjection } from "../formations/FormationLifecycleService";
 import { calculateCampaignRedeploymentCosts } from "./CampaignRedeployRules";
 import { campaignInfrastructureRepairCosts } from "../infrastructure/CampaignInfrastructureRules";
 import type {
@@ -631,6 +632,9 @@ export function commitCampaignOrderDrafts(runtime: CampaignRuntimeState, orderId
     order.validation = { valid: true, issues: [], validatedRevision: runtime.revision };
     setCampaignOrderReservationStatus(runtime, order, "consumed");
   });
+  if (orders.some((order) => order.kind === "redeploy")) {
+    synchronizeCampaignFormationForceProjection(runtime);
+  }
   revalidateCampaignOrderBook(runtime);
   return orders;
 }

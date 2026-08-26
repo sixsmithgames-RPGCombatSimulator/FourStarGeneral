@@ -155,6 +155,175 @@ registerTest("CAMPAIGN_COMMAND_VIEW_ASSEMBLER_FREEZES_AND_REJECTS_TRUTH", async 
   });
 });
 
+registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONABLE", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+  let screen: CampaignCommandScreen;
+  let originalWidth: number;
+
+  await Given("a friendly logistics base with ready, committed, and arriving exact formations", async () => {
+    originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+    root = mountFoundationFixture();
+    const selectionInfo = root.querySelector<HTMLElement>("#campaignSelectionInfo");
+    if (selectionInfo) {
+      selectionInfo.innerHTML = `<div class="campaign-context-actions"><button type="button" data-plan-campaign-redeploy>Plan redeployment</button></div>`;
+    }
+    const queue = root.querySelector<HTMLButtonElement>("#campaignQueueEngagement");
+    if (queue) {
+      queue.disabled = true;
+      queue.textContent = "Queue Tactical Engagement";
+    }
+    screen = new CampaignCommandScreen(root, {}, { v2Enabled: true });
+    if (!screen.initialize()) throw new Error("Managed campaign inspector did not initialize.");
+    const formation = (
+      id: string,
+      name: string,
+      statusLabel: string,
+      availabilityLabel: string | null,
+      currentOrderId: string | null
+    ) => ({
+      id,
+      name,
+      typeLabel: "Infantry",
+      ownershipLabel: "Core",
+      locationHexKey: "4,5",
+      statusLabel,
+      ...(availabilityLabel ? { availabilityLabel } : {}),
+      readiness: "88%",
+      cohesion: "91%",
+      fatigue: "12%",
+      personnel: "8,200 fit / 8,500 present",
+      equipment: "120 / 130 operational",
+      supply: "Ammo 80 · Fuel 72 · Rations 90 · Parts 66",
+      experience: "24 XP",
+      honors: [],
+      battles: 0,
+      currentOrderId,
+      latestHistory: null
+    });
+    screen.render({
+      ...createSafeView("Base Inspector Test"),
+      formations: [
+        formation("ready-1", "1st Infantry Division", "Ready", null, null),
+        formation("committed-1", "Armored Reserve", "Committed", null, "order-1"),
+        formation("arriving-1", "90th Infantry Division", "Unavailable", "D+1 · 7 June 1944, 06:00–09:00", null),
+        {
+          ...formation("arriving-2", "2nd Infantry Division", "Unavailable", "D+1 · 7 June 1944, 09:00–12:00", null),
+          locationHexKey: "8,8"
+        }
+      ],
+      hexes: [{
+        hexKey: "4,5",
+        roleLabel: "Logistics Hub",
+        controlLabel: "Friendly control",
+        presentation: "friendlyBase",
+        displayLabel: "First Army Depot",
+        summary: "Stages supplies and follow-on formations for the lodgment.",
+        locationLabel: "First Army Depot · hex 4,5",
+        showSelectionActions: true,
+        showEngagementAction: false,
+        forces: ["1st Infantry Division · 1", "Armored Reserve · 1"],
+        capabilities: ["9 daily Allied support capacity"],
+        infrastructure: "Logistics Hub · intact · 100/100 integrity",
+        objectives: ["Sustain the lodgment"],
+        fronts: []
+      }, {
+        hexKey: "8,8",
+        roleLabel: "Logistics Hub",
+        controlLabel: "Friendly control",
+        presentation: "friendlyBase",
+        displayLabel: "Bristol",
+        summary: "Stages the next wave of follow-on formations.",
+        showSelectionActions: false,
+        showEngagementAction: false,
+        actionSummary: "No order is available here yet. First formation arrives D+1 · 7 June 1944, 09:00–12:00.",
+        forces: [],
+        capabilities: ["9 daily Allied support capacity"],
+        infrastructure: null,
+        objectives: [],
+        fronts: []
+      }],
+      orders: [{
+        id: "order-1",
+        kind: "redeploy",
+        label: "Move armored reserve",
+        detail: "Reserve movement",
+        status: "committed",
+        eta: "D+1 · 7 June 1944, 03:00–06:00",
+        validationMessages: [],
+        canRemove: false,
+        canCancel: true
+      }]
+    });
+  });
+
+  await When("the commander inspects the base and drills into an arriving formation", async () => {
+    screen.revealInspector({ kind: "hex", id: "4,5" });
+  });
+
+  await Then("the inspector keeps one readable hierarchy, exact identities, and only the relevant action", async () => {
+    const inspector = root.querySelector<HTMLElement>("#campaignContextInspector");
+    const body = inspector?.querySelector<HTMLElement>(".campaign-context-inspector__body");
+    const route = inspector?.querySelector<HTMLElement>("#campaignContextInspectorRoute");
+    const footer = inspector?.querySelector<HTMLElement>(".campaign-context-inspector__action-footer");
+    const headings = Array.from(inspector?.querySelectorAll("h3, h4") ?? []).map((entry) => entry.textContent?.trim());
+    const routeCopy = route?.textContent ?? "";
+    const nameOccurrences = (routeCopy.match(/1st Infantry Division/g) ?? []).length;
+    if (inspector?.getAttribute("aria-labelledby") !== "campaignInspectorTitle"
+      || inspector?.dataset.presentation !== "friendlyBase"
+      || headings.indexOf("What this is") < 0
+      || headings.indexOf("What is here") <= headings.indexOf("What this is")
+      || headings.indexOf("What can I do") <= headings.indexOf("What is here")
+      || !headings.includes("Ready now (1)")
+      || !headings.includes("Committed or in transit (1)")
+      || !headings.includes("Arriving here (1)")
+      || routeCopy.includes("Projected forces")
+      || routeCopy.includes("4,5")
+      || routeCopy.includes("Cohesion")
+      || nameOccurrences !== 1
+      || route?.querySelectorAll("[data-campaign-formation-id]").length !== 3
+      || footer?.hidden
+      || !footer?.querySelector("[data-plan-campaign-redeploy]")
+      || !root.querySelector<HTMLElement>(".action-section")?.hidden
+      || root.querySelector("#campaignInspectorStatus")?.textContent !== "Selected First Army Depot.") {
+      throw new Error(`Friendly-base hierarchy remained duplicated, ambiguous, or action-cluttered: '${inspector?.textContent ?? ""}'.`);
+    }
+
+    if (!body) throw new Error("The inspector has no independent scrolling body.");
+    body.scrollTop = 240;
+    route?.querySelector<HTMLButtonElement>('[data-campaign-formation-id="arriving-1"]')?.click();
+    const formationCopy = route?.textContent ?? "";
+    const back = route?.querySelector<HTMLButtonElement>("[data-campaign-map-hex-target]");
+    if (body.scrollTop !== 0
+      || !formationCopy.includes("Cohesion")
+      || !formationCopy.includes("D+1 · 7 June 1944")
+      || back?.textContent !== "Back to First Army Depot"
+      || footer?.hidden !== true) {
+      throw new Error(`Formation drill-in lost detail, base return, or scroll reset: '${formationCopy}'.`);
+    }
+    body.scrollTop = 180;
+    back.click();
+    if (body.scrollTop !== 0
+      || inspector?.dataset.presentation !== "friendlyBase"
+      || !route?.textContent?.includes("What is here")) {
+      throw new Error("Returning from exact formation detail did not restore the base at the top of its route.");
+    }
+    screen.revealInspector({ kind: "hex", id: "8,8" });
+    const summary = footer?.querySelector<HTMLElement>(".campaign-context-inspector__action-summary");
+    if (footer?.hidden
+      || summary?.hidden
+      || !summary?.textContent?.includes("First formation arrives D+1")
+      || !root.querySelector<HTMLElement>(".selection-section")?.hidden
+      || !root.querySelector<HTMLElement>(".action-section")?.hidden) {
+      throw new Error("A scheduled-only base did not retain concise next-availability copy without irrelevant controls.");
+    }
+    screen.destroy();
+    root.remove();
+    Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+  });
+});
+
 registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async ({ Given, When, Then }) => {
   let root: HTMLElement;
   let screen: CampaignCommandScreen;
@@ -170,6 +339,10 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { value: 800, configurable: true });
     root = mountFoundationFixture();
+    const selectionInfo = root.querySelector<HTMLElement>("#campaignSelectionInfo");
+    if (selectionInfo) {
+      selectionInfo.innerHTML = `<div class="campaign-context-actions"><button type="button" data-plan-campaign-redeploy>Plan redeployment</button></div>`;
+    }
     screen = new CampaignCommandScreen(root, {}, { v2Enabled: true });
     if (!screen.initialize()) throw new Error("Managed campaign map controller did not initialize.");
     screen.render({
@@ -260,10 +433,14 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
         hexKey: "4,5",
         roleLabel: "Logistics Hub",
         controlLabel: "Friendly control",
+        presentation: "friendlyBase",
         displayLabel: "First Army Depot",
         summary: "Named friendly supply base.",
         locationLabel: "First Army Depot · hex 4,5",
+        showSelectionActions: true,
+        showEngagementAction: false,
         forces: ["1st Infantry Group · 3"],
+        capabilities: ["9 daily Allied support capacity"],
         infrastructure: "logistics hub · damaged · 80/100 integrity · 80% effective",
         objectives: ["Secure the crossing"],
         fronts: ["Northern front"]
@@ -330,7 +507,10 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     screen.revealInspector({ kind: "hex", id: "4,5" });
     if (!root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("80/100 integrity")
-      || root.querySelector<HTMLElement>(".action-section")?.hidden) {
+      || root.querySelector<HTMLElement>(".campaign-context-inspector__action-footer")?.hidden
+      || root.querySelector<HTMLElement>(".selection-section")?.hidden
+      || !root.querySelector<HTMLElement>(".action-section")?.hidden
+      || !root.querySelector("[data-plan-campaign-redeploy]")) {
       throw new Error("Typed hex detail did not preserve the domain-owned legal-action surface.");
     }
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();

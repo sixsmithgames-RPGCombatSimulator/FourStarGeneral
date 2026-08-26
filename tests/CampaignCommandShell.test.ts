@@ -725,8 +725,10 @@ registerTest("CAMPAIGN_MAP_CLICK_IS_SELECTION_ONLY", async ({ Given, When, Then 
     if (computeCampaignContentHash(scenario) !== beforeHash) {
       throw new Error("Map selection mutated the campaign projection.");
     }
-    const inspector = document.getElementById("campaignSelectionInfo");
-    if (!inspector?.textContent?.includes(playerHexKey) || !inspector.textContent.includes("Plan redeployment")) {
+    const title = document.getElementById("campaignInspectorTitle");
+    const actions = document.getElementById("campaignSelectionInfo");
+    if (!title?.textContent || title.textContent === "Selection"
+      || !/(?:Move or embark formations|Rebase aircraft|Redeploy formations)/.test(actions?.textContent ?? "")) {
       throw new Error("Selection did not update the explicit-action inspector.");
     }
     campaignState.reset();
@@ -832,18 +834,24 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
     const route = document.getElementById("campaignContextInspectorRoute");
     const inspectorCopy = [
       route?.textContent,
-      document.getElementById("campaignSelectionInfo")?.textContent
+      document.getElementById("campaignSelectionInfo")?.textContent,
+      document.querySelector(".campaign-context-inspector__action-footer")?.textContent
     ].filter(Boolean).join(" ");
     const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
     if (!inspectorCopy.includes("Bristol")
-      || !inspectorCopy.includes("Logistics Hub")
-      || !inspectorCopy.includes("9 daily Allied support capacity")
+      || !inspectorCopy.includes("Allied logistics and embarkation base")
+      || !inspectorCopy.includes("Adds 9 support points to the Allied theater pool each day")
+      || !inspectorCopy.includes("What this is")
+      || !inspectorCopy.includes("What is here")
+      || !inspectorCopy.includes("What can I do")
+      || !inspectorCopy.includes("Reinforcements arrive")
       || !inspectorCopy.includes("U.S. 2nd Infantry Division advance groups")
       || !inspectorCopy.includes("U.S. 90th Infantry Division advance groups")
-      || !inspectorCopy.includes("Available D+1 · 7 June 1944")
+      || !inspectorCopy.includes("Arrives D+1 · 7 June 1944")
       || /segment\s+[68]/i.test(inspectorCopy)
       || formationButtons.length !== 6
-      || inspectorCopy.includes("Plan redeployment")) {
+      || /Plan redeployment/i.test(inspectorCopy)
+      || !document.querySelector<HTMLElement>(".campaign-context-inspector .action-section")?.hidden) {
       throw new Error(`Empty staging base exposed a misleading ground action: ${inspectorCopy}`);
     }
     formationButtons[0]?.click();
@@ -853,6 +861,63 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
       || !formationCopy.includes("Unavailable")
       || !formationCopy.includes("Readiness")) {
       throw new Error("A scheduled base formation did not route to its detailed persistent-formation inspector.");
+    }
+    campaignState.reset();
+  });
+});
+
+registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  let onHexClick: ((hexKey: string) => void) | null = null;
+  let portlandHexKey = "";
+
+  await Given("the named Portland embarkation base with ready formations", () => {
+    campaignState.reset();
+    mountCommandShellFixture();
+    const renderer = {
+      render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {},
+      getViewportRoot() { return null; },
+      getHexCenter() { return { cx: 0, cy: 0 }; },
+      onHexClick(handler: (hexKey: string) => void) { onHexClick = handler; },
+      clearAllHighlights() {}, highlightHex() {}
+    };
+    const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+    screen.initialize();
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    const view = campaignState.getCampaignMapView("Player");
+    const portland = view?.scenario.tiles.find((tile) => view.scenario.tilePalette[tile.tile]?.mapLabel === "Portland");
+    if (!portland || !onHexClick) throw new Error("The Portland base fixture was unavailable.");
+    const offset = CoordinateSystem.axialToOffset(portland.hex.q, portland.hex.r);
+    portlandHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+  });
+
+  await When("the commander selects Portland and opens one exact formation", () => {
+    onHexClick?.(portlandHexKey);
+  });
+
+  await Then("the inspector answers what it is, what is there, and the one relevant order without duplicate aggregates", () => {
+    const route = document.getElementById("campaignContextInspectorRoute");
+    const routeCopy = route?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const selection = document.querySelector<HTMLElement>(".campaign-context-inspector .selection-section");
+    const engagement = document.querySelector<HTMLElement>(".campaign-context-inspector .action-section");
+    const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
+    if (!routeCopy.includes("What this is")
+      || !routeCopy.includes("Portland, Weymouth, and Poole embarkation sector")
+      || !routeCopy.includes("Allied logistics and embarkation base")
+      || !routeCopy.includes("What is here")
+      || !routeCopy.includes("Ready now")
+      || routeCopy.includes("Projected forces")
+      || routeCopy.includes(`hex ${portlandHexKey}`)
+      || formationButtons.length === 0
+      || selection?.hidden
+      || !selection?.textContent?.includes("Move or embark formations")
+      || !engagement?.hidden) {
+      throw new Error(`Portland did not present a concise truthful base route: ${routeCopy} / ${selection?.textContent ?? ""}.`);
+    }
+    formationButtons[0]?.click();
+    const back = route?.querySelector<HTMLButtonElement>(`[data-campaign-map-hex-target="${portlandHexKey}"]`);
+    if (!back?.textContent?.includes("Back to Portland")) {
+      throw new Error("Formation drill-in lost its named route back to Portland.");
     }
     campaignState.reset();
   });

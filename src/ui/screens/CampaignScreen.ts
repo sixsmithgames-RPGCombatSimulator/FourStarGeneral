@@ -1722,6 +1722,8 @@ export class CampaignScreen {
     }
     const view = this.campaignState.getCampaignMapView("Player");
     let selectedIsFriendlyOccupied = false;
+    let selectedCanRedeploy = false;
+    let selectedRole: string | null = null;
     const selectedInfrastructure = this.selectedHexKey
       ? this.campaignState.getCampaignInfrastructureStatus(this.selectedHexKey, "Player")
       : null;
@@ -1732,23 +1734,10 @@ export class CampaignScreen {
       const palette = tile ? view.scenario.tilePalette[tile.tile] : null;
       const owner = tile ? tile.factionControl ?? palette?.factionControl ?? "Neutral" : "Unknown";
       selectedIsFriendlyOccupied = owner === "Player" && Boolean(tile?.forces?.some((force) => force.count > 0));
-      const selectionLabel = palette?.role === "taskForce"
-        ? "Allied Assault Fleet"
-        : this.formatCampaignLabel(palette?.role ?? "Operational hex");
-      items.push(`
-        <div class="campaign-selection-identity">
-          <strong>${this.escapeHtml(selectionLabel)}</strong>
-          <span>${this.escapeHtml(this.selectedHexKey)} · ${this.escapeHtml(String(owner))} control</span>
-        </div>
-      `);
-      if (selectedIsFriendlyOccupied && tile) {
-        const forceSummary = (tile.forces ?? [])
-          .filter((force) => force.count > 0)
-          .map((force) => `${force.count.toLocaleString()} ${force.unitType.replace(/_/g, " ")}`)
-          .join(" · ");
-        items.push(`<div><strong>Present forces</strong><br>${this.escapeHtml(forceSummary)}</div>`);
-      }
-      if (selectedInfrastructure) {
+      selectedRole = palette?.role ?? null;
+      selectedCanRedeploy = owner === "Player"
+        && this.campaignState.getCampaignRedeployActionPreview(this.selectedHexKey, "Player").availability === "available";
+      if (selectedInfrastructure && (selectedInfrastructure.repairPoints > 0 || selectedInfrastructure.infrastructure.activeRepairOrderId)) {
         const infrastructure = selectedInfrastructure.infrastructure;
         const integrityPercent = Math.round(infrastructure.effectiveness * 100);
         const disruption = infrastructure.captureDisruptionUntilSegment !== null
@@ -1819,15 +1808,19 @@ export class CampaignScreen {
           </div>
         </div>
       `);
-    } else if (selectedIsFriendlyOccupied) {
+    } else if (selectedIsFriendlyOccupied && selectedCanRedeploy) {
       const redeployDescriptor = this.campaignActionRegistry.resolve("redeploy", {
         selectionKind: "hex",
         selectionId: this.selectedHexKey
       });
+      const redeployLabel = selectedRole === "airbase"
+        ? "Rebase aircraft"
+        : selectedRole === "logisticsHub" || selectedRole === "navalBase"
+          ? "Move or embark formations"
+          : "Redeploy formations";
       items.push(`
         <div class="campaign-context-actions">
-          <button type="button" data-plan-campaign-redeploy data-reason-code="${redeployDescriptor.reasonCode ?? ""}" ${redeployDescriptor.availability === "available" ? "" : "disabled"} title="${this.escapeHtml(redeployDescriptor.availability === "available" ? "Choose a destination and review the movement plan." : `${redeployDescriptor.reason ?? "Redeployment is unavailable."} ${redeployDescriptor.correctiveAction ?? ""}`.trim())}">Plan redeployment</button>
-          ${redeployDescriptor.reason ? `<small><strong>Redeployment unavailable.</strong> ${this.escapeHtml(redeployDescriptor.reason)} ${this.escapeHtml(redeployDescriptor.correctiveAction ?? "")}</small>` : ""}
+          <button type="button" data-plan-campaign-redeploy data-reason-code="${redeployDescriptor.reasonCode ?? ""}" title="Choose a destination and review the movement plan.">${this.escapeHtml(redeployLabel)}</button>
         </div>
       `);
     }
@@ -1835,14 +1828,13 @@ export class CampaignScreen {
 
     if (this.queueEngagementButton) {
       const activePackage = this.campaignState.getActiveCampaignBattlePackage();
-      const canProximity = this.selectedHexKey ? this.campaignState.hasActionableEnemyContactNear(this.selectedHexKey) : false;
       const selectedFront = this.selectedFrontKey
         ? view?.scenario.fronts.find((front) => front.key === this.selectedFrontKey) ?? null
         : null;
       const canPlayerLaunchFront = selectedFront
         ? this.getPlayerFrontAssessment(selectedFront.key, this.selectedFrontTargetHexKey).canLaunch
         : false;
-      const canEngage = Boolean(activePackage) || (selectedFront ? canPlayerLaunchFront : canProximity);
+      const canEngage = Boolean(activePackage) || Boolean(selectedFront && canPlayerLaunchFront);
       this.queueEngagementButton.disabled = !canEngage;
       this.queueEngagementButton.textContent = activePackage?.context.defender === "Player"
         ? "Respond to Enemy Offensive"
@@ -2767,24 +2759,58 @@ export class CampaignScreen {
       const isAlliedAssaultFleet = controller === "Player" && palette?.role === "taskForce";
       const authoredMapLabel = palette?.mapLabel?.trim();
       const hasPresentForces = groups.some((force) => force.count > 0);
-      const infrastructureEffectiveness = tile.infrastructure?.effectiveness ?? 1;
+      const isFriendlyBase = controller === "Player"
+        && (palette?.role === "airbase" || palette?.role === "logisticsHub" || palette?.role === "navalBase");
+      const locatedFormations = formations.filter((formation) => formation.locationHexKey === hexKey);
+      const redeployPreview = isFriendlyBase
+        ? this.campaignState.getCampaignRedeployActionPreview(hexKey, "Player")
+        : null;
+      const repairPreview = isFriendlyBase && infrastructure && infrastructure.integrity < infrastructure.maxIntegrity
+        ? this.campaignState.getCampaignInfrastructureRepairActionPreview(hexKey)
+        : null;
+      const showBaseSelectionActions = redeployPreview?.availability === "available"
+        || repairPreview?.availability === "available";
+      const nextArrival = locatedFormations.find((formation) => formation.availabilityLabel)?.availabilityLabel ?? null;
+      const hasAssignedFormation = locatedFormations.some((formation) => (
+        formation.currentOrderId || formation.statusLabel.toLowerCase() !== "ready"
+      ));
+      const baseActionSummary = !isFriendlyBase || showBaseSelectionActions
+        ? undefined
+        : nextArrival
+          ? `Reinforcements arrive ${nextArrival}. Movement orders become available after they arrive.`
+          : hasAssignedFormation
+            ? "All formations based here are committed or in transit. Review Orders before assigning another movement."
+            : "No movable formation is currently based here. This installation continues its theater-support role automatically.";
       const capabilities = [
         ...(productionByHex.has(hexKey)
-          ? [`${productionByHex.get(hexKey)!.toLocaleString()} daily Allied support capacity${nextProductionLabel ? ` · next delivery ${nextProductionLabel}` : ""}`]
+          ? [`Adds ${productionByHex.get(hexKey)!.toLocaleString()} support points to the Allied theater pool each day${nextProductionLabel ? ` · next allocation ${nextProductionLabel}` : ""}`]
           : []),
         ...((palette?.airSortieCapacity ?? 0) > 0
-          ? [`${Math.floor((palette?.airSortieCapacity ?? 0) * infrastructureEffectiveness).toLocaleString()} air sorties available`]
+          ? ["Air-wing staging and fighter/bomber rebase point"]
           : []),
         ...((palette?.navalCapacity ?? 0) > 0
           ? [palette?.role === "taskForce"
             ? `Naval fire support available for coastal engagements within ${NAVAL_SUPPORT_RANGE_HEXES * (scenario.hexScaleKm ?? 10)} km`
-            : `${Math.floor((palette?.navalCapacity ?? 0) * infrastructureEffectiveness).toLocaleString()} naval support capacity`]
+            : null]
           : [])
-      ];
+      ].filter((entry): entry is string => Boolean(entry));
+      const friendlyBaseRoleLabel = palette?.role === "airbase"
+        ? "Allied air base"
+        : palette?.role === "logisticsHub"
+          ? "Allied logistics and embarkation base"
+          : palette?.role === "navalBase"
+            ? "Allied naval base"
+            : roleLabel;
       return {
         hexKey,
-        roleLabel: isAlliedAssaultFleet ? "Naval task force" : roleLabel,
+        roleLabel: isAlliedAssaultFleet ? "Naval task force" : isFriendlyBase ? friendlyBaseRoleLabel : roleLabel,
         controlLabel,
+        ...(isFriendlyBase ? {
+          presentation: "friendlyBase" as const,
+          showSelectionActions: showBaseSelectionActions,
+          showEngagementAction: false,
+          actionSummary: baseActionSummary
+        } : {}),
         ...(authoredMapLabel || isAlliedAssaultFleet ? {
           displayLabel: authoredMapLabel ?? "Allied Assault Fleet",
           summary: palette?.notes ?? (isAlliedAssaultFleet
@@ -2794,11 +2820,11 @@ export class CampaignScreen {
             ? `English Channel · offshore support station · hex ${hexKey}`
             : `${authoredMapLabel ?? roleLabel} · hex ${hexKey}`
         } : {}),
-        hasContextActions: controller === "Player" && hasPresentForces,
+        hasContextActions: isFriendlyBase ? showBaseSelectionActions : controller === "Player" && hasPresentForces,
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
         capabilities,
         infrastructure: infrastructure
-          ? `${infrastructureRole} · ${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`
+          ? `${isFriendlyBase ? "" : `${infrastructureRole} · `}${damageState} · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${Math.round(infrastructure.effectiveness * 100)}% effective`
           : null,
         objectives: objectives.filter((objective) => objective.hexKey === hexKey).map((objective) => objective.label),
         fronts: scenario.fronts.filter((front) => front.hexKeys.includes(hexKey)).map((front) => front.label)

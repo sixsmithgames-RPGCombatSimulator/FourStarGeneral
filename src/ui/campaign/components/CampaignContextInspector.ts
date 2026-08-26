@@ -8,13 +8,25 @@ interface InspectorFact {
   readonly value: string;
 }
 
+interface InspectorFormationGroup {
+  readonly key: "ready" | "committed" | "arriving";
+  readonly label: string;
+  readonly formations: readonly CampaignCommandFormationView[];
+}
+
 interface CampaignInspectorRoute {
   readonly kind: Exclude<CampaignCommandSelection, null>["kind"] | "none";
   readonly title: string;
   readonly summary: string;
   readonly facts: readonly InspectorFact[];
   readonly formations?: readonly CampaignCommandFormationView[];
+  readonly formationGroups?: readonly InspectorFormationGroup[];
+  readonly fallbackPresence?: readonly string[];
+  readonly presentation?: "friendlyBase";
   readonly mode: "compatibility" | "projected" | "projectedWithActions" | "empty";
+  readonly showSelectionActions?: boolean;
+  readonly showEngagementAction?: boolean;
+  readonly actionSummary?: string;
   readonly mapTarget?: { readonly hexKey: string; readonly label: string };
 }
 
@@ -29,18 +41,26 @@ export function createCampaignContextInspector(workspacePanel: HTMLElement): HTM
   const inspector = document.createElement("aside");
   inspector.id = "campaignContextInspector";
   inspector.className = "campaign-context-inspector";
-  inspector.setAttribute("aria-label", "Campaign context inspector");
+  inspector.setAttribute("aria-labelledby", "campaignInspectorTitle");
   inspector.innerHTML = `
     <header class="campaign-context-inspector__header">
       <div><span>Context inspector</span><h2 id="campaignInspectorTitle" tabindex="-1">Selection</h2></div>
       <button type="button" data-close-campaign-inspector aria-label="Close context inspector">×</button>
     </header>
-    <section id="campaignContextInspectorRoute" class="campaign-context-inspector__route" aria-live="polite" hidden></section>
+    <p id="campaignInspectorStatus" class="campaign-context-inspector__status" role="status" aria-live="polite"></p>
+    <div class="campaign-context-inspector__body">
+      <section id="campaignContextInspectorRoute" class="campaign-context-inspector__route" hidden></section>
+    </div>
+    <footer class="campaign-context-inspector__action-footer" hidden>
+      <h3 id="campaignInspectorActionsTitle">What can I do</h3>
+      <p class="campaign-context-inspector__action-summary" hidden></p>
+    </footer>
   `;
   const selection = workspacePanel.querySelector<HTMLElement>(".selection-section");
   const action = workspacePanel.querySelector<HTMLElement>(".action-section");
-  if (selection) inspector.appendChild(selection);
-  if (action) inspector.appendChild(action);
+  const actionFooter = inspector.querySelector<HTMLElement>(".campaign-context-inspector__action-footer");
+  if (selection) actionFooter?.appendChild(selection);
+  if (action) actionFooter?.appendChild(action);
   return inspector;
 }
 
@@ -50,55 +70,42 @@ export function renderCampaignContextInspector(
   selection: CampaignCommandSelection
 ): void {
   const route = resolveInspectorRoute(view, selection);
+  const routeIdentity = `${route.kind}:${selection?.id ?? "none"}`;
+  const routeChanged = inspector.dataset.routeIdentity !== routeIdentity;
+  inspector.dataset.routeIdentity = routeIdentity;
   inspector.dataset.selectionKind = route.kind;
   inspector.dataset.routeMode = route.mode;
+  inspector.dataset.presentation = route.presentation ?? "generic";
   const title = inspector.querySelector<HTMLElement>(".campaign-context-inspector__header h2");
   if (title) title.textContent = route.title;
+  const status = inspector.querySelector<HTMLElement>("#campaignInspectorStatus");
+  if (status && routeChanged) status.textContent = `Selected ${route.title}.`;
+  const body = inspector.querySelector<HTMLElement>(".campaign-context-inspector__body");
   const routeContainer = inspector.querySelector<HTMLElement>("#campaignContextInspectorRoute");
   const compatibilitySelection = inspector.querySelector<HTMLElement>(".selection-section");
   const compatibilityActions = inspector.querySelector<HTMLElement>(".action-section");
-  const useCompatibility = route.mode === "compatibility";
-  const showCompatibilityActions = useCompatibility || route.mode === "projectedWithActions";
-  if (compatibilitySelection) compatibilitySelection.hidden = !(useCompatibility || route.mode === "projectedWithActions");
-  if (compatibilityActions) compatibilityActions.hidden = !showCompatibilityActions;
+  const actionFooter = inspector.querySelector<HTMLElement>(".campaign-context-inspector__action-footer");
+  const actionSummary = inspector.querySelector<HTMLElement>(".campaign-context-inspector__action-summary");
+  const showSelectionActions = route.showSelectionActions === true;
+  const showEngagementAction = route.showEngagementAction === true;
+  if (actionSummary) {
+    actionSummary.textContent = route.actionSummary ?? "";
+    actionSummary.hidden = !route.actionSummary;
+  }
+  if (compatibilitySelection) compatibilitySelection.hidden = !showSelectionActions;
+  if (compatibilityActions) compatibilityActions.hidden = !showEngagementAction;
+  if (actionFooter) actionFooter.hidden = !(showSelectionActions || showEngagementAction || route.actionSummary);
   if (!routeContainer) return;
+  const useCompatibility = route.mode === "compatibility";
   routeContainer.hidden = useCompatibility;
   if (useCompatibility) {
     routeContainer.replaceChildren();
+    if (routeChanged && body) body.scrollTop = 0;
     return;
   }
-  const facts = document.createElement("dl");
-  facts.className = "campaign-context-inspector__facts";
-  route.facts.forEach((fact) => {
-    facts.append(createText("dt", "", fact.label), createText("dd", "", fact.value));
-  });
-  const content: HTMLElement[] = [createText("p", "campaign-context-inspector__summary", route.summary)];
-  if (route.facts.length > 0) content.push(facts);
-  if (route.formations && route.formations.length > 0) {
-    const formationSection = document.createElement("section");
-    formationSection.className = "campaign-context-inspector__formations";
-    formationSection.appendChild(createText("h3", "", "Formations at this base"));
-    const formationList = document.createElement("div");
-    formationList.className = "campaign-context-inspector__formation-list";
-    route.formations.forEach((formation) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "campaign-context-inspector__formation";
-      button.dataset.campaignFormationId = formation.id;
-      const availability = formation.availabilityLabel ? ` · Available ${formation.availabilityLabel}` : "";
-      button.append(
-        createText("strong", "", formation.name),
-        createText(
-          "span",
-          "",
-          `${formation.typeLabel} · ${formation.statusLabel} · Readiness ${formation.readiness} · Cohesion ${formation.cohesion}${availability}`
-        )
-      );
-      formationList.appendChild(button);
-    });
-    formationSection.appendChild(formationList);
-    content.push(formationSection);
-  }
+  const content = route.presentation === "friendlyBase"
+    ? renderFriendlyBaseRoute(route)
+    : renderGenericRoute(route);
   if (route.mapTarget) {
     const mapAction = createText("button", "campaign-context-inspector__map-action", route.mapTarget.label) as HTMLButtonElement;
     mapAction.type = "button";
@@ -107,6 +114,92 @@ export function renderCampaignContextInspector(
   }
   if (route.mode === "empty") content[0]?.classList.add("campaign-context-inspector__empty");
   routeContainer.replaceChildren(...content);
+  if (routeChanged && body) body.scrollTop = 0;
+}
+
+function createFacts(facts: readonly InspectorFact[]): HTMLDListElement {
+  const list = document.createElement("dl");
+  list.className = "campaign-context-inspector__facts";
+  facts.forEach((fact) => {
+    list.append(createText("dt", "", fact.label), createText("dd", "", fact.value));
+  });
+  return list;
+}
+
+function renderGenericRoute(route: CampaignInspectorRoute): HTMLElement[] {
+  const content: HTMLElement[] = [createText("p", "campaign-context-inspector__summary", route.summary)];
+  if (route.facts.length > 0) content.push(createFacts(route.facts));
+  if (route.formations && route.formations.length > 0) {
+    const formationSection = document.createElement("section");
+    formationSection.className = "campaign-context-inspector__formations";
+    formationSection.appendChild(createText("h3", "", "Formations at this location"));
+    const formationList = document.createElement("div");
+    formationList.className = "campaign-context-inspector__formation-list";
+    route.formations.forEach((formation) => formationList.appendChild(createFormationButton(formation, "generic")));
+    formationSection.appendChild(formationList);
+    content.push(formationSection);
+  }
+  return content;
+}
+
+function renderFriendlyBaseRoute(route: CampaignInspectorRoute): HTMLElement[] {
+  const identity = document.createElement("section");
+  identity.className = "campaign-context-inspector__section campaign-context-inspector__identity";
+  const identityTitle = `campaignInspectorIdentity-${route.kind}`;
+  identity.setAttribute("aria-labelledby", identityTitle);
+  const heading = createText("h3", "", "What this is");
+  heading.id = identityTitle;
+  identity.append(heading, createText("p", "campaign-context-inspector__summary", route.summary));
+  if (route.facts.length > 0) identity.appendChild(createFacts(route.facts));
+
+  const presence = document.createElement("section");
+  presence.className = "campaign-context-inspector__section campaign-context-inspector__formations";
+  const presenceTitle = `campaignInspectorPresence-${route.kind}`;
+  presence.setAttribute("aria-labelledby", presenceTitle);
+  const presenceHeading = createText("h3", "", "What is here");
+  presenceHeading.id = presenceTitle;
+  presence.appendChild(presenceHeading);
+
+  const populatedGroups = route.formationGroups?.filter((group) => group.formations.length > 0) ?? [];
+  populatedGroups.forEach((group) => {
+    const groupElement = document.createElement("section");
+    groupElement.className = "campaign-context-inspector__formation-group";
+    groupElement.dataset.formationGroup = group.key;
+    const groupTitle = createText("h4", "", `${group.label} (${group.formations.length})`);
+    const list = document.createElement("div");
+    list.className = "campaign-context-inspector__formation-list";
+    group.formations.forEach((formation) => list.appendChild(createFormationButton(formation, group.key)));
+    groupElement.append(groupTitle, list);
+    presence.appendChild(groupElement);
+  });
+  if (populatedGroups.length === 0 && route.fallbackPresence?.length) {
+    const fallback = document.createElement("ul");
+    fallback.className = "campaign-context-inspector__fallback-presence";
+    route.fallbackPresence.forEach((entry) => fallback.appendChild(createText("li", "", entry)));
+    presence.appendChild(fallback);
+  } else if (populatedGroups.length === 0) {
+    presence.appendChild(createText("p", "campaign-context-inspector__empty-presence", "No formation is ready or scheduled here."));
+  }
+  return [identity, presence];
+}
+
+function createFormationButton(
+  formation: CampaignCommandFormationView,
+  group: InspectorFormationGroup["key"] | "generic"
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "campaign-context-inspector__formation";
+  button.dataset.campaignFormationId = formation.id;
+  const detail = group === "arriving" && formation.availabilityLabel
+    ? `${formation.typeLabel} · Arrives ${formation.availabilityLabel}`
+    : group === "ready"
+      ? `${formation.typeLabel} · ${formation.readiness} ready`
+      : group === "committed"
+        ? `${formation.typeLabel} · ${formation.statusLabel} · ${formation.readiness} ready`
+        : `${formation.typeLabel} · ${formation.statusLabel} · Readiness ${formation.readiness} · Cohesion ${formation.cohesion}${formation.availabilityLabel ? ` · Available ${formation.availabilityLabel}` : ""}`;
+  button.append(createText("strong", "", formation.name), createText("span", "", detail));
+  return button;
 }
 
 function resolveInspectorRoute(
@@ -119,13 +212,23 @@ function resolveInspectorRoute(
   if (selection.kind === "hex") {
     const hex = view?.hexes?.find((entry) => entry.hexKey === selection.id);
     const locatedFormations = view?.formations?.filter((formation) => formation.locationHexKey === selection.id) ?? [];
+    const isFriendlyBase = hex?.presentation === "friendlyBase";
+    const showSelectionActions = hex?.showSelectionActions ?? hex?.hasContextActions === true;
+    const showEngagementAction = hex?.showEngagementAction === true;
+    const formationGroups = isFriendlyBase ? groupBaseFormations(locatedFormations) : undefined;
     return {
       kind: "hex",
       title: hex?.displayLabel ?? `Operational hex ${selection.id}`,
       summary: hex
         ? hex.summary ?? `${hex.roleLabel} under ${hex.controlLabel.toLowerCase()}.`
         : "No projected installation or force record is present at this location.",
-      facts: [
+      facts: isFriendlyBase && hex ? [
+        { label: "Role", value: `${hex.roleLabel} · ${hex.controlLabel}` },
+        ...(hex.capabilities?.length ? [{ label: "Provides", value: hex.capabilities.join(" · ") }] : []),
+        ...(hex.infrastructure ? [{ label: "Condition", value: hex.infrastructure }] : []),
+        ...(hex.objectives.length > 0 ? [{ label: "Supports", value: hex.objectives.join(", ") }] : []),
+        ...(hex.fronts.length > 0 ? [{ label: "Front", value: hex.fronts.join(", ") }] : [])
+      ] : [
         { label: "Location", value: hex?.locationLabel ?? selection.id },
         ...(hex ? [
           { label: "Control", value: hex.controlLabel },
@@ -138,8 +241,15 @@ function resolveInspectorRoute(
           ...(hex.fronts.length > 0 ? [{ label: "Fronts", value: hex.fronts.join(", ") }] : [])
         ] : [])
       ],
-      formations: locatedFormations,
-      mode: hex && hex.hasContextActions !== false ? "projectedWithActions" : "projected"
+      ...(isFriendlyBase ? {
+        presentation: "friendlyBase" as const,
+        formationGroups,
+        fallbackPresence: locatedFormations.length === 0 ? hex?.forces ?? [] : []
+      } : { formations: locatedFormations }),
+      mode: showSelectionActions || showEngagementAction ? "projectedWithActions" : "projected",
+      showSelectionActions,
+      showEngagementAction,
+      actionSummary: hex?.actionSummary
     };
   }
   if (!view) return emptyRoute(selection.kind, selection.id);
@@ -222,6 +332,9 @@ function resolveInspectorRoute(
   if (selection.kind === "formation") {
     const rosterFormation = view.formations?.find((entry) => entry.id === selection.id);
     if (rosterFormation) {
+      const location = rosterFormation.locationHexKey
+        ? view.hexes?.find((entry) => entry.hexKey === rosterFormation.locationHexKey)
+        : null;
       const currentOrder = rosterFormation.currentOrderId
         ? view.orders.find((entry) => entry.id === rosterFormation.currentOrderId)
         : null;
@@ -237,7 +350,7 @@ function resolveInspectorRoute(
           ...(rosterFormation.availabilityLabel
             ? [{ label: "Available", value: rosterFormation.availabilityLabel }]
             : []),
-          { label: "Location", value: rosterFormation.locationHexKey ?? "Off map" },
+          { label: "Location", value: location?.displayLabel ?? location?.locationLabel ?? rosterFormation.locationHexKey ?? "Off map" },
           { label: "Readiness", value: rosterFormation.readiness },
           { label: "Cohesion", value: rosterFormation.cohesion },
           { label: "Fatigue", value: rosterFormation.fatigue },
@@ -248,7 +361,10 @@ function resolveInspectorRoute(
           { label: "Current order", value: currentOrderLabel },
           { label: "Honors", value: rosterFormation.honors.join(", ") || "None" }
         ],
-        mode: "projected"
+        mode: "projected",
+        ...(location?.presentation === "friendlyBase" && rosterFormation.locationHexKey
+          ? { mapTarget: { hexKey: rosterFormation.locationHexKey, label: `Back to ${location.displayLabel ?? "base"}` } }
+          : {})
       };
     }
     const formation = view.afterActionReports
@@ -306,10 +422,32 @@ function resolveInspectorRoute(
         ...(front.objectivePosture ? [{ label: "Objectives", value: front.objectivePosture }] : []),
         ...(front.lastChange && !front.lastChange.startsWith("No recent") ? [{ label: "Last change", value: front.lastChange }] : [])
       ],
-      mode: "projectedWithActions"
+      mode: "projectedWithActions",
+      showSelectionActions: true,
+      showEngagementAction: true
     };
   }
   return emptyRoute(selection.kind, selection.id);
+}
+
+function groupBaseFormations(formations: readonly CampaignCommandFormationView[]): InspectorFormationGroup[] {
+  const ready: CampaignCommandFormationView[] = [];
+  const committed: CampaignCommandFormationView[] = [];
+  const arriving: CampaignCommandFormationView[] = [];
+  formations.forEach((formation) => {
+    if (formation.availabilityLabel || formation.statusLabel.toLowerCase() === "unavailable") {
+      arriving.push(formation);
+    } else if (formation.statusLabel.toLowerCase() === "ready" && !formation.currentOrderId) {
+      ready.push(formation);
+    } else {
+      committed.push(formation);
+    }
+  });
+  return [
+    { key: "ready", label: "Ready now", formations: ready },
+    { key: "committed", label: "Committed or in transit", formations: committed },
+    { key: "arriving", label: "Arriving here", formations: arriving }
+  ];
 }
 
 function emptyRoute(kind: Exclude<CampaignCommandSelection, null>["kind"], _id: string): CampaignInspectorRoute {

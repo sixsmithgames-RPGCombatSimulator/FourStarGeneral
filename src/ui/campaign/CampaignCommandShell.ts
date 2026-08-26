@@ -99,11 +99,19 @@ export interface CampaignCommandHexView {
   readonly hexKey: string;
   readonly roleLabel: string;
   readonly controlLabel: string;
+  /** Enables the concise three-part inspector reserved for confirmed friendly bases. */
+  readonly presentation?: "friendlyBase";
   readonly displayLabel?: string;
   readonly summary?: string;
   readonly locationLabel?: string;
   readonly sourceLabel?: string;
   readonly hasContextActions?: boolean;
+  /** Shows domain-owned selection actions such as redeployment or reconstruction. */
+  readonly showSelectionActions?: boolean;
+  /** Shows the global tactical-engagement action only when this exact selection can use it. */
+  readonly showEngagementAction?: boolean;
+  /** Concise next-availability copy shown when the base has no relevant action control. */
+  readonly actionSummary?: string;
   readonly forces: readonly string[];
   readonly capabilities?: readonly string[];
   readonly infrastructure: string | null;

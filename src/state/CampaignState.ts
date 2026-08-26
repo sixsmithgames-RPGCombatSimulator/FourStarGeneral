@@ -140,7 +140,11 @@ import {
   assertCompleteActiveCampaignBattleSave,
   type ActiveCampaignBattleSave
 } from "../game/battle/persistence/BattleSaveTypes";
-import { reconcileCampaignFormationForceCounts } from "../game/campaign/formations/FormationLifecycleService";
+import {
+  isCampaignFormationPresentAtLocation,
+  reconcileCampaignFormationForceCounts,
+  synchronizeCampaignFormationForceProjection
+} from "../game/campaign/formations/FormationLifecycleService";
 import {
   attachCampaignFormationProvenanceToContext,
   createCampaignFormationBattleSeed,
@@ -1661,6 +1665,7 @@ export class CampaignState {
             formation.currentOrderId = null;
             if (formation.status === "inTransit") formation.status = "ready";
           });
+          synchronizeCampaignFormationForceProjection(draft);
           draft.compatibility.queuedDecisions.splice(index, 1);
         } else if (candidate.kind === "infrastructureRepair") {
           const tile = draft.tiles[candidate.payload.targetRuntimeHexKey];
@@ -2397,7 +2402,12 @@ export class CampaignState {
   /** Returns a defensive persistent formation record for later roster/detail surfaces. */
   getCampaignFormationSnapshot(formationId: string): CampaignFormationRecord | null {
     const formation = this.runtime?.formations[formationId];
-    return formation ? structuredClone(formation) : null;
+    if (!formation) return null;
+    const projected = structuredClone(formation);
+    if (formation.status === "inTransit" && !isCampaignFormationPresentAtLocation(formation)) {
+      projected.locationHexKey = null;
+    }
+    return projected;
   }
 
   /** Returns stable faction formation order without exposing mutable campaign truth. */
@@ -2405,7 +2415,12 @@ export class CampaignState {
     if (!this.runtime) return [];
     return this.runtime.formationOrder.flatMap((id) => {
       const formation = this.runtime?.formations[id];
-      return formation?.faction === faction ? [structuredClone(formation)] : [];
+      if (!formation || formation.faction !== faction) return [];
+      const projected = structuredClone(formation);
+      if (formation.status === "inTransit" && !isCampaignFormationPresentAtLocation(formation)) {
+        projected.locationHexKey = null;
+      }
+      return [projected];
     });
   }
 

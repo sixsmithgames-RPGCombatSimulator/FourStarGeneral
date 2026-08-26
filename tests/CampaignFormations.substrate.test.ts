@@ -11,6 +11,7 @@ import { createCampaignKnowledgeState } from "../src/state/CampaignIntelligence"
 import { computeCampaignContentHash } from "../src/game/campaign/runtime/CampaignCanonical";
 import {
   createCampaignRuntime,
+  projectLegacyCampaignState,
   splitLegacyCampaignScenario,
   type CreateCampaignRuntimeOptions
 } from "../src/game/campaign/runtime/CampaignScenarioAdapter";
@@ -18,6 +19,7 @@ import { validateCampaignRuntimeState } from "../src/game/campaign/runtime/Campa
 import { resolveCampaignSegment } from "../src/game/campaign/runtime/CampaignSegmentResolver";
 import {
   createCampaignFormationRecord,
+  isCampaignFormationPresentAtLocation,
   reconcileCampaignFormationForceCounts,
   retireCampaignFormation
 } from "../src/game/campaign/formations/FormationLifecycleService";
@@ -28,7 +30,10 @@ import {
   isCampaignFormationBattleEligible,
   selectCampaignFormationsForAllocation
 } from "../src/game/campaign/formations/CampaignFormationBattleAdapter";
-import { createRedeployOrderDraft } from "../src/game/campaign/orders/CampaignOrderService";
+import {
+  commitCampaignOrderDrafts,
+  createRedeployOrderDraft
+} from "../src/game/campaign/orders/CampaignOrderService";
 import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
 import { generateCampaignBattleScenario } from "../src/game/campaign/CampaignBattleGenerator";
 import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
@@ -462,6 +467,138 @@ registerTest("CAMPAIGN_FORMATIONS_SAVE_AND_INVARIANT_CONTINUITY", async ({ Given
     corruptProjection.tiles["0,0"].forces[0].count += 1;
     const projectionCodes = new Set(validateCampaignRuntimeState(corruptProjection).map((issue) => issue.code));
     if (!projectionCodes.has("FORMATION_PROJECTION_INVALID")) throw new Error("Divergent aggregate force projection was accepted.");
+  });
+});
+
+registerTest("CAMPAIGN_FORMATION_REDEPLOY_TRANSIT_IS_NOT_LOCATION_PRESENCE", async ({ Given, When, Then }) => {
+  const scenario = buildFormationScenario();
+  const definition = splitLegacyCampaignScenario(scenario);
+  const runtime = createCampaignRuntime(definition, runtimeOptions(scenario));
+  const movingId = runtime.tiles["0,0"].formationIds[0];
+  if (!movingId) throw new Error("Transit fixture has no persistent formation to move.");
+  let restored: typeof runtime | null = null;
+
+  await Given("one exact ready formation selected for a one-segment redeployment", async () => {
+    const order = createRedeployOrderDraft(runtime, {
+      faction: "Player",
+      payload: {
+        originOffsetKey: "0,0",
+        destinationOffsetKey: "0,1",
+        originRuntimeHexKey: "0,0",
+        destinationRuntimeHexKey: "0,1",
+        selections: [{ unitType: "Infantry_42", count: 1 }],
+        transportModeKey: "foot",
+        transportCapacityType: null,
+        distance: 1,
+        timeSegments: 1,
+        etaSegment: runtime.currentSegment + 1,
+        returnEtaSegment: runtime.currentSegment + 1,
+        fuelCost: 0,
+        suppliesCost: 1,
+        manpowerCost: 0,
+        transportCapacityCost: 0,
+        formationIds: [movingId]
+      }
+    });
+    if (!order.validation.valid) throw new Error(order.validation.issues[0]?.message ?? "Exact redeployment draft is invalid.");
+    commitCampaignOrderDrafts(runtime, [order.id]);
+  });
+
+  await When("the committed in-transit runtime crosses a checksummed save/load boundary", async () => {
+    const moving = runtime.formations[movingId];
+    const projected = projectLegacyCampaignState(definition, runtime).scenario;
+    const origin = projected.tiles.find((tile) => tile.hex.q === 0 && tile.hex.r === 0);
+    const originInfantry = origin?.forces?.find((force) => force.unitType === "Infantry_42")?.count ?? 0;
+    if (moving.status !== "inTransit" || isCampaignFormationPresentAtLocation(moving)
+      || isCampaignFormationBattleEligible(moving) || originInfantry !== 1) {
+      throw new Error("Committed transit remained present or battle eligible at its departure location.");
+    }
+
+    const context = buildEngagementContext();
+    context.availableForces = [{ hexKey: "0,0", unitType: "Infantry_42", count: 1 }];
+    context.allocationCaps = { ...context.allocationCaps, infantry: 1 };
+    const withProvenance = attachCampaignFormationProvenanceToContext(context, runtime);
+    const projectedIds = withProvenance.availableForces.flatMap((group) => group.formationIds ?? []);
+    const exactSelection = selectCampaignFormationsForAllocation(runtime, withProvenance, "infantry", 1);
+    if (withProvenance.allocationCaps.infantry !== 1
+      || projectedIds.includes(movingId) || exactSelection.some((formation) => formation.id === movingId)) {
+      throw new Error("An in-transit formation leaked into engagement context or exact commitment selection.");
+    }
+
+    const timestamp = "2026-08-26T12:00:00.000Z";
+    const envelope = createCampaignSaveEnvelope({
+      saveId: "save_formation_transit_roundtrip",
+      slotType: "manual",
+      gameMode: "campaign",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      buildVersion: "test",
+      contentVersion: "test",
+      scenarioKey: runtime.scenarioKey,
+      campaignId: runtime.campaignId,
+      engagementId: null,
+      display: {
+        campaignTitle: scenario.title,
+        segment: runtime.currentSegment,
+        phaseLabel: "Planning",
+        lastEventSummary: runtime.eventLog[runtime.eventLog.length - 1]?.summary ?? null,
+        playTimeSeconds: 0,
+        difficulty: null,
+        result: null,
+        thumbnailKey: null
+      },
+      payload: {
+        runtime,
+        activeBattle: null,
+        commanderRosterLink: null,
+        uiResumeContext: { workspace: "formations", selectedEntityId: movingId, mapCenter: null, mapZoom: null }
+      }
+    });
+    const validation = validateCampaignSaveEnvelope(structuredClone(envelope));
+    if (!validation.ok) throw new Error(validation.error.message);
+    restored = validation.envelope.payload.runtime;
+    if (computeCampaignContentHash(restored) !== computeCampaignContentHash(runtime)
+      || restored.formations[movingId]?.status !== "inTransit") {
+      throw new Error("In-transit identity, order state, or location projection changed across save/load.");
+    }
+  });
+
+  await Then("arrival restores the same formation at the destination and only then returns it to combat", async () => {
+    if (!restored) throw new Error("The transit save did not restore.");
+    const arrival = resolveCampaignSegment(restored, definition);
+    if (!arrival.ok) throw new Error(arrival.error.message);
+    const moved = arrival.state.formations[movingId];
+    const originCount = arrival.state.tiles["0,0"].forces
+      .filter((force) => force.unitType === "Infantry_42")
+      .reduce((sum, force) => sum + force.count, 0);
+    const destinationCount = arrival.state.tiles["0,1"].forces
+      .filter((force) => force.unitType === "Infantry_42")
+      .reduce((sum, force) => sum + force.count, 0);
+    const arrivedBaseContext = buildEngagementContext();
+    arrivedBaseContext.availableForces = [
+      { hexKey: "0,0", unitType: "Infantry_42", count: 1 },
+      { hexKey: "0,1", unitType: "Infantry_42", count: 1 }
+    ];
+    const arrivedContext = attachCampaignFormationProvenanceToContext(arrivedBaseContext, arrival.state);
+    const arrivedIds = arrivedContext.availableForces.flatMap((group) => group.formationIds ?? []);
+    if (moved.status !== "ready" || moved.locationHexKey !== "0,1"
+      || !isCampaignFormationPresentAtLocation(moved) || !isCampaignFormationBattleEligible(moved)
+      || originCount !== 1 || destinationCount !== 1 || !arrivedIds.includes(movingId)) {
+      throw new Error(`The exact formation did not reappear once, at its destination, after arrival: ${JSON.stringify({
+        status: moved.status,
+        locationHexKey: moved.locationHexKey,
+        present: isCampaignFormationPresentAtLocation(moved),
+        battleEligible: isCampaignFormationBattleEligible(moved),
+        originCount,
+        destinationCount,
+        arrivedIds,
+        movingId,
+        currentOrderId: moved.currentOrderId
+      })}`);
+    }
+    if (validateCampaignRuntimeState(arrival.state).length !== 0) {
+      throw new Error("Redeployment arrival left formation placement or aggregate projection invalid.");
+    }
   });
 });
 
