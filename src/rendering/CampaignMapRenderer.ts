@@ -20,8 +20,13 @@ const LOCATION_LABEL_LAYER_ID = "campaign-map-location-labels";
 const FRIENDLY_BASE_DISCLOSURE_LAYER_ID = "campaign-map-friendly-base-disclosures";
 const MAX_CAMPAIGN_FORCE_ACTORS = 4;
 const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
-const THEATER_MARKER_HIT_RADIUS = 18;
 const THEATER_MARKER_BADGE_RADIUS = 11;
+// Friendly staging hubs sit only one or two 10 km hexes apart in southern England.
+// Keep their pointer footprint bounded to the visible badge so a later SVG sibling
+// cannot steal a click aimed at the center of a neighboring base. The map list is
+// the large-target alternative; known strategic sites retain the larger hit area.
+const THEATER_BASE_HIT_RADIUS = THEATER_MARKER_BADGE_RADIUS;
+const THEATER_KNOWN_SITE_HIT_RADIUS = 18;
 const THEATER_MARKER_ICON_SIZE = 17;
 
 /** Maps sprite keys declared in campaign data to asset URLs (PNG sprites). */
@@ -891,7 +896,7 @@ export class CampaignMapRenderer {
       const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
       const cardY = Math.max(6, Math.min(this.mapPixelHeight - cardHeight - 6, center.cy - cardHeight / 2));
       const cardEdgeX = prefersRight ? cardX : cardX + cardWidth;
-      const triggerRadius = THEATER_MARKER_HIT_RADIUS;
+      const triggerRadius = THEATER_BASE_HIT_RADIUS;
       const formationSummary = readyForces.length > 0
         ? readyForces.map((force) => `${force.count} ${this.formatMarkerLabel(force.label ?? force.unitType)}`).join(", ")
         : "no formations currently ready";
@@ -1478,7 +1483,7 @@ export class CampaignMapRenderer {
       hitTarget.classList.add("campaign-known-site__hit-target");
       hitTarget.setAttribute("cx", String(markerCx));
       hitTarget.setAttribute("cy", String(cy));
-      hitTarget.setAttribute("r", String(THEATER_MARKER_HIT_RADIUS));
+      hitTarget.setAttribute("r", String(THEATER_KNOWN_SITE_HIT_RADIUS));
       hitTarget.setAttribute("fill", "rgba(0, 0, 0, 0.001)");
       hitTarget.setAttribute("stroke", "transparent");
       hitTarget.setAttribute("pointer-events", "all");

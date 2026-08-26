@@ -887,6 +887,10 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const view = campaignState.getCampaignMapView("Player");
     const portland = view?.scenario.tiles.find((tile) => view.scenario.tilePalette[tile.tile]?.mapLabel === "Portland");
     if (!portland || !onHexClick) throw new Error("The Portland base fixture was unavailable.");
+    const mapListLabel = document.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label") ?? "";
+    if (!mapListLabel.includes("26 map records")) {
+      throw new Error(`Operational map list lost the seven named Allied bases: ${mapListLabel}.`);
+    }
     const offset = CoordinateSystem.axialToOffset(portland.hex.q, portland.hex.r);
     portlandHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
   });

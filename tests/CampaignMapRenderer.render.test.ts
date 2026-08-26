@@ -195,7 +195,7 @@ registerTest("CAMPAIGN_RENDERER_REVEALS_FRIENDLY_BASES_WITHOUT_PERMANENT_LABEL_C
       || bristol?.getAttribute("role") !== "button"
       || bristol.getAttribute("tabindex") !== "0"
       || !bristol.getAttribute("aria-label")?.includes("Bristol, Logistics Hub, no formations currently ready")
-      || bristolHitRadius < 16
+      || bristolHitRadius !== 11
       || !bristolCard?.textContent?.includes("No formations currently ready")
       || !portsmouthCard?.textContent?.includes("Sword supply columns · 2")
       || !cardsStayInsideMap) {
@@ -240,7 +240,7 @@ registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_
       marker.getAttribute("role") === "button"
       && marker.getAttribute("tabindex") === "0"
       && Boolean(marker.querySelector(".campaign-base-marker__badge .campaign-base-marker__icon"))
-      && Number(marker.querySelector(".campaign-base-marker__hit-target")?.getAttribute("r")) >= 18
+      && Number(marker.querySelector(".campaign-base-marker__hit-target")?.getAttribute("r")) === 11
       && Boolean(marker.querySelector(".campaign-base-disclosure"))
     ));
     const siteMarkerContractHolds = knownSiteMarkers.every((marker) => (

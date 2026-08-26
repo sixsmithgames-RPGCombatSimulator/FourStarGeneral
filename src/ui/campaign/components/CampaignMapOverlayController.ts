@@ -489,7 +489,8 @@ export class CampaignMapOverlayController {
       ...(this.view.hexes ?? [])
         .filter((hex) => hex.controlLabel === "Friendly control"
           && Boolean(hex.displayLabel)
-          && ["Airbase", "Logistics Hub", "Naval Base", "Naval task force"].includes(hex.roleLabel))
+          && (hex.presentation === "friendlyBase"
+            || ["Airbase", "Logistics Hub", "Naval Base", "Naval task force"].includes(hex.roleLabel)))
         .map((hex) => this.strategicHexEntry(hex)),
       ...(this.view.knownSites ?? []).map((site) => this.knownSiteEntry(site))
     ];
