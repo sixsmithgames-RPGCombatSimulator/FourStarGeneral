@@ -28,6 +28,7 @@ export type CampaignCommandSelection =
   | { readonly kind: "objective"; readonly id: string }
   | { readonly kind: "order"; readonly id: string }
   | { readonly kind: "contact"; readonly id: string }
+  | { readonly kind: "theaterRegion"; readonly id: string }
   | { readonly kind: "report"; readonly id: string }
   | { readonly kind: "weatherZone"; readonly id: string }
   | null;

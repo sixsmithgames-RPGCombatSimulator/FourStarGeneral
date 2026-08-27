@@ -173,6 +173,20 @@ export interface CampaignKnownStrategicSiteView {
   summary: string;
   sourceLabel: string;
   spriteKey: string;
+  category: "enemyInstallation" | "strategicGeography" | "alliedSupport";
+  locationPrecision: "fixed" | "sector";
+  relatedLocations: string[];
+}
+
+/** Player-safe theater context that deliberately has no exact map coordinate. */
+export interface CampaignKnownStrategicRegionView {
+  id: string;
+  label: string;
+  category: "enemyInstallation" | "strategicGeography" | "alliedSupport";
+  summary: string;
+  sourceLabel: string;
+  locations: string[];
+  commandStatus: string;
 }
 
 export interface CampaignMapViewModel {
@@ -182,6 +196,8 @@ export interface CampaignMapViewModel {
   enemyContacts: CampaignEnemyContactView[];
   /** Fixed locations known before play; never populated from hidden runtime tile state. */
   knownStrategicSites?: CampaignKnownStrategicSiteView[];
+  /** Sourced regional context intentionally withheld from false-precision map placement. */
+  knownStrategicRegions?: CampaignKnownStrategicRegionView[];
   coverage: CampaignCoverageHexView[];
   capacity: { total: number; committed: number; available: number };
   unreadReportCount: number;

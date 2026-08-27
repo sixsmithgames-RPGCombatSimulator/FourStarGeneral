@@ -364,14 +364,29 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
         locationHexKey: "6,5",
         roleLabel: "Intel node",
         summary: "The fixed relay location is known; its current control and activity are unconfirmed.",
-        sourceLabel: "Theater signals directory"
+        sourceLabel: "Theater signals directory",
+        categoryLabel: "Known opposing installation",
+        locationPrecision: "fixed",
+        relatedLocations: []
       }, {
         id: "briefed-site-2",
         label: "Known rail yard",
         locationHexKey: "5,5",
         roleLabel: "Logistics Hub",
         summary: "The fixed rail-yard location is known; current activity is unconfirmed.",
-        sourceLabel: "Pre-operation aerial survey"
+        sourceLabel: "Pre-operation aerial survey",
+        categoryLabel: "Known opposing installation",
+        locationPrecision: "fixed",
+        relatedLocations: []
+      }],
+      knownRegions: [{
+        id: "region-thames",
+        label: "Thames build-up network",
+        categoryLabel: "Allied supporting network",
+        summary: "Dispersed follow-up ports outside exact map registration.",
+        sourceLabel: "Naval loading plan",
+        locations: ["Tilbury", "Harwich"],
+        commandStatus: "Context only"
       }],
       formations: [{
         id: "formation-1",
@@ -437,6 +452,7 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
         displayLabel: "First Army Depot",
         summary: "Named friendly supply base.",
         locationLabel: "First Army Depot · hex 4,5",
+        historicalNetwork: ["First Army Depot", "Tilbury", "Harwich"],
         showSelectionActions: true,
         showEngagementAction: false,
         forces: ["1st Infantry Group · 3"],
@@ -493,7 +509,8 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
     if (!root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")
       || !root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='4,5']")
-      || !root.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label")?.includes("4 map records")) {
+      || !root.querySelector("[data-map-list-selection-kind='theaterRegion'][data-map-list-selection-id='region-thames']")
+      || !root.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label")?.includes("5 map records")) {
       throw new Error("Operational map list omitted the named friendly base or fixed briefing-site record.");
     }
     root.querySelector<HTMLButtonElement>("[data-close-map-list]")?.click();
@@ -507,6 +524,7 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     screen.revealInspector({ kind: "hex", id: "4,5" });
     if (!root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("80/100 integrity")
+      || !root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("Tilbury")
       || root.querySelector<HTMLElement>(".campaign-context-inspector__action-footer")?.hidden
       || root.querySelector<HTMLElement>(".selection-section")?.hidden
       || !root.querySelector<HTMLElement>(".action-section")?.hidden
@@ -526,7 +544,7 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='intelligence']")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
     if (!root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")
-      || !root.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label")?.includes("2 map records")
+      || !root.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label")?.includes("3 map records")
       || root.querySelector("[data-map-list-selection-kind='hex'][data-map-list-selection-id='5,5']")) {
       throw new Error("Intelligence map list omitted the fixed briefing-site record.");
     }
@@ -536,6 +554,18 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       || !contactInspector.includes("Known rail yard")
       || !contactInspector.includes("Logistics Hub")) {
       throw new Error("Safe contact detail did not reach the typed inspector.");
+    }
+    root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
+    root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='theaterRegion']")?.click();
+    const regionInspector = [
+      root.querySelector("#campaignInspectorTitle")?.textContent,
+      root.querySelector("#campaignContextInspectorRoute")?.textContent
+    ].filter(Boolean).join(" ");
+    if (!regionInspector.includes("Thames build-up network")
+      || !regionInspector.includes("Tilbury")
+      || !regionInspector.includes("Context only")
+      || !root.querySelector<HTMLElement>(".action-section")?.hidden) {
+      throw new Error("Non-geocoded theater context did not remain searchable, sourced, and non-orderable.");
     }
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();

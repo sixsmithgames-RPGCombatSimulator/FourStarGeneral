@@ -1,6 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
+import campaignScenarioData from "../src/data/campaign01.json";
 import { CampaignState } from "../src/state/CampaignState";
 import { deriveCampaignFrontsFromControl } from "../src/game/campaign/control/CampaignBattleControlResolver";
 import {
@@ -93,6 +94,66 @@ registerTest("CAMPAIGN_INTEL_PROJECTION_STRIPS_TRUTH", async ({ Given, Then }) =
   });
 });
 
+registerTest("CAMPAIGN_INTEL_COVERAGE_DOES_NOT_REVEAL_HIDDEN_RUNTIME_NODES", async ({ Given, When, Then }) => {
+  const scenario = intelligenceScenario();
+  const knowledge = createCampaignKnowledgeState(scenario, "Player", 0);
+  let before: string[] = [];
+  let after: string[] = [];
+
+  await Given("a Player recon screen and no briefed installation inside its collection radius", () => {
+    before = buildCampaignMapView(scenario, knowledge, 0).coverage
+      .map((entry) => `${entry.hexKey}:${entry.strength}`)
+      .sort();
+  });
+  await When("a force-empty hostile runtime installation is added without Player knowledge", () => {
+    scenario.tilePalette.hiddenInstallation = {
+      role: "logisticsHub",
+      factionControl: "Bot",
+      spriteKey: "logisticsHub",
+      notes: "Hidden runtime-only installation"
+    };
+    scenario.tiles.push({ tile: "hiddenInstallation", factionControl: "Bot", hex: { q: 2, r: 0 }, forces: [] });
+    after = buildCampaignMapView(scenario, knowledge, 0).coverage
+      .map((entry) => `${entry.hexKey}:${entry.strength}`)
+      .sort();
+  });
+  await Then("coverage remains pure map geometry and the hidden node leaves no projection fingerprint", () => {
+    const serialized = JSON.stringify(buildCampaignMapView(scenario, knowledge, 0));
+    if (before.join("|") !== after.join("|") || /hiddenInstallation|Hidden runtime-only/.test(serialized)) {
+      throw new Error("The intelligence coverage overlay disclosed an unbriefed hostile runtime node.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_INTEL_COVERAGE_EXCLUDES_SCHEDULED_FORMATIONS_UNTIL_ARRIVAL", async ({ Given, When, Then }) => {
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const knowledge = createCampaignKnowledgeState(scenario, "Player", 0);
+  const bristolHexKey = "5,5";
+  let openingCoverage = new Set<string>();
+  let firstArrivalCoverage = new Set<string>();
+  let secondArrivalCoverage = new Set<string>();
+
+  await Given("Bristol contains only divisions scheduled for segments six and eight", () => {
+    const bristol = scenario.tiles.find((tile) => tile.tile === "bristolBuildUp");
+    if (!bristol?.forces?.length
+      || bristol.forces.some((force) => (force.availableFromSegment ?? 0) < 6)) {
+      throw new Error("The shipped Bristol arrival fixture changed unexpectedly.");
+    }
+  });
+  await When("Player coverage is projected before and at both arrival boundaries", () => {
+    openingCoverage = new Set(buildCampaignMapView(scenario, knowledge, 0).coverage.map((entry) => entry.hexKey));
+    firstArrivalCoverage = new Set(buildCampaignMapView(scenario, knowledge, 6).coverage.map((entry) => entry.hexKey));
+    secondArrivalCoverage = new Set(buildCampaignMapView(scenario, knowledge, 8).coverage.map((entry) => entry.hexKey));
+  });
+  await Then("the empty hub casts no screen until its first formations actually arrive", () => {
+    if (openingCoverage.has(bristolHexKey)
+      || !firstArrivalCoverage.has(bristolHexKey)
+      || !secondArrivalCoverage.has(bristolHexKey)) {
+      throw new Error("Scheduled Bristol formations generated intelligence coverage before becoming present.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_BRIEFED_SITES_PROJECT_WITHOUT_HOSTILE_RUNTIME_TRUTH", async ({ Given, When, Then }) => {
   const scenario = intelligenceScenario();
   scenario.tilePalette.botRegion = {
@@ -119,7 +180,19 @@ registerTest("CAMPAIGN_BRIEFED_SITES_PROJECT_WITHOUT_HOSTILE_RUNTIME_TRUTH", asy
     role: "navalBase",
     summary: "Port facilities are charted here; current control, condition, and garrison are unconfirmed.",
     sourceLabel: "Pre-operation naval survey",
-    spriteKey: "navalBase"
+    spriteKey: "navalBase",
+    category: "enemyInstallation",
+    locationPrecision: "fixed"
+  }];
+  scenario.briefedStrategicRegions = [{
+    key: "thames-network",
+    observerFaction: "Player",
+    label: "Thames build-up network",
+    category: "alliedSupport",
+    summary: "A dispersed support network outside the exact registered map.",
+    sourceLabel: "Naval loading plan",
+    locations: ["Tilbury", "Harwich"],
+    commandStatus: "Context only"
   }];
   const knowledge = createCampaignKnowledgeState(scenario, "Player", 0);
   let view: ReturnType<typeof buildCampaignMapView>;
@@ -130,14 +203,18 @@ registerTest("CAMPAIGN_BRIEFED_SITES_PROJECT_WITHOUT_HOSTILE_RUNTIME_TRUTH", asy
   });
   await Then("only the authored fixed-site briefing survives and no mutable enemy truth is serialized", () => {
     const sites = view.knownStrategicSites ?? [];
+    const regions = view.knownStrategicRegions ?? [];
     const serialized = JSON.stringify(view);
     if (sites.length !== 1
       || sites[0]?.id !== "briefed-port"
       || sites[0]?.locationHexKey !== "5,2"
       || sites[0]?.sourceLabel !== "Pre-operation naval survey"
+      || regions.length !== 1
+      || regions[0]?.label !== "Thames build-up network"
       || view.scenario.tiles.some((tile) => tile.factionControl === "Bot")
       || view.scenario.tilePalette.botRegion
       || view.scenario.briefedStrategicSites
+      || view.scenario.briefedStrategicRegions
       || /Hidden runtime name|Hidden live installation note|Hidden second garrison|Secret 12th Panzer|navalCapacity|productionCapacity|supplyValue/.test(serialized)
       || /observerFaction|factionControl":"Bot/.test(JSON.stringify(sites))) {
       throw new Error(`Known-site projection crossed the opposing-truth boundary: ${serialized}`);
@@ -155,7 +232,9 @@ registerTest("CAMPAIGN_BRIEFED_SITES_PERSIST_AS_CONTENT_BUT_NEVER_FORM_FRONTS", 
     role: "intelNode",
     summary: "The fixed relay location is known; current activity is not.",
     sourceLabel: "Theater signals directory",
-    spriteKey: "logisticsHub"
+    spriteKey: "logisticsHub",
+    category: "enemyInstallation",
+    locationPrecision: "fixed"
   }];
   const definition = splitLegacyCampaignScenario(scenario);
   const runtime = createCampaignRuntime(definition, {

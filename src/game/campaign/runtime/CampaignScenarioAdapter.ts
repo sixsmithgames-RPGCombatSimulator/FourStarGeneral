@@ -9,6 +9,7 @@
 
 import {
   CAMPAIGN_HEX_SCALE_KM,
+  type CampaignBriefedStrategicRegion,
   type CampaignArcDefinition,
   type CampaignBriefedStrategicSite,
   type CampaignFactionEconomy,
@@ -235,9 +236,11 @@ function assertLegacyScenarioCanSplit(scenario: CampaignScenarioData): void {
     }
   });
   const briefedSiteKeys = new Set<string>();
+  const briefedSiteLocations = new Set<string>();
   (scenario.briefedStrategicSites ?? []).forEach((site, index) => {
     const col = site.hex.q;
     const row = site.hex.r + Math.floor(site.hex.q / 2);
+    const locationKey = `${site.observerFaction}:${site.hex.q},${site.hex.r}`;
     if (!site.key.trim() || briefedSiteKeys.has(site.key)) {
       throw new CampaignRuntimeError(
         "INVALID_SCENARIO",
@@ -246,6 +249,14 @@ function assertLegacyScenarioCanSplit(scenario: CampaignScenarioData): void {
       );
     }
     briefedSiteKeys.add(site.key);
+    if (briefedSiteLocations.has(locationKey)) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign briefing site ${site.key} duplicates another marker at the same location.`,
+        { path: `scenario.briefedStrategicSites.${index}.hex`, q: site.hex.q, r: site.hex.r }
+      );
+    }
+    briefedSiteLocations.add(locationKey);
     if (!Number.isInteger(site.hex.q) || !Number.isInteger(site.hex.r)
       || col < 0 || col >= scenario.dimensions.cols
       || row < 0 || row >= scenario.dimensions.rows) {
@@ -255,11 +266,35 @@ function assertLegacyScenarioCanSplit(scenario: CampaignScenarioData): void {
         { path: `scenario.briefedStrategicSites.${index}.hex`, q: site.hex.q, r: site.hex.r, col, row }
       );
     }
-    if (!site.label.trim() || !site.summary.trim() || !site.sourceLabel.trim() || !site.spriteKey.trim()) {
+    if (!site.label.trim() || !site.summary.trim() || !site.sourceLabel.trim() || !site.spriteKey.trim()
+      || !["enemyInstallation", "strategicGeography", "alliedSupport"].includes(site.category)
+      || !["fixed", "sector"].includes(site.locationPrecision)
+      || site.relatedLocations?.some((location) => !location.trim())) {
       throw new CampaignRuntimeError(
         "INVALID_SCENARIO",
         `Campaign briefing site ${site.key} requires public label, summary, source, and marker art.`,
         { path: `scenario.briefedStrategicSites.${index}` }
+      );
+    }
+  });
+  const briefedRegionKeys = new Set<string>();
+  (scenario.briefedStrategicRegions ?? []).forEach((region, index) => {
+    if (!region.key.trim() || briefedRegionKeys.has(region.key)) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign briefing region ${index} must have a unique non-empty key.`,
+        { path: `scenario.briefedStrategicRegions.${index}.key`, key: region.key }
+      );
+    }
+    briefedRegionKeys.add(region.key);
+    if (!region.observerFaction.trim() || !region.label.trim() || !region.summary.trim()
+      || !region.sourceLabel.trim() || !region.commandStatus.trim()
+      || !["enemyInstallation", "strategicGeography", "alliedSupport"].includes(region.category)
+      || region.locations.length === 0 || region.locations.some((location) => !location.trim())) {
+      throw new CampaignRuntimeError(
+        "INVALID_SCENARIO",
+        `Campaign briefing region ${region.key} requires a category, public copy, source, command status, and named places.`,
+        { path: `scenario.briefedStrategicRegions.${index}` }
       );
     }
   });
@@ -282,6 +317,9 @@ export function splitLegacyCampaignScenario(scenario: CampaignScenarioData): Cam
     tilePalette: structuredClone(scenario.tilePalette),
     ...(scenario.briefedStrategicSites
       ? { briefedStrategicSites: structuredClone(scenario.briefedStrategicSites) }
+      : {}),
+    ...(scenario.briefedStrategicRegions
+      ? { briefedStrategicRegions: structuredClone(scenario.briefedStrategicRegions) }
       : {}),
     initialFronts: structuredClone(scenario.fronts)
   };
@@ -662,6 +700,9 @@ export function projectLegacyCampaignState(
     tilePalette: cloneReadonlyCampaignData<Record<string, CampaignTileDefinition>>(definition.map.tilePalette),
     ...(definition.map.briefedStrategicSites
       ? { briefedStrategicSites: cloneReadonlyCampaignData<CampaignBriefedStrategicSite[]>(definition.map.briefedStrategicSites) }
+      : {}),
+    ...(definition.map.briefedStrategicRegions
+      ? { briefedStrategicRegions: cloneReadonlyCampaignData<CampaignBriefedStrategicRegion[]>(definition.map.briefedStrategicRegions) }
       : {}),
     tiles,
     fronts: structuredClone(runtime.compatibility.initialFronts),

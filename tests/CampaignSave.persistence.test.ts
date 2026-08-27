@@ -34,8 +34,8 @@ import {
 } from "../src/game/campaign/persistence/CampaignSaveMigration";
 import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
 import {
-  CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH,
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
+  CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH,
   CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
   CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
   CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH,
@@ -400,7 +400,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
 
   await Given("an unplayed save carrying the exact retired production content identity", () => {
     const currentHash = computeCampaignContentHash(definition);
-    if (currentHash !== CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+    if (currentHash !== CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
       || retiredOpening.currentSegment !== 0
       || retiredOpening.revision !== 0) {
       throw new Error(`Normandy content identity or pristine boundary drifted: ${currentHash}.`);
@@ -415,7 +415,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
     const result = migrated.runtime;
     if (!migrated.migrated
       || result.campaignId !== runtime.campaignId
-      || result.scenarioContentHash !== CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+      || result.scenarioContentHash !== CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
       || result.currentSegment !== 0
       || result.revision !== 0
       || result.tiles["22,13"]?.tileKey !== "utahBeach"
@@ -483,7 +483,7 @@ registerTest("CAMPAIGN_STATE_LOAD_REACHES_THE_CERTIFIED_FULL_THEATER_MIGRATION",
     const runtime = loadState.getRuntimeSnapshot();
     if (!load
       || !load.ok
-      || runtime?.scenarioContentHash !== CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+      || runtime?.scenarioContentHash !== CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
       || runtime.currentSegment !== 0
       || runtime.revision !== 0
       || runtime.tiles["5,8"]?.tileKey !== "westernEmbarkation"
@@ -502,17 +502,17 @@ registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_ACROSS_THEATER_SUPPORT_CORRECTION
   if (!runtime) throw new Error("Base-renaming migration fixture did not create a runtime.");
   const prior = {
     ...structuredClone(runtime),
-    scenarioContentHash: CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+    scenarioContentHash: CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
   };
   prior.factions.Player.economy.supplies -= 37;
   const expected = {
     ...structuredClone(prior),
-    scenarioContentHash: CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+    scenarioContentHash: CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
   };
   let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
 
-  await Given("a valid progressed save from before beach throughput and daily support were separated", () => {});
-  await When("the forward-looking theater-support correction is applied", () => {
+  await Given("a valid progressed save from before the historical theater directory was expanded", () => {});
+  await When("the briefing-only historical map correction is applied", () => {
     migrated = migrateCampaignRuntimeContent(prior, definition);
   });
   await Then("only the certified content identity changes", () => {

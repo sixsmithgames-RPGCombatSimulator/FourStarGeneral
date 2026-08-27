@@ -309,7 +309,7 @@ export class CampaignMapOverlayController {
     if (this.listToggle) {
       const count = this.getListEntries(effective.id).length;
       const includesKnownSites = (effective.id === "operational" || effective.id === "intelligence")
-        && (this.view?.knownSites?.length ?? 0) > 0;
+        && ((this.view?.knownSites?.length ?? 0) + (this.view?.knownRegions?.length ?? 0)) > 0;
       const noun = this.targetPickOriginHexKey
         ? "destination hex"
         : effective.id === "objectives" ? "objective"
@@ -480,7 +480,8 @@ export class CampaignMapOverlayController {
         ...(this.view.contacts ?? []).map((contact) => this.contactEntry(contact)),
         ...(this.view.knownSites ?? [])
           .filter((site) => !contactHexes.has(site.locationHexKey))
-          .map((site) => this.knownSiteEntry(site))
+          .map((site) => this.knownSiteEntry(site)),
+        ...(this.view.knownRegions ?? []).map((region) => this.knownRegionEntry(region))
       ];
     }
     if (overlay === "orders") return this.view.orders.map((order) => this.orderEntry(order));
@@ -492,7 +493,8 @@ export class CampaignMapOverlayController {
           && (hex.presentation === "friendlyBase"
             || ["Airbase", "Logistics Hub", "Naval Base", "Naval task force"].includes(hex.roleLabel)))
         .map((hex) => this.strategicHexEntry(hex)),
-      ...(this.view.knownSites ?? []).map((site) => this.knownSiteEntry(site))
+      ...(this.view.knownSites ?? []).map((site) => this.knownSiteEntry(site)),
+      ...(this.view.knownRegions ?? []).map((region) => this.knownRegionEntry(region))
     ];
     return [];
   }
@@ -549,8 +551,18 @@ export class CampaignMapOverlayController {
       key: site.id,
       marker: "SITE",
       label: site.label,
-      meta: `${site.roleLabel} · ${site.locationHexKey} · ${site.sourceLabel}`,
+      meta: `${site.categoryLabel} · ${site.locationPrecision === "fixed" ? "fixed location" : "10 km sector"} · ${site.roleLabel}`,
       selection: { kind: "hex", id: site.locationHexKey }
+    };
+  }
+
+  private knownRegionEntry(region: NonNullable<CampaignCommandShellView["knownRegions"]>[number]): MapListEntry {
+    return {
+      key: region.id,
+      marker: "AREA",
+      label: region.label,
+      meta: `${region.categoryLabel} · ${region.commandStatus}`,
+      selection: { kind: "theaterRegion", id: region.id }
     };
   }
 
@@ -560,7 +572,7 @@ export class CampaignMapOverlayController {
       key: `strategic:${hex.hexKey}`,
       marker: isFleet ? "FLEET" : "BASE",
       label: hex.displayLabel ?? hex.roleLabel,
-      meta: `${hex.roleLabel} · ${hex.hexKey} · ${hex.controlLabel}`,
+      meta: `${hex.roleLabel} · ${hex.historicalNetwork?.length ? `${hex.historicalNetwork.length} historical locations · ` : ""}${hex.controlLabel}`,
       selection: { kind: "hex", id: hex.hexKey }
     };
   }

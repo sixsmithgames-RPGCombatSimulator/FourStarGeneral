@@ -2736,7 +2736,27 @@ export class CampaignScreen {
       locationHexKey: site.locationHexKey,
       roleLabel: this.formatCampaignLabel(site.role),
       summary: site.summary,
-      sourceLabel: site.sourceLabel
+      sourceLabel: site.sourceLabel,
+      categoryLabel: site.category === "enemyInstallation"
+        ? "Known opposing installation"
+        : site.category === "alliedSupport"
+          ? "Allied supporting site"
+          : "Strategic geography",
+      locationPrecision: site.locationPrecision,
+      relatedLocations: [...site.relatedLocations]
+    }));
+    const knownRegions = (view.knownStrategicRegions ?? []).map((region) => ({
+      id: region.id,
+      label: region.label,
+      categoryLabel: region.category === "enemyInstallation"
+        ? "Known opposing region"
+        : region.category === "alliedSupport"
+          ? "Allied supporting network"
+          : "Strategic geography",
+      summary: region.summary,
+      sourceLabel: region.sourceLabel,
+      locations: [...region.locations],
+      commandStatus: region.commandStatus
     }));
     const productionReport = this.campaignState.getProductionReport();
     const productionByHex = new Map((productionReport?.sources ?? []).map((source) => [source.offsetKey, source.capacity]));
@@ -2811,6 +2831,7 @@ export class CampaignScreen {
           showEngagementAction: false,
           actionSummary: baseActionSummary
         } : {}),
+        ...(palette?.historicalNetwork?.length ? { historicalNetwork: [...palette.historicalNetwork] } : {}),
         ...(authoredMapLabel || isAlliedAssaultFleet ? {
           displayLabel: authoredMapLabel ?? "Allied Assault Fleet",
           summary: palette?.notes ?? (isAlliedAssaultFleet
@@ -2836,11 +2857,18 @@ export class CampaignScreen {
       hexes.push({
         hexKey: site.locationHexKey,
         roleLabel: site.roleLabel,
-        controlLabel: "Current control unconfirmed",
+        controlLabel: site.categoryLabel === "Allied supporting site"
+          ? "Friendly support network"
+          : site.categoryLabel === "Strategic geography"
+            ? "Geographic reference"
+            : "Current control unconfirmed",
         displayLabel: site.label,
         summary: site.summary,
-        locationLabel: `${site.label} · hex ${site.locationHexKey}`,
+        locationLabel: site.locationPrecision === "fixed"
+          ? `${site.label} · fixed mapped location`
+          : `${site.label} · representative 10 km sector`,
         sourceLabel: site.sourceLabel,
+        ...(site.relatedLocations.length ? { historicalNetwork: [...site.relatedLocations] } : {}),
         hasContextActions: false,
         forces: [],
         capabilities: [],
@@ -3208,6 +3236,7 @@ export class CampaignScreen {
       forces,
       fronts: frontViews,
       knownSites,
+      knownRegions,
       contacts: view.enemyContacts.map((contact) => {
         const knownLocation = knownSites.find((site) => site.locationHexKey === contact.locationHexKey);
         return {

@@ -377,8 +377,14 @@ function isSecurityUnit(unitType: string): boolean {
   return /recon|scout|infantry|engineer|armoredcar|bike/i.test(unitType);
 }
 
-function tileHasMatchingAsset(tile: CampaignTileInstance, predicate: (unitType: string) => boolean): CampaignForceGroup | null {
-  return tile.forces?.find((force) => force.count > 0 && predicate(force.unitType)) ?? null;
+function tileHasMatchingAsset(
+  tile: CampaignTileInstance,
+  predicate: (unitType: string) => boolean,
+  availableAtSegment = Number.POSITIVE_INFINITY
+): CampaignForceGroup | null {
+  return tile.forces?.find((force) => force.count > 0
+    && (force.availableFromSegment ?? 0) <= availableAtSegment
+    && predicate(force.unitType)) ?? null;
 }
 
 export function calculateIntelCapacity(scenario: CampaignScenarioData, faction: CampaignFactionKey): number {
@@ -878,18 +884,27 @@ export function projectEnemyContact(contact: CampaignKnowledgeState["contacts"][
   return view;
 }
 
-function coverageForFaction(scenario: CampaignScenarioData, faction: CampaignFactionKey): CampaignMapViewModel["coverage"] {
+function coverageForFaction(
+  scenario: CampaignScenarioData,
+  faction: CampaignFactionKey,
+  segment: number
+): CampaignMapViewModel["coverage"] {
   const values = new Map<string, "screened" | "observed" | "priority">();
   for (const tile of friendlyTiles(scenario, faction)) {
-    if ((tile.forces?.length ?? 0) === 0) continue;
-    const radius = tileHasMatchingAsset(tile, isReconUnit) ? 3 : 1;
-    for (const candidate of scenario.tiles) {
-      const distance = hexDistance(tile.hex, candidate.hex);
-      if (distance > radius) continue;
-      const key = axialToOffsetKey(candidate.hex.q, candidate.hex.r);
-      const strength = distance === 0 ? "priority" : radius >= 3 ? "observed" : "screened";
-      const previous = values.get(key);
-      if (!previous || (previous === "screened" && strength !== "screened") || strength === "priority") values.set(key, strength);
+    const hasPresentForce = tile.forces?.some((force) => force.count > 0
+      && (force.availableFromSegment ?? 0) <= segment) ?? false;
+    if (!hasPresentForce) continue;
+    const radius = tileHasMatchingAsset(tile, isReconUnit, segment) ? 3 : 1;
+    for (let col = 0; col < scenario.dimensions.cols; col += 1) {
+      for (let row = 0; row < scenario.dimensions.rows; row += 1) {
+        const candidate = { q: col, r: row - Math.floor(col / 2) };
+        const distance = hexDistance(tile.hex, candidate);
+        if (distance > radius) continue;
+        const key = `${col},${row}`;
+        const strength = distance === 0 ? "priority" : radius >= 3 ? "observed" : "screened";
+        const previous = values.get(key);
+        if (!previous || (previous === "screened" && strength !== "screened") || strength === "priority") values.set(key, strength);
+      }
     }
   }
   return Array.from(values, ([hexKey, strength]) => ({ hexKey, strength }));
@@ -914,9 +929,24 @@ export function buildCampaignMapView(
       role: site.role,
       summary: site.summary,
       sourceLabel: site.sourceLabel,
-      spriteKey: site.spriteKey
+      spriteKey: site.spriteKey,
+      category: site.category,
+      locationPrecision: site.locationPrecision,
+      relatedLocations: [...(site.relatedLocations ?? [])]
     }))
     .sort((left, right) => left.locationHexKey.localeCompare(right.locationHexKey) || left.id.localeCompare(right.id));
+  const knownStrategicRegions = (scenario.briefedStrategicRegions ?? [])
+    .filter((region) => region.observerFaction === state.faction)
+    .map((region) => ({
+      id: region.key,
+      label: region.label,
+      category: region.category,
+      summary: region.summary,
+      sourceLabel: region.sourceLabel,
+      locations: [...region.locations],
+      commandStatus: region.commandStatus
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
 
   // Hostile runtime tiles are truth, not knowledge. Known fixed sites are projected separately
   // from the authored briefing collection above and therefore cannot expose live control,
@@ -935,6 +965,7 @@ export function buildCampaignMapView(
     if (definition.factionControl !== state.faction) definition.forces = [];
   });
   delete sanitized.briefedStrategicSites;
+  delete sanitized.briefedStrategicRegions;
   sanitized.economies = sanitized.economies.filter((economy) => economy.faction === state.faction);
   const contacts = state.contacts
     .map((contact) => projectEnemyContact(contact, segment))
@@ -946,7 +977,8 @@ export function buildCampaignMapView(
     scenario: sanitized,
     enemyContacts: contacts,
     knownStrategicSites,
-    coverage: coverageForFaction(scenario, state.faction),
+    knownStrategicRegions,
+    coverage: coverageForFaction(scenario, state.faction, segment),
     capacity: {
       total: state.capacityTotal,
       committed,

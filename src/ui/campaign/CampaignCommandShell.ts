@@ -70,6 +70,20 @@ export interface CampaignCommandKnownSiteView {
   readonly roleLabel: string;
   readonly summary: string;
   readonly sourceLabel: string;
+  readonly categoryLabel: string;
+  readonly locationPrecision: "fixed" | "sector";
+  readonly relatedLocations: readonly string[];
+}
+
+/** Sourced theater context that intentionally has no exact selectable map hex. */
+export interface CampaignCommandKnownRegionView {
+  readonly id: string;
+  readonly label: string;
+  readonly categoryLabel: string;
+  readonly summary: string;
+  readonly sourceLabel: string;
+  readonly locations: readonly string[];
+  readonly commandStatus: string;
 }
 
 /** Player-safe persistent formation projection for list and inspector surfaces. */
@@ -112,6 +126,8 @@ export interface CampaignCommandHexView {
   readonly showEngagementAction?: boolean;
   /** Concise next-availability copy shown when the base has no relevant action control. */
   readonly actionSummary?: string;
+  /** Real places consolidated into this one rules-bearing node at the 10 km campaign scale. */
+  readonly historicalNetwork?: readonly string[];
   readonly forces: readonly string[];
   readonly capabilities?: readonly string[];
   readonly infrastructure: string | null;
@@ -337,6 +353,7 @@ export interface CampaignCommandShellView {
   readonly fronts?: readonly CampaignCommandFrontView[];
   readonly contacts?: readonly CampaignCommandContactView[];
   readonly knownSites?: readonly CampaignCommandKnownSiteView[];
+  readonly knownRegions?: readonly CampaignCommandKnownRegionView[];
   readonly formations?: readonly CampaignCommandFormationView[];
   readonly hexes?: readonly CampaignCommandHexView[];
   readonly airPower: number;

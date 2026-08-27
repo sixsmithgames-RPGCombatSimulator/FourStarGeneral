@@ -14,6 +14,10 @@ The five beach anchors span eight hexes (about 80 km), matching the U.S. Army's 
 
 The supplied background creates a full-theater expectation across southern England, the Channel, Normandy, Brittany and western France, the Seine/Paris approaches, and the Pas-de-Calais/North Sea approaches. Each region must contain relevant fixed geography or infrastructure, a named friendly staging or reserve responsibility, a player-safe assessed hostile presence, or explicit scenario copy explaining why it lies outside current command scope. This does not require every marker on the opening frame: collision-safe labels, scale-aware suppression, layers, the map list, and progressive disclosure must keep the operational view uncluttered.
 
+The shipped D+1 presentation uses seven rules-bearing Allied sites to represent 32 named southern-English support locations. Plymouth represents Plymouth, Torbay, Brixham, Dartmouth, Salcombe, Falmouth, and Fowey; Portland represents Portland, Weymouth, and Poole; Southampton represents Southampton, the Western and Eastern Solent, Spithead, and Selsey; Portsmouth represents Portsmouth, Gosport, Newhaven, Shoreham, Chichester, and Langstone Harbour; Bristol represents Bristol, Cardiff, Barry, Newport, and Swansea; Exeter represents Exeter, Upottery, and Merryfield; Tangmere represents Tangmere, Westhampnett, and Ford. This is deliberate operational consolidation, not a claim that only seven Allied bases existed. The collapsed marker uses the historical hub name, while hover, keyboard focus, the map list, and the inspector expose the represented network without turning every supporting place into a separate production or movement node.
+
+The opening intelligence layer contains 24 mapped strategic records and three additional named regional records. A mapped record declares whether it is a fixed installation or an approximate 10 km sector. A regional record has no map coordinate when the background has not been calibrated closely enough to support one. False precision is worse than a sourced list-only record.
+
 ## Opening order of battle
 
 Required Allied opening representation:
@@ -49,6 +53,8 @@ This distinction follows the Operation NEPTUNE build-up plan: formations, equipm
 
 Fixed geography is not hidden merely because opposing forces occupy it. Named towns and major ports remain stable, and known permanent installations may be briefed at the detail supported by the opening intelligence. The minimum D+1 theater layer includes Douvres radar, the still-active Grandcamp–Maisy battery area, Cherbourg, the Normandy objectives, the southern-English embarkation hubs, and the major port chain relevant to the supplied background and campaign plan.
 
+The mapped opening inventory is Cherbourg; Azeville–Crisbecq; Grandcamp–Maisy; Longues-sur-Mer; Douvres; Merville; Caen–Carpiquet; Carentan; Bayeux–Arromanches; Saint-Lô; Avranches; Falaise; Argentan; Le Havre; Dieppe; Rouen; Évreux–Chartres; the Paris basin; Pas-de-Calais; the Low Countries/Scheldt; Brest; Saint-Malo; Lorient; and Saint-Nazaire. The list-only supporting records are the Thames/Nore build-up, the eastern convoy and covering-force network, and the southern-England airborne departure belt. These records are historical command context, not extra fronts or hidden runtime installations.
+
 Mobile German formations are different. Division identity, route, strength, readiness, and arrival time remain intelligence assessments with source, age, confidence, uncertainty, and only the detail the Player has earned. Strategic concentrations in Brittany, the Pas-de-Calais/Flanders, the Évreux/Chartres reserve belt, and the Seine between Paris and Rouen should make the full theater operationally meaningful without exposing exact opposing truth.
 
 ## Sources
@@ -82,6 +88,9 @@ Mobile German formations are different. Division identity, route, strength, read
 - Formation checks assert effective strength, readiness, arrival stage, availability, and visibility, not only the presence of a historical name.
 - Panzer Lehr and 12th SS cannot create a full main counterattack on 7 June; any earlier 21st Panzer interruption is explicitly a limited local probe.
 - At minimum, normal, and close zoom, every declared theater region must reconcile background, grid, named anchors, fixed sites, bases/reserves, and Player-safe hostile assessments through map, map list, and inspector.
+- The opening projection contains seven actionable Allied sites representing 32 named support locations, 24 mapped strategic records, and three non-geocoded regional records; each is searchable and inspectable without permanent map-covering labels.
+- Every mapped strategic record declares fixed or sector precision. A sourced place without defensible registration remains list-only rather than receiving an invented hex.
+- Scheduled formations do not contribute to a base's visible force stack before their availability segment. Hidden hostile runtime nodes do not change Player coverage geometry or any serialized Player-safe view.
 - Fixed sites remain stable geographic knowledge while mobile opposing-force detail obeys the intelligence projection.
 - All five beaches have positive supply throughput and zero production capacity. The five named English logistics hubs own the entire Player daily support capacity; English airfields and continental fortifications own none.
 - Player-facing copy distinguishes external support allocation, English staging, cross-Channel delivery, beach discharge, and scheduled formation arrival. It never describes recruitment or manufacturing at a beachhead.

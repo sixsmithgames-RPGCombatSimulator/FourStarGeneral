@@ -396,9 +396,12 @@ registerTest("MAP_VIEWPORT_FITS_AND_CENTERS_COMPLETE_MAP", async ({ Given, When,
     const appliedTransform = viewportRoot.getAttribute("transform") ?? "";
     const inverseZoom = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom"));
     const restingScale = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom-resting"));
+    const markerScale = Number(viewportRoot.style.getPropertyValue("--campaign-map-marker-scale"));
+    const expectedMarkerScale = Math.min(1 / expectedZoom, 0.74 + 0.7 * expectedZoom);
     if (!appliedTransform.includes(`scale(${expectedZoom})`)
       || Math.abs(inverseZoom - 1 / expectedZoom) > tolerance
-      || Math.abs(restingScale - 0.92 / expectedZoom) > tolerance) {
+      || Math.abs(restingScale - 0.92 / expectedZoom) > tolerance
+      || Math.abs(markerScale - expectedMarkerScale) > tolerance) {
       throw new Error(`Complete-map fit was not applied to the viewport root: ${appliedTransform}.`);
     }
     host.remove();

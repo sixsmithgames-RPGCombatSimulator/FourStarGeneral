@@ -47,6 +47,9 @@ export const CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH = "fnv1a32-608eff42";
 /** Exact identity after forward supply throughput was separated from England-based theater support. */
 export const CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH = "fnv1a32-ef096780";
 
+/** Exact identity after the sourced full-theater directory and grouped historical networks were added. */
+export const CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH = "fnv1a32-57874b26";
+
 const NEW_CONTACT_TILE_KEYS = ["27,24", "29,25"] as const;
 const AIRFIELD_TILE_KEY = "30,25";
 const CHANNEL_TASK_FORCE_TILE_KEY = "20,18";
@@ -238,6 +241,40 @@ export function migrateCampaignRuntimeContent(
   }
   if (source.scenarioContentHash === currentHash) {
     return { runtime: structuredClone(source), migrated: false };
+  }
+
+  if (definition.key === "central_channel"
+    && currentHash === CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH) {
+    if (source.scenarioContentHash === CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+      || source.scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+      || source.scenarioContentHash === CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH) {
+      const migrated = { ...structuredClone(source), scenarioContentHash: currentHash };
+      assertCampaignRuntimeState(migrated);
+      return { runtime: migrated, migrated: true };
+    }
+    const retiredScopeHashes = new Set([
+      CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
+      CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
+      CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
+      CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
+    ]);
+    if (!retiredScopeHashes.has(source.scenarioContentHash)) {
+      throw contentMismatch("Campaign save content has no certified migration to the historical full-theater directory.", source, currentHash);
+    }
+    if (!isPristineOpening(source)) {
+      throw contentMismatch(
+        "This save contains progress on a retired campaign scope. It was preserved, but its orders, formations, and outcomes cannot be guessed onto the expanded Normandy theater. Start a new Normandy campaign or load it in a compatible earlier build.",
+        source,
+        currentHash
+      );
+    }
+    return {
+      runtime: createCorrectedPristineOpening(source, definition, currentHash),
+      migrated: true
+    };
   }
 
   if (definition.key === "central_channel"

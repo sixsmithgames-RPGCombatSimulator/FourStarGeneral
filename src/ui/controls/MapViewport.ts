@@ -1,5 +1,11 @@
 import type { IMapViewport } from "../../contracts/IMapViewport";
 
+// Overview markers must shrink with the theater while disclosure cards remain
+// readable at a fixed physical size. These values keep the full painted badge
+// (including its non-scaling outline) inside the closest shipped site spacing.
+const THEATER_MARKER_SCALE_BASE = 0.74;
+const THEATER_MARKER_SCALE_ZOOM_FACTOR = 0.7;
+
 /**
  * Manages map viewport transformations including zoom and pan.
  * Provides smooth viewport control with configurable limits.
@@ -559,11 +565,17 @@ export class MapViewport implements IMapViewport {
     // mismatches between viewport state and actual rendered transform
     const transformValue = `translate(${panX}, ${panY}) scale(${zoom})`;
     this.viewportRoot.setAttribute("transform", transformValue);
-    // Keep progressive-disclosure cards legible at every camera preset. They inherit
-    // these values inside the transformed SVG group and counter-scale to screen size.
+    // Keep progressive-disclosure cards legible at every camera preset. Entity badges
+    // progressively condense with the theater so dense historical sites remain distinct;
+    // they return to ordinary inverse scaling once the player zooms into the map.
     const inverseZoom = 1 / zoom;
+    const markerScale = Math.min(
+      inverseZoom,
+      THEATER_MARKER_SCALE_BASE + THEATER_MARKER_SCALE_ZOOM_FACTOR * zoom
+    );
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom", String(inverseZoom));
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom-resting", String(inverseZoom * 0.92));
+    this.viewportRoot.style.setProperty("--campaign-map-marker-scale", String(markerScale));
   }
 
   /**

@@ -23,10 +23,10 @@ const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
 const THEATER_MARKER_BADGE_RADIUS = 11;
 // Friendly staging hubs sit only one or two 10 km hexes apart in southern England.
 // Keep their pointer footprint bounded to the visible badge so a later SVG sibling
-// cannot steal a click aimed at the center of a neighboring base. The map list is
-// the large-target alternative; known strategic sites retain the larger hit area.
+// cannot steal a click aimed at the center of a neighboring marker. The map list is
+// the large-target alternative for every dense theater marker.
 const THEATER_BASE_HIT_RADIUS = THEATER_MARKER_BADGE_RADIUS;
-const THEATER_KNOWN_SITE_HIT_RADIUS = 18;
+const THEATER_KNOWN_SITE_HIT_RADIUS = THEATER_MARKER_BADGE_RADIUS;
 const THEATER_MARKER_ICON_SIZE = 17;
 
 /** Maps sprite keys declared in campaign data to asset URLs (PNG sprites). */
@@ -886,7 +886,9 @@ export class CampaignMapRenderer {
       if (readyForces.length > 2) forceLines.push(`+${readyForces.length - 2} more formation groups`);
       if (forceLines.length === 0) forceLines.push("No formations currently ready");
       const roleLabel = this.formatMarkerLabel(palette.role);
-      const disclosureLines = [roleLabel, ...forceLines, "Select for full roster"];
+      const networkLocations = (palette.historicalNetwork ?? []).filter((location) => location !== baseName);
+      const networkLines = this.wrapDisclosureText("Network", networkLocations);
+      const disclosureLines = [roleLabel, ...networkLines, ...forceLines, "Select for full roster"];
       const longestLine = [baseName, ...disclosureLines].reduce((longest, line) => Math.max(longest, line.length), 0);
       const cardWidth = Math.min(300, Math.max(168, longestLine * fontSize * 0.56 + 28));
       const cardHeight = 19 + disclosureLines.length * lineHeight + 12;
@@ -900,7 +902,10 @@ export class CampaignMapRenderer {
       const formationSummary = readyForces.length > 0
         ? readyForces.map((force) => `${force.count} ${this.formatMarkerLabel(force.label ?? force.unitType)}`).join(", ")
         : "no formations currently ready";
-      const accessibleName = `${baseName}, ${roleLabel}, ${formationSummary}. Select for base and formation details.`;
+      const networkSummary = palette.historicalNetwork?.length
+        ? ` Represents ${palette.historicalNetwork.join(", ")}.`
+        : "";
+      const accessibleName = `${baseName}, ${roleLabel}, ${formationSummary}.${networkSummary} Select for base and formation details.`;
       const spriteKey = palette.spriteKey ?? palette.role;
       const asset = CAMPAIGN_SPRITES[spriteKey];
       if (!asset) {
@@ -1426,7 +1431,16 @@ export class CampaignMapRenderer {
 
       const markerCx = cx - (sharesHexWithContact ? THEATER_MARKER_BADGE_RADIUS + 2 : 0);
       const roleLabel = this.formatMarkerLabel(site.role);
-      const accessibleName = `${site.label}, briefed ${roleLabel.toLowerCase()}. ${site.summary} Fixed location from ${site.sourceLabel}; current control and status unconfirmed.`;
+      const precisionLabel = site.locationPrecision === "fixed" ? "fixed mapped location" : "representative ten-kilometer sector";
+      const statusLabel = site.category === "enemyInstallation"
+        ? "Current control, condition, and garrison remain unconfirmed."
+        : site.category === "alliedSupport"
+          ? "Allied support context; this marker does not issue orders."
+          : "Geographic reference; this marker does not imply current control.";
+      const relatedSummary = site.relatedLocations.length > 0
+        ? ` Includes ${site.relatedLocations.join(", ")}.`
+        : "";
+      const accessibleName = `${site.label}, briefed ${roleLabel.toLowerCase()}, ${precisionLabel}. ${site.summary}${relatedSummary} ${statusLabel} Source: ${site.sourceLabel}.`;
       const marker = document.createElementNS(SVG_NS, "g");
       marker.classList.add("campaign-known-site");
       marker.setAttribute("data-known-site-id", site.id);
@@ -1449,6 +1463,7 @@ export class CampaignMapRenderer {
       ring.setAttribute("stroke", "#d1b468");
       ring.setAttribute("stroke-width", "1.4");
       ring.setAttribute("vector-effect", "non-scaling-stroke");
+      if (site.locationPrecision === "sector") ring.setAttribute("stroke-dasharray", "3 2");
       ring.setAttribute("pointer-events", "none");
       ring.setAttribute("aria-hidden", "true");
       marker.appendChild(ring);
@@ -1491,9 +1506,15 @@ export class CampaignMapRenderer {
       hitTarget.setAttribute("aria-hidden", "true");
       marker.appendChild(hitTarget);
 
+      const categoryLabel = site.category === "enemyInstallation"
+        ? "Known opposing installation"
+        : site.category === "alliedSupport"
+          ? "Allied supporting site"
+          : "Strategic geography";
       const disclosureLines = [
-        roleLabel,
-        "Current control and status unconfirmed",
+        `${categoryLabel} · ${site.locationPrecision === "fixed" ? "fixed" : "sector"}`,
+        ...this.wrapDisclosureText("Includes", site.relatedLocations),
+        ...this.wrapDisclosureSentence(statusLabel),
         "Select for briefing details"
       ];
       const fontSize = 11;
@@ -1542,6 +1563,7 @@ export class CampaignMapRenderer {
       disclosure.appendChild(heading);
       disclosureLines.forEach((line, index) => {
         const text = document.createElementNS(SVG_NS, "text");
+        text.classList.add("campaign-known-site-disclosure__line");
         text.textContent = line;
         text.setAttribute("x", String(cardX + 11));
         text.setAttribute("y", String(cardY + 34 + index * lineHeight));
@@ -1553,6 +1575,42 @@ export class CampaignMapRenderer {
       marker.appendChild(disclosure);
       layer.appendChild(marker);
     });
+  }
+
+  /** Wraps marker disclosure lists without painting long permanent labels across adjacent hexes. */
+  private wrapDisclosureText(prefix: string, values: readonly string[], maxCharacters = 38): string[] {
+    if (values.length === 0) return [];
+    const lines: string[] = [];
+    let current = `${prefix} · `;
+    values.forEach((value) => {
+      const candidate = current.endsWith(" · ") ? `${current}${value}` : `${current} · ${value}`;
+      if (candidate.length > maxCharacters && !current.endsWith(" · ")) {
+        lines.push(current);
+        current = value;
+      } else {
+        current = candidate;
+      }
+    });
+    if (current && !current.endsWith(" · ")) lines.push(current);
+    return lines;
+  }
+
+  /** Wraps a sentence into bounded SVG text lines because SVG text nodes do not wrap themselves. */
+  private wrapDisclosureSentence(value: string, maxCharacters = 38): string[] {
+    const words = value.trim().split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let current = "";
+    words.forEach((word) => {
+      const candidate = current ? `${current} ${word}` : word;
+      if (candidate.length > maxCharacters && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    });
+    if (current) lines.push(current);
+    return lines;
   }
 
   /** Resolves a broad assessed silhouette without receiving authoritative enemy unit truth. */
@@ -1592,12 +1650,19 @@ export class CampaignMapRenderer {
       if (!group || typeof group.unitType !== "string") {
         return;
       }
+      if ((group.availableFromSegment ?? 0) > (this.viewModel?.currentSegment ?? 0)) return;
       const identity = `${group.unitType}\u0000${group.label ?? ""}`;
       const existing = merged.get(identity);
       if (existing) {
         existing.count += group.count;
       } else {
-        merged.set(identity, { unitType: group.unitType, count: group.count, label: group.label });
+        merged.set(identity, {
+          unitType: group.unitType,
+          count: group.count,
+          label: group.label,
+          ...(group.availableFromSegment !== undefined ? { availableFromSegment: group.availableFromSegment } : {}),
+          ...(group.availabilityCopy ? { availabilityCopy: group.availabilityCopy } : {})
+        });
       }
     };
 

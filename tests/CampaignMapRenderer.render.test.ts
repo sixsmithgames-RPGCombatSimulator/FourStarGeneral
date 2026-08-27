@@ -50,7 +50,10 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
       role: "airbase",
       summary: "The airfield location is known; current status is unconfirmed.",
       sourceLabel: "Pre-operation aerial survey",
-      spriteKey: "airbase"
+      spriteKey: "airbase",
+      category: "enemyInstallation",
+      locationPrecision: "fixed",
+      relatedLocations: []
     }],
     coverage: [],
     capacity: { total: 2, committed: 0, available: 2 },
@@ -85,7 +88,7 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
     if (!knownSite
       || knownSite.getAttribute("data-hex") !== "1,0"
       || !knownSite.querySelector(".campaign-known-site__sprite")
-      || !knownSite.getAttribute("aria-label")?.includes("current control and status unconfirmed")
+      || !knownSite.getAttribute("aria-label")?.includes("Current control, condition, and garrison remain unconfirmed")
       || !hexLayerTransform
       || knownSiteLayerTransform !== hexLayerTransform) {
       throw new Error("Briefed strategic site did not render as a safe selectable fixed-site marker.");
@@ -236,6 +239,7 @@ registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_
     const permanentLabels = new Set(Array.from(svg.querySelectorAll(".campaign-map-location-label"))
       .map((entry) => entry.textContent?.trim() ?? ""));
     const expectedKnownLabels = new Set((view.knownStrategicSites ?? []).map((site) => site.label));
+    const bristolMarker = svg.querySelector<SVGGElement>('.campaign-base-marker[data-base-name="Bristol"]');
     const baseMarkerContractHolds = baseMarkers.every((marker) => (
       marker.getAttribute("role") === "button"
       && marker.getAttribute("tabindex") === "0"
@@ -248,15 +252,37 @@ registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_
       && marker.getAttribute("tabindex") === "0"
       && Boolean(marker.querySelector(".campaign-known-site__badge-ring"))
       && Boolean(marker.querySelector(".campaign-known-site__sprite"))
-      && Number(marker.querySelector(".campaign-known-site__hit-target")?.getAttribute("r")) >= 18
-      && marker.querySelector(".campaign-known-site-disclosure")?.textContent?.includes("Current control and status unconfirmed")
+      && Number(marker.querySelector(".campaign-known-site__hit-target")?.getAttribute("r")) === 11
+      && marker.querySelector(".campaign-known-site-disclosure")?.textContent?.includes("Select for briefing details")
     ));
+    const siteDisclosureLinesAreBounded = Array.from(
+      svg.querySelectorAll<SVGTextElement>(".campaign-known-site-disclosure__line")
+    ).every((line) => (line.textContent?.length ?? 0) <= 38);
+    const markerCenters = [
+      ...baseMarkers.map((marker) => marker.querySelector<SVGCircleElement>(".campaign-base-marker__hit-target")),
+      ...knownSiteMarkers.map((marker) => marker.querySelector<SVGCircleElement>(".campaign-known-site__hit-target"))
+    ].filter((circle): circle is SVGCircleElement => Boolean(circle))
+      .map((circle) => ({ cx: Number(circle.getAttribute("cx")), cy: Number(circle.getAttribute("cy")) }));
+    const overviewZooms = [0.1, 0.14, 0.34, 0.5, 0.714, 1];
+    const markerPairsStayDistinct = overviewZooms.every((zoom) => {
+      const markerScale = Math.min(1 / zoom, 0.74 + 0.7 * zoom);
+      const nonScalingOutlineRadius = 1.4 / 2;
+      const combinedPaintedDiameter = 2 * ((11 * zoom * markerScale) + nonScalingOutlineRadius);
+      return markerCenters.every((left, leftIndex) => markerCenters.slice(leftIndex + 1).every((right) => (
+        Math.hypot(left.cx - right.cx, left.cy - right.cy) * zoom >= combinedPaintedDiameter + 0.01
+      )));
+    });
     if (baseMarkers.length !== 7
-      || knownSiteMarkers.length !== 13
+      || knownSiteMarkers.length !== 24
       || expectedBases.some((label) => !baseNames.has(label) || permanentLabels.has(label))
+      || !svg.querySelector('.campaign-base-marker[data-base-name="Plymouth"] .campaign-base-disclosure')?.textContent?.includes("Torbay")
+      || svg.querySelector('.campaign-force-stack[data-hex="5,5"]')
+      || !bristolMarker?.textContent?.includes("No formations currently ready")
       || [...expectedKnownLabels].some((label) => permanentLabels.has(label))
       || !baseMarkerContractHolds
-      || !siteMarkerContractHolds) {
+      || !siteMarkerContractHolds
+      || !siteDisclosureLinesAreBounded
+      || !markerPairsStayDistinct) {
       throw new Error(`Complete-theater marker literacy regressed: bases=${baseMarkers.length} sites=${knownSiteMarkers.length}.`);
     }
   });
@@ -322,7 +348,9 @@ registerTest("CAMPAIGN_RENDERER_OMITS_UNCONFIRMED_HOSTILE_SITES_FROM_THE_DOM", a
       role: "navalBase",
       summary: "The port location is charted; current status is unconfirmed.",
       sourceLabel: "Pre-operation naval survey",
-      spriteKey: "navalBase"
+      spriteKey: "navalBase",
+      category: "enemyInstallation",
+      locationPrecision: "fixed"
     }],
     tiles: [
       { tile: "player", hex: { q: 0, r: 0 }, factionControl: "Player", forces: [] },
@@ -795,7 +823,10 @@ registerTest("CAMPAIGN_RENDERER_SEPARATES_COLOCATED_SITE_AND_CONTACT_MARKERS", a
         role: "logisticsHub",
         summary: "Fixed site; current activity unconfirmed.",
         sourceLabel: "Pre-operation aerial survey",
-        spriteKey: "logisticsHub"
+        spriteKey: "logisticsHub",
+        category: "enemyInstallation",
+        locationPrecision: "fixed",
+        relatedLocations: []
       }],
       coverage: [],
       capacity: { total: 0, committed: 0, available: 0 },

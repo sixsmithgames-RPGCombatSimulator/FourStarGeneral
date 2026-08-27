@@ -95,6 +95,12 @@ export interface CampaignTileDefinition {
   intelConfirmed?: boolean;
   /** Free-form notes allow designers to surface tooltips or scripted hooks. */
   notes?: string;
+  /**
+   * Named historical places represented by this one rules-bearing node at the campaign's
+   * ten-kilometer scale. These names are presentation-only: they do not create extra bases,
+   * production, movement origins, or formation locations.
+   */
+  historicalNetwork?: string[];
   /** Optional aggregated forces rendered on the campaign map. */
   forces?: CampaignForceGroup[];
 }
@@ -457,6 +463,28 @@ export interface CampaignBriefedStrategicSite {
   sourceLabel: string;
   /** Authored public marker art; never derived from a hidden runtime tile. */
   spriteKey: string;
+  /** Separates fixed opposing installations from ordinary geography and Allied support context. */
+  category: "enemyInstallation" | "strategicGeography" | "alliedSupport";
+  /** Whether the marker denotes one fixed point or the center of a wider ten-kilometer sector. */
+  locationPrecision: "fixed" | "sector";
+  /** Additional named places represented by this marker without pretending they occupy extra hexes. */
+  relatedLocations?: string[];
+}
+
+/**
+ * A sourced theater area that belongs in the command briefing but cannot be registered to one
+ * honest ten-kilometer hex on the current background. Regions are searchable/listed context only:
+ * they never render a map marker or create control, capacity, movement, fronts, or objectives.
+ */
+export interface CampaignBriefedStrategicRegion {
+  key: string;
+  observerFaction: CampaignFactionKey;
+  label: string;
+  category: "alliedSupport" | "enemyInstallation" | "strategicGeography";
+  summary: string;
+  sourceLabel: string;
+  locations: string[];
+  commandStatus: string;
 }
 
 /**
@@ -499,6 +527,8 @@ export interface CampaignScenarioData {
   tilePalette: CampaignTilePalette;
   /** Fixed sites known from an observer's briefing, kept separate from mutable runtime tiles. */
   briefedStrategicSites?: CampaignBriefedStrategicSite[];
+  /** Broad sourced areas withheld from exact placement until the background is independently calibrated. */
+  briefedStrategicRegions?: CampaignBriefedStrategicRegion[];
   tiles: CampaignTileInstance[];
   fronts: CampaignFrontLine[];
   objectives: CampaignObjective[];

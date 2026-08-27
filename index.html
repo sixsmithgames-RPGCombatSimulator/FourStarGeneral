@@ -2067,7 +2067,7 @@
     .campaign-known-site__sprite,
     .campaign-known-site__focus-ring,
     .campaign-known-site__hit-target {
-      transform: scale(var(--campaign-map-inverse-zoom, 1));
+      transform: scale(var(--campaign-map-marker-scale, 1));
       transform-box: fill-box;
       transform-origin: center;
     }
@@ -2104,12 +2104,6 @@
       visibility: visible;
       transform: scale(var(--campaign-map-inverse-zoom, 1));
     }
-    .campaign-base-marker__badge,
-    .campaign-known-site__badge-ring,
-    .campaign-known-site__sprite {
-      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.82));
-    }
-
     .campaign-map-viewport::-webkit-scrollbar {
       width: 10px;
       height: 10px;

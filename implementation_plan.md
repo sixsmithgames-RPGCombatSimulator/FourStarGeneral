@@ -1,3 +1,47 @@
+## 2026-08-26 — Complete the historically grounded full-theater map
+
+### Intended behavior
+- The 58×50, 10 km-per-hex Northwestern Europe surface must read as one operational theater rather than a detailed beachhead floating inside empty artwork.
+- Southern England exposes the grouped embarkation, build-up, air, naval, command, and reinforcement network that made the invasion possible.
+- Occupied Europe exposes fixed ports, airfields, radar sites, coastal-defense sectors, transport nodes, and named objectives already known through maps, aerial photography, naval intelligence, and resistance reporting.
+- Fixed-site knowledge remains separate from live controller, garrison, damage, capacity, and mobile-formation truth.
+- Every player-controlled runtime base has a truthful contribution or arrival responsibility; geographic context that does not own gameplay capability remains briefing-only.
+- Map sprites stay unobtrusive at theater scale. Hover/focus and click disclose identity and purpose; the map list provides the large-target alternative.
+
+### Current behavior
+- Five English logistics hubs and two airfields represent the entire Allied staging network.
+- Thirteen briefed continental records mix military installations and general towns, leaving most of Brittany, the Channel ports, the Seine approaches, the Pas-de-Calais, and the Low Countries visually and operationally blank.
+- The official Neptune loading plan alone names more departure locations than the campaign's complete English base layer; Allied planners also tracked dozens of enemy airfields and coastal batteries.
+
+### Expected new behavior
+- A source-backed grouped site matrix covers every declared theater region with concise historical names and explicit category/purpose.
+- The authored scenario distinguishes actionable Allied runtime bases, immutable known fixed hostile sites, other strategic geography, and uncertain mobile contacts.
+- The opening economy and tactical support balance remain intentional: new base geography redistributes existing abstract capacity unless a sourced new capability has a tested consequence.
+- The content hash and migration policy change deliberately. Pristine openings reseed deterministically; progressed saves fail closed when rules truth cannot be reconstructed without rewriting history.
+
+### Edge cases
+- No added ground/base marker may land on a registered water hex; no fleet marker may land on land.
+- Same-hex known-site/contact records coalesce without losing the historical place name or leaking mobile-force truth.
+- Dense neighboring facilities remain independently selectable at minimum, normal, and close zoom.
+- Sites outside current command responsibility may be known and searchable without exposing a fake action, production, capacity, or garrison.
+- Production remains external theater support routed through England. Beaches, captured ports, airfields, batteries, and towns do not manufacture resources merely because they are strategically important.
+
+### Impact analysis
+- Consumers: campaign scenario adapter/runtime creation, map registration, water validation, formation registry, economy, intelligence projection, map renderer/list/inspector, base-action projection, objectives/front derivation, save content identity, and migration.
+- State/events: added actionable bases or formations change fresh-campaign runtime truth; briefing-only sites do not enter runtime tile order or derive fronts.
+- Visual risk: marker density, hit regions, hover disclosure, list discoverability, and map/inspector identity can regress even when authored coordinates are valid.
+- Gameplay risk: decorative capacities, unintended fronts, doubled production, support-range drift, or unavailable formations entering combat would make a historically richer map mechanically false.
+
+### Verification
+- Add table-driven historical coverage assertions for every theater region and site category.
+- Assert all anchors/sites/tiles are in bounds and agree with registered land/water geometry and at least two independent distance calibrations.
+- Assert the Player projection excludes hostile runtime tiles, capacities, control, condition, forces, and raw palette truth while retaining immutable known-site identity.
+- Assert every actionable Allied base has a state-owned contribution/action or a truthful arrival explanation and that total abstract production/support remains balanced.
+- Assert pristine migration and progressed-save rejection through the normal CampaignState load path.
+- Run focused suites, `npm run test:campaign`, `npm test`, `npm run build`, zero-warning lint, skill validation, and live external-Chrome theater sweeps before one batched push.
+
+---
+
 ## Normandy D+1 Historical Map and Intelligence Clarity Plan
 
 ### Intended behavior

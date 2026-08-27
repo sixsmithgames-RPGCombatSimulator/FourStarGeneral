@@ -888,8 +888,8 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const portland = view?.scenario.tiles.find((tile) => view.scenario.tilePalette[tile.tile]?.mapLabel === "Portland");
     if (!portland || !onHexClick) throw new Error("The Portland base fixture was unavailable.");
     const mapListLabel = document.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label") ?? "";
-    if (!mapListLabel.includes("26 map records")) {
-      throw new Error(`Operational map list lost the seven named Allied bases: ${mapListLabel}.`);
+    if (!mapListLabel.includes("40 map records")) {
+      throw new Error(`Operational map list lost the complete Allied-base and strategic-site inventory: ${mapListLabel}.`);
     }
     const offset = CoordinateSystem.axialToOffset(portland.hex.q, portland.hex.r);
     portlandHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
@@ -906,7 +906,8 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const engagement = document.querySelector<HTMLElement>(".campaign-context-inspector .action-section");
     const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
     if (!routeCopy.includes("What this is")
-      || !routeCopy.includes("Portland, Weymouth, and Poole embarkation sector")
+      || !routeCopy.includes("Omaha-bound American embarkation network")
+      || !routeCopy.includes("Portland · Weymouth · Poole")
       || !routeCopy.includes("Logistics and embarkation")
       || !routeCopy.includes("What is here")
       || !routeCopy.includes("Ready now")

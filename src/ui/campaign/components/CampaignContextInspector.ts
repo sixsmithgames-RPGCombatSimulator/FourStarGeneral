@@ -224,6 +224,7 @@ function resolveInspectorRoute(
         : "No projected installation or force record is present at this location.",
       facts: isFriendlyBase && hex ? [
         { label: "Role", value: `${hex.roleLabel} · ${hex.controlLabel}` },
+        ...(hex.historicalNetwork?.length ? [{ label: "Historical network", value: hex.historicalNetwork.join(" · ") }] : []),
         ...(hex.capabilities?.length ? [{ label: "Provides", value: hex.capabilities.join(" · ") }] : []),
         ...(hex.infrastructure ? [{ label: "Condition", value: hex.infrastructure }] : []),
         ...(hex.objectives.length > 0 ? [{ label: "Supports", value: hex.objectives.join(", ") }] : []),
@@ -233,6 +234,7 @@ function resolveInspectorRoute(
         ...(hex ? [
           { label: "Control", value: hex.controlLabel },
           { label: "Type", value: hex.roleLabel },
+          ...(hex.historicalNetwork?.length ? [{ label: "Includes", value: hex.historicalNetwork.join(" · ") }] : []),
           ...(hex.sourceLabel ? [{ label: "Source", value: hex.sourceLabel }] : []),
           ...(hex.forces.length > 0 ? [{ label: "Projected forces", value: hex.forces.join("; ") }] : []),
           ...(hex.capabilities?.length ? [{ label: "Operational contribution", value: hex.capabilities.join(" · ") }] : []),
@@ -398,6 +400,22 @@ function resolveInspectorRoute(
         { label: "Uncertainty", value: `${contact.uncertaintyRadius} hex radius` },
         { label: "Age", value: `${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"}` },
         ...(contact.strengthBand ? [{ label: "Assessed strength", value: contact.strengthBand }] : [])
+      ],
+      mode: "projected"
+    };
+  }
+  if (selection.kind === "theaterRegion") {
+    const region = view.knownRegions?.find((entry) => entry.id === selection.id);
+    if (!region) return emptyRoute("theaterRegion", selection.id);
+    return {
+      kind: "theaterRegion",
+      title: region.label,
+      summary: region.summary,
+      facts: [
+        { label: "Context", value: region.categoryLabel },
+        { label: "Includes", value: region.locations.join(" · ") },
+        { label: "Command status", value: region.commandStatus },
+        { label: "Source", value: region.sourceLabel }
       ],
       mode: "projected"
     };

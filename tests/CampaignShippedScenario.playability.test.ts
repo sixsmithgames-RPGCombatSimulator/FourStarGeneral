@@ -155,11 +155,16 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
       "Southampton",
       "Tangmere"
     ].sort();
+    const historicalNetworkPlaces = namedEnglishHubs
+      .flatMap((tile) => scenario.tilePalette[tile.tile]?.historicalNetwork ?? []);
     if (missing.length > 0
       || fleetKeys.join("|") !== "22,20|26,18"
       || fleets.some((tile) => (tile.forces?.length ?? 0) > 0)
       || new Set(airborneLocations).size !== 2
-      || namedEnglishHubLabels.join("|") !== expectedEnglishHubLabels.join("|")) {
+      || namedEnglishHubLabels.join("|") !== expectedEnglishHubLabels.join("|")
+      || new Set(historicalNetworkPlaces).size < 30
+      || !["Torbay", "Brixham", "Dartmouth", "Falmouth", "Fowey", "Weymouth", "Poole", "Spithead", "Newhaven", "Shoreham", "Upottery", "Merryfield"]
+        .every((location) => historicalNetworkPlaces.includes(location))) {
       throw new Error(`D+1 order of battle is incomplete: missing=${missing.join(",")} fleets=${fleetKeys.join("|")}.`);
     }
   });
@@ -211,7 +216,8 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
     const victoryKeys = new Set(scenario.campaignArc?.victoryObjectiveKeys ?? []);
     const requiredObjectives = ["hold_lodgment", "capture_cherbourg", "secure_caen", "break_saint_lo", "open_avranches", "close_falaise", "close_argentan", "reach_the_seine"];
     const briefedSites = scenario.briefedStrategicSites ?? [];
-    const knownSites = new Set(briefedSites.map((site) => site.label));
+    const knownSiteKeys = new Set(briefedSites.map((site) => site.key));
+    const briefedRegions = scenario.briefedStrategicRegions ?? [];
     const toOffsetKey = (hex: { q: number; r: number }): string => `${hex.q},${hex.r + Math.floor(hex.q / 2)}`;
     const toAxial = (hexKey: string): { q: number; r: number } => {
       const [q, row] = hexKey.split(",").map(Number);
@@ -230,6 +236,16 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
     const briefedSitesOnFriendlyTiles = briefedSites
       .filter((site) => playerKeys.has(toOffsetKey(site.hex)))
       .map((site) => site.key);
+    const water = new Set(scenario.mapExtents?.waterHexes ?? []);
+    const briefingLeakPattern = /\b(?:division|brigade|battalion|regiment)\b|\b\d+\s+(?:guns?|tanks?|formations?|aircraft)\b|\b(?:ready now|damaged|destroyed|intact|currently operational|serviceable)\b/i;
+    const requiredSiteKeys = [
+      "briefed_cherbourg", "briefed_azeville_crisbecq", "briefed_grandcamp_maisy", "briefed_longues",
+      "briefed_douvres", "briefed_merville", "briefed_caen", "briefed_carentan", "briefed_bayeux",
+      "briefed_saint_lo", "briefed_avranches", "briefed_falaise", "briefed_argentan", "briefed_le_havre",
+      "briefed_dieppe", "briefed_rouen", "briefed_evreux_chartres", "briefed_paris", "briefed_pas_de_calais",
+      "briefed_low_countries", "briefed_brest", "briefed_saint_malo", "briefed_lorient", "briefed_st_nazaire"
+    ];
+    const siteRows = briefedSites.map((site) => site.hex.r + Math.floor(site.hex.q / 2));
     const reachable = new Set(scenario.fronts.flatMap((front) => front.edges ?? [])
       .map((edge) => edge.opposingHexKey)
       .filter((key) => botKeys.has(key)));
@@ -251,10 +267,16 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
       .map((objective) => objective.key);
     if (phases.join("|") !== "lodgment|expansion|breakout|encirclement|pursuit"
       || requiredObjectives.some((key) => !victoryKeys.has(key))
-      || !knownSites.has("Cherbourg") || !knownSites.has("Caen")
-      || !knownSites.has("Saint-Lô") || !knownSites.has("Rouen and the Seine crossings")
-      || !knownSites.has("Pas-de-Calais defenses") || !knownSites.has("Brest")
-      || briefedSites.length !== 13
+      || requiredSiteKeys.some((key) => !knownSiteKeys.has(key))
+      || briefedSites.length !== 24
+      || briefedRegions.length !== 3
+      || !briefedRegions.some((region) => region.key === "briefed_thames_nore" && region.locations.includes("Felixstowe") && region.locations.includes("Harwich"))
+      || briefedSites.some((site) => !site.sourceLabel.trim() || !site.category || !site.locationPrecision || water.has(`${site.hex.q},${site.hex.r}`))
+      || briefedSites.some((site) => briefingLeakPattern.test(site.summary))
+      || Math.min(...briefedSites.map((site) => site.hex.q)) > 5
+      || Math.max(...briefedSites.map((site) => site.hex.q)) < 56
+      || Math.min(...siteRows) > 12
+      || Math.max(...siteRows) < 44
       || briefedSitesOnFriendlyTiles.length > 0
       || unreachablePrimaryTargets.length > 0) {
       throw new Error("The registered full-theater map collapsed back into a beachhead-only vignette.");
