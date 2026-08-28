@@ -3,6 +3,10 @@ import type { CampaignEnemyContactView, CampaignMapViewModel } from "../core/cam
 import { HEX_RADIUS, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem } from "./CoordinateSystem";
 import { getSpriteForScenarioType } from "../data/unitSpriteCatalog";
+import {
+  resolveCampaignBaseCommandLabel,
+  resolveCampaignForceGroupCommandLabel
+} from "../game/campaign/formations/CampaignFormationPresentation";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const HEX_STROKE = "#0e1a2b";
@@ -880,15 +884,21 @@ export class CampaignMapRenderer {
       if (!center) return;
 
       const readyForces = this.resolveForces(instance, scenario)?.filter((force) => force.count > 0) ?? [];
-      const forceLines = readyForces.slice(0, 2).map((force) => (
-        `${this.formatMarkerLabel(force.label ?? force.unitType)} · ${force.count}`
-      ));
-      if (readyForces.length > 2) forceLines.push(`+${readyForces.length - 2} more formation groups`);
-      if (forceLines.length === 0) forceLines.push("No formations currently ready");
       const roleLabel = this.formatMarkerLabel(palette.role);
-      const networkLocations = (palette.historicalNetwork ?? []).filter((location) => location !== baseName);
-      const networkLines = this.wrapDisclosureText("Network", networkLocations);
-      const disclosureLines = [roleLabel, ...networkLines, ...forceLines, "Select for full roster"];
+      const totalReady = readyForces.reduce((sum, force) => sum + force.count, 0);
+      const commandLabels = Array.from(new Set(readyForces.map((force) => (
+        resolveCampaignForceGroupCommandLabel(force.label, force.unitType)
+      ))));
+      const baseCommandLabel = resolveCampaignBaseCommandLabel(baseName);
+      const formationNoun = palette.role === "airbase" ? "air formations" : "formations";
+      const commandSummary = totalReady === 0
+        ? "No formations ready"
+        : baseCommandLabel
+          ? `${baseCommandLabel} · ${totalReady} ${formationNoun} ready`
+        : commandLabels.length === 1
+          ? `${commandLabels[0]} · ${totalReady} formation${totalReady === 1 ? "" : "s"} ready`
+          : `${commandLabels[0]} + ${commandLabels.length - 1} command${commandLabels.length === 2 ? "" : "s"} · ${totalReady} ready`;
+      const disclosureLines = [commandSummary];
       const longestLine = [baseName, ...disclosureLines].reduce((longest, line) => Math.max(longest, line.length), 0);
       const cardWidth = Math.min(300, Math.max(168, longestLine * fontSize * 0.56 + 28));
       const cardHeight = 19 + disclosureLines.length * lineHeight + 12;
@@ -899,13 +909,7 @@ export class CampaignMapRenderer {
       const cardY = Math.max(6, Math.min(this.mapPixelHeight - cardHeight - 6, center.cy - cardHeight / 2));
       const cardEdgeX = prefersRight ? cardX : cardX + cardWidth;
       const triggerRadius = THEATER_BASE_HIT_RADIUS;
-      const formationSummary = readyForces.length > 0
-        ? readyForces.map((force) => `${force.count} ${this.formatMarkerLabel(force.label ?? force.unitType)}`).join(", ")
-        : "no formations currently ready";
-      const networkSummary = palette.historicalNetwork?.length
-        ? ` Represents ${palette.historicalNetwork.join(", ")}.`
-        : "";
-      const accessibleName = `${baseName}, ${roleLabel}, ${formationSummary}.${networkSummary} Select for base and formation details.`;
+      const accessibleName = `${baseName}, ${roleLabel}. ${commandSummary}. Select for orders and assigned formations.`;
       const spriteKey = palette.spriteKey ?? palette.role;
       const asset = CAMPAIGN_SPRITES[spriteKey];
       if (!asset) {
@@ -921,10 +925,6 @@ export class CampaignMapRenderer {
       marker.setAttribute("role", "button");
       marker.setAttribute("tabindex", "0");
       marker.setAttribute("aria-label", accessibleName);
-
-      const title = document.createElementNS(SVG_NS, "title");
-      title.textContent = accessibleName;
-      marker.appendChild(title);
 
       // This badge is the overview-scale identity owner. Counter-scaling in CSS keeps its physical
       // footprint stable while the authored map and ordinary strategic sprites continue to zoom.
@@ -1020,9 +1020,9 @@ export class CampaignMapRenderer {
         text.textContent = line;
         text.setAttribute("x", String(cardX + 11));
         text.setAttribute("y", String(cardY + 34 + index * lineHeight));
-        text.setAttribute("font-size", String(index === disclosureLines.length - 1 ? fontSize - 1 : fontSize));
-        text.setAttribute("font-weight", index === 0 ? "600" : "400");
-        text.setAttribute("fill", index === disclosureLines.length - 1 ? "#d1b160" : "#d9e1d5");
+        text.setAttribute("font-size", String(fontSize));
+        text.setAttribute("font-weight", "600");
+        text.setAttribute("fill", "#d9e1d5");
         disclosure.appendChild(text);
       });
 

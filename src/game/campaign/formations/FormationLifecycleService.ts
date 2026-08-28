@@ -21,6 +21,7 @@ import type {
   CampaignFormationRecord,
   CampaignFormationStatus
 } from "./campaignFormationTypes";
+import { resolveCampaignFormationPresentation } from "./CampaignFormationPresentation";
 
 const TERMINAL_FORMATION_STATUSES = new Set<CampaignFormationStatus>(["destroyed", "captured"]);
 
@@ -209,8 +210,6 @@ export function seedLegacyCampaignFormationRegistry(
 ): CampaignFormationRegistrySeed {
   const formationOrder: string[] = [];
   const formations: Record<string, CampaignFormationRecord> = {};
-  const displayCounts = new Map<string, number>();
-
   tileOrder.forEach((hexKey) => {
     const tile = tiles[hexKey];
     if (!tile) return;
@@ -218,9 +217,6 @@ export function seedLegacyCampaignFormationRegistry(
     tile.forces.forEach((group, groupIndex) => {
       for (let ordinal = 0; ordinal < group.count; ordinal += 1) {
         const faction = tile.controller;
-        const displayKey = `${String(faction)}|${group.unitType}`;
-        const displayOrdinal = (displayCounts.get(displayKey) ?? 0) + 1;
-        displayCounts.set(displayKey, displayOrdinal);
         const id = createStableCampaignRecordId(
           "formation",
           campaignId,
@@ -230,15 +226,16 @@ export function seedLegacyCampaignFormationRegistry(
           groupIndex,
           ordinal
         );
-        const baseLabel = group.label?.trim() || formatFormationType(group.unitType);
-        const name = group.count === 1 && group.label?.trim()
-          ? group.label.trim()
-          : `${baseLabel} ${displayOrdinal}`;
+        const presentation = resolveCampaignFormationPresentation({
+          legacyLabel: group.label,
+          legacyOrdinal: ordinal,
+          unitType: group.unitType
+        });
         const record = createCampaignFormationRecord({
           id,
           faction,
           ownership: formationOwnershipForFaction(faction),
-          name,
+          name: presentation.formationName,
           campaignUnitType: group.unitType,
           locationHexKey: hexKey,
           createdSegment,
@@ -546,19 +543,8 @@ export function reconcileCampaignFormationForceCounts(
   assignMatching((formation, slot) => formation.faction === slot.faction
     && formation.campaignUnitType === slot.unitType);
 
-  const displayCounts = new Map<string, number>();
-  runtime.formationOrder.forEach((id) => {
-    const formation = runtime.formations[id];
-    if (!formation) return;
-    const key = `${String(formation.faction)}|${formation.campaignUnitType}`;
-    displayCounts.set(key, (displayCounts.get(key) ?? 0) + 1);
-  });
-
   desired.forEach((slot, slotIndex) => {
     if (assignments.has(slotIndex)) return;
-    const displayKey = `${String(slot.faction)}|${slot.unitType}`;
-    const displayOrdinal = (displayCounts.get(displayKey) ?? 0) + 1;
-    displayCounts.set(displayKey, displayOrdinal);
     let collision = 0;
     let id = "";
     do {
@@ -577,12 +563,16 @@ export function reconcileCampaignFormationForceCounts(
       );
       collision += 1;
     } while (runtime.formations[id]);
-    const baseLabel = slot.label || formatFormationType(slot.unitType);
+    const presentation = resolveCampaignFormationPresentation({
+      legacyLabel: slot.label,
+      legacyOrdinal: slot.ordinal,
+      unitType: slot.unitType
+    });
     const record = createCampaignFormationRecord({
       id,
       faction: slot.faction,
       ownership: formationOwnershipForFaction(slot.faction),
-      name: `${baseLabel} ${displayOrdinal}`,
+      name: presentation.formationName,
       campaignUnitType: slot.unitType,
       locationHexKey: slot.hexKey,
       createdSegment: segment,

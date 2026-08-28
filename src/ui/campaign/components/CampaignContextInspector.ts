@@ -14,6 +14,13 @@ interface InspectorFormationGroup {
   readonly formations: readonly CampaignCommandFormationView[];
 }
 
+interface InspectorCommandGroup {
+  readonly commandLabel: string;
+  readonly typeLabel: string;
+  readonly formations: readonly CampaignCommandFormationView[];
+  readonly showSubordinates: boolean;
+}
+
 interface CampaignInspectorRoute {
   readonly kind: Exclude<CampaignCommandSelection, null>["kind"] | "none";
   readonly title: string;
@@ -27,6 +34,8 @@ interface CampaignInspectorRoute {
   readonly showSelectionActions?: boolean;
   readonly showEngagementAction?: boolean;
   readonly actionSummary?: string;
+  readonly identityHeading?: string;
+  readonly presenceHeading?: string;
   readonly mapTarget?: { readonly hexKey: string; readonly label: string };
 }
 
@@ -44,7 +53,7 @@ export function createCampaignContextInspector(workspacePanel: HTMLElement): HTM
   inspector.setAttribute("aria-labelledby", "campaignInspectorTitle");
   inspector.innerHTML = `
     <header class="campaign-context-inspector__header">
-      <div><span>Context inspector</span><h2 id="campaignInspectorTitle" tabindex="-1">Selection</h2></div>
+      <div><span>Field report</span><h2 id="campaignInspectorTitle" tabindex="-1">Selection</h2></div>
       <button type="button" data-close-campaign-inspector aria-label="Close context inspector">×</button>
     </header>
     <p id="campaignInspectorStatus" class="campaign-context-inspector__status" role="status" aria-live="polite"></p>
@@ -52,7 +61,7 @@ export function createCampaignContextInspector(workspacePanel: HTMLElement): HTM
       <section id="campaignContextInspectorRoute" class="campaign-context-inspector__route" hidden></section>
     </div>
     <footer class="campaign-context-inspector__action-footer" hidden>
-      <h3 id="campaignInspectorActionsTitle">What can I do</h3>
+      <h3 id="campaignInspectorActionsTitle">Orders</h3>
       <p class="campaign-context-inspector__action-summary" hidden></p>
     </footer>
   `;
@@ -147,7 +156,7 @@ function renderFriendlyBaseRoute(route: CampaignInspectorRoute): HTMLElement[] {
   identity.className = "campaign-context-inspector__section campaign-context-inspector__identity";
   const identityTitle = `campaignInspectorIdentity-${route.kind}`;
   identity.setAttribute("aria-labelledby", identityTitle);
-  const heading = createText("h3", "", "What this is");
+  const heading = createText("h3", "", route.identityHeading ?? "Position");
   heading.id = identityTitle;
   identity.append(heading, createText("p", "campaign-context-inspector__summary", route.summary));
   if (route.facts.length > 0) identity.appendChild(createFacts(route.facts));
@@ -156,7 +165,7 @@ function renderFriendlyBaseRoute(route: CampaignInspectorRoute): HTMLElement[] {
   presence.className = "campaign-context-inspector__section campaign-context-inspector__formations";
   const presenceTitle = `campaignInspectorPresence-${route.kind}`;
   presence.setAttribute("aria-labelledby", presenceTitle);
-  const presenceHeading = createText("h3", "", "What is here");
+  const presenceHeading = createText("h3", "", route.presenceHeading ?? "Assigned formations");
   presenceHeading.id = presenceTitle;
   presence.appendChild(presenceHeading);
 
@@ -168,7 +177,31 @@ function renderFriendlyBaseRoute(route: CampaignInspectorRoute): HTMLElement[] {
     const groupTitle = createText("h4", "", `${group.label} (${group.formations.length})`);
     const list = document.createElement("div");
     list.className = "campaign-context-inspector__formation-list";
-    group.formations.forEach((formation) => list.appendChild(createFormationButton(formation, group.key)));
+    groupBaseCommands(group.formations).forEach((command) => {
+      if (!command.showSubordinates) {
+        const summary = document.createElement("article");
+        summary.className = "campaign-context-inspector__command-summary";
+        summary.append(
+          createText("strong", "", command.commandLabel),
+          createText("span", "", `${command.formations.length} ${command.typeLabel}${command.formations.length === 1 ? "" : "s"}`)
+        );
+        list.appendChild(summary);
+        return;
+      }
+      const disclosure = document.createElement("details");
+      disclosure.className = "campaign-context-inspector__command";
+      const summary = document.createElement("summary");
+      const subordinateNoun = command.typeLabel.toLowerCase().includes("squadron") ? "squadron" : "unit";
+      summary.append(
+        createText("strong", "", command.commandLabel),
+        createText("span", "", `${command.formations.length} ${subordinateNoun}${command.formations.length === 1 ? "" : "s"} · select to inspect`)
+      );
+      const subordinates = document.createElement("div");
+      subordinates.className = "campaign-context-inspector__command-units";
+      command.formations.forEach((formation) => subordinates.appendChild(createFormationButton(formation, group.key)));
+      disclosure.append(summary, subordinates);
+      list.appendChild(disclosure);
+    });
     groupElement.append(groupTitle, list);
     presence.appendChild(groupElement);
   });
@@ -223,8 +256,15 @@ function resolveInspectorRoute(
         ? hex.summary ?? `${hex.roleLabel} under ${hex.controlLabel.toLowerCase()}.`
         : "No projected installation or force record is present at this location.",
       facts: isFriendlyBase && hex ? [
-        { label: "Role", value: `${hex.roleLabel} · ${hex.controlLabel}` },
-        ...(hex.historicalNetwork?.length ? [{ label: "Historical network", value: hex.historicalNetwork.join(" · ") }] : []),
+        { label: "Status", value: `${hex.roleLabel} · ${hex.controlLabel}` },
+        ...(hex.historicalNetwork?.length ? [{
+          label: hex.roleLabel === "Air base"
+            ? "Satellite airfields"
+            : hex.roleLabel === "Naval base"
+              ? "Associated anchorages"
+              : "Associated ports",
+          value: hex.historicalNetwork.join(" · ")
+        }] : []),
         ...(hex.capabilities?.length ? [{ label: "Provides", value: hex.capabilities.join(" · ") }] : []),
         ...(hex.infrastructure ? [{ label: "Condition", value: hex.infrastructure }] : []),
         ...(hex.objectives.length > 0 ? [{ label: "Supports", value: hex.objectives.join(", ") }] : []),
@@ -246,7 +286,13 @@ function resolveInspectorRoute(
       ...(isFriendlyBase ? {
         presentation: "friendlyBase" as const,
         formationGroups,
-        fallbackPresence: locatedFormations.length === 0 ? hex?.forces ?? [] : []
+        fallbackPresence: locatedFormations.length === 0 ? hex?.forces ?? [] : [],
+        identityHeading: hex.roleLabel === "Air base"
+          ? "Air station"
+          : hex.roleLabel === "Naval base"
+            ? "Naval station"
+            : "Embarkation port",
+        presenceHeading: hex.roleLabel === "Air base" ? "Assigned air commands" : "Assigned commands"
       } : { formations: locatedFormations }),
       mode: showSelectionActions || showEngagementAction ? "projectedWithActions" : "projected",
       showSelectionActions,
@@ -466,6 +512,20 @@ function groupBaseFormations(formations: readonly CampaignCommandFormationView[]
     { key: "committed", label: "Committed or in transit", formations: committed },
     { key: "arriving", label: "Arriving here", formations: arriving }
   ];
+}
+
+function groupBaseCommands(formations: readonly CampaignCommandFormationView[]): InspectorCommandGroup[] {
+  const commands = new Map<string, CampaignCommandFormationView[]>();
+  formations.forEach((formation) => {
+    const commandLabel = formation.commandLabel ?? formation.name;
+    commands.set(commandLabel, [...(commands.get(commandLabel) ?? []), formation]);
+  });
+  return Array.from(commands.entries()).map(([commandLabel, members]) => ({
+    commandLabel,
+    typeLabel: Array.from(new Set(members.map((member) => member.typeLabel))).join(" / "),
+    formations: members,
+    showSubordinates: members.every((member) => member.hasAuthoredSubordinateIdentity === true)
+  }));
 }
 
 function emptyRoute(kind: Exclude<CampaignCommandSelection, null>["kind"], _id: string): CampaignInspectorRoute {

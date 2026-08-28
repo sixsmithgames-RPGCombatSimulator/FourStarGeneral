@@ -184,6 +184,8 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
     ) => ({
       id,
       name,
+      commandLabel: "First Army",
+      hasAuthoredSubordinateIdentity: true,
       typeLabel: "Infantry",
       ownershipLabel: "Core",
       locationHexKey: "4,5",
@@ -271,9 +273,9 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
     const nameOccurrences = (routeCopy.match(/1st Infantry Division/g) ?? []).length;
     if (inspector?.getAttribute("aria-labelledby") !== "campaignInspectorTitle"
       || inspector?.dataset.presentation !== "friendlyBase"
-      || headings.indexOf("What this is") < 0
-      || headings.indexOf("What is here") <= headings.indexOf("What this is")
-      || headings.indexOf("What can I do") <= headings.indexOf("What is here")
+      || headings.indexOf("Embarkation port") < 0
+      || headings.indexOf("Assigned commands") <= headings.indexOf("Embarkation port")
+      || headings.indexOf("Orders") <= headings.indexOf("Assigned commands")
       || !headings.includes("Ready now (1)")
       || !headings.includes("Committed or in transit (1)")
       || !headings.includes("Arriving here (1)")
@@ -305,7 +307,7 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
     back.click();
     if (body.scrollTop !== 0
       || inspector?.dataset.presentation !== "friendlyBase"
-      || !route?.textContent?.includes("What is here")) {
+      || !route?.textContent?.includes("Assigned commands")) {
       throw new Error("Returning from exact formation detail did not restore the base at the top of its route.");
     }
     screen.revealInspector({ kind: "hex", id: "8,8" });

@@ -425,6 +425,60 @@
   gap: 0.4rem;
 }
 
+.campaign-context-inspector__command,
+.campaign-context-inspector__command-summary {
+  overflow: hidden;
+  border: 1px solid var(--campaign-color-border);
+  border-radius: var(--campaign-radius-small);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.campaign-context-inspector__command > summary,
+.campaign-context-inspector__command-summary {
+  display: grid;
+  gap: 0.16rem;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.65rem;
+  color: var(--campaign-color-text);
+}
+
+.campaign-context-inspector__command > summary {
+  position: relative;
+  padding-right: 2rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.campaign-context-inspector__command > summary::-webkit-details-marker { display: none; }
+.campaign-context-inspector__command > summary::after {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  content: "+";
+  color: var(--campaign-color-accent);
+  font-size: 1rem;
+  transform: translateY(-50%);
+}
+.campaign-context-inspector__command[open] > summary::after { content: "−"; }
+.campaign-context-inspector__command > summary:hover,
+.campaign-context-inspector__command > summary:focus-visible {
+  background: rgba(212, 173, 89, 0.08);
+  outline: none;
+}
+
+.campaign-context-inspector__command strong,
+.campaign-context-inspector__command-summary strong { font-size: 0.76rem; line-height: 1.25; }
+.campaign-context-inspector__command span,
+.campaign-context-inspector__command-summary span { color: var(--campaign-color-text-muted); font-size: 0.69rem; line-height: 1.35; }
+.campaign-context-inspector__command-units {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border-top: 1px solid var(--campaign-color-border);
+  background: rgba(0, 0, 0, 0.12);
+}
+
 .campaign-context-inspector__formation-group {
   display: grid;
   gap: 0.38rem;
@@ -1160,7 +1214,21 @@
 .redeploy-issue small { color: rgba(239, 198, 183, 0.78); line-height: 1.35; }
 
 #campaignScreen[data-campaign-command-ui="v2"] .campaign-order-tray__actions {
-  align-items: stretch;
+  align-items: center;
+  height: 44px;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-order-tray {
+  min-height: 56px;
+  max-height: 56px;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-order-tray__actions {
+  min-width: 0;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-order-commit-feedback {
+  width: min(520px, 60vw);
 }
 
 .campaign-order-commit-feedback {

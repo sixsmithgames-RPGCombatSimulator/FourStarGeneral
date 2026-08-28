@@ -197,10 +197,11 @@ registerTest("CAMPAIGN_RENDERER_REVEALS_FRIENDLY_BASES_WITHOUT_PERMANENT_LABEL_C
       || markers.length !== 2
       || bristol?.getAttribute("role") !== "button"
       || bristol.getAttribute("tabindex") !== "0"
-      || !bristol.getAttribute("aria-label")?.includes("Bristol, Logistics Hub, no formations currently ready")
+      || !bristol.getAttribute("aria-label")?.includes("Bristol, Logistics Hub. No formations ready")
       || bristolHitRadius !== 11
-      || !bristolCard?.textContent?.includes("No formations currently ready")
-      || !portsmouthCard?.textContent?.includes("Sword supply columns · 2")
+      || !bristolCard?.textContent?.includes("No formations ready")
+      || !portsmouthCard?.textContent?.includes("British Second Army · 2 formations ready")
+      || Boolean(bristol.querySelector("title"))
       || !cardsStayInsideMap) {
       throw new Error("Friendly-base disclosure lost historical identity, accessibility, bounded geometry, or decluttering.");
     }
@@ -275,9 +276,10 @@ registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_
     if (baseMarkers.length !== 7
       || knownSiteMarkers.length !== 24
       || expectedBases.some((label) => !baseNames.has(label) || permanentLabels.has(label))
-      || !svg.querySelector('.campaign-base-marker[data-base-name="Plymouth"] .campaign-base-disclosure')?.textContent?.includes("Torbay")
+      || !svg.querySelector('.campaign-base-marker[data-base-name="Plymouth"] .campaign-base-disclosure')?.textContent?.includes("U.S. First Army")
       || svg.querySelector('.campaign-force-stack[data-hex="5,5"]')
-      || !bristolMarker?.textContent?.includes("No formations currently ready")
+      || !bristolMarker?.textContent?.includes("No formations ready")
+      || Boolean(bristolMarker?.querySelector("title"))
       || [...expectedKnownLabels].some((label) => permanentLabels.has(label))
       || !baseMarkerContractHolds
       || !siteMarkerContractHolds

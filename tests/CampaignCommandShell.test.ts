@@ -239,6 +239,7 @@ registerTest("CAMPAIGN_COMMAND_SHELL_OPERATES_TYPED_DRAFT_TRAY", async ({ Given,
   let root: HTMLElement;
   let committed = 0;
   let removed = "";
+  let drawerFocusedOnOpen = false;
 
   await Given("one valid typed draft in the Campaign 2.0 order tray", async () => {
     root = mountCommandShellFixture();
@@ -283,17 +284,27 @@ registerTest("CAMPAIGN_COMMAND_SHELL_OPERATES_TYPED_DRAFT_TRAY", async ({ Given,
   });
 
   await When("the player commits and removes through explicit tray controls", async () => {
+    root.querySelector<HTMLButtonElement>("#campaignOrdersToggle")?.click();
+    drawerFocusedOnOpen = root.querySelector("[data-close-campaign-orders]")?.matches(":focus") ?? false;
     root.querySelector<HTMLButtonElement>("#campaignCommitOrders")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-order-card__actions button")?.click();
   });
 
   await Then("draft count, enabled commit, and callbacks expose a first-class order loop", async () => {
     const commitButton = root.querySelector<HTMLButtonElement>("#campaignCommitOrders");
-    if (root.querySelector("#campaignDraftOrderCount")?.textContent !== "1" || commitButton?.disabled) {
+    const drawer = root.querySelector<HTMLElement>("#campaignOrdersDrawer");
+    const toggle = root.querySelector<HTMLButtonElement>("#campaignOrdersToggle");
+    if (root.querySelector("#campaignDraftOrderCount")?.textContent !== "1"
+      || commitButton?.disabled
+      || drawer?.hidden
+      || toggle?.getAttribute("aria-expanded") !== "true") {
       throw new Error("Valid typed draft did not enable atomic commit or update the tray count.");
     }
     if (committed !== 1 || removed !== "draft-1") {
       throw new Error("Typed tray commit/remove gestures did not reach controller callbacks.");
+    }
+    if (!drawerFocusedOnOpen) {
+      throw new Error("Opening the orders drawer did not move focus to its close control.");
     }
   });
 });
@@ -841,26 +852,18 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
     if (!inspectorCopy.includes("Bristol")
       || !inspectorCopy.includes("Logistics and embarkation")
       || !inspectorCopy.includes("+9 Allied support points daily")
-      || !inspectorCopy.includes("What this is")
-      || !inspectorCopy.includes("What is here")
-      || !inspectorCopy.includes("What can I do")
+      || !inspectorCopy.includes("Embarkation port")
+      || !inspectorCopy.includes("Assigned commands")
+      || !inspectorCopy.includes("Orders")
       || !inspectorCopy.includes("Reinforcements arrive")
-      || !inspectorCopy.includes("U.S. 2nd Infantry Division advance groups")
-      || !inspectorCopy.includes("U.S. 90th Infantry Division advance groups")
-      || !inspectorCopy.includes("Arrives D+1 · 7 June 1944")
+      || !inspectorCopy.includes("U.S. 2nd Infantry Division")
+      || !inspectorCopy.includes("U.S. 90th Infantry Division")
+      || !inspectorCopy.includes("Arriving here")
       || /segment\s+[68]/i.test(inspectorCopy)
-      || formationButtons.length !== 6
+      || formationButtons.length !== 0
       || /Plan redeployment/i.test(inspectorCopy)
       || !document.querySelector<HTMLElement>(".campaign-context-inspector .action-section")?.hidden) {
       throw new Error(`Empty staging base exposed a misleading ground action: ${inspectorCopy}`);
-    }
-    formationButtons[0]?.click();
-    const formationTitle = document.getElementById("campaignInspectorTitle")?.textContent ?? "";
-    const formationCopy = route?.textContent ?? "";
-    if (!formationTitle.includes("U.S. 2nd Infantry Division advance groups")
-      || !formationCopy.includes("Unavailable")
-      || !formationCopy.includes("Readiness")) {
-      throw new Error("A scheduled base formation did not route to its detailed persistent-formation inspector.");
     }
     campaignState.reset();
   });
@@ -904,25 +907,19 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const routeCopy = route?.textContent?.replace(/\s+/g, " ").trim() ?? "";
     const selection = document.querySelector<HTMLElement>(".campaign-context-inspector .selection-section");
     const engagement = document.querySelector<HTMLElement>(".campaign-context-inspector .action-section");
-    const formationButtons = Array.from(route?.querySelectorAll<HTMLButtonElement>("[data-campaign-formation-id]") ?? []);
-    if (!routeCopy.includes("What this is")
+    if (!routeCopy.includes("Embarkation port")
       || !routeCopy.includes("Omaha-bound American embarkation network")
       || !routeCopy.includes("Portland · Weymouth · Poole")
       || !routeCopy.includes("Logistics and embarkation")
-      || !routeCopy.includes("What is here")
+      || !routeCopy.includes("Assigned commands")
       || !routeCopy.includes("Ready now")
+      || !routeCopy.includes("U.S. First Army Service Command")
       || routeCopy.includes("Projected forces")
       || routeCopy.includes(`hex ${portlandHexKey}`)
-      || formationButtons.length === 0
       || selection?.hidden
       || !selection?.textContent?.includes("Move or embark formations")
       || !engagement?.hidden) {
       throw new Error(`Portland did not present a concise truthful base route: ${routeCopy} / ${selection?.textContent ?? ""}.`);
-    }
-    formationButtons[0]?.click();
-    const back = route?.querySelector<HTMLButtonElement>(`[data-campaign-map-hex-target="${portlandHexKey}"]`);
-    if (!back?.textContent?.includes("Back to Portland")) {
-      throw new Error("Formation drill-in lost its named route back to Portland.");
     }
     campaignState.reset();
   });

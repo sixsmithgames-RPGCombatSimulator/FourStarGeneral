@@ -36,6 +36,7 @@ import {
   type CampaignActionContext,
   type CampaignActionId
 } from "../campaign/CampaignOrderExperience";
+import { resolveCampaignFormationPresentation } from "../../game/campaign/formations/CampaignFormationPresentation";
 
 interface CampaignScreenStatusMessage {
   title: string;
@@ -2689,6 +2690,11 @@ export class CampaignScreen {
       return leftPriority - rightPriority || left.hexKey.localeCompare(right.hexKey) || left.label.localeCompare(right.label);
     });
     const formations = this.campaignState.getCampaignFormationRoster("Player").map((formation) => {
+      const formationPresentation = resolveCampaignFormationPresentation({
+        legacyLabel: formation.origin.legacyLabel,
+        legacyOrdinal: formation.origin.legacyOrdinal,
+        unitType: formation.campaignUnitType
+      });
       const locationHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
       const personnelPools = Object.values(formation.personnel);
       const fit = personnelPools.reduce((sum, pool) => sum + pool.fit, 0);
@@ -2709,8 +2715,10 @@ export class CampaignScreen {
         : null;
       return {
         id: formation.id,
-        name: formation.name,
-        typeLabel: this.formatCampaignLabel(formation.campaignUnitType),
+        name: formationPresentation.formationName,
+        commandLabel: formationPresentation.commandLabel,
+        hasAuthoredSubordinateIdentity: formationPresentation.hasAuthoredSubordinateIdentity,
+        typeLabel: formationPresentation.typeLabel,
         ownershipLabel: formation.ownership.charAt(0).toUpperCase() + formation.ownership.slice(1),
         locationHexKey,
         statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),

@@ -1,3 +1,161 @@
+## 2026-08-27 — Campaign command interface and period-literacy overhaul
+
+### Decision
+- Treat the campaign map as an operational command map, not a database browser. One hex owns one clear map identity; its complete roster, regional relationships, and capabilities appear only after deliberate selection.
+- Remove implementation and museum-language from the player experience. `Historical network`, `What this is`, `What is here`, and `What can I do` are replaced by period-appropriate, task-oriented language.
+- Stop generating visible unit names from a base, destination, unit type, and global ordinal. Every player-visible formation receives a sourced or explicitly authored WWII formation identity at the correct echelon.
+- Collapse the idle bottom tray into a compact command strip. The full order tray and timeline become drawers that open only when the player requests them or when a draft, conflict, mandatory interruption, or new report requires attention.
+- Preserve the authoritative campaign model, exact formation identity, save behavior, intelligence boundary, and order legality. This overhaul changes presentation and authored identity first; it does not disguise rule changes as visual cleanup.
+
+### Why the current interface fails
+- `historicalNetwork` is an authoring convenience that currently leaks directly into both the hover card and inspector. A WWII commander would see `Satellite airfields`, `Embarkation ports`, `Assigned sector`, or a real supply route—not a generic historical network.
+- The hover disclosure combines base type, every represented place, formation summaries, and an instruction. It also owns an SVG `<title>`, so the browser can place a second native tooltip over the authored card. The result is two overlapping explanations for one marker.
+- Every positive aggregate count becomes a persistent formation and receives a generated visible suffix. That is why Tangmere becomes a scroll of `Eastern tactical fighter groups 8`, `9`, `10`, and `11`, and why Southampton and Portsmouth name battalions after intended beaches. The identifiers are stable for state, but the names are not acceptable player-facing identities.
+- The base inspector lists atomic records rather than an intelligible chain of command. Useful actions are pushed below a long roster, while generic explanatory headings and repeated role/control facts consume the first screen.
+- The campaign shell reserves 96 px for an empty order tray and 132 px when populated. That is appropriate for an open planning surface, not an idle state. The permanent height reduces the primary map—the place where most campaign decisions begin.
+- Several English sites represent multiple facilities at the 10 km scale. That abstraction is defensible only when the primary marker remains a real place and the related facilities are disclosed as subordinate/satellite locations. Cramming all place names into the marker makes the abstraction look like a geographic error.
+
+### Reference-game lessons to adopt
+
+| Reference | Relevant pattern | Four Star General application |
+| --- | --- | --- |
+| [Gary Grigsby's War in the West manual](https://www.matrixgames.com/amazon/PDF/WarintheWestmanualPREVIEW.pdf) | A selected hex opens a unit bar with one box per operational unit; the map counter remains bounded, unit names lead to deeper detail, air groups are assigned to fixed air bases, and air directives carry the operational order. | Keep base/unit markers compact, group the roster by real formation, and move complete strength/readiness/attachment detail into drill-down. Airfields host named wings/groups; they do not manufacture generic numbered copies. |
+| [Unity of Command II manual](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/809230/manuals/Manual_-_Unity_of_Command_II_-_Revision_9.pdf) | The map remains the primary surface; unit strength is communicated beside the unit, selection reveals details, and supply/HQ capabilities become contextual overlays or actions. | Put only identity, broad state, and a small stack/readiness signal on the map. Reveal range, supply, assigned units, and legal orders contextually after selection. |
+| [Decisive Campaigns: Ardennes Offensive manual](https://ftp.matrixgames.com/pub/DecisiveCampaignsArdennesOffensive/DC%20Ardennes%20manual%20EBOOK.pdf) | The game explicitly aims to reduce interface overwhelm without reducing simulation complexity; direct selection and contextual order modes keep turns moving. | Complexity remains in state and detail views, while selection leads directly to the few legal orders for the selected command object. |
+| [Strategic Command WWII: World at War manual](https://ftp.matrixgames.com/pub/amazon/PDF/Strategic%20Command%20WWII%20World%20at%20War%20EBOOK.pdf) | The player can choose sprites or counters, while fog of war hides enemy production, strength, and other unearned facts. | Preserve the current sprite-first direction and Player-safe intelligence boundary; do not compensate for sparse presentation by exposing hidden enemy truth. |
+
+These are design references, not templates to copy. Four Star General should retain its own visual language, continuous three-hour campaign clock, exact formation persistence, and campaign-to-tactical handoff.
+
+### Target player experience
+
+#### 1. Map: one clear object per hex
+- A base at normal zoom shows one installation sprite, a selection/faction ring, and at most one compact state badge such as `3 wings ready` or `6 formations due`.
+- Hover or keyboard focus shows one bounded disclosure, normally two lines:
+  - `RAF Tangmere`
+  - `No. 126 (RCAF) Wing · 3 squadrons ready`
+- The disclosure never lists every represented place or every atomic formation. It contains no instruction such as `Select for full roster`; cursor/focus styling and accessible semantics already communicate interactivity.
+- Click, Enter, Space, touch, and the map list select the same base and open the same inspector route.
+- Remove the native-tooltip collision. The SVG `<title>` must not duplicate a custom visual card. Keep the full accessible name through `aria-label` and provide one authored visual disclosure.
+- Distinct rules-bearing installations occupy distinct registered hexes when the 10 km map and background geography support them. A scale-consolidated base keeps one principal historical name; secondary locations appear only in its details as `Satellite airfields`, `Associated ports`, or `Embarkation anchorages`.
+- Nearby markers cluster or suppress subordinate badges at theater zoom; the selected/hovered object can expand without covering a sibling marker center.
+
+#### 2. Inspector: identity, assigned command, orders
+Replace the generic three-question framework with a compact military hierarchy:
+
+1. **Header** — `RAF Tangmere` / `Air Station · Operational`.
+2. **Station** — one sentence of operational purpose; condition and actual contribution; optional collapsed `Associated fields` detail (`Westhampnett, Ford`). The word `historical` is not player-facing.
+3. **Assigned formations** — one row per operational formation at the authored echelon, not one row per legacy count. A row shows name, aircraft/equipment, current strength/readiness, and a small subordinate count. Selecting it opens exact subunit detail.
+4. **Orders** — only legal, relevant actions such as `Rebase aircraft`, `Embark formations`, `Allocate air support`, or `Repair airfield`. No empty or disabled generic action block.
+
+The first inspector frame must fit the station purpose, summarized assigned command, and all immediately legal actions at 1440×900. Long rosters scroll inside the formation section; actions remain visible. Exact formation records remain accessible in a secondary detail route without turning the primary base view into an inventory dump.
+
+#### 3. WWII formation naming and hierarchy
+- Add authored presentation identity to the campaign formation source: `displayName`, `shortName`, `service`, `echelon`, `parentFormation`, `equipmentLabel`, and optional subordinate identities. Runtime IDs remain machine-stable and invisible.
+- Names describe the unit, never its current base or intended destination. Remove visible patterns such as `Eastern tactical fighter groups 11`, `Solent supply columns 8`, and `Gold and Juno follow-on battalion groups 4`.
+- Use the correct national organization:
+  - RAF/RCAF examples: `No. 126 (RCAF) Wing`, with `No. 401`, `411`, and `412 Squadrons`; equipment `Spitfire IX`.
+  - USAAF examples: `354th Fighter Group` or `344th Bombardment Group (Medium)`, with subordinate squadrons in drill-down; equipment `P-51 Mustang` or `B-26 Marauder` where historically correct.
+  - Ground examples: division/brigade/battalion identities appropriate to the campaign abstraction, with service and parent formation separate from the visible name.
+- Do not invent convincing-sounding unit numbers. The user's `50th P-51 Squadron`/`66th B-17 Wing` examples express the desired tone, but final names must match the 6–7 June 1944 organization and equipment. The [Allied Expeditionary Air Force D-Day OOB](https://www.ibiblio.org/hyperwar/UN/UK/UK-RAF-III/UK-RAF-III-XI.html), [U.S. Army Cross-Channel Attack history](https://history.army.mil/portals/143/Images/Publications/catalog/7-4.pdf), RAF Air Historical Branch material, and service histories are the minimum source set.
+- For example, the official OOB records No. 126 (RCAF) Wing with Nos. 401, 411, and 412 Squadrons, and the Canadian government's D-Day table places those squadrons at Tangmere with Spitfire IXs. That is the level of source-to-label traceability required.
+- Store source references in authored documentation/tests, not in normal player copy. The player sees the command identity, not a citation or the label `historical`.
+
+#### 4. Compact command strip
+- Idle height target: 48–56 px at desktop sizes, replacing the current 96 px empty tray.
+- Idle layout:
+  - left: `No orders` or `2 orders ready` button;
+  - center: advance boundary (`Next report`) and optional pause behavior;
+  - right: one primary `Advance` button and compact `Timeline`/`Reports` buttons with counts.
+- Selecting `Orders` opens a drawer above the strip. A new draft, conflict, blocked order, or mandatory defense may open or pulse the drawer, but never silently steals focus.
+- Selecting `Timeline` opens the existing timeline as a drawer without increasing the idle strip height.
+- When drafts exist, the strip shows status and `Commit`; the detailed cards remain in the drawer. Completed history is not kept in the primary order surface.
+- Mobile/short-height layouts use the same compact strip and a full-width sheet. The map remains the dominant surface.
+
+#### 5. Period language rules
+- Remove from ordinary campaign UI: `Historical network`, `network` without a defined gameplay connection, `What this is`, `What is here`, `What can I do`, `projected forces`, raw role IDs, raw order IDs, and source/research language.
+- Use specific military terms only when their rule is real:
+  - `Satellite airfields` for associated landing grounds;
+  - `Embarkation ports` or `Anchorages` for ports represented by one command node;
+  - `Supply line` only if a trace/range/capacity is actually modeled;
+  - `Assigned sector` for geographic command responsibility;
+  - `Known installation` or `Reported enemy activity` for Player-safe intelligence.
+- The interface may be modern in usability, but its nouns and hierarchy must belong to a 1944 headquarters.
+
+### Implementation sequence
+
+#### Work package A — source-backed OOB manifest
+- Build a table for every visible Allied air, ground, transport, naval, and logistics formation at the opening: historical name, service, echelon, parent, equipment, 7 June location/status, gameplay abstraction count, and source.
+- Decide which existing atomic records are actual subunits and which are only strength steps. Do not rename ten identical strength records into ten fictional squadrons.
+- Define aggregation rules before editing `campaign01.json`: the inspector may present one Wing/Group while the runtime retains several exact combat elements beneath it.
+- Exit gate: no player-visible formation is location-derived, destination-derived, globally numbered, or unsourced.
+
+#### Work package B — typed presentation projection
+- Extend authored formation presentation metadata and create a Player-safe formation-summary projection owned by state, not UI.
+- Return grouped base command views with exact child IDs, current readiness, transit/arrival state, and legal action previews.
+- Keep saved runtime identities and orders stable. If authored rules truth changes, use pristine reseed/progressed-save fail-closed migration; do not rewrite a progressed campaign's OOB silently.
+- Exit gate: renderer and inspector consume the same grouped projection; no UI reconstructs hierarchy from labels.
+
+#### Work package C — map disclosure simplification
+- Replace the current multi-line `Network + forces + instruction` hover card with the two-line identity/command summary.
+- Remove duplicate native visual tooltips while retaining accessible names.
+- Add zoom-aware collision and sibling-center hit testing for denser English bases.
+- Exit gate: at theater, normal, and close zoom, only one disclosure is visible; it names one place and one summarized command; no neighboring marker or road/coast contour is obscured.
+
+#### Work package D — base inspector rebuild
+- Replace generic headings with `Station`/`Port`/`Headquarters`, `Assigned formations`, and `Orders`.
+- Group formations by authored parent; show a maximum of roughly six summary rows before a `View all` route rather than an unbounded first-frame list.
+- Keep detailed readiness, cohesion, subordinate units, transit history, and exact identity in formation drill-down.
+- Exit gate: a new player can answer in one frame: what did I select, what command is based here, and which orders are legal now?
+
+#### Work package E — command strip and drawers
+- Refactor shell layout variables so empty state is 48–56 px and map/inspector bounds use the live strip height.
+- Move order cards, commit feedback, completed history, and timeline list into explicit drawers.
+- Preserve keyboard focus, advance-boundary semantics, atomic commit, conflict recovery, and mandatory-interruption stops.
+- Exit gate: empty campaign frame recovers at least 40 px of vertical map space; drafts/conflicts remain one action away and never become hidden state.
+
+#### Work package F — content and tone pass
+- Replace generic base summaries with concise operational copy.
+- Replace `historicalNetwork` with typed relationships such as `satelliteFields`, `associatedPorts`, or `assignedSector`; render those only in expanded details.
+- Apply the sourced OOB names and equipment labels to the shipped Normandy opening.
+- Exit gate: automated DOM/text scan rejects implementation vocabulary, generated ordinal names, raw type IDs, and faux-historical citations in player copy.
+
+#### Work package G — migration, tests, and live certification
+- Add exact content-hash handling for presentation-only versus rules-affecting OOB changes.
+- Focused tests:
+  - one base marker and one disclosure per hex at all supported zooms;
+  - no native/custom tooltip double display;
+  - grouped formation summary maps to every exact child ID once;
+  - RAF/RCAF/USAAF/ground naming fixtures use correct echelon and equipment vocabulary;
+  - no visible name contains base/destination-derived prefixes or a generated trailing ordinal;
+  - base/map-list/inspector/drill-down identity remains continuous;
+  - empty command strip is no more than 56 px; populated drawer preserves commit, edit, cancel, timeline, and advance flows;
+  - responsive 1440×900, 1280×720, 800×900, 640×360, and 200%-equivalent layouts preserve map, inspector action, and keyboard reachability.
+- Live external-Chrome acceptance:
+  1. start a fresh Western Europe campaign;
+  2. inspect Tangmere, Southampton, Portsmouth, Plymouth, and Bristol by hover/focus, click, and map list;
+  3. drill into a wing/group and a ground/logistics formation;
+  4. create, edit, cancel, and commit an order through the collapsed strip/drawer;
+  5. advance to the next report and inspect the timeline;
+  6. capture screenshots at all supported viewports and reject crowding, duplicate disclosure, hidden actions, or non-period language.
+- Update `validate-four-star-campaign` gates after the first implemented slice so later agents reject generic network language, destination-derived unit names, ungrouped atomic rosters, duplicate tooltips, and an oversized empty order tray.
+
+### High-risk and regression boundaries
+- `CampaignMapRenderer`, campaign shell geometry, formation projection, and save content identity are high-risk. Follow the repository high-risk protocol and keep behavioral work separate from structural refactoring.
+- Do not alter combat strength, production, air-sortie capacity, naval support, formation availability, or order legality merely to make the new names fit.
+- Do not reveal hostile formation names or exact counts through the new hierarchy. Friendly OOB richness and enemy intelligence uncertainty are separate contracts.
+- Do not use emojis, browser-native dialogs, browser-native gameplay tooltips, raw IDs, or debug/source labels.
+- Do not push intermediate visual experiments. Complete the overhaul locally in independently verified slices, then batch one production-triggering push after full campaign, full suite, build, zero-warning lint, skill validation, and live proof are green.
+
+### Definition of done
+- The map is the dominant surface and no normal frame looks like an open database table.
+- Every base has one concise historical identity; related facilities are subordinate detail, not a phrase crammed into the marker.
+- Every visible formation has a correct WWII name and echelon, with equipment and parent command separated into structured facts.
+- The base inspector presents summarized command organization and legal orders before detailed subunits.
+- The empty command strip consumes no more than 56 px and the full order/timeline surfaces open on demand.
+- A player can inspect Tangmere and immediately understand `where`, `who`, `equipment/readiness`, and `available orders` without encountering `historical network`, generated unit ordinals, or redundant tooltips.
+
+---
+
 ## 2026-08-26 — Complete the historically grounded full-theater map
 
 ### Intended behavior

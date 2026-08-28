@@ -146,6 +146,7 @@ import {
   reconcileCampaignFormationForceCounts,
   synchronizeCampaignFormationForceProjection
 } from "../game/campaign/formations/FormationLifecycleService";
+import { resolveCampaignFormationPresentation } from "../game/campaign/formations/CampaignFormationPresentation";
 import {
   attachCampaignFormationProvenanceToContext,
   createCampaignFormationBattleSeed,
@@ -2412,6 +2413,11 @@ export class CampaignState {
     const formation = this.runtime?.formations[formationId];
     if (!formation) return null;
     const projected = structuredClone(formation);
+    projected.name = resolveCampaignFormationPresentation({
+      legacyLabel: formation.origin.legacyLabel,
+      legacyOrdinal: formation.origin.legacyOrdinal,
+      unitType: formation.campaignUnitType
+    }).formationName;
     if (formation.status === "inTransit" && !isCampaignFormationPresentAtLocation(formation)) {
       projected.locationHexKey = null;
     }
@@ -2425,6 +2431,11 @@ export class CampaignState {
       const formation = this.runtime?.formations[id];
       if (!formation || formation.faction !== faction) return [];
       const projected = structuredClone(formation);
+      projected.name = resolveCampaignFormationPresentation({
+        legacyLabel: formation.origin.legacyLabel,
+        legacyOrdinal: formation.origin.legacyOrdinal,
+        unitType: formation.campaignUnitType
+      }).formationName;
       if (formation.status === "inTransit" && !isCampaignFormationPresentAtLocation(formation)) {
         projected.locationHexKey = null;
       }

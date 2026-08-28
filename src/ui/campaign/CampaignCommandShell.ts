@@ -90,6 +90,10 @@ export interface CampaignCommandKnownRegionView {
 export interface CampaignCommandFormationView {
   readonly id: string;
   readonly name: string;
+  /** Parent headquarters used to group subordinate records without flattening the order of battle. */
+  readonly commandLabel?: string;
+  /** True only when the subordinate name is sourced/authored rather than an aggregate placeholder. */
+  readonly hasAuthoredSubordinateIdentity?: boolean;
   readonly typeLabel: string;
   readonly ownershipLabel: string;
   readonly locationHexKey: string | null;
@@ -420,7 +424,7 @@ export class CampaignCommandShell {
   private afterActionReports: readonly CampaignCommandAfterActionReportView[] = [];
   private currentView: CampaignCommandShellView | null = null;
   private activeSelection: CampaignCommandSelection = null;
-  private readonly sheetInvokers = new Map<"workspace" | "inspector" | "timeline", HTMLElement>();
+  private readonly sheetInvokers = new Map<"workspace" | "inspector" | "timeline" | "orders", HTMLElement>();
   private readonly automaticallyPresentedReportIds = new Set<string>();
 
   /**
@@ -649,16 +653,20 @@ export class CampaignCommandShell {
     tray.className = "campaign-order-tray";
     tray.setAttribute("aria-label", "Campaign order tray and timeline");
     tray.innerHTML = `
-      <div class="campaign-order-tray__heading">
+      <button id="campaignOrdersToggle" class="campaign-order-tray__heading" type="button" aria-expanded="false" aria-controls="campaignOrdersDrawer">
         <span>Orders</span>
         <strong class="campaign-order-tray__counts"><span id="campaignDraftOrderCount">0</span> drafts · <span id="campaignCommittedOrderCount">0</span> active · <span id="campaignOrderHistoryCount">0</span> filed</strong>
         <strong class="campaign-order-tray__idle">No pending orders</strong>
-        <small id="campaignAdvanceSummary">Select an advance mode.</small>
-      </div>
-      <div id="campaignOrderTrayList" class="campaign-order-tray__list" aria-live="polite"></div>
+      </button>
+      <section id="campaignOrdersDrawer" class="campaign-orders-drawer" aria-label="Campaign orders" hidden>
+        <header><div><span>Command desk</span><h2>Campaign orders</h2></div><button type="button" data-close-campaign-orders aria-label="Close campaign orders">×</button></header>
+        <div id="campaignOrderTrayList" class="campaign-order-tray__list" aria-live="polite"></div>
+        <footer>
+          <div id="campaignOrderCommitFeedback" class="campaign-order-commit-feedback" role="status" aria-live="polite"></div>
+          <button id="campaignCommitOrders" type="button" disabled>Commit orders</button>
+        </footer>
+      </section>
       <div class="campaign-order-tray__actions">
-        <div id="campaignOrderCommitFeedback" class="campaign-order-commit-feedback" role="status" aria-live="polite"></div>
-        <button id="campaignCommitOrders" type="button" disabled>Commit orders</button>
         <div class="campaign-advance-control">
           <label for="campaignAdvanceMode">Advance until</label>
           <select id="campaignAdvanceMode">
@@ -669,6 +677,7 @@ export class CampaignCommandShell {
             <option value="day">One day</option>
           </select>
           <label class="campaign-advance-pause"><input id="campaignPauseAfterResolution" type="checkbox" /> Pause after every resolution</label>
+          <small id="campaignAdvanceSummary" class="campaign-advance-summary">Select an advance mode.</small>
         </div>
         <button id="campaignTimelineToggle" type="button" aria-expanded="false" aria-controls="campaignAdvanceTimeline">Timeline <span id="campaignTimelineCount">0</span></button>
       </div>
@@ -749,6 +758,8 @@ export class CampaignCommandShell {
       }
     });
     this.root.querySelector("#campaignCommitOrders")?.addEventListener("click", () => this.callbacks.onCommitOrders?.());
+    this.root.querySelector("#campaignOrdersToggle")?.addEventListener("click", () => this.setOrdersExpanded());
+    this.root.querySelector("[data-close-campaign-orders]")?.addEventListener("click", () => this.setOrdersExpanded(false));
     this.root.querySelector("#campaignAdvanceSegment")?.addEventListener("click", () => {
       const select = this.root.querySelector<HTMLSelectElement>("#campaignAdvanceMode");
       this.callbacks.onAdvance?.((select?.value ?? "segment") as CampaignCommandAdvanceMode);
@@ -817,6 +828,11 @@ export class CampaignCommandShell {
 
   private handleRootKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
+      const orders = this.root.querySelector<HTMLElement>("#campaignOrdersDrawer");
+      if (orders && !orders.hidden) {
+        this.setOrdersExpanded(false);
+        return;
+      }
       if (this.afterActionExpanded) {
         this.setAfterActionExpanded(false);
         return;
@@ -1546,12 +1562,31 @@ export class CampaignCommandShell {
     const toggle = this.root.querySelector<HTMLButtonElement>("#campaignTimelineToggle");
     if (!panel || !toggle) return;
     const expanded = force ?? panel.hidden;
+    if (expanded) this.setOrdersExpanded(false);
     const wasExpanded = !panel.hidden;
     if (expanded && !wasExpanded) this.captureSheetInvoker("timeline");
     panel.hidden = !expanded;
     toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
     this.callbacks.onTimelineExpandedChanged?.(expanded);
     if (!expanded && wasExpanded) this.restoreSheetInvoker("timeline", toggle);
+  }
+
+  private setOrdersExpanded(force?: boolean): void {
+    const panel = this.root.querySelector<HTMLElement>("#campaignOrdersDrawer");
+    const toggle = this.root.querySelector<HTMLButtonElement>("#campaignOrdersToggle");
+    if (!panel || !toggle) return;
+    const expanded = force ?? panel.hidden;
+    const wasExpanded = !panel.hidden;
+    if (expanded && !wasExpanded) {
+      this.captureSheetInvoker("orders");
+      this.setTimelineExpanded(false);
+    }
+    panel.hidden = !expanded;
+    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    if (expanded && !wasExpanded) {
+      panel.querySelector<HTMLElement>("[data-close-campaign-orders]")?.focus({ preventScroll: true });
+    }
+    if (!expanded && wasExpanded) this.restoreSheetInvoker("orders", toggle);
   }
 
   private renderAdvance(advance: CampaignCommandAdvanceView): void {
@@ -1639,13 +1674,13 @@ export class CampaignCommandShell {
     renderCampaignContextInspector(inspector, this.currentView, this.activeSelection);
   }
 
-  private captureSheetInvoker(sheet: "workspace" | "inspector" | "timeline"): void {
+  private captureSheetInvoker(sheet: "workspace" | "inspector" | "timeline" | "orders"): void {
     const active = document.activeElement;
     if (active instanceof HTMLElement && this.root.contains(active)) this.sheetInvokers.set(sheet, active);
   }
 
   private restoreSheetInvoker(
-    sheet: "workspace" | "inspector" | "timeline",
+    sheet: "workspace" | "inspector" | "timeline" | "orders",
     fallback: HTMLElement | null
   ): void {
     const storedInvoker = this.sheetInvokers.get(sheet);

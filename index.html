@@ -9024,7 +9024,7 @@
     }
     .campaign-command-shell {
       --campaign-shell-bar: 76px;
-      --campaign-shell-tray: 132px;
+      --campaign-shell-tray: 56px;
       position: relative;
       display: grid;
       grid-template-columns: 76px minmax(230px, 270px) minmax(420px, 1fr) minmax(270px, 320px);
@@ -9043,9 +9043,7 @@
         linear-gradient(155deg, #10130f 0%, #080b09 52%, #07090b 100%);
       color: #efe8d4;
     }
-    .campaign-command-shell[data-orders-empty="true"] {
-      --campaign-shell-tray: 96px;
-    }
+    .campaign-command-shell[data-orders-empty="true"] { --campaign-shell-tray: 56px; }
     @media (min-width: 1121px) {
       .campaign-command-shell[data-has-selection="false"] {
         grid-template-columns: 76px minmax(230px, 290px) minmax(520px, 1fr);
@@ -9673,11 +9671,11 @@
       z-index: 32;
       position: relative;
       display: grid;
-      grid-template-columns: 150px minmax(0, 1fr) auto;
-      align-items: stretch;
-      gap: 0.7rem;
+      grid-template-columns: minmax(120px, 1fr) auto;
+      align-items: center;
+      gap: 0.5rem;
       min-width: 0;
-      padding: 0.6rem 0.7rem;
+      padding: 0.3rem 0.6rem;
       border-top: 1px solid rgba(211, 187, 123, 0.22);
       background:
         linear-gradient(90deg, rgba(34, 35, 24, 0.99), rgba(17, 21, 17, 0.99)),
@@ -9685,13 +9683,27 @@
       box-shadow: 0 -12px 28px rgba(0,0,0,0.25);
     }
     .campaign-order-tray__heading {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 0.34rem;
-      padding: 0.2rem 0.55rem;
+      display: grid;
+      grid-template-columns: auto minmax(0, auto);
+      align-items: center;
+      justify-content: start;
+      gap: 0.25rem 0.55rem;
+      min-height: 44px;
+      padding: 0.25rem 0.6rem;
       border-right: 1px solid rgba(224, 207, 157, 0.12);
+      border-top: 0;
+      border-bottom: 0;
+      border-left: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
     }
+    .campaign-order-tray__heading::after { content: "Open"; color: #d7b66b; font-size: 0.58rem; font-weight: 800; text-transform: uppercase; }
+    .campaign-order-tray__heading[aria-expanded="true"]::after { content: "Close"; }
+    .campaign-order-tray__heading:hover,
+    .campaign-order-tray__heading:focus-visible { background: rgba(255,255,255,0.035); outline: none; }
     .campaign-order-tray__heading strong { color: rgba(232, 221, 190, 0.72); font-size: 0.64rem; font-weight: 600; }
     .campaign-order-tray__heading small {
       display: -webkit-box;
@@ -9707,8 +9719,33 @@
       align-items: stretch;
       gap: 0.45rem;
       min-width: 0;
+      min-height: 68px;
       overflow-x: auto;
     }
+    .campaign-orders-drawer {
+      position: absolute;
+      z-index: 83;
+      right: 0.6rem;
+      bottom: calc(100% + 0.45rem);
+      left: 0.6rem;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 0.55rem;
+      max-height: min(56vh, 520px);
+      padding: 0.7rem;
+      border: 1px solid rgba(211, 187, 123, 0.28);
+      border-radius: 7px;
+      background: rgba(12, 16, 14, 0.99);
+      box-shadow: 0 -18px 42px rgba(0,0,0,0.48);
+    }
+    .campaign-orders-drawer[hidden] { display: none; }
+    .campaign-orders-drawer > header,
+    .campaign-orders-drawer > footer { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; }
+    .campaign-orders-drawer > header span { color: #d7b66b; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+    .campaign-orders-drawer > header h2 { margin: 0.12rem 0 0; color: #f0e4c5; font-size: 1rem; }
+    .campaign-orders-drawer > header button { width: 36px; height: 36px; border: 1px solid rgba(220,205,165,0.2); border-radius: 4px; background: rgba(255,255,255,0.03); color: #efe8d4; font-size: 1.1rem; }
+    .campaign-orders-drawer > footer { padding-top: 0.55rem; border-top: 1px solid rgba(211,187,123,0.16); }
+    .campaign-orders-drawer > footer #campaignCommitOrders { min-height: 42px; padding: 0.45rem 0.75rem; border: 1px solid rgba(211,181,105,0.4); border-radius: 4px; background: rgba(116,91,41,0.28); color: #f0ddb0; font-weight: 800; text-transform: uppercase; }
     .campaign-order-tray__empty {
       align-self: center;
       margin: 0;
@@ -9749,8 +9786,7 @@
       cursor: pointer;
     }
     .campaign-order-card__actions button:hover { border-color: rgba(215, 182, 99, 0.48); color: #f0e4c5; }
-    .campaign-order-tray__actions { display: flex; align-items: stretch; gap: 0.45rem; }
-    .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__list,
+    .campaign-order-tray__actions { display: flex; align-items: center; gap: 0.45rem; height: 44px; }
     .campaign-command-shell[data-orders-empty="true"] #campaignOrderCommitFeedback,
     .campaign-command-shell[data-orders-empty="true"] #campaignCommitOrders {
       display: none;
@@ -9763,11 +9799,14 @@
     .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__idle { display: inline; }
     .campaign-advance-control {
       display: grid;
-      grid-template-columns: auto minmax(112px, 1fr);
-      align-content: center;
-      gap: 0.25rem 0.4rem;
-      min-width: 200px;
-      padding: 0.38rem 0.48rem;
+      grid-template-columns: auto minmax(112px, 1fr) auto;
+      align-items: center;
+      gap: 0.4rem;
+      min-width: 320px;
+      height: 44px;
+      min-height: 44px;
+      box-sizing: border-box;
+      padding: 0.22rem 0.42rem;
       border: 1px solid rgba(211, 181, 105, 0.2);
       border-radius: 4px;
       background: rgba(255,255,255,0.025);
@@ -9782,6 +9821,7 @@
     }
     .campaign-advance-control select {
       min-width: 0;
+      height: 30px;
       border: 1px solid rgba(216, 190, 124, 0.28);
       border-radius: 3px;
       background: #181c16;
@@ -9790,7 +9830,6 @@
       font-size: 0.64rem;
     }
     .campaign-advance-pause {
-      grid-column: 1 / -1;
       display: flex;
       align-items: center;
       gap: 0.32rem;
@@ -9801,6 +9840,9 @@
     .campaign-advance-pause input { accent-color: #b88b35; }
     .campaign-order-tray__actions button {
       min-width: 112px;
+      height: 44px;
+      min-height: 44px;
+      box-sizing: border-box;
       padding: 0.5rem 0.72rem;
       border: 1px solid rgba(211, 181, 105, 0.28);
       border-radius: 4px;
@@ -9937,7 +9979,7 @@
     @media (max-width: 860px) {
       .campaign-command-shell {
         --campaign-shell-bar: 64px;
-        --campaign-shell-tray: 108px;
+        --campaign-shell-tray: 56px;
         grid-template-columns: minmax(0, 1fr);
         grid-template-rows: var(--campaign-shell-bar) minmax(0, 1fr) var(--campaign-shell-tray) 70px;
         grid-template-areas:
@@ -10010,7 +10052,7 @@
         bottom: calc(var(--campaign-shell-tray) + 70px);
         width: min(360px, 92vw);
       }
-      .campaign-order-tray { grid-template-columns: 118px minmax(0, 1fr) auto; padding: 0.42rem; }
+      .campaign-order-tray { grid-template-columns: 118px auto; padding: 0.3rem 0.42rem; }
       .campaign-order-tray__actions #campaignCommitOrders { min-width: 88px; }
       .campaign-order-tray__actions button { min-width: 96px; }
       .campaign-advance-control { min-width: 148px; grid-template-columns: 1fr; }
@@ -10045,7 +10087,7 @@
       .campaign-map-command-strip { grid-template-columns: 1fr auto; }
       .campaign-map-legend { display: none; }
       .campaign-workspace-panel.campaign-sidebar { width: 100%; max-height: 44vh; }
-      .campaign-order-tray { grid-template-columns: 92px minmax(0, 1fr) auto; gap: 0.3rem; }
+      .campaign-order-tray { grid-template-columns: 92px auto; gap: 0.3rem; }
       .campaign-order-tray__heading strong { display: none; }
       .campaign-order-tray__heading small { display: none; }
       #campaignCommitOrders { display: none; }
@@ -10282,6 +10324,7 @@
       .tactical-save-slot { grid-template-columns: 2.3rem minmax(0, 1fr); }
       .tactical-save-slot__type { grid-column: 2; }
     }
+    .campaign-advance-summary { display: none; }
     @media (max-width: 700px), (max-height: 430px) and (max-width: 860px) {
       .campaign-command-shell {
         --campaign-shell-bar: 48px;
@@ -10303,11 +10346,10 @@
       .campaign-workspace-rail { padding: 0.2rem 0.3rem; }
       .campaign-workspace-tab { min-width: 68px; min-height: 34px; padding: 0.15rem; }
       .campaign-workspace-tab__mark { display: none; }
-      .campaign-order-tray { grid-template-columns: 58px minmax(0, 1fr) auto; gap: 0.2rem; padding: 0.2rem; }
+      .campaign-order-tray { grid-template-columns: 58px minmax(0, 1fr); gap: 0.2rem; padding: 0.2rem; }
       .campaign-order-tray__heading strong, .campaign-order-tray__heading small { display: none; }
-      .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray { grid-template-columns: minmax(0, 1fr); }
-      .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__heading { display: none; }
-      .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__actions { grid-column: 1; justify-content: center; }
+      .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray { grid-template-columns: 58px minmax(0, 1fr); }
+      .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__actions { grid-column: 2; justify-content: center; }
       .campaign-order-tray__actions button { min-width: 68px; min-height: 30px; padding: 0.2rem 0.32rem; }
       .campaign-advance-control { min-width: 100px; padding: 0.2rem; }
       #campaignTimelineToggle { min-width: 54px; }

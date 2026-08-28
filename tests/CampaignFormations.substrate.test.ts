@@ -23,6 +23,7 @@ import {
   reconcileCampaignFormationForceCounts,
   retireCampaignFormation
 } from "../src/game/campaign/formations/FormationLifecycleService";
+import { resolveCampaignFormationPresentation } from "../src/game/campaign/formations/CampaignFormationPresentation";
 import {
   attachCampaignFormationProvenanceToContext,
   createCampaignFormationBattleSeed,
@@ -228,6 +229,40 @@ function buildEngagementContext(): CampaignEngagementContext {
     objectiveKey: null
   };
 }
+
+registerTest("CAMPAIGN_FORMATIONS_USE_PERIOD_COMMANDS_AND_AUTHORED_AIR_IDENTITIES", async ({ Given, When, Then }) => {
+  let easternFighters: ReturnType<typeof resolveCampaignFormationPresentation>[] = [];
+
+  await Given("the six fighter records assigned to the Tangmere sector", () => {
+    easternFighters = Array.from({ length: 6 }, (_, legacyOrdinal) => resolveCampaignFormationPresentation({
+      legacyLabel: "Eastern tactical fighter groups",
+      legacyOrdinal,
+      unitType: "Fighter"
+    }));
+  });
+
+  await When("their player-facing order of battle is resolved", () => {});
+
+  await Then("the actual RCAF wings, squadrons, and aircraft type replace global generated ordinals", () => {
+    const names = easternFighters.map((entry) => entry.formationName);
+    const commands = new Set(easternFighters.map((entry) => entry.commandLabel));
+    if (names.join("|") !== [
+      "No. 401 Squadron RCAF",
+      "No. 411 Squadron RCAF",
+      "No. 412 Squadron RCAF",
+      "No. 403 Squadron RCAF",
+      "No. 416 Squadron RCAF",
+      "No. 421 Squadron RCAF"
+    ].join("|")
+      || !commands.has("No. 126 (RCAF) Wing")
+      || !commands.has("No. 127 (RCAF) Wing")
+      || easternFighters.some((entry) => entry.typeLabel !== "Spitfire IX fighter squadron"
+        || !entry.hasAuthoredSubordinateIdentity
+        || /groups?\s+\d+$/i.test(entry.formationName))) {
+      throw new Error(`Tangmere formation presentation is not a stable historical hierarchy: ${JSON.stringify(easternFighters)}.`);
+    }
+  });
+});
 
 registerTest("CAMPAIGN_FORMATIONS_DETERMINISTIC_LEGACY_REGISTRY", async ({ Given, When, Then }) => {
   const scenario = buildFormationScenario();
