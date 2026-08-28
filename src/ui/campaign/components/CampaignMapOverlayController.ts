@@ -16,6 +16,7 @@ import type {
   CampaignCommandOrderView,
   CampaignCommandShellView
 } from "../CampaignCommandShell";
+import { describeCampaignAssociatedLocations } from "../CampaignPresentation";
 import type { CampaignCommandSelection, CampaignOverlayId } from "../CampaignCommandUIState";
 
 export interface CampaignMapOverlayControllerCallbacks {
@@ -568,11 +569,12 @@ export class CampaignMapOverlayController {
 
   private strategicHexEntry(hex: CampaignCommandHexView): MapListEntry {
     const isFleet = hex.roleLabel === "Naval task force";
+    const representedPlaces = describeCampaignAssociatedLocations(hex.roleLabel, hex.historicalNetwork?.length ?? 0);
     return {
       key: `strategic:${hex.hexKey}`,
       marker: isFleet ? "FLEET" : "BASE",
       label: hex.displayLabel ?? hex.roleLabel,
-      meta: `${hex.roleLabel} · ${hex.historicalNetwork?.length ? `${hex.historicalNetwork.length} historical locations · ` : ""}${hex.controlLabel}`,
+      meta: `${hex.roleLabel} · ${representedPlaces ? `${representedPlaces} · ` : ""}${hex.controlLabel}`,
       selection: { kind: "hex", id: hex.hexKey }
     };
   }

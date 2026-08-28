@@ -37,6 +37,11 @@ import {
   type CampaignActionId
 } from "../campaign/CampaignOrderExperience";
 import { resolveCampaignFormationPresentation } from "../../game/campaign/formations/CampaignFormationPresentation";
+import {
+  projectCampaignAssociatedLocations,
+  resolveCampaignFriendlyBaseSummary,
+  resolveCampaignTheaterRegionPresentation
+} from "../campaign/CampaignPresentation";
 
 interface CampaignScreenStatusMessage {
   title: string;
@@ -2753,19 +2758,21 @@ export class CampaignScreen {
       locationPrecision: site.locationPrecision,
       relatedLocations: [...site.relatedLocations]
     }));
-    const knownRegions = (view.knownStrategicRegions ?? []).map((region) => ({
-      id: region.id,
-      label: region.label,
-      categoryLabel: region.category === "enemyInstallation"
-        ? "Known opposing region"
-        : region.category === "alliedSupport"
-          ? "Allied supporting network"
-          : "Strategic geography",
-      summary: region.summary,
-      sourceLabel: region.sourceLabel,
-      locations: [...region.locations],
-      commandStatus: region.commandStatus
-    }));
+    const knownRegions = (view.knownStrategicRegions ?? []).map((region) => {
+      const presentation = resolveCampaignTheaterRegionPresentation({
+        id: region.id,
+        label: region.label,
+        category: region.category,
+        summary: region.summary,
+        sourceLabel: region.sourceLabel,
+        commandStatus: region.commandStatus
+      });
+      return {
+        id: region.id,
+        ...presentation,
+        locations: [...region.locations]
+      };
+    });
     const productionReport = this.campaignState.getProductionReport();
     const productionByHex = new Map((productionReport?.sources ?? []).map((source) => [source.offsetKey, source.capacity]));
     const nextProductionLabel = productionReport
@@ -2829,6 +2836,7 @@ export class CampaignScreen {
           : palette?.role === "navalBase"
             ? "Naval base"
             : roleLabel;
+      const associatedLocations = projectCampaignAssociatedLocations(authoredMapLabel, palette?.historicalNetwork);
       return {
         hexKey,
         roleLabel: isAlliedAssaultFleet ? "Naval task force" : isFriendlyBase ? friendlyBaseRoleLabel : roleLabel,
@@ -2839,12 +2847,17 @@ export class CampaignScreen {
           showEngagementAction: false,
           actionSummary: baseActionSummary
         } : {}),
-        ...(palette?.historicalNetwork?.length ? { historicalNetwork: [...palette.historicalNetwork] } : {}),
+        ...(associatedLocations.length ? { historicalNetwork: associatedLocations } : {}),
         ...(authoredMapLabel || isAlliedAssaultFleet ? {
           displayLabel: authoredMapLabel ?? "Allied Assault Fleet",
-          summary: palette?.notes ?? (isAlliedAssaultFleet
-            ? "Naval gunfire, transport, and logistics group on station supporting the established Normandy lodgment."
-            : `${roleLabel} under ${controlLabel.toLowerCase()}.`),
+          summary: isFriendlyBase
+            ? resolveCampaignFriendlyBaseSummary(
+                authoredMapLabel,
+                palette?.notes ?? `${friendlyBaseRoleLabel} under ${controlLabel.toLowerCase()}.`
+              )
+            : palette?.notes ?? (isAlliedAssaultFleet
+              ? "Naval gunfire, transport, and logistics group on station supporting the established Normandy lodgment."
+              : `${roleLabel} under ${controlLabel.toLowerCase()}.`),
           locationLabel: isAlliedAssaultFleet
             ? `English Channel · offshore support station · hex ${hexKey}`
             : `${authoredMapLabel ?? roleLabel} · hex ${hexKey}`

@@ -894,6 +894,12 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     if (!mapListLabel.includes("40 map records")) {
       throw new Error(`Operational map list lost the complete Allied-base and strategic-site inventory: ${mapListLabel}.`);
     }
+    const mapListCopy = document.querySelector(".campaign-map-accessible-list")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    if (/historical locations|Allied supporting network|Historical lift network/i.test(mapListCopy)
+      || !mapListCopy.includes("2 associated ports")
+      || !mapListCopy.includes("Thames and Nore reinforcement ports")) {
+      throw new Error(`Operational map list exposed authoring language instead of period-facing command copy: ${mapListCopy}.`);
+    }
     const offset = CoordinateSystem.axialToOffset(portland.hex.q, portland.hex.r);
     portlandHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
   });
@@ -908,8 +914,9 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const selection = document.querySelector<HTMLElement>(".campaign-context-inspector .selection-section");
     const engagement = document.querySelector<HTMLElement>(".campaign-context-inspector .action-section");
     if (!routeCopy.includes("Embarkation port")
-      || !routeCopy.includes("Omaha-bound American embarkation network")
-      || !routeCopy.includes("Portland · Weymouth · Poole")
+      || !routeCopy.includes("Omaha-bound embarkation ports for forces and stores")
+      || !routeCopy.includes("Weymouth · Poole")
+      || routeCopy.includes("Associated portsPortland")
       || !routeCopy.includes("Logistics and embarkation")
       || !routeCopy.includes("Assigned commands")
       || !routeCopy.includes("Ready now")

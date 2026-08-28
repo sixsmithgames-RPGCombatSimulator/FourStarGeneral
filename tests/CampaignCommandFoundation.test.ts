@@ -13,6 +13,12 @@ import { CampaignUIEvents } from "../src/ui/campaign/CampaignUIEvents";
 import { assertCampaignCommandDOMSafe, findCampaignCommandDOMLeaks } from "../src/ui/campaign/CampaignCommandInformationSafety";
 import { CampaignCommandViewAssembler } from "../src/ui/campaign/CampaignCommandViewAssembler";
 import { projectRuntimeHexKeyToCampaignOffset } from "../src/ui/campaign/CampaignCommandProjection";
+import {
+  describeCampaignAssociatedLocations,
+  projectCampaignAssociatedLocations,
+  resolveCampaignFriendlyBaseSummary,
+  resolveCampaignTheaterRegionPresentation
+} from "../src/ui/campaign/CampaignPresentation";
 import type { CampaignCommandShellView } from "../src/ui/campaign/CampaignCommandShell";
 import {
   CampaignActionRegistry,
@@ -383,12 +389,12 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       }],
       knownRegions: [{
         id: "region-thames",
-        label: "Thames build-up network",
-        categoryLabel: "Allied supporting network",
-        summary: "Dispersed follow-up ports outside exact map registration.",
-        sourceLabel: "Naval loading plan",
+        label: "Thames and Nore reinforcement ports",
+        categoryLabel: "Allied theater support",
+        summary: "British follow-on forces and stores are assembled through the eastern ports.",
+        sourceLabel: "NEPTUNE loading and assembly plan",
         locations: ["Tilbury", "Harwich"],
-        commandStatus: "Context only"
+        commandStatus: "Briefing only · outside the opening D+1 command area"
       }],
       formations: [{
         id: "formation-1",
@@ -515,6 +521,11 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       || !root.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label")?.includes("5 map records")) {
       throw new Error("Operational map list omitted the named friendly base or fixed briefing-site record.");
     }
+    const operationalMapListCopy = root.querySelector(".campaign-map-accessible-list")?.textContent ?? "";
+    if (/historical locations|supporting network/i.test(operationalMapListCopy)
+      || !operationalMapListCopy.includes("associated locations")) {
+      throw new Error(`Operational map list exposed authoring language instead of concrete place types: ${operationalMapListCopy}`);
+    }
     root.querySelector<HTMLButtonElement>("[data-close-map-list]")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-overlay-id='objectives']")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
@@ -563,9 +574,9 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
       root.querySelector("#campaignInspectorTitle")?.textContent,
       root.querySelector("#campaignContextInspectorRoute")?.textContent
     ].filter(Boolean).join(" ");
-    if (!regionInspector.includes("Thames build-up network")
+    if (!regionInspector.includes("Thames and Nore reinforcement ports")
       || !regionInspector.includes("Tilbury")
-      || !regionInspector.includes("Context only")
+      || !regionInspector.includes("outside the opening D+1 command area")
       || !root.querySelector<HTMLElement>(".action-section")?.hidden) {
       throw new Error("Non-geocoded theater context did not remain searchable, sourced, and non-orderable.");
     }
@@ -681,6 +692,39 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     screen.destroy();
     Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
     window.dispatchEvent(new Event("resize"));
+  });
+});
+
+registerTest("CAMPAIGN_PRESENTATION_USES_PERIOD_OPERATIONAL_LANGUAGE_WITHOUT_MUTATING_AUTHORED_TRUTH", async ({ Given, When, Then }) => {
+  let regionPresentation: ReturnType<typeof resolveCampaignTheaterRegionPresentation>;
+  let associatedLocations: string[];
+
+  await Given("authored campaign data retains exact research provenance and consolidated place identities", async () => {});
+
+  await When("the command UI projects a list-only support region and an embarkation base", async () => {
+    regionPresentation = resolveCampaignTheaterRegionPresentation({
+      id: "briefed_thames_nore",
+      label: "Thames and Nore build-up network",
+      category: "alliedSupport",
+      summary: "Research-facing regional summary.",
+      sourceLabel: "U.S. Naval History and Heritage Command NEPTUNE loading and assembly plan",
+      commandStatus: "Known Allied support outside the opening D+1 order network"
+    });
+    associatedLocations = projectCampaignAssociatedLocations("Plymouth", ["Plymouth", "Torbay", "Dartmouth"]);
+  });
+
+  await Then("the field presentation uses concrete places, period commands, and no redundant principal location", async () => {
+    const combined = Object.values(regionPresentation).join(" ");
+    if (/historical locations|supporting network|build-up network|History and Heritage Command/i.test(combined)
+      || regionPresentation.label !== "Thames and Nore reinforcement ports"
+      || regionPresentation.categoryLabel !== "Allied theater support"
+      || regionPresentation.sourceLabel !== "NEPTUNE loading and assembly plan"
+      || associatedLocations.join(",") !== "Torbay,Dartmouth"
+      || describeCampaignAssociatedLocations("Logistics and embarkation", associatedLocations.length) !== "2 associated ports"
+      || resolveCampaignFriendlyBaseSummary("Plymouth", "Western embarkation network")
+        !== "Western embarkation ports supporting Utah-bound forces and stores.") {
+      throw new Error(`Campaign presentation leaked authoring language or redundant locations: ${JSON.stringify({ regionPresentation, associatedLocations })}`);
+    }
   });
 });
 
