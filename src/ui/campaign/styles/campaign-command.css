@@ -1063,6 +1063,25 @@
     min-height: 32px;
     padding: 0.25rem 0.4rem;
   }
+
+  #campaignScreen[data-campaign-command-ui="v2"] .campaign-order-tray__heading {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 58px;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    gap: 0;
+    padding: 0.2rem;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  #campaignScreen[data-campaign-command-ui="v2"] .campaign-order-tray__heading::after {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

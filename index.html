@@ -10347,6 +10347,21 @@
       .campaign-workspace-tab { min-width: 68px; min-height: 34px; padding: 0.15rem; }
       .campaign-workspace-tab__mark { display: none; }
       .campaign-order-tray { grid-template-columns: 58px minmax(0, 1fr); gap: 0.2rem; padding: 0.2rem; }
+      .campaign-order-tray__heading {
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 58px;
+        height: 44px;
+        min-height: 44px;
+        max-height: 44px;
+        gap: 0;
+        padding: 0.2rem;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .campaign-order-tray__heading::after { display: none; }
       .campaign-order-tray__heading strong, .campaign-order-tray__heading small { display: none; }
       .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray { grid-template-columns: 58px minmax(0, 1fr); }
       .campaign-command-shell[data-orders-empty="true"] .campaign-order-tray__actions { grid-column: 2; justify-content: center; }
