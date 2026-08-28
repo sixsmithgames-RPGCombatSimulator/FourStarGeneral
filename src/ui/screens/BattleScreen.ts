@@ -8332,6 +8332,16 @@ export class BattleScreen {
       this.battleUpdateUnsubscribe();
       this.battleUpdateUnsubscribe = null;
     }
+    if (this.tacticalSaveCoordinatorUnsubscribe) {
+      this.tacticalSaveCoordinatorUnsubscribe();
+      this.tacticalSaveCoordinatorUnsubscribe = null;
+    }
+    if (this.tacticalSavePollTimerId !== null) {
+      window.clearInterval(this.tacticalSavePollTimerId);
+      this.tacticalSavePollTimerId = null;
+    }
+    this.tacticalSaveCenter?.dispose();
+    this.tacticalSaveCenter = null;
     window.removeEventListener("keydown", this.keyboardNavigationHandler);
     document.removeEventListener("screen:shown", this.screenShownHandler);
     document.removeEventListener("visibilitychange", this.tacticalDocumentVisibilityHandler);
@@ -10915,16 +10925,6 @@ export class BattleScreen {
     if (!activeGroup || activeGroup.ownerId !== "player") {
       return null;
     }
-    if (this.tacticalSaveCoordinatorUnsubscribe) {
-      this.tacticalSaveCoordinatorUnsubscribe();
-      this.tacticalSaveCoordinatorUnsubscribe = null;
-    }
-    if (this.tacticalSavePollTimerId !== null) {
-      window.clearInterval(this.tacticalSavePollTimerId);
-      this.tacticalSavePollTimerId = null;
-    }
-    this.tacticalSaveCenter?.dispose();
-    this.tacticalSaveCenter = null;
 
     return {
       initiative: activeGroup.initiative,

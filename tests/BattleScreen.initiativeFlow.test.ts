@@ -281,6 +281,102 @@ registerTest("BATTLESCREEN_COMPLETED_PLAYER_FORMATION_REMAINS_ACCESSIBLE_IN_CURR
   });
 });
 
+registerTest("BATTLESCREEN_INITIATIVE_BAND_QUERY_PRESERVES_TACTICAL_SAVE_UI", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let saveSubscriptionReleased = 0;
+  let saveCenterDisposed = 0;
+  let resolvedUnitIds: string[] = [];
+
+  await Given("an active player initiative band with the tactical save center initialized", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    const queue = {
+      currentIndex: 0,
+      currentTurn: 1,
+      activations: [
+        { unitId: "u_player_1", ownerId: "player" as const, initiative: 5, isActivated: false, sortOrder: 0 },
+        { unitId: "u_player_2", ownerId: "player" as const, initiative: 5, isActivated: false, sortOrder: 1 }
+      ]
+    };
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => queue.activations[queue.currentIndex]
+    };
+    (screen as any).tacticalSaveCoordinatorUnsubscribe = () => {
+      saveSubscriptionReleased += 1;
+    };
+    (screen as any).tacticalSaveCenter = {
+      dispose: () => {
+        saveCenterDisposed += 1;
+      }
+    };
+  });
+
+  await When("the current player initiative band is resolved for battle controls", async () => {
+    const queue = (screen as any).initiativeMethods.getCurrentInitiativeQueue();
+    const band = (screen as any).resolveCurrentPlayerInitiativeBand(queue);
+    resolvedUnitIds = band?.activations.map((activation: { unitId: string }) => activation.unitId) ?? [];
+  });
+
+  await Then("the band resolves without tearing down tactical save persistence", async () => {
+    if (JSON.stringify(resolvedUnitIds) !== JSON.stringify(["u_player_1", "u_player_2"])) {
+      throw new Error(`Expected the whole player initiative band, received ${JSON.stringify(resolvedUnitIds)}.`);
+    }
+    if (saveSubscriptionReleased !== 0 || saveCenterDisposed !== 0) {
+      throw new Error(
+        `Initiative lookup tore down tactical saves: unsubscribe=${saveSubscriptionReleased}, dispose=${saveCenterDisposed}.`
+      );
+    }
+    if (!(screen as any).tacticalSaveCenter || !(screen as any).tacticalSaveCoordinatorUnsubscribe) {
+      throw new Error("Expected tactical save state to remain initialized throughout the active battle.");
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_DISPOSE_RELEASES_TACTICAL_SAVE_UI", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let saveSubscriptionReleased = 0;
+  let saveCenterDisposed = 0;
+
+  await Given("a battle screen with live tactical save resources", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).battleUpdateUnsubscribe = null;
+    (screen as any).tacticalSaveCoordinatorUnsubscribe = () => {
+      saveSubscriptionReleased += 1;
+    };
+    (screen as any).tacticalSavePollTimerId = window.setInterval(() => {}, 60_000);
+    (screen as any).tacticalSaveCenter = {
+      dispose: () => {
+        saveCenterDisposed += 1;
+      }
+    };
+    (screen as any).teardownInitiativeSystemUi = () => {};
+    (screen as any).queuedTargetMarkerActions = new Map();
+    (screen as any).hexMapRenderer = null;
+    (screen as any).selectionIntelOverlay = null;
+    (screen as any).battleActivityLog = null;
+    (screen as any).tutorialUpdateUnsubscribe = null;
+  });
+
+  await When("the battle screen is disposed", async () => {
+    screen.dispose();
+  });
+
+  await Then("the tactical save subscription, polling, and center are released exactly once", async () => {
+    if (saveSubscriptionReleased !== 1 || saveCenterDisposed !== 1) {
+      throw new Error(
+        `Expected one tactical save cleanup, received unsubscribe=${saveSubscriptionReleased}, dispose=${saveCenterDisposed}.`
+      );
+    }
+    if ((screen as any).tacticalSaveCoordinatorUnsubscribe !== null || (screen as any).tacticalSavePollTimerId !== null) {
+      throw new Error("Expected tactical save subscription and polling handles to be cleared on screen disposal.");
+    }
+    if ((screen as any).tacticalSaveCenter !== null) {
+      throw new Error("Expected the tactical save center reference to be cleared on screen disposal.");
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_COMPLETED_PEER_FOLLOW_UP_DOES_NOT_CONSUME_PENDING_ACTIVATION", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let completionCalls = 0;
