@@ -8297,6 +8297,7 @@ export class BattleScreen {
     this.initializeDeploymentMirrors();
     this.syncTurnContext();
     this.renderMissionStatus();
+    this.restoreInitiativeTurnControlsAfterResume();
     void this.requestTacticalTurnStartAutosave();
     this.syncQueuedTargetMarkers();
     this.battleActivityLog?.sync(this.activityEvents);
@@ -10235,6 +10236,15 @@ export class BattleScreen {
         this.initiativeUiSyncIntervalId = null;
       }
     }, 200);
+  }
+
+  /** Rebuilds the derived initiative command surface after authoritative save hydration. */
+  private restoreInitiativeTurnControlsAfterResume(): void {
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+      return;
+    }
+    this.initializeInitiativeTurnControls();
+    this.syncInitiativeTurnControlsState();
   }
 
   /**

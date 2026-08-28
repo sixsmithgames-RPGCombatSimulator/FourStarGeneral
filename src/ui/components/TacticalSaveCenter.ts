@@ -260,10 +260,13 @@ export class TacticalSaveCenter {
         : this.model.slots.map((slot) => {
           const selected = slot.slotId === this.selectedSlotId;
           const typeLabel = slot.slotType === "manual" ? "Manual" : slot.slotType === "autosave" ? "Autosave" : "Checkpoint";
+          const thumbnail = slot.display.thumbnailKey
+            ? `<svg viewBox="0 0 24 24" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 8h10M7 12h4M14 12h3M7 16h10"></path></svg>`
+            : `<svg viewBox="0 0 24 24" focusable="false"><path d="M6 3h9l3 3v15H6z"></path><path d="M15 3v4h4M9 11h6M9 15h6"></path></svg>`;
           return `
             <button type="button" class="tactical-save-slot${selected ? " is-selected" : ""}" role="option"
               aria-selected="${selected}" data-save-slot-id="${escapeHtml(slot.slotId)}">
-              <span class="tactical-save-slot__thumbnail" aria-hidden="true">${slot.display.thumbnailKey ? "▦" : "◆"}</span>
+              <span class="tactical-save-slot__thumbnail" aria-hidden="true">${thumbnail}</span>
               <span class="tactical-save-slot__copy">
                 <strong>${escapeHtml(slot.label)}</strong>
                 <span>${escapeHtml(slot.display.phaseLabel)}</span>

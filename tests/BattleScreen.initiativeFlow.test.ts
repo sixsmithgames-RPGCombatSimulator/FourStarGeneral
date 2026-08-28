@@ -377,6 +377,46 @@ registerTest("BATTLESCREEN_DISPOSE_RELEASES_TACTICAL_SAVE_UI", async ({ Given, W
   });
 });
 
+registerTest("BATTLESCREEN_TACTICAL_RESUME_REBUILDS_ACTIVE_INITIATIVE_CONTROLS", async ({ Given, When, Then }) => {
+  let activeScreen: BattleScreen;
+  let inactiveScreen: BattleScreen;
+  let initialized = 0;
+  let synchronized = 0;
+
+  await Given("one restored active initiative battle and one restored inactive battle", async () => {
+    activeScreen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (activeScreen as any).isInitiativeSystemEnabled = true;
+    (activeScreen as any).initiativeMethods = {};
+    (activeScreen as any).initializeInitiativeTurnControls = () => {
+      initialized += 1;
+    };
+    (activeScreen as any).syncInitiativeTurnControlsState = () => {
+      synchronized += 1;
+    };
+
+    inactiveScreen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (inactiveScreen as any).isInitiativeSystemEnabled = false;
+    (inactiveScreen as any).initiativeMethods = {};
+    (inactiveScreen as any).initializeInitiativeTurnControls = () => {
+      initialized += 100;
+    };
+    (inactiveScreen as any).syncInitiativeTurnControlsState = () => {
+      synchronized += 100;
+    };
+  });
+
+  await When("derived turn controls are restored after tactical hydration", async () => {
+    (activeScreen as any).restoreInitiativeTurnControlsAfterResume();
+    (inactiveScreen as any).restoreInitiativeTurnControlsAfterResume();
+  });
+
+  await Then("only the active initiative battle recreates and synchronizes its command surface", async () => {
+    if (initialized !== 1 || synchronized !== 1) {
+      throw new Error(`Expected one active resume rebuild, received initialize=${initialized}, sync=${synchronized}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_COMPLETED_PEER_FOLLOW_UP_DOES_NOT_CONSUME_PENDING_ACTIVATION", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let completionCalls = 0;

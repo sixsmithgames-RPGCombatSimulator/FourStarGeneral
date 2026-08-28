@@ -4075,6 +4075,15 @@
       cursor: pointer;
     }
 
+    .battle-settings__toggle svg {
+      width: 1.25rem;
+      height: 1.25rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+    }
+
     .battle-settings__toggle:hover,
     .battle-settings__toggle:focus-visible,
     .battle-settings__toggle[aria-expanded="true"] {
@@ -9349,6 +9358,7 @@
       text-align: left;
       cursor: pointer;
     }
+
     .campaign-front-target-choice button span { color: rgba(225, 211, 173, 0.72); font-size: 0.64rem; }
     .campaign-front-target-choice button:hover,
     .campaign-front-target-choice button:focus-visible { border-color: #d7b45d; background: rgba(126, 95, 37, 0.24); }
@@ -10286,6 +10296,16 @@
       font-size: 1.2rem;
     }
 
+    .tactical-save-slot__thumbnail svg {
+      width: 1.4rem;
+      height: 1.4rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .tactical-save-slot__copy { display: grid; gap: 0.12rem; min-width: 0; }
     .tactical-save-slot__copy strong,
     .tactical-save-slot__copy span,
@@ -10569,7 +10589,10 @@
                         aria-label="Open battle settings"
                         title="Battle settings"
                       >
-                        <span aria-hidden="true">&#9881;</span>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <circle cx="12" cy="12" r="3.25"></circle>
+                          <path d="M12 2.75v2.1M12 19.15v2.1M2.75 12h2.1M19.15 12h2.1M5.46 5.46l1.49 1.49M17.05 17.05l1.49 1.49M18.54 5.46l-1.49 1.49M6.95 17.05l-1.49 1.49"></path>
+                        </svg>
                       </button>
                       <div id="battleSettingsMenu" class="battle-settings__menu hidden" role="menu" aria-label="Battle settings">
                         <div class="battle-settings__header">Battle Settings</div>
