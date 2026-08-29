@@ -4480,6 +4480,11 @@ export class BattleScreen {
       console.log("Mirrored state - Pool size:", deploymentState.pool.length, "Reserves:", deploymentState.getReserves().length);
 
       // 3. Cascade UI updates in a stable order so each component renders data from the freshly mirrored state.
+      this.updateAutoDeployAvailability({
+        deploymentOpen: engine.getTurnSummary().phase === "deployment",
+        baseCampAssigned: Boolean(engine.baseCamp),
+        deployableUnits: this.countRemainingDeploymentPoolUnits()
+      });
       this.updateDeploymentPanel();
       this.updateLoadout();
       this.updateReserveList();
@@ -7364,6 +7369,31 @@ export class BattleScreen {
     this.deploymentPanel?.update();
   }
 
+  /** Keeps auto-placement controls honest while the required supply anchor is still unset. */
+  private updateAutoDeployAvailability(state: {
+    readonly deploymentOpen: boolean;
+    readonly baseCampAssigned: boolean;
+    readonly deployableUnits: number;
+  }): void {
+    const buttons = [this.autoDeployEvenlyButton, this.autoDeployGroupedButton];
+    const available = state.deploymentOpen && state.baseCampAssigned && state.deployableUnits > 0;
+    const unavailableTitle = !state.deploymentOpen
+      ? "Deployment is closed"
+      : !state.baseCampAssigned
+        ? "Assign a base camp before placing formations"
+        : "All available formations are already placed";
+    buttons.forEach((button) => {
+      if (!button) return;
+      button.disabled = !available;
+      button.setAttribute("aria-disabled", String(!available));
+      button.title = available
+        ? button.dataset.autoDeployMode === "grouped"
+          ? "Place units by type in sequence"
+          : "Place one of each unit across available hexes"
+        : unavailableTitle;
+    });
+  }
+
   /**
    * Re-renders the battle loadout list using mirrored DeploymentState snapshots, keeping allocated vs. deployed totals accurate.
    */
@@ -8666,7 +8696,12 @@ export class BattleScreen {
       const deploymentState = ensureDeploymentState();
       deploymentState.mirrorEngineState(engine);
       if (!engine.baseCamp) {
-        this.announceBattleUpdate("Assign a base camp before auto-deploying units.");
+        const guidance = "Assign a base camp before auto-deploying units.";
+        if (this.baseCampStatus) {
+          this.baseCampStatus.setAttribute("aria-live", "polite");
+          this.baseCampStatus.textContent = guidance;
+        }
+        this.announceBattleUpdate(guidance);
         return;
       }
 
@@ -11986,6 +12021,7 @@ export class BattleScreen {
    */
   private lockDeploymentInteractions(): void {
     this.deploymentPanel?.lockInteractions();
+    this.updateAutoDeployAvailability({ deploymentOpen: false, baseCampAssigned: true, deployableUnits: 0 });
     if (this.baseCampAssignButton) {
       this.baseCampAssignButton.disabled = true;
       this.baseCampAssignButton.setAttribute("aria-disabled", "true");

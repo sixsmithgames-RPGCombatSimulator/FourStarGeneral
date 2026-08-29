@@ -745,6 +745,50 @@ registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given,
   });
 });
 
+registerTest("BATTLESCREEN_AUTO_DEPLOY_CONTROLS_REQUIRE_BASE_CAMP", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let evenButton: HTMLButtonElement;
+  let groupedButton: HTMLButtonElement;
+
+  await Given("auto-placement controls before a deployment supply anchor is assigned", async () => {
+    const root = mountBattleScreenRoot();
+    evenButton = document.createElement("button");
+    evenButton.dataset.autoDeployMode = "even";
+    groupedButton = document.createElement("button");
+    groupedButton.dataset.autoDeployMode = "grouped";
+    root.append(evenButton, groupedButton);
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).autoDeployEvenlyButton = evenButton;
+    (screen as any).autoDeployGroupedButton = groupedButton;
+  });
+
+  await When("deployment availability follows base-camp readiness", async () => {
+    (screen as any).updateAutoDeployAvailability({ deploymentOpen: true, baseCampAssigned: false, deployableUnits: 4 });
+  });
+
+  await Then("both controls are visibly unavailable until base camp assignment and unlock afterward", async () => {
+    if (!evenButton.disabled || !groupedButton.disabled
+      || evenButton.getAttribute("aria-disabled") !== "true"
+      || !groupedButton.title.includes("Assign a base camp")) {
+      throw new Error("Auto-placement controls looked actionable before base camp assignment.");
+    }
+    (screen as any).updateAutoDeployAvailability({ deploymentOpen: true, baseCampAssigned: true, deployableUnits: 4 });
+    if (evenButton.disabled || groupedButton.disabled
+      || evenButton.getAttribute("aria-disabled") !== "false"
+      || !groupedButton.title.includes("type in sequence")) {
+      throw new Error("Auto-placement controls did not unlock with accurate guidance after base camp assignment.");
+    }
+    (screen as any).updateAutoDeployAvailability({ deploymentOpen: true, baseCampAssigned: true, deployableUnits: 0 });
+    if (!evenButton.disabled || !evenButton.title.includes("already placed")) {
+      throw new Error("Auto-placement controls stayed actionable after every formation was placed.");
+    }
+    (screen as any).updateAutoDeployAvailability({ deploymentOpen: false, baseCampAssigned: true, deployableUnits: 3 });
+    if (!groupedButton.disabled || !groupedButton.title.includes("closed")) {
+      throw new Error("Auto-placement controls stayed actionable after deployment closed.");
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;

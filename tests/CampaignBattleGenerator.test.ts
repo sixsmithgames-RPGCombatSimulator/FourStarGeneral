@@ -397,10 +397,52 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
     }));
     const normalizedDefense = normalizeScenarioSource(defense as unknown as RawScenarioInput, { turnLimit: 0 });
     const defenseController = createMissionRulesController("campaign", normalizedDefense);
+    const friendlyControl = new Map<string, "Player">();
+    normalizedDefense.objectives.forEach((objective) => friendlyControl.set(`${objective.hex.q},${objective.hex.r}`, "Player"));
+    const defenseFriendlyUnit = structuredClone(normalizedDefense.sides.Bot.units[0]!);
+    const defenseVictory = defenseController.onTurnAdvanced({
+      turnSummary: { turnNumber: 6 } as never,
+      scenario: normalizedDefense,
+      occupancy: friendlyControl,
+      playerUnits: [defenseFriendlyUnit],
+      botUnits: normalizedDefense.sides.Bot.units,
+      allyUnits: normalizedDefense.sides.Ally?.units
+    });
+    if (defenseVictory.outcome.state !== "playerVictory"
+      || defenseVictory.objectives[0]?.state !== "completed"
+      || defenseVictory.objectives[1]?.state !== "inProgress"
+      || !defenseVictory.outcome.reason?.includes("held every defended position")) {
+      throw new Error("Campaign defense did not end naturally after friendly forces secured every defended objective.");
+    }
+
+    const forceCollapseController = createMissionRulesController("campaign", normalizedDefense);
+    const partialFriendlyControl = new Map<string, "Player">();
+    const firstDefenseObjective = normalizedDefense.objectives[0];
+    if (firstDefenseObjective) {
+      partialFriendlyControl.set(`${firstDefenseObjective.hex.q},${firstDefenseObjective.hex.r}`, "Player");
+    }
+    const supportTruck = {
+      ...structuredClone(normalizedDefense.sides.Bot.units[0]!),
+      type: "Supply_Truck"
+    } as typeof normalizedDefense.sides.Bot.units[number];
+    const forceCollapseVictory = forceCollapseController.onTurnAdvanced({
+      turnSummary: { turnNumber: 7 } as never,
+      scenario: normalizedDefense,
+      occupancy: partialFriendlyControl,
+      playerUnits: [defenseFriendlyUnit],
+      botUnits: [supportTruck],
+      allyUnits: normalizedDefense.sides.Ally?.units
+    });
+    if (forceCollapseVictory.outcome.state !== "playerVictory"
+      || forceCollapseVictory.objectives[0]?.state !== "inProgress"
+      || forceCollapseVictory.objectives[1]?.state !== "completed") {
+      throw new Error("A surviving support convoy blocked force-collapse victory or completed the wrong objective.");
+    }
+
+    const defenseDefeatController = createMissionRulesController("campaign", normalizedDefense);
     const opposingControl = new Map<string, "Bot">();
     normalizedDefense.objectives.forEach((objective) => opposingControl.set(`${objective.hex.q},${objective.hex.r}`, "Bot"));
-    const defenseFriendlyUnit = structuredClone(normalizedDefense.sides.Bot.units[0]!);
-    const defenseDefeat = defenseController.onTurnAdvanced({
+    const defenseDefeat = defenseDefeatController.onTurnAdvanced({
       turnSummary: { turnNumber: 35 } as never,
       scenario: normalizedDefense,
       occupancy: opposingControl,

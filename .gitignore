@@ -65,3 +65,5 @@ e2e/screenshots/
 
 # Test infrastructure in source tree
 src/testing/
+
+.vercel

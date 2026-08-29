@@ -116,7 +116,7 @@ function toPercent(value: number): string {
 function getGroundForceScore(units: readonly ScenarioUnit[]): number {
   return units.reduce((total, unit) => {
     const definition = unitTypesData[unit.type as UnitTypeKey];
-    if (!definition || definition.moveType === "air") {
+    if (!definition || definition.moveType === "air" || definition.combat.role === "support") {
       return total;
     }
     const strengthRatio = Math.max(0, Math.min(100, Number(unit.strength ?? 100))) / 100;
@@ -1886,7 +1886,8 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
     const friendlyHeld = countFriendlyObjectives(occupancy);
     const objectiveTotal = objectiveHexes.length;
     const botForce = getGroundForceScore(botUnits);
-    const primaryState: ObjectiveState = currentOutcome.state === "playerVictory"
+    const primarySatisfied = objectiveTotal > 0 && friendlyHeld === objectiveTotal;
+    const primaryState: ObjectiveState = primarySatisfied
       ? "completed"
       : currentOutcome.state === "playerDefeat" ? "failed" : "inProgress";
     const forceState: ObjectiveState = botForce <= 0
@@ -1902,7 +1903,9 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
           tier: "primary",
           state: primaryState,
           detail: objectiveTotal > 0
-            ? `Friendly control: ${friendlyHeld}/${objectiveTotal} tactical objectives at ${battleHexKey}. ${timeDetail}`
+            ? playerRole === "defender"
+              ? `Friendly control: ${friendlyHeld}/${objectiveTotal} defended positions at ${battleHexKey}. Secure every position to break the assault. ${timeDetail}`
+              : `Friendly control: ${friendlyHeld}/${objectiveTotal} tactical objectives at ${battleHexKey}. Secure every position to win the engagement. ${timeDetail}`
             : `Maintain an effective ground force at ${battleHexKey}. ${timeDetail}`
         },
         {
@@ -1910,7 +1913,9 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
           label: "Break the opposing ground force",
           tier: "secondary",
           state: forceState,
-          detail: botForce <= 0 ? "No effective opposing ground force remains." : "Opposing ground formations remain combat-effective."
+          detail: botForce <= 0
+            ? "No effective opposing combat formation remains."
+            : "Eliminate or rout every opposing combat formation. Objective control is tracked separately."
         }
       ],
       outcome: currentOutcome,
@@ -1929,8 +1934,10 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
         currentOutcome = { state: "playerDefeat", reason: "No effective friendly ground formations remain in the engagement." };
       } else if (botForce <= 0) {
         currentOutcome = { state: "playerVictory", reason: "The opposing ground force is no longer combat-effective." };
-      } else if (playerRole === "attacker" && objectiveHexes.length > 0 && friendlyHeld === objectiveHexes.length) {
-        currentOutcome = { state: "playerVictory", reason: "Friendly forces secured every tactical objective in the engagement area." };
+      } else if (objectiveHexes.length > 0 && friendlyHeld === objectiveHexes.length) {
+        currentOutcome = playerRole === "defender"
+          ? { state: "playerVictory", reason: "Friendly forces held every defended position and broke the opposing assault." }
+          : { state: "playerVictory", reason: "Friendly forces secured every tactical objective in the engagement area." };
       } else if (playerRole === "defender" && objectiveHexes.length > 0 && opposingHeld === objectiveHexes.length) {
         currentOutcome = { state: "playerDefeat", reason: "Opposing forces secured every tactical objective in the defended engagement area." };
       }

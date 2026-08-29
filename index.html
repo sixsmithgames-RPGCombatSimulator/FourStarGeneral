@@ -10477,6 +10477,7 @@
   <div id="app">
     <!-- Battle Screen -->
     <div id="battleScreen" class="screen battle-ui hidden" aria-labelledby="battleScreenHeading">
+      <div id="battleAnnouncements" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
       <!-- Control Sidebar -->
       <nav class="control-sidebar">
         <button
@@ -10756,8 +10757,8 @@
             <div class="deployment-header-actions" role="group" aria-label="Deployment actions">
               <!-- Compact auto-deploy controls keep the panel header tidy while exposing quick placement strategies. -->
               <button id="assignBaseCamp" type="button" class="secondary-button" title="Lock a base camp to unlock unit placement">Assign Base Camp</button>
-              <button id="autoDeployEvenly" type="button" class="compact-button" data-auto-deploy-mode="even" title="Place one of each unit across available hexes">Deploy Evenly</button>
-              <button id="autoDeployGrouped" type="button" class="compact-button" data-auto-deploy-mode="grouped" title="Place units by type in sequence">Deploy Grouped</button>
+              <button id="autoDeployEvenly" type="button" class="compact-button" data-auto-deploy-mode="even" title="Assign a base camp before placing formations" aria-disabled="true" disabled>Deploy Evenly</button>
+              <button id="autoDeployGrouped" type="button" class="compact-button" data-auto-deploy-mode="grouped" title="Assign a base camp before placing formations" aria-disabled="true" disabled>Deploy Grouped</button>
               <button id="beginBattle" type="button" class="attention-button deployment-begin-button">Begin Mission</button>
             </div>
           </div>

@@ -1628,3 +1628,36 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Push once, wait for the single Vercel deployment, then verify computed visibility and capture the selected installation through external Chrome.
 
 ---
+
+## Opposing-Initiative Defense Completion — 2026-08-29
+
+### Intended behavior
+- A mandatory campaign defense is resolved by either of the two conditions presented before battle: hold every marked defended position or break the opposing combat force.
+- The two objectives report their own state independently; completing one does not falsely mark the other complete.
+- Campaign battles remain unbounded by a fixed turn limit and can continue past Turn 20 while neither battlefield condition is satisfied.
+- Deployment controls reveal their true prerequisites and readiness before the player commits an action.
+
+### Current behavior
+- All four Caen-Orne defensive objective markers can read `Secured` while `Hold the engagement area` remains `In progress` indefinitely.
+- Defender victory is only reachable by reducing the Bot ground-force score to zero, despite the briefing promising either objective.
+- Supply trucks count as combat-effective ground force and can block the secondary objective after every fighting formation is gone.
+- `Deploy Evenly` and `Deploy Grouped` initially appear enabled without a base camp; activating them produces no visible response.
+
+### Expected new behavior
+- Friendly control of every tactical objective naturally resolves a campaign defense victory with role-correct explanation.
+- Objective-control victory completes only the primary objective; combat-force collapse completes only the secondary objective.
+- Air and support-role units do not count toward combat ground-force survival.
+- Auto-placement is disabled with accurate guidance until deployment is open, a base camp exists, and a formation remains available.
+
+### Impact analysis
+- Consumers: campaign mission-rule controller, battle objective status/modal, tactical-save continuation, deployment header controls, and battle announcement accessibility.
+- State boundary: no campaign save schema or fixed deadline is introduced. Existing mission-rule snapshots retain their version and derive terminal truth from the current battlefield on the next stable turn boundary.
+- Gameplay: attacker victory and defender defeat rules remain intact; only the previously impossible defender primary and support-only collapse semantics change.
+
+### Verification
+- Extend the campaign battle terminal-rule regression with defender 4/4 victory, partial-control combat collapse, a surviving support convoy, independent objective state, and all-objectives-lost defeat.
+- Test auto-placement readiness before base camp, after assignment, after exhaustion, and after deployment closes.
+- Run typecheck, focused lint, campaign suite, full tests, production build, skill validation, and `git diff --check`.
+- Commit and push once, wait for the automatic production deployment, then resume the live Turn 6 defense and prove Mission Complete, AAR, return to campaign, and clean console state.
+
+---
