@@ -4476,6 +4476,13 @@ export class BattleScreen {
         baseCampAssigned: Boolean(engine.baseCamp),
         deployableUnits: this.countRemainingDeploymentPoolUnits()
       });
+      this.updateBattleStartAvailability({
+        deploymentOpen: engine.getTurnSummary().phase === "deployment",
+        baseCampAssigned: Boolean(engine.baseCamp),
+        deployableUnits: this.countRemainingDeploymentPoolUnits(),
+        deployedUnits: engine.getPlayerPlacementsSnapshot().length,
+        committedEntries: deploymentState.hasCommittedEntries()
+      });
       this.updateDeploymentPanel();
       this.updateLoadout();
       this.updateReserveList();
@@ -7387,6 +7394,38 @@ export class BattleScreen {
     });
   }
 
+  /** Keeps the primary deployment action aligned with the engine's actual launch prerequisites. */
+  private updateBattleStartAvailability(state: {
+    readonly deploymentOpen: boolean;
+    readonly baseCampAssigned: boolean;
+    readonly deployableUnits: number;
+    readonly deployedUnits: number;
+    readonly committedEntries: boolean;
+  }): void {
+    if (!this.beginBattleButton) return;
+
+    const available = state.deploymentOpen
+      && state.committedEntries
+      && state.baseCampAssigned
+      && state.deployableUnits === 0
+      && state.deployedUnits > 0;
+    const unavailableTitle = !state.deploymentOpen
+      ? "Mission is already underway"
+      : !state.committedEntries
+        ? "Commit a deployment package before beginning the mission"
+        : !state.baseCampAssigned
+          ? "Assign a base camp before beginning the mission"
+          : state.deployableUnits > 0
+            ? "Deploy every requisitioned formation before beginning the mission"
+            : "Deploy at least one formation before beginning the mission";
+
+    this.beginBattleButton.disabled = !available;
+    this.beginBattleButton.setAttribute("aria-disabled", String(!available));
+    this.beginBattleButton.title = available
+      ? "Begin the mission with this deployment"
+      : unavailableTitle;
+  }
+
   /**
    * Re-renders the battle loadout list using mirrored DeploymentState snapshots, keeping allocated vs. deployed totals accurate.
    */
@@ -7823,6 +7862,7 @@ export class BattleScreen {
       hasCommittedEntries: ensureDeploymentState().hasCommittedEntries()
     });
     this.cacheElements();
+    this.restoreDeploymentPanelForDeploymentPhase();
     this.soundEnabled = this.loadSoundEnabledPreference();
     this.applySoundPreference(this.soundEnabled);
     this.applyBattleAnimationMode(this.uiState?.battleAnimationMode ?? "regular");
@@ -10298,6 +10338,27 @@ export class BattleScreen {
         this.initiativeUiSyncIntervalId = null;
       }
     }, 200);
+  }
+
+  /** Restores the reusable battle shell to an open, accessible deployment layout for a new engagement. */
+  private restoreDeploymentPanelForDeploymentPhase(): void {
+    this.battleMainContainer?.removeAttribute("data-panel-collapsed");
+
+    const panelElement = this.deploymentPanel?.getElement()
+      ?? this.element.querySelector<HTMLElement>("#deploymentPanel");
+    if (panelElement) {
+      panelElement.hidden = false;
+      panelElement.removeAttribute("hidden");
+      panelElement.setAttribute("aria-hidden", "false");
+    }
+
+    if (this.deploymentPanelToggleButton) {
+      this.deploymentPanelToggleButton.hidden = false;
+      this.deploymentPanelToggleButton.removeAttribute("aria-hidden");
+      this.deploymentPanelToggleButton.setAttribute("aria-expanded", "true");
+      this.deploymentPanelToggleButton.textContent = "<";
+      this.deploymentPanelToggleButton.setAttribute("aria-label", "Collapse deployment panel");
+    }
   }
 
   /** Rebuilds the derived initiative command surface after authoritative save hydration. */
@@ -15243,6 +15304,7 @@ export class BattleScreen {
     this.endMissionButton?.classList.remove("battle-button--highlight");
     this.deploymentPanel?.resetScenarioState();
     this.disposeMissionEndModal();
+    this.restoreDeploymentPanelForDeploymentPhase();
     
     // Update UI to show mission has reset
     setMissionStartedUI(false);

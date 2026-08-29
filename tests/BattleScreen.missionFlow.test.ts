@@ -821,6 +821,120 @@ registerTest("BATTLESCREEN_AUTO_DEPLOY_CONTROLS_REQUIRE_BASE_CAMP", async ({ Giv
   });
 });
 
+registerTest("BATTLESCREEN_BEGIN_MISSION_MATCHES_DEPLOYMENT_READINESS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let beginButton: HTMLButtonElement;
+
+  await Given("a reused Begin Mission control at the start of deployment", async () => {
+    const root = mountBattleScreenRoot();
+    beginButton = document.createElement("button");
+    beginButton.disabled = true;
+    beginButton.setAttribute("aria-disabled", "true");
+    root.append(beginButton);
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).beginBattleButton = beginButton;
+  });
+
+  await When("the current engine snapshot reaches each deployment prerequisite", async () => {
+    (screen as any).updateBattleStartAvailability({
+      deploymentOpen: true,
+      committedEntries: true,
+      baseCampAssigned: false,
+      deployableUnits: 1,
+      deployedUnits: 0
+    });
+  });
+
+  await Then("Begin Mission unlocks only for a committed, fully placed force with a base camp", async () => {
+    if (!beginButton.disabled || !beginButton.title.includes("Assign a base camp")) {
+      throw new Error("Begin Mission looked actionable before base camp assignment.");
+    }
+
+    (screen as any).updateBattleStartAvailability({
+      deploymentOpen: true,
+      committedEntries: true,
+      baseCampAssigned: true,
+      deployableUnits: 1,
+      deployedUnits: 1
+    });
+    if (!beginButton.disabled || !beginButton.title.includes("every requisitioned formation")) {
+      throw new Error("Begin Mission looked actionable while formations still awaited placement.");
+    }
+
+    (screen as any).updateBattleStartAvailability({
+      deploymentOpen: true,
+      committedEntries: true,
+      baseCampAssigned: true,
+      deployableUnits: 0,
+      deployedUnits: 1
+    });
+    if (beginButton.disabled
+      || beginButton.getAttribute("aria-disabled") !== "false"
+      || !beginButton.title.includes("Begin the mission")) {
+      throw new Error("Begin Mission did not unlock when deployment status reported complete.");
+    }
+
+    (screen as any).updateBattleStartAvailability({
+      deploymentOpen: false,
+      committedEntries: true,
+      baseCampAssigned: true,
+      deployableUnits: 0,
+      deployedUnits: 1
+    });
+    if (!beginButton.disabled || !beginButton.title.includes("already underway")) {
+      throw new Error("Begin Mission remained actionable after deployment closed.");
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_NEW_DEPLOYMENT_REOPENS_REUSED_PANEL", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let battleMain: HTMLElement;
+  let deploymentPanel: HTMLElement;
+  let toggleButton: HTMLButtonElement;
+
+  await Given("a battle shell whose deployment panel was collapsed by the previous engagement", async () => {
+    const root = mountBattleScreenRoot();
+    battleMain = document.createElement("main");
+    battleMain.setAttribute("data-panel-collapsed", "true");
+    deploymentPanel = document.createElement("aside");
+    deploymentPanel.id = "deploymentPanel";
+    deploymentPanel.hidden = true;
+    deploymentPanel.setAttribute("aria-hidden", "true");
+    toggleButton = document.createElement("button");
+    toggleButton.hidden = true;
+    toggleButton.setAttribute("aria-hidden", "true");
+    toggleButton.setAttribute("aria-expanded", "false");
+    toggleButton.setAttribute("aria-label", "Expand deployment panel");
+    battleMain.append(deploymentPanel, toggleButton);
+    root.append(battleMain);
+
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).element = root;
+    (screen as any).battleMainContainer = battleMain;
+    (screen as any).deploymentPanel = { getElement: () => deploymentPanel };
+    (screen as any).deploymentPanelToggleButton = toggleButton;
+  });
+
+  await When("the reusable shell is restored for a new deployment", async () => {
+    (screen as any).restoreDeploymentPanelForDeploymentPhase();
+  });
+
+  await Then("the panel is visible and its toggle exposes one synchronized expanded state", async () => {
+    if (battleMain.hasAttribute("data-panel-collapsed") || deploymentPanel.hidden) {
+      throw new Error("The previous battle's collapsed deployment layout leaked into the new engagement.");
+    }
+    if (deploymentPanel.getAttribute("aria-hidden") !== "false"
+      || toggleButton.hidden
+      || toggleButton.hasAttribute("aria-hidden")
+      || toggleButton.getAttribute("aria-expanded") !== "true"
+      || toggleButton.getAttribute("aria-label") !== "Collapse deployment panel"
+      || toggleButton.textContent !== "<") {
+      throw new Error("The restored deployment panel and its toggle exposed contradictory accessibility state.");
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;
