@@ -9,7 +9,8 @@ import type {
 } from "../src/core/campaignTypes";
 import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
 import {
-  assertCampaignBattleControlReport
+  assertCampaignBattleControlReport,
+  deriveCampaignFrontsFromControl
 } from "../src/game/campaign/control/CampaignBattleControlResolver";
 import { extractCampaignBattleResultPackage } from "../src/game/campaign/results/CampaignBattleResultExtractor";
 import type { CampaignRuntimeState } from "../src/game/campaign/runtime/campaignRuntimeTypes";
@@ -83,6 +84,35 @@ function retreatAndIsolationScenario(): CampaignScenarioData {
   );
   return scenario;
 }
+
+registerTest("FSG_CAM_050_DERIVED_FRONTS_USE_PERIOD_BELLIGERENT_NAMES", async ({ Given, When, Then }) => {
+  const reversedScenario = scenarioFixture();
+  reversedScenario.key = "front-label-reversed";
+  reversedScenario.tiles.reverse();
+  const scenarios = [scenarioFixture(), reversedScenario];
+
+  await Given("opposing Allied and German control cells in either authored tile order without a surviving front label", () => {});
+
+  let labels: string[] = [];
+  await When("the operational boundary derives a new player-facing front", () => {
+    labels = scenarios.flatMap((scenario) => {
+      const campaign = new CampaignState({ legacyStorage: null });
+      campaign.setScenario(scenario);
+      const runtime = campaign.getRuntimeSnapshot();
+      if (!runtime) throw new Error("Campaign front-label fixture did not create runtime truth.");
+      runtime.compatibility.initialFronts.splice(0, runtime.compatibility.initialFronts.length);
+      return deriveCampaignFrontsFromControl(runtime).map((front) => front.label);
+    });
+  });
+
+  await Then("the front uses period belligerent language and never exposes internal faction keys", () => {
+    if (labels.length !== 2
+      || labels.some((label) => label !== "Allied–German Front")
+      || labels.some((label) => /\b(?:Player|Bot)\b/.test(label))) {
+      throw new Error(`Derived front leaked internal faction identity: ${labels.join(", ")}`);
+    }
+  });
+});
 
 registerTest("CAMPAIGN_BATTLE_CONTROL_CAPTURES_NO_ROUTE_DEFENDER_AND_OCCUPIES_HEX", async ({ Given, When, Then }) => {
   const { campaign, runtime, pkg } = commitFixture();
@@ -244,4 +274,3 @@ registerTest("CAMPAIGN_BATTLE_CONTROL_REJECTS_OCCUPATION_THROUGH_UNCOMMITTED_ENE
     }
   });
 });
-

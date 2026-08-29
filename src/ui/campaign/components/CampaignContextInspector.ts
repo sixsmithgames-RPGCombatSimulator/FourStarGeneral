@@ -162,6 +162,38 @@ function createStrategicGeographyFacts(
   ];
 }
 
+function appendCommandPresentations(
+  list: HTMLElement,
+  formations: readonly CampaignCommandFormationView[],
+  group: InspectorFormationGroup["key"] | "generic"
+): void {
+  groupBaseCommands(formations).forEach((command) => {
+    if (!command.showSubordinates) {
+      const summary = document.createElement("article");
+      summary.className = "campaign-context-inspector__command-summary";
+      summary.append(
+        createText("strong", "", command.commandLabel),
+        createText("span", "", `${command.formations.length} ${command.typeLabel}${command.formations.length === 1 ? "" : "s"}`)
+      );
+      list.appendChild(summary);
+      return;
+    }
+    const disclosure = document.createElement("details");
+    disclosure.className = "campaign-context-inspector__command";
+    const summary = document.createElement("summary");
+    const subordinateNoun = command.typeLabel.toLowerCase().includes("squadron") ? "squadron" : "unit";
+    summary.append(
+      createText("strong", "", command.commandLabel),
+      createText("span", "", `${command.formations.length} ${subordinateNoun}${command.formations.length === 1 ? "" : "s"} · select to inspect`)
+    );
+    const subordinates = document.createElement("div");
+    subordinates.className = "campaign-context-inspector__command-units";
+    command.formations.forEach((formation) => subordinates.appendChild(createFormationButton(formation, group)));
+    disclosure.append(summary, subordinates);
+    list.appendChild(disclosure);
+  });
+}
+
 function renderGenericRoute(route: CampaignInspectorRoute): HTMLElement[] {
   const content: HTMLElement[] = [createText("p", "campaign-context-inspector__summary", route.summary)];
   if (route.facts.length > 0) content.push(createFacts(route.facts));
@@ -171,7 +203,7 @@ function renderGenericRoute(route: CampaignInspectorRoute): HTMLElement[] {
     formationSection.appendChild(createText("h3", "", "Formations at this location"));
     const formationList = document.createElement("div");
     formationList.className = "campaign-context-inspector__formation-list";
-    route.formations.forEach((formation) => formationList.appendChild(createFormationButton(formation, "generic")));
+    appendCommandPresentations(formationList, route.formations, "generic");
     formationSection.appendChild(formationList);
     content.push(formationSection);
   }
@@ -204,31 +236,7 @@ function renderFriendlyBaseRoute(route: CampaignInspectorRoute): HTMLElement[] {
     const groupTitle = createText("h4", "", `${group.label} (${group.formations.length})`);
     const list = document.createElement("div");
     list.className = "campaign-context-inspector__formation-list";
-    groupBaseCommands(group.formations).forEach((command) => {
-      if (!command.showSubordinates) {
-        const summary = document.createElement("article");
-        summary.className = "campaign-context-inspector__command-summary";
-        summary.append(
-          createText("strong", "", command.commandLabel),
-          createText("span", "", `${command.formations.length} ${command.typeLabel}${command.formations.length === 1 ? "" : "s"}`)
-        );
-        list.appendChild(summary);
-        return;
-      }
-      const disclosure = document.createElement("details");
-      disclosure.className = "campaign-context-inspector__command";
-      const summary = document.createElement("summary");
-      const subordinateNoun = command.typeLabel.toLowerCase().includes("squadron") ? "squadron" : "unit";
-      summary.append(
-        createText("strong", "", command.commandLabel),
-        createText("span", "", `${command.formations.length} ${subordinateNoun}${command.formations.length === 1 ? "" : "s"} · select to inspect`)
-      );
-      const subordinates = document.createElement("div");
-      subordinates.className = "campaign-context-inspector__command-units";
-      command.formations.forEach((formation) => subordinates.appendChild(createFormationButton(formation, group.key)));
-      disclosure.append(summary, subordinates);
-      list.appendChild(disclosure);
-    });
+    appendCommandPresentations(list, group.formations, group.key);
     groupElement.append(groupTitle, list);
     presence.appendChild(groupElement);
   });
@@ -305,7 +313,9 @@ function resolveInspectorRoute(
           { label: "Control", value: hex.controlLabel },
           { label: "Type", value: hex.roleLabel },
           ...(hex.historicalNetwork?.length ? [{ label: "Includes", value: hex.historicalNetwork.join(" · ") }] : []),
-          ...(hex.forces.length > 0 ? [{ label: "Projected forces", value: hex.forces.join("; ") }] : []),
+          ...(hex.forces.length > 0 && locatedFormations.length === 0
+            ? [{ label: "Projected forces", value: hex.forces.join("; ") }]
+            : []),
           ...(hex.capabilities?.length ? [{ label: "Operational contribution", value: hex.capabilities.join(" · ") }] : []),
           ...(hex.infrastructure ? [{ label: "Infrastructure", value: hex.infrastructure }] : []),
           ...(hex.infrastructureRecovery ? [{ label: "Recovery", value: hex.infrastructureRecovery }] : []),

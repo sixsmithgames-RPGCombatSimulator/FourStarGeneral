@@ -288,6 +288,56 @@ registerTest("FSG_CAM_036_KNOWN_SITES_USE_ONE_PLAYER_SAFE_DISCLOSURE", async ({ 
       throw new Error("A hidden Douvres runtime formation leaked through the safe known-site marker.");
     }
   });
+
+  await Then("sequential pointer and focus disclosures lift above the map, then restore without stacking", async () => {
+    const azeville = svg.querySelector<SVGGElement>('.campaign-known-site[data-known-site-id="briefed_azeville_crisbecq"]');
+    const disclosure = azeville?.querySelector<SVGGElement>(".campaign-known-site-disclosure");
+    const longues = svg.querySelector<SVGGElement>('.campaign-known-site[data-known-site-id="briefed_longues"]');
+    const secondDisclosure = longues?.querySelector<SVGGElement>(".campaign-known-site-disclosure");
+    const overlay = svg.querySelector<SVGGElement>("#campaign-map-transient-disclosures");
+    const viewportChildren = Array.from(overlay?.parentElement?.children ?? []);
+    azeville?.dispatchEvent(new window.MouseEvent("pointerenter", { bubbles: false }));
+    const overlayIsLast = viewportChildren[viewportChildren.length - 1] === overlay;
+    if (!azeville
+      || !disclosure
+      || !longues
+      || !secondDisclosure
+      || disclosure.parentNode !== overlay
+      || !disclosure.classList.contains("is-open")
+      || !overlayIsLast
+      || overlay?.querySelectorAll(".campaign-known-site-disclosure").length !== 1) {
+      throw new Error(`Transient disclosure stacking regressed: ${JSON.stringify({
+        hasMarker: Boolean(azeville),
+        hasDisclosure: Boolean(disclosure),
+        overlayIsLast,
+        disclosureParent: (disclosure?.parentNode as Element | null)?.id,
+        isOpen: disclosure?.classList.contains("is-open"),
+        overlayDisclosureCount: overlay?.querySelectorAll(".campaign-known-site-disclosure").length ?? 0
+      })}.`);
+    }
+
+    azeville.dispatchEvent(new window.MouseEvent("pointerleave", { bubbles: false }));
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 24));
+    if (disclosure.parentNode !== azeville
+      || disclosure.classList.contains("is-open")
+      || overlay?.querySelector(".campaign-known-site-disclosure")) {
+      throw new Error("Pointer disclosure did not collapse back into its owning marker.");
+    }
+
+    longues.focus();
+    if (secondDisclosure.parentNode !== overlay
+      || !secondDisclosure.classList.contains("is-open")
+      || overlay?.querySelectorAll(".campaign-known-site-disclosure").length !== 1) {
+      throw new Error("Keyboard disclosure did not become the sole top-layer disclosure.");
+    }
+    longues.blur();
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 24));
+    if (secondDisclosure.parentNode !== longues
+      || secondDisclosure.classList.contains("is-open")
+      || overlay?.querySelector(".campaign-known-site-disclosure")) {
+      throw new Error("Keyboard disclosure did not restore to its owning marker after blur.");
+    }
+  });
 });
 
 registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING", async ({ Given, When, Then }) => {

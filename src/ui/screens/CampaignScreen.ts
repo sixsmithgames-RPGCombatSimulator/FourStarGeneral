@@ -45,8 +45,12 @@ import {
   type CampaignActionContext,
   type CampaignActionId
 } from "../campaign/CampaignOrderExperience";
-import { resolveCampaignFormationRecordPresentation } from "../../game/campaign/formations/CampaignFormationPresentation";
+import {
+  resolveCampaignForceGroupCommandLabel,
+  resolveCampaignFormationRecordPresentation
+} from "../../game/campaign/formations/CampaignFormationPresentation";
 import { projectCampaignFormationPosture } from "../../game/campaign/formations/CampaignFormationPosture";
+import { projectLegacyForceGroupAsSupportCapacity } from "../../game/campaign/logistics/CampaignSupportCapacityAdapter";
 import {
   projectCampaignAssociatedLocations,
   resolveCampaignFriendlyBaseSummary,
@@ -182,6 +186,7 @@ export class CampaignScreen {
   private exitButton: HTMLButtonElement | null = null;
   private selectedHexKey: string | null = null;
   private selectedFrontKey: string | null = null;
+  private selectedFormationId: string | null = null;
   private selectedFrontTargetHexKey: string | null = null;
   private moveOriginHexKey: string | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -497,7 +502,8 @@ export class CampaignScreen {
   private openRedeployModal(
     originOffsetKey: string,
     destOffsetKey: string,
-    editingOrder?: Extract<CampaignOrder, { kind: "redeploy" }>
+    editingOrder?: Extract<CampaignOrder, { kind: "redeploy" }>,
+    preselectedFormationId?: string
   ): void {
     const layer = document.getElementById("battlePopupLayer");
     const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
@@ -579,12 +585,27 @@ export class CampaignScreen {
       return;
     }
 
-    // Default mode: recommended mode of the largest usable force group, else first usable mode.
+    // A formation-specific order must open in a mode that can carry that exact command.
+    // Otherwise use the recommended mode of the largest usable force group.
     const sortedForces = [...originForces].sort((x, y) => y.count - x.count);
     let selectedModeKey = editingOrder?.payload.transportModeKey ?? "foot";
     let defaulted = false;
     if (!editingOrder) {
+      const preselectedFormation = preselectedFormationId
+        ? originFormations.find((formation) => formation.id === preselectedFormationId)
+        : null;
+      if (preselectedFormation) {
+        const recommendedMode = getDefaultTransportMode(preselectedFormation.campaignUnitType);
+        const compatibleMode = availableModeKeys.includes(recommendedMode)
+          ? recommendedMode
+          : availableModeKeys.find((key) => TRANSPORT_MODES[key]?.applicableUnitTypes?.includes(preselectedFormation.campaignUnitType));
+        if (compatibleMode) {
+          selectedModeKey = compatibleMode;
+          defaulted = true;
+        }
+      }
       for (const g of sortedForces) {
+        if (defaulted) break;
         const candidate = getDefaultTransportMode(g.unitType);
         if (availableModeKeys.includes(candidate)) {
           selectedModeKey = candidate;
@@ -599,6 +620,11 @@ export class CampaignScreen {
 
     title.textContent = editingOrder ? "Edit Redeployment Draft" : "Plan Redeployment";
     const initiallySelectedFormationIds = new Set<string>(editingOrder?.payload.formationIds ?? []);
+    if (!editingOrder
+      && preselectedFormationId
+      && originFormations.some((formation) => formation.id === preselectedFormationId)) {
+      initiallySelectedFormationIds.add(preselectedFormationId);
+    }
     if (editingOrder && initiallySelectedFormationIds.size === 0) {
       editingOrder.payload.selections.forEach((selection) => {
         originFormations
@@ -961,6 +987,8 @@ export class CampaignScreen {
       onSelectionRequested: (selection) => {
         if (!selection) return;
         const choosingRedeploymentDestination = selection.kind === "hex" && this.moveOriginHexKey !== null;
+        if (selection.kind === "formation") this.selectedFormationId = selection.id;
+        else if (!choosingRedeploymentDestination) this.selectedFormationId = null;
         let selectedHexKey: string | null = null;
         if (selection.kind === "hex") {
           selectedHexKey = selection.id;
@@ -1790,7 +1818,7 @@ export class CampaignScreen {
         this.syncRedeploymentTargetMode();
         this.renderer.clearAllHighlights("origin");
         this.campaignPopupInvoker = target.closest<HTMLElement>("[data-confirm-campaign-redeploy]");
-        this.openRedeployModal(origin, destination);
+        this.openRedeployModal(origin, destination, undefined, this.selectedFormationId ?? undefined);
         this.renderSelection();
         return;
       }
@@ -2802,10 +2830,10 @@ export class CampaignScreen {
       const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
       const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
       return (tile.forces ?? [])
-        .filter((force) => force.count > 0)
+        .filter((force) => force.count > 0 && projectLegacyForceGroupAsSupportCapacity(force) === null)
         .map((force) => ({
           hexKey,
-          label: force.label ?? this.formatCampaignLabel(force.unitType),
+          label: resolveCampaignForceGroupCommandLabel(force.label, force.unitType),
           count: force.count
         }));
     }).sort((left, right) => {
@@ -3026,7 +3054,9 @@ export class CampaignScreen {
             : `${authoredMapLabel ?? roleLabel} · hex ${hexKey}`
         } : {}),
         hasContextActions: isFriendlyBase ? showBaseSelectionActions : controller === "Player" && hasPresentForces,
-        forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
+        forces: groups
+          .filter((force) => force.count > 0 && projectLegacyForceGroupAsSupportCapacity(force) === null)
+          .map((force) => `${resolveCampaignForceGroupCommandLabel(force.label, force.unitType)} · ${force.count}`),
         capabilities,
         infrastructure: infrastructureCondition,
         infrastructureRecovery,

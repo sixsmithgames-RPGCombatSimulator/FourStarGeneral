@@ -91,6 +91,21 @@ function opposingPairKey(left: CampaignFactionKey, right: CampaignFactionKey): s
   return [String(left), String(right)].sort().join("|");
 }
 
+function operationalBelligerentLabel(faction: CampaignFactionKey): string {
+  if (faction === "Player") return "Allied";
+  if (faction === "Bot") return "German";
+  if (faction === "Neutral") return "Uncontrolled";
+  return String(faction);
+}
+
+function derivedFrontLabel(controllers: readonly CampaignFactionKey[]): string {
+  const priority = new Map<string, number>([["Allied", 0], ["German", 1]]);
+  const belligerents = controllers
+    .map(operationalBelligerentLabel)
+    .sort((left, right) => (priority.get(left) ?? 2) - (priority.get(right) ?? 2) || left.localeCompare(right));
+  return `${belligerents.join("–")} Front`;
+}
+
 function boundaryEdges(runtime: CampaignRuntimeState): ControlBoundaryEdge[] {
   const orderByKey = new Map(runtime.tileOrder.map((key, index) => [key, index]));
   const edges: ControlBoundaryEdge[] = [];
@@ -197,7 +212,7 @@ export function deriveCampaignFrontsFromControl(
           opposingPairKey(controllers[0], controllers[1]),
           stableComponent
         ),
-        label: prior?.label ?? `${String(controllers[0])}–${String(controllers[1])} Front`,
+        label: prior?.label ?? derivedFrontLabel(controllers),
         hexKeys: friendlyHexKeys,
         edges: frontEdges,
         initiative,

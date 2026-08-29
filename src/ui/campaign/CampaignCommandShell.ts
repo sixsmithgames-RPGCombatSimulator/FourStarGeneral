@@ -1437,10 +1437,13 @@ export class CampaignCommandShell {
       row.className = "campaign-workspace-list-row";
       row.dataset.forceHex = hexKey;
       const totalStrength = entries.reduce((sum, force) => sum + force.count, 0);
-      const groupLabel = entries.length === 1 ? entries[0]!.label : `${entries[0]!.label} group`;
+      const commandLabels = Array.from(new Set(entries.map((entry) => entry.label)));
+      const groupLabel = commandLabels.length <= 1
+        ? commandLabels[0]!
+        : `${commandLabels[0]} + ${commandLabels.length - 1} command${commandLabels.length === 2 ? "" : "s"}`;
       row.append(
         createTextElement("strong", "", groupLabel),
-        createTextElement("span", "", `${entries.length} formation${entries.length === 1 ? "" : "s"} · strength ${totalStrength.toLocaleString()} · Hex ${hexKey}`)
+        createTextElement("span", "", `${commandLabels.length} command${commandLabels.length === 1 ? "" : "s"} · strength ${totalStrength.toLocaleString()} · Hex ${hexKey}`)
       );
       row.addEventListener("click", () => this.requestSelection({ kind: "hex", id: hexKey }, true));
       return row;

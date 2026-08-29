@@ -1060,7 +1060,7 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
   });
 });
 
-registerTest("CAMPAIGN_BEACHHEAD_IS_A_RECEIVING_LODGMENT_NOT_A_PRODUCTION_SITE", async ({ Given, When, Then }) => {
+registerTest("FSG_CAM_045_CANONICAL_FORCE_COPY_REACHES_INSPECTOR_AND_FORCES_WORKSPACE", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let onHexClick: ((hexKey: string) => void) | null = null;
   let omahaHexKey = "";
@@ -1091,11 +1091,18 @@ registerTest("CAMPAIGN_BEACHHEAD_IS_A_RECEIVING_LODGMENT_NOT_A_PRODUCTION_SITE",
 
   await Then("the inspector presents a defended receiving lodgment without production or recruiting claims", () => {
     const routeCopy = document.getElementById("campaignContextInspectorRoute")?.textContent ?? "";
+    const forcesCopy = document.getElementById("campaignForcesWorkspaceList")?.textContent?.replace(/\s+/g, " ") ?? "";
     if (!routeCopy.includes("Omaha")
       || !routeCopy.includes("Fortification Light")
-      || !routeCopy.includes("U.S. 1st Infantry Division")
-      || /daily (?:Allied support|production) capacity|next delivery|recruit/i.test(routeCopy)) {
-      throw new Error(`Omaha still presented a beachhead as a production site: ${routeCopy}`);
+      || !routeCopy.includes("16th Infantry Regiment")
+      || !routeCopy.includes("116th Infantry Regiment")
+      || /daily (?:Allied support|production) capacity|next delivery|recruit/i.test(routeCopy)
+      || !forcesCopy.includes("16th Infantry Regiment")
+      || !forcesCopy.includes("82d Airborne Division")
+      || !/\+ [1-9]\d* commands?/.test(forcesCopy)
+      || /U\.S\. 1st Infantry Division battalions|supply columns|group group|groups group/i.test(forcesCopy)
+      || /\b\d+ formations? · strength/i.test(forcesCopy)) {
+      throw new Error(`Canonical force copy diverged between Omaha and the Forces workspace: ${JSON.stringify({ routeCopy, forcesCopy })}`);
     }
     campaignState.reset();
   });

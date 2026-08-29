@@ -14,6 +14,8 @@ import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import { CampaignMapRenderer } from "../src/rendering/CampaignMapRenderer";
 import { resolveCampaignFormationPresentation } from "../src/game/campaign/formations/CampaignFormationPresentation";
+import { projectLegacyForceGroupAsSupportCapacity } from "../src/game/campaign/logistics/CampaignSupportCapacityAdapter";
+import { CampaignScreen } from "../src/ui/screens/CampaignScreen";
 import {
   createCampaignContextInspector,
   renderCampaignContextInspector
@@ -213,6 +215,56 @@ registerTest("FSG_CAM_039_SELECTED_HEX_EXPLAINS_STRATEGIC_GEOGRAPHY_BEFORE_UNITS
   });
 });
 
+registerTest("FSG_CAM_048_ABSTRACT_STRENGTH_STEPS_COLLAPSE_UNDER_THEIR_REAL_COMMAND", async ({ Given, When, Then }) => {
+  const { inspector } = inspectorFixture();
+  const supplyCapacity = projectLegacyForceGroupAsSupportCapacity({
+    unitType: "Supply_Truck",
+    count: 3,
+    label: "Solent supply columns"
+  });
+  const airborneCapacity = projectLegacyForceGroupAsSupportCapacity({
+    unitType: "Paratrooper",
+    count: 2,
+    label: "U.S. 82nd Airborne Division groups"
+  });
+  const hex = {
+    hexKey: "2,2",
+    roleLabel: "Region",
+    controlLabel: "Friendly control",
+    displayLabel: "Ste-Mère-Église",
+    summary: "Airborne lodgment around Ste-Mère-Église.",
+    forces: ["82d Airborne Division · 2"],
+    infrastructure: null,
+    objectives: [],
+    fronts: []
+  } as unknown as CampaignCommandHexView;
+  const strengthSteps = ["one", "two"].map((id) => formation(id, "Ready", {
+    name: "82d Airborne Division",
+    commandLabel: "82d Airborne Division",
+    typeLabel: "airborne strength group",
+    hasAuthoredSubordinateIdentity: false
+  }));
+  await Given("transport capacity and combat-strength records that must remain different operational concepts", () => {});
+  await When("the selected-location inspector renders the airborne command", () => {
+    renderCampaignContextInspector(inspector, shellView(hex, strengthSteps), { kind: "hex", id: "2,2" });
+  });
+  await Then("one command summary replaces duplicate drill-down rows and duplicate projected-force copy", () => {
+    const text = inspector.textContent?.replace(/\s+/g, " ") ?? "";
+    if (!supplyCapacity
+      || supplyCapacity.capacityType !== "trucks"
+      || supplyCapacity.quantity !== 3
+      || supplyCapacity.selectableFormation
+      || airborneCapacity !== null
+      || inspector.querySelectorAll(".campaign-context-inspector__command-summary").length !== 1
+      || inspector.querySelectorAll("[data-campaign-formation-id]").length !== 0
+      || !text.includes("82d Airborne Division")
+      || !text.includes("2 airborne strength groups")
+      || text.includes("Projected forces")) {
+      throw new Error(`Abstract command presentation remains repetitive or falsely precise: ${text}`);
+    }
+  });
+});
+
 registerTest("FSG_CAM_040_REMOTE_SUPPORT_LOCATIONS_DO_NOT_HIDE_INSIDE_ONE_BASE_HEX", async ({ Given, When, Then }) => {
   const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
   const independentlyRequired = new Set([
@@ -287,21 +339,128 @@ registerTest("FSG_CAM_043_FORMATION_DRILLDOWN_PRESERVES_BASE_ORDER_CONTEXT", asy
   };
   const assigned = formation("unit-1", "Ready", { name: "50th (Northumbrian) Infantry Division" });
   const view = shellView(hex, [assigned]);
+  const popupLayer = document.createElement("div");
+  popupLayer.id = "battlePopupLayer";
+  popupLayer.innerHTML = `
+    <section class="battle-popup">
+      <button type="button" id="battlePopupClose">Close</button>
+      <h2 data-popup-title></h2>
+      <div data-popup-body></div>
+    </section>
+  `;
+  document.body.appendChild(popupLayer);
+  const campaignScreenElement = document.createElement("main");
+  campaignScreenElement.id = "campaignScreen";
+  document.body.appendChild(campaignScreenElement);
+  const origin = "2,2";
+  const destination = "3,2";
+  const originAxial = CoordinateSystem.offsetToAxial(2, 2);
+  const destinationAxial = CoordinateSystem.offsetToAxial(3, 2);
+  let previewMode = "";
+  let previewFormationIds: readonly string[] = [];
+  const screen = new CampaignScreen({ showScreenById() {} } as never, {
+    clearAllHighlights() {}, highlightHex() {}
+  } as never);
+  (screen as unknown as { campaignState: unknown }).campaignState = {
+    getCampaignMapView: () => ({
+      scenario: {
+        key: "formation-preselection",
+        title: "Formation preselection",
+        description: "A selected formation carries into its planner.",
+        dimensions: { cols: 5, rows: 5 },
+        hexScaleKm: 10,
+        background: { imageUrl: "about:blank" },
+        tilePalette: {
+          origin: { role: "airbase", factionControl: "Player", mapLabel: "Tangmere" },
+          destination: { role: "airbase", factionControl: "Player", mapLabel: "Ford" }
+        },
+        tiles: [
+          { tile: "origin", hex: originAxial, forces: [] },
+          { tile: "destination", hex: destinationAxial, forces: [] }
+        ],
+        fronts: [], objectives: [], economies: []
+      }
+    }),
+    getCampaignRedeployAvailableFormations: () => [
+      {
+        id: "fighter-1", name: "retired fighter snapshot", campaignUnitType: "Fighter",
+        origin: { legacyLabel: "Eastern tactical fighter groups", legacyOrdinal: 0 },
+        locationHexKey: origin, status: "ready", readiness: 95
+      },
+      {
+        id: "infantry-1", name: "retired infantry snapshot", campaignUnitType: "Infantry_42",
+        origin: { legacyLabel: "U.S. 1st Infantry Division battalions", legacyOrdinal: 0 },
+        locationHexKey: origin, status: "ready", readiness: 90
+      }
+    ],
+    getTransportRouteEligibility: (_origin: string, _destination: string, modeKey: string) => ({
+      available: modeKey === "fighter" || modeKey === "foot",
+      reason: null,
+      correctiveAction: null,
+      crossesWater: false
+    }),
+    previewRedeploy: (
+      _origin: string,
+      _destination: string,
+      _selections: unknown,
+      modeKey: string,
+      _editingOrderId: unknown,
+      _allowPartial: boolean,
+      formationIds: readonly string[]
+    ) => {
+      previewMode = modeKey;
+      previewFormationIds = [...formationIds];
+      return {
+        ok: true,
+        diagnostics: [],
+        etaSegment: 1,
+        timeSegments: 1,
+        fuelCost: 1,
+        fuelAvailable: 100,
+        suppliesCost: 1,
+        suppliesAvailable: 100,
+        capacityNeeded: 1,
+        capacityAvailable: 4,
+        manpowerLoss: 0
+      };
+    },
+    segmentToTimeDisplay: () => "D+1 · 7 June 1944, 03:00–06:00",
+    createRedeployDraft: () => ({ ok: false, reason: "Not submitted in this presentation test." })
+  };
   await Given("a base with one ready formation and one legal movement order", () => {
     renderCampaignContextInspector(inspector, view, { kind: "hex", id: "2,2" });
   });
   await When("the player drills into the formation", () => {
     renderCampaignContextInspector(inspector, view, { kind: "formation", id: assigned.id });
+    (screen as unknown as {
+      openRedeployModal: (originHexKey: string, destinationHexKey: string, editingOrder: undefined, formationId: string) => void;
+    }).openRedeployModal(origin, destination, undefined, "fighter-1");
   });
   await Then("a fixed back route and the applicable Orders context remain immediately available", () => {
     const route = inspector.querySelector<HTMLElement>("#campaignContextInspectorRoute");
     const back = route?.querySelector<HTMLButtonElement>("[data-campaign-map-hex-target='2,2']");
     const footer = inspector.querySelector<HTMLElement>(".campaign-context-inspector__action-footer");
+    const selectedMode = popupLayer.querySelector<HTMLButtonElement>(".redeploy-mode-card.selected");
+    const checkedFormations = Array.from(popupLayer.querySelectorAll<HTMLInputElement>("[data-formation-index]:checked"));
+    const checkedRow = checkedFormations[0]?.closest<HTMLElement>(".redeploy-formation-row");
     if (!back
       || route?.firstElementChild !== back
       || footer?.hidden
-      || !footer?.textContent?.includes("Move or embark formations")) {
-      throw new Error(`Formation drill-down abandoned its base order workflow: ${inspector.outerHTML}`);
+      || !footer?.textContent?.includes("Move or embark formations")
+      || selectedMode?.dataset.mode !== "fighter"
+      || checkedFormations.length !== 1
+      || checkedFormations[0]?.disabled
+      || !checkedRow?.textContent?.includes("No. 401 Squadron RCAF")
+      || previewMode !== "fighter"
+      || previewFormationIds.join("|") !== "fighter-1") {
+      throw new Error(`Formation drill-down abandoned its exact planner context: ${JSON.stringify({
+        inspector: inspector.textContent,
+        selectedMode: selectedMode?.dataset.mode,
+        checkedCount: checkedFormations.length,
+        checkedRow: checkedRow?.textContent,
+        previewMode,
+        previewFormationIds
+      })}.`);
     }
   });
 });
@@ -317,21 +476,6 @@ registerTest("FSG_CAM_044_BLOCKED_RECONSTRUCTION_REASON_OWNS_THE_BASE_ACTION_SUM
     if (!/repairPreview\?\.reason/.test(projection)
       || !/repairPreview\?\.correctiveAction/.test(projection)) {
       throw new Error("The base action summary can still discard a relevant reconstruction blocker in favor of generic movement copy.");
-    }
-  });
-});
-
-registerTest("FSG_CAM_045_PLAYER_SURFACES_DO_NOT_RENDER_STORED_FORMATION_NAMES_DIRECTLY", async ({ Given, When, Then }) => {
-  const screenSource = readWorkspaceSource("src/ui/screens/CampaignScreen.ts");
-  await Given("a restored campaign whose stored formation name may contain a retired aggregate alias", () => {});
-  await When("campaign planners, histories, and summaries are inspected", () => {});
-  await Then("every player-facing surface routes identity through the central presentation contract", () => {
-    const unsafe = [
-      /<strong>\$\{this\.escapeHtml\(formation\.name\)\}<\/strong>/,
-      /\.map\(\(formation\) => `\$\{formation\.name\}/
-    ].filter((pattern) => pattern.test(screenSource));
-    if (unsafe.length > 0) {
-      throw new Error(`Stored formation.name still reaches ${unsafe.length} player-facing campaign surface(s) directly.`);
     }
   });
 });

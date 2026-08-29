@@ -23,6 +23,7 @@ const INTEL_CONTACT_LAYER_ID = "campaign-map-intel-contacts";
 const KNOWN_SITE_LAYER_ID = "campaign-map-known-sites";
 const LOCATION_LABEL_LAYER_ID = "campaign-map-location-labels";
 const FRIENDLY_BASE_DISCLOSURE_LAYER_ID = "campaign-map-friendly-base-disclosures";
+const TRANSIENT_DISCLOSURE_LAYER_ID = "campaign-map-transient-disclosures";
 const MAX_CAMPAIGN_FORCE_ACTORS = 4;
 const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
 const THEATER_MARKER_VISUAL_RADIUS = 11;
@@ -67,6 +68,8 @@ export class CampaignMapRenderer {
   private boundKeydownListener: ((event: KeyboardEvent) => void) | null = null;
   /** Single pan/zoom transform owner recreated on each render (see MapViewport). */
   private viewportRoot: SVGGElement | null = null;
+  /** Topmost map layer reserved for the one disclosure currently opened by hover or keyboard focus. */
+  private transientDisclosureLayer: SVGGElement | null = null;
   private gridBounds: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
 
   /** Stores the dimensions in pixels so callers can size viewports accordingly. */
@@ -274,6 +277,10 @@ export class CampaignMapRenderer {
     const coverageGroup = this.ensureLayer(viewportRoot, INTEL_COVERAGE_LAYER_ID);
     const knownSiteGroup = this.ensureLayer(viewportRoot, KNOWN_SITE_LAYER_ID);
     const contactGroup = this.ensureLayer(viewportRoot, INTEL_CONTACT_LAYER_ID);
+    const transientDisclosureGroup = this.ensureLayer(viewportRoot, TRANSIENT_DISCLOSURE_LAYER_ID);
+    transientDisclosureGroup.setAttribute("pointer-events", "none");
+    transientDisclosureGroup.setAttribute("aria-hidden", "true");
+    this.transientDisclosureLayer = transientDisclosureGroup;
 
     const density = this.getHexDensityScalar();
 
@@ -1625,6 +1632,7 @@ export class CampaignMapRenderer {
    */
   private bindViewportFittedDisclosure(marker: SVGGElement, disclosure: SVGGElement): void {
     disclosure.setAttribute("data-viewport-fit", "dynamic");
+    disclosure.setAttribute("data-disclosure-side", marker.getAttribute("data-disclosure-side") ?? "right");
     const fit = (): void => {
       disclosure.style.setProperty("--campaign-disclosure-shift-x", "0px");
       disclosure.style.setProperty("--campaign-disclosure-shift-y", "0px");
@@ -1658,8 +1666,25 @@ export class CampaignMapRenderer {
       if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(fit);
       else fit();
     };
-    marker.addEventListener("pointerenter", scheduleFit);
-    marker.addEventListener("focus", scheduleFit);
+    const reveal = (): void => {
+      const overlay = this.transientDisclosureLayer;
+      if (overlay && disclosure.parentNode !== overlay) overlay.appendChild(disclosure);
+      disclosure.classList.add("is-open");
+      scheduleFit();
+    };
+    const conceal = (): void => {
+      if (marker.matches(":hover") || document.activeElement === marker) return;
+      disclosure.classList.remove("is-open");
+      if (disclosure.parentNode !== marker) marker.appendChild(disclosure);
+    };
+    const scheduleConceal = (): void => {
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(conceal);
+      else conceal();
+    };
+    marker.addEventListener("pointerenter", reveal);
+    marker.addEventListener("pointerleave", scheduleConceal);
+    marker.addEventListener("focus", reveal);
+    marker.addEventListener("blur", scheduleConceal);
   }
 
   /** Wraps a sentence into bounded SVG text lines because SVG text nodes do not wrap themselves. */

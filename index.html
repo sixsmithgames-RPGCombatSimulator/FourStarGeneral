@@ -2114,6 +2114,14 @@
     .campaign-known-site[data-disclosure-side="left"] .campaign-known-site-disclosure {
       transform-origin: right center;
     }
+    .campaign-base-disclosure[data-disclosure-side="right"],
+    .campaign-known-site-disclosure[data-disclosure-side="right"] {
+      transform-origin: left center;
+    }
+    .campaign-base-disclosure[data-disclosure-side="left"],
+    .campaign-known-site-disclosure[data-disclosure-side="left"] {
+      transform-origin: right center;
+    }
     .campaign-base-marker:hover .campaign-base-marker__focus-ring,
     .campaign-base-marker:focus .campaign-base-marker__focus-ring,
     .campaign-base-marker:hover .campaign-base-disclosure,
@@ -2121,7 +2129,9 @@
     .campaign-known-site:hover .campaign-known-site__focus-ring,
     .campaign-known-site:focus .campaign-known-site__focus-ring,
     .campaign-known-site:hover .campaign-known-site-disclosure,
-    .campaign-known-site:focus .campaign-known-site-disclosure {
+    .campaign-known-site:focus .campaign-known-site-disclosure,
+    .campaign-base-disclosure.is-open,
+    .campaign-known-site-disclosure.is-open {
       opacity: 1;
       visibility: visible;
       transform: translate(
@@ -5895,7 +5905,20 @@
       padding: 0.45rem 0.65rem; background: rgba(0,0,0,0.25);
       border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 0.9rem;
     }
-    .redeploy-route .route-node { font-weight: 700; color: rgba(220,240,255,0.95); }
+    .redeploy-route .route-node {
+      display: grid;
+      gap: 0.08rem;
+      font-weight: 700;
+      color: rgba(220,240,255,0.95);
+      line-height: 1.05;
+    }
+    .redeploy-route .route-node small {
+      color: rgba(180,190,205,0.72);
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
     .redeploy-route .route-arrow { color: #f5c46d; font-weight: 700; }
     .redeploy-route .route-distance { margin-left: auto; color: rgba(180,190,205,0.75); font-size: 0.8rem; }
     .redeploy-section-label {
