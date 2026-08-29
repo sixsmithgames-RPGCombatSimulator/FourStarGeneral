@@ -328,6 +328,50 @@ registerTest("BATTLESCREEN_CAMPAIGN_MAP_POINTS_NEVER_RENDER_PLACEHOLDER_OBJECTIV
   });
 });
 
+registerTest("BATTLESCREEN_MAP_RECONSTRUCTION_REAPPLIES_OBJECTIVE_MARKERS", async ({ Given, When, Then }) => {
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+  const renderOrder: string[] = [];
+
+  await Given("a campaign battlefield whose SVG is being reconstructed", () => {
+    document.body.innerHTML = `
+      <div id="battleScreen">
+        <div id="battleMapCanvas"></div>
+        <svg id="battleHexMap"></svg>
+      </div>
+    `;
+    (screen as any).element = document.getElementById("battleScreen");
+    (screen as any).scenario = { objectives: [{ hex: { q: 1, r: 1 } }] };
+    (screen as any).hexMapRenderer = {
+      render: () => renderOrder.push("map"),
+      setSoundEnabled() {},
+      onHexClick() {},
+      onSelectionChanged() {},
+      renderBaseCampMarker() {}
+    };
+    (screen as any).soundEnabled = false;
+    (screen as any).ensureEngine = () => {};
+    (screen as any).cloneScenario = () => (screen as any).scenario;
+    (screen as any).configureBattlefieldBackdrop = () => {};
+    (screen as any).registerScenarioZones = () => {};
+    (screen as any).mapViewport = { reset() {} };
+    (screen as any).renderEngineUnits = () => renderOrder.push("units");
+    (screen as any).updateObjectiveMarkers = () => renderOrder.push("objectives");
+    (screen as any).updateAirHudWidget = () => {};
+    (screen as any).activeMissionSessionKey = null;
+    (screen as any).getMissionSessionKey = () => "campaign:Normal:objective-marker-test";
+  });
+
+  await When("the tactical map finishes rendering", () => {
+    (screen as any).initializeBattleMap(true);
+  });
+
+  await Then("objective markers are restored after terrain and units exist", () => {
+    if (renderOrder.join(" > ") !== "map > units > objectives") {
+      throw new Error(`Objective marker render order drifted: ${renderOrder.join(" > ")}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_CAMPAIGN_TITLE_STAYS_DISTINCT_FROM_ENGAGEMENT_TITLE", async ({ Given, When, Then }) => {
   const screen = Object.create(BattleScreen.prototype) as BattleScreen;
   const campaignTitle = document.createElement("span");

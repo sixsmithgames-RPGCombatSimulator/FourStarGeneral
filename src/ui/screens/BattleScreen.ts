@@ -12023,6 +12023,7 @@ export class BattleScreen {
     if (baseCampKey) {
       this.hexMapRenderer.renderBaseCampMarker(baseCampKey);
     }
+    this.updateObjectiveMarkers();
     this.updateAirHudWidget();
   }
 
