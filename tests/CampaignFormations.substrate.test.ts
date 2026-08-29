@@ -805,12 +805,35 @@ registerTest("CAMPAIGN_FORMATION_SELECTION_EXCLUDES_READY_FORMATIONS_WITH_ACTIVE
     selectedIds = selectCampaignFormationsForAllocation(runtime, context, "infantry", 2).map((formation) => formation.id);
   });
 
-  await Then("only the order-free formation remains eligible for the visible cap and later commitment", () => {
+  await Then("only the order-free formation remains selectable for a voluntary attack commitment", () => {
     const orderedId = infantryIds[0];
     const freeId = infantryIds[1];
     if (selectedIds.length !== 1 || selectedIds[0] !== freeId
-      || isCampaignFormationBattleEligible(runtime.formations[orderedId])) {
+      || !isCampaignFormationBattleEligible(runtime.formations[orderedId])) {
       throw new Error(`Active-order eligibility diverged: ${JSON.stringify({ infantryIds, selectedIds })}`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_ENGAGEMENT_CONTEXT_EXCLUDES_SHATTERED_DEFENDERS_BEFORE_PRECOMBAT", async ({ Given, When, Then }) => {
+  const scenario = buildFormationScenario();
+  const runtime = createCampaignRuntime(splitLegacyCampaignScenario(scenario), runtimeOptions(scenario));
+  const botId = runtime.formationOrder.find((formationId) => runtime.formations[formationId]?.faction === "Bot") ?? "";
+  let context: CampaignEngagementContext;
+
+  await Given("a defeated formation remains physically recorded at the opposing front hex", () => {
+    if (!botId || !runtime.formations[botId]) throw new Error("Shattered-defender fixture is incomplete.");
+    runtime.formations[botId].status = "shattered";
+  });
+
+  await When("the follow-on engagement context is rebuilt from current campaign truth", () => {
+    context = attachCampaignFormationProvenanceToContext(buildEngagementContext(), runtime);
+  });
+
+  await Then("the unavailable defender is removed before the player enters a stale uncommittable plan", () => {
+    if (context.enemyForces.length !== 0 || context.enemyForceValue !== 0
+      || context.forceRatio !== Number.MAX_SAFE_INTEGER) {
+      throw new Error(`Unavailable defender leaked into the engagement context: ${JSON.stringify(context.enemyForces)}`);
     }
   });
 });

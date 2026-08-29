@@ -15,7 +15,7 @@ import type {
 import type { Axial, FormationStatus, ScenarioUnit } from "../../../core/types";
 import { calculateFormationReadiness } from "../../../data/unitSystem/status";
 import { findTemplateForUnitKey } from "../../adapters";
-import { mapCampaignUnitToAllocationKey } from "../campaignForceMapping";
+import { mapCampaignUnitToAllocationKey, sumForcePoolRpValue } from "../campaignForceMapping";
 import { createStableCampaignRecordId } from "../runtime/CampaignCanonical";
 import type { CampaignRuntimeState } from "../runtime/campaignRuntimeTypes";
 import {
@@ -89,17 +89,34 @@ export function attachCampaignFormationProvenanceToContext(
   context: CampaignEngagementContext,
   runtime: FormationRuntimeView
 ): CampaignEngagementContext {
+  const availableForces = attachGroupFormationIds(context.availableForces, runtime, context.attacker);
+  const identifiedEnemyForces = attachGroupFormationIds(context.enemyForces, runtime, context.defender);
+  const enemyForces = identifiedEnemyForces.flatMap((group) => {
+    const formationIds = (group.formationIds ?? []).filter((formationId) => {
+      const formation = runtime.formations[formationId];
+      return Boolean(formation
+        && formation.faction === context.defender
+        && isCampaignFormationBattleEligible(formation));
+    });
+    return formationIds.length > 0
+      ? [{ ...group, count: formationIds.length, formationIds }]
+      : [];
+  });
+  const enemyForceValue = sumForcePoolRpValue(enemyForces);
   return {
     ...structuredClone(context),
-    availableForces: attachGroupFormationIds(context.availableForces, runtime, context.attacker),
-    enemyForces: attachGroupFormationIds(context.enemyForces, runtime, context.defender)
+    availableForces,
+    enemyForces,
+    enemyForceValue,
+    forceRatio: enemyForceValue > 0
+      ? context.playerForceValue / enemyForceValue
+      : Number.MAX_SAFE_INTEGER
   };
 }
 
 /** True when the formation has a battle representation and is not unavailable for tactical commitment. */
 export function isCampaignFormationBattleEligible(formation: CampaignFormationRecord): boolean {
   return isCampaignFormationPresentAtLocation(formation)
-    && !formation.currentOrderId
     && (formation.status === "ready" || formation.status === "committed" || formation.status === "isolated")
     && mapCampaignUnitToAllocationKey(formation.campaignUnitType) !== null;
 }
@@ -183,7 +200,8 @@ export function selectCampaignFormationsForAllocation(
       if (seen.has(formationId)) continue;
       seen.add(formationId);
       const formation = runtime.formations[formationId];
-      if (!formation || formation.faction !== context.attacker || !isCampaignFormationBattleEligible(formation)) continue;
+      if (!formation || formation.faction !== context.attacker || formation.currentOrderId
+        || !isCampaignFormationBattleEligible(formation)) continue;
       selected.push(formation);
       if (selected.length >= quantity) return selected;
     }

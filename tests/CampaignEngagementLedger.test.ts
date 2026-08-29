@@ -193,6 +193,71 @@ registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_LOCKS_EXACT_REVISION_BOUND_PACKAGE", as
   });
 });
 
+registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_INTERRUPTS_A_DEFENDER_ACTIVE_ORDER", async ({ Given, When, Then }) => {
+  let planned: CampaignRuntimeState;
+  let committed: CampaignRuntimeState;
+  let pkg: CampaignBattlePackage;
+  let defenderId = "";
+
+  await Given("an eligible defending formation already carrying out a strategic order at the attacked hex", () => {
+    planned = planRuntime(createLedgerRuntime());
+    defenderId = planned.engagements["ledger-engagement"]?.engagement.context?.enemyForces[0]?.formationIds?.[0] ?? "";
+    if (!defenderId || !planned.formations[defenderId]) throw new Error("Defender-order fixture is incomplete.");
+    const orderId = "order-defend-current-position";
+    const locationHexKey = planned.formations[defenderId].locationHexKey ?? "1,0";
+    planned.orders[orderId] = {
+      id: orderId,
+      faction: "Bot",
+      kind: "redeploy",
+      status: "executing",
+      issuedSegment: planned.currentSegment,
+      earliestStartSegment: planned.currentSegment,
+      targetHexKeys: [locationHexKey],
+      formationIds: [defenderId],
+      dependencies: [],
+      reservationIds: [],
+      acknowledgementKeys: [],
+      executionRefId: null,
+      validation: { valid: true, issues: [], validatedRevision: planned.revision },
+      payload: {
+        originOffsetKey: "1,0",
+        destinationOffsetKey: "1,0",
+        originRuntimeHexKey: locationHexKey,
+        destinationRuntimeHexKey: locationHexKey,
+        selections: [{ unitType: planned.formations[defenderId].campaignUnitType, count: 1 }],
+        transportModeKey: "march",
+        transportCapacityType: null,
+        distance: 0,
+        timeSegments: 0,
+        etaSegment: planned.currentSegment,
+        returnEtaSegment: planned.currentSegment,
+        fuelCost: 0,
+        suppliesCost: 0,
+        manpowerCost: 0,
+        transportCapacityCost: 0,
+        formationIds: [defenderId]
+      }
+    };
+    planned.orderOrder.push(orderId);
+    planned.formations[defenderId].currentOrderId = orderId;
+    const issues = validateCampaignRuntimeState(planned);
+    if (issues.length > 0) throw new Error(`Defender-order fixture failed invariants: ${issues[0].message}`);
+  });
+
+  await When("the attacker commits the live engagement", () => {
+    ({ runtime: committed, pkg } = commitRuntime(planned));
+  });
+
+  await Then("the attacked formation defends in place instead of making the engagement impossible", () => {
+    const defender = pkg.formationCommitments.find((entry) => entry.role === "defender");
+    if (defender?.formationId !== defenderId || committed.formations[defenderId]?.status !== "committed") {
+      throw new Error("The defender's active strategic order prevented an otherwise legal defensive commitment.");
+    }
+    const issues = validateCampaignRuntimeState(committed);
+    if (issues.length > 0) throw new Error(`Committed defender-order runtime failed invariants: ${issues[0].message}`);
+  });
+});
+
 registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_COMMITS_NAVAL_SUPPORT_WITHOUT_A_FAKE_FORMATION", async ({ Given, When, Then }) => {
   let planned: CampaignRuntimeState;
   let committed: CampaignRuntimeState;

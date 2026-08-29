@@ -258,7 +258,6 @@ function selectDefenderCommitments(runtime: CampaignRuntimeState, engagementId: 
       if (used.has(formationId)) return;
       const formation = runtime.formations[formationId];
       if (!formation || formation.faction !== context.defender || !isCampaignFormationBattleEligible(formation)) return;
-      if (formation.currentOrderId) return;
       used.add(formationId);
       commitments.push(buildFormationCommitment(runtime, engagementId, formation, "defender", allocationKey));
     });
@@ -268,7 +267,7 @@ function selectDefenderCommitments(runtime: CampaignRuntimeState, engagementId: 
     0
   );
   if (commitments.length !== expectedPersistentDefenders) {
-    throw new Error("One or more defending formations changed before commitment. Refresh the engagement plan.");
+    throw new Error("One or more defending formations changed before commitment. Return to Headquarters to discard this uncommitted plan, then queue the engagement again.");
   }
   return commitments;
 }

@@ -103,7 +103,6 @@ function exactAvailableDefenderIds(
       return Boolean(
         formation
         && formation.faction === defender
-        && formation.currentOrderId === null
         && isCampaignFormationBattleEligible(formation)
         && mapCampaignUnitToAllocationKey(formation.campaignUnitType)
       );
