@@ -358,11 +358,11 @@ registerTest("CAMPAIGN_FORMATIONS_DETERMINISTIC_LEGACY_REGISTRY", async ({ Given
   const first = createCampaignRuntime(definition, runtimeOptions(scenario));
   const second = createCampaignRuntime(definition, runtimeOptions(scenario));
 
-  await Given("three aggregate campaign counts in authored tile/group order", async () => {});
+  await Given("three rules-bearing combat formation steps in authored tile/group order", async () => {});
 
   await When("the same legacy campaign is adapted twice", async () => {});
 
-  await Then("each count becomes one identical, complete, persistently placed formation", async () => {
+  await Then("each rules-bearing combat step becomes one identical, complete, persistently placed formation", async () => {
     if (first.formationOrder.length !== 3) throw new Error(`Expected three formations, got ${first.formationOrder.length}.`);
     if (computeCampaignContentHash(first.formations) !== computeCampaignContentHash(second.formations)
       || computeCampaignContentHash(first.formationOrder) !== computeCampaignContentHash(second.formationOrder)) {

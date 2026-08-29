@@ -543,10 +543,10 @@ registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_A
         }
       }),
       getCampaignRedeployAvailableFormations: () => [
-        { id: "infantry-1", name: "1st Infantry Division · I", campaignUnitType: "Infantry_42", locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 91 },
-        { id: "infantry-2", name: "1st Infantry Division · II", campaignUnitType: "Infantry_42", locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 88 },
-        { id: "reserve-1", name: "Beachhead Reserve", campaignUnitType: "Infantry_42", locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 84 },
-        { id: "artillery-1", name: "Field Artillery Battalion", campaignUnitType: "Artillery_105mm", locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 90 }
+        { id: "infantry-1", name: "retired snapshot", campaignUnitType: "Infantry_42", origin: { legacyLabel: "U.S. 1st Infantry Division battalions", legacyOrdinal: 0 }, locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 91 },
+        { id: "infantry-2", name: "retired snapshot", campaignUnitType: "Infantry_42", origin: { legacyLabel: "U.S. 1st Infantry Division battalions", legacyOrdinal: 1 }, locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 88 },
+        { id: "reserve-1", name: "retired snapshot", campaignUnitType: "Infantry_42", origin: { legacyLabel: "U.S. 29th Infantry Division battalions", legacyOrdinal: 0 }, locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 84 },
+        { id: "artillery-1", name: "retired snapshot", campaignUnitType: "Artillery_105mm", origin: { legacyLabel: "V Corps Field Artillery", legacyOrdinal: 0 }, locationHexKey: `${originAxial.q},${originAxial.r}`, status: "ready", readiness: 90 }
       ],
       getTransportRouteEligibility: (_origin: string, _destination: string, modeKey: string) => ({
         available: modeKey !== "naval" && modeKey !== "fighter" && modeKey !== "bomber",
@@ -593,9 +593,10 @@ registerTest("CAMPAIGNSCREEN_REDEPLOYMENT_PLANNER_PRIORITIZES_RELEVANT_CHOICES_A
       || issues.length !== 1
       || unitRows.length !== 4
       || popupBody.querySelector("input[type='range']")
-      || !popupBody.textContent?.includes("1st Infantry Division · I")
-      || !popupBody.textContent?.includes("Beachhead Reserve")
-      || !popupBody.textContent?.includes("Field Artillery Battalion")
+      || !popupBody.textContent?.includes("16th Infantry Regiment")
+      || !popupBody.textContent?.includes("116th Infantry Regiment")
+      || !popupBody.textContent?.includes("V Corps Field Artillery")
+      || popupBody.textContent?.includes("retired snapshot")
       || !popupBody.textContent?.includes("Plymouth")
       || !popupBody.textContent?.includes("Utah")
       || popupBody.textContent?.includes("Infantry 42")

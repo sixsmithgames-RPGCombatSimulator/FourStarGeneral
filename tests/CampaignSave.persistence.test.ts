@@ -35,9 +35,10 @@ import {
 import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
 import {
   CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
-  CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH,
+  CENTRAL_CHANNEL_GEOGRAPHY_DISCLOSURE_CONTENT_HASH,
   CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
   CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH,
+  CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH,
   CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH,
   migrateCampaignRuntimeContent
 } from "../src/game/campaign/persistence/CampaignContentMigration";
@@ -400,7 +401,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
 
   await Given("an unplayed save carrying the exact retired production content identity", () => {
     const currentHash = computeCampaignContentHash(definition);
-    if (currentHash !== CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
+    if (currentHash !== CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH
       || retiredOpening.currentSegment !== 0
       || retiredOpening.revision !== 0) {
       throw new Error(`Normandy content identity or pristine boundary drifted: ${currentHash}.`);
@@ -415,7 +416,7 @@ registerTest("CAMPAIGN_SAVE_MIGRATES_ONLY_A_PRISTINE_RETIRED_MAP_TO_THE_CORRECTE
     const result = migrated.runtime;
     if (!migrated.migrated
       || result.campaignId !== runtime.campaignId
-      || result.scenarioContentHash !== CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
+      || result.scenarioContentHash !== CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH
       || result.currentSegment !== 0
       || result.revision !== 0
       || result.tiles["22,13"]?.tileKey !== "utahBeach"
@@ -483,7 +484,7 @@ registerTest("CAMPAIGN_STATE_LOAD_REACHES_THE_CERTIFIED_FULL_THEATER_MIGRATION",
     const runtime = loadState.getRuntimeSnapshot();
     if (!load
       || !load.ok
-      || runtime?.scenarioContentHash !== CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
+      || runtime?.scenarioContentHash !== CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH
       || runtime.currentSegment !== 0
       || runtime.revision !== 0
       || runtime.tiles["5,8"]?.tileKey !== "westernEmbarkation"
@@ -507,7 +508,7 @@ registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_ACROSS_THEATER_SUPPORT_CORRECTION
   prior.factions.Player.economy.supplies -= 37;
   const expected = {
     ...structuredClone(prior),
-    scenarioContentHash: CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
+    scenarioContentHash: CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH
   };
   let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
 
@@ -520,6 +521,37 @@ registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_ACROSS_THEATER_SUPPORT_CORRECTION
       || computeCampaignContentHash(migrated.runtime) !== computeCampaignContentHash(expected)
       || migrated.runtime.factions.Player.economy.supplies !== prior.factions.Player.economy.supplies) {
       throw new Error("Theater-support migration changed existing campaign progress or failed to stamp the current identity.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_ACROSS_STRATEGIC_GEOGRAPHY_COMPLETION", async ({ Given, When, Then }) => {
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const definition = splitLegacyCampaignScenario(scenario);
+  const state = new CampaignState({ legacyStorage: null });
+  state.setScenario(scenario);
+  const runtime = state.getRuntimeSnapshot();
+  if (!runtime) throw new Error("Strategic-geography migration fixture did not create a runtime.");
+  const prior = {
+    ...structuredClone(runtime),
+    scenarioContentHash: CENTRAL_CHANNEL_GEOGRAPHY_DISCLOSURE_CONTENT_HASH
+  };
+  prior.factions.Player.economy.supplies -= 23;
+  const expected = {
+    ...structuredClone(prior),
+    scenarioContentHash: CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH
+  };
+  let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
+
+  await Given("a progressed save from the immediately prior structured-geography build", () => {});
+  await When("the remaining beach and fleet geography is registered", () => {
+    migrated = migrateCampaignRuntimeContent(prior, definition);
+  });
+  await Then("the save keeps every mutable campaign fact and changes only its certified content identity", () => {
+    if (!migrated.migrated
+      || computeCampaignContentHash(migrated.runtime) !== computeCampaignContentHash(expected)
+      || migrated.runtime.factions.Player.economy.supplies !== prior.factions.Player.economy.supplies) {
+      throw new Error("Strategic-geography migration changed existing campaign progress or failed to stamp the current identity.");
     }
   });
 });

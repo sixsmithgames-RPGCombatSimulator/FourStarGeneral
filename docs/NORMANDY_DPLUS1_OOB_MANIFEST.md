@@ -51,14 +51,29 @@ The three 51st (Highland) Division records represent an advance echelon abstract
 
 These air groups are regional command abstractions on the operational map. Their site marker does not claim every squadron physically occupied the named consolidation airfield.
 
-## Grouped logistics and reinforcement abstractions
+## Legacy capacity and reinforcement abstractions
 
-- Western embarkation supply columns: U.S. First Army Transportation.
-- Omaha embarkation supply columns: U.S. First Army Service Troops.
-- Solent supply columns: Second Army Cross-Channel Supply Columns.
-- Eastern embarkation supply columns: Second Army Embarkation Columns.
-- Gold–Juno follow-on groups: Gold–Juno Reinforcement Group.
-- Sword follow-on groups: I Corps Reinforcement Group.
+The four authored `Supply_Truck` aggregates are transport capacity, not military formations:
+
+- Western and Omaha embarkation capacity belongs to First U.S. Army theater support.
+- Solent and eastern embarkation capacity belongs to British Second Army theater support.
+
+They retain persistent legacy records only because existing orders, reservations, movement history,
+and saves can reference their stable formation IDs. `CampaignSupportCapacityAdapter` classifies them as
+non-selectable capacity and marks them as requiring an explicit state migration. They must not receive
+invented column names, honors, battle identities, or tactical commitments. Removal from the formation
+registry is deferred until ready, draft, committed, in-transit, and active-battle save cases can all be
+converted without losing reserved capacity or player progress.
+
+The follow-on infantry aggregates remain strength steps under verified parent commands until a dated
+subordinate identity and posture can be assigned safely:
+
+- Utah and Omaha follow-on strength: First U.S. Army.
+- Gold and Juno follow-on strength: British Second Army.
+- Sword follow-on strength: I Corps.
+
+These are parent-command presentations, not claims that a formation called a "reinforcement group" or
+"reinforcement command" existed. Beach, route, origin, and intended destination never form identity.
 
 ## Sources
 
@@ -84,4 +99,6 @@ These air groups are regional command abstractions on the operational map. Their
 - Exact subordinate names are unique within their authored group.
 - Abstract strength steps set `hasAuthoredSubordinateIdentity` to false and collapse under their real command in inspectors.
 - Player-facing names contain no generated ordinal suffix, destination, beach assignment, or authoring language such as “historical network.”
-- Existing saves and stored AARs gain corrected display names through their retained origin metadata; stored names and integrity hashes are not rewritten.
+- The canonical record resolver derives presentation from retained origin metadata. Existing saves reconcile only their mutable `formation.name` presentation snapshot; stable formation IDs, placement, orders, reservations, and integrity-bound AAR/history facts are not rewritten.
+- Operational posture is projected from status plus current-order ownership into mutually exclusive scheduled, ready, assigned, committed, in-transit, isolated, refitting, shattered, or retired groups. Presence must never be labeled readiness.
+- Capacity aggregates report `operationalRepresentation: capacity`; they are not valid selectable-formation identities.

@@ -1017,12 +1017,13 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const portland = view?.scenario.tiles.find((tile) => view.scenario.tilePalette[tile.tile]?.mapLabel === "Portland");
     if (!portland || !onHexClick) throw new Error("The Portland base fixture was unavailable.");
     const mapListLabel = document.querySelector(".campaign-map-list-toggle")?.getAttribute("aria-label") ?? "";
-    if (!mapListLabel.includes("40 map records")) {
+    if (!mapListLabel.includes("45 map records")) {
       throw new Error(`Operational map list lost the complete Allied-base and strategic-site inventory: ${mapListLabel}.`);
     }
     const mapListCopy = document.querySelector(".campaign-map-accessible-list")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
     if (/historical locations|Allied supporting network|Historical lift network/i.test(mapListCopy)
-      || !mapListCopy.includes("2 associated ports")
+      || !mapListCopy.includes("West Country embarkation ports")
+      || !mapListCopy.includes("Dorset embarkation ports")
       || !mapListCopy.includes("Thames and Nore reinforcement ports")) {
       throw new Error(`Operational map list exposed authoring language instead of period-facing command copy: ${mapListCopy}.`);
     }
@@ -1041,12 +1042,13 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
     const engagement = document.querySelector<HTMLElement>(".campaign-context-inspector .action-section");
     if (!routeCopy.includes("Embarkation port")
       || !routeCopy.includes("Omaha-bound embarkation ports for forces and stores")
-      || !routeCopy.includes("Weymouth · Poole")
+      || !routeCopy.includes("Dorset coast")
+      || !routeCopy.includes("Portland Harbour")
       || routeCopy.includes("Associated portsPortland")
       || !routeCopy.includes("Logistics and embarkation")
       || !routeCopy.includes("Assigned commands")
       || !routeCopy.includes("Ready now")
-      || !routeCopy.includes("U.S. First Army Service Troops")
+      || !routeCopy.includes("First U.S. Army")
       || routeCopy.includes("Projected forces")
       || routeCopy.includes(`hex ${portlandHexKey}`)
       || selection?.hidden

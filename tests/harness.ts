@@ -22,7 +22,17 @@ export function registerTest(id: string, spec: TestFn): void {
 }
 
 export async function runAllTests(): Promise<void> {
-  for (const test of tests) {
+  const processLike = (globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  }).process;
+  const requestedFilter = processLike?.env?.TEST_FILTER?.trim();
+  const filter = requestedFilter ? new RegExp(requestedFilter, "i") : null;
+  const selectedTests = filter ? tests.filter((test) => filter.test(test.id)) : tests;
+  if (filter && selectedTests.length === 0) {
+    throw new Error(`TEST_FILTER '${requestedFilter}' matched no registered test.`);
+  }
+
+  for (const test of selectedTests) {
     if (typeof document !== "undefined") {
       document.body.innerHTML = "";
     }

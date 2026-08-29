@@ -34,5 +34,6 @@ import "./TacticalSaveCompleteness.test.js";
 import "./TacticalSaveUx.test.js";
 import "./precombatLogisticsMinimum.test.js";
 import "./BattleScreen.campaignHandoff.test.js";
+import "./CampaignProfessionalUi.contract.test.js";
 
 await runAllTests();

@@ -70,6 +70,27 @@ export interface CampaignForceGroup {
   availabilityCopy?: string;
 }
 
+/**
+ * Player-safe strategic geography authored against the registered campaign background.
+ * Missing facts remain unknown; renderers must never infer roads, railways, or terrain from prose.
+ */
+export interface CampaignHexGeography {
+  /** Historical place or geographic feature anchoring the operational cell. */
+  placeName?: string;
+  /** Rules-relevant land/water classification aligned to the registered background. */
+  terrain: "land" | "water";
+  /** Concise terrain character such as coastal lowland, bocage, estuary, or urban approaches. */
+  terrainCharacter?: string;
+  /** Authored road connections or road-junction role. */
+  roads?: string[];
+  /** Authored rail connections or rail-junction role. */
+  railways?: string[];
+  /** Rivers, estuaries, canals, or crossing points in this cell. */
+  waterways?: string[];
+  /** Ports, anchorages, beach exits, airfields, or other fixed operational features. */
+  operationalFeatures?: string[];
+}
+
 export interface CampaignTileDefinition {
   /** High-level role determines icon, UI copy, and rules interactions (e.g., airbase increases sortie capacity). */
   role: CampaignTileRole;
@@ -95,6 +116,8 @@ export interface CampaignTileDefinition {
   intelConfirmed?: boolean;
   /** Free-form notes allow designers to surface tooltips or scripted hooks. */
   notes?: string;
+  /** Structured background-aligned geography shown before installation and formation detail. */
+  geography?: CampaignHexGeography;
   /**
    * Named historical places represented by this one rules-bearing node at the campaign's
    * ten-kilometer scale. These names are presentation-only: they do not create extra bases,
@@ -469,6 +492,8 @@ export interface CampaignBriefedStrategicSite {
   locationPrecision: "fixed" | "sector";
   /** Additional named places represented by this marker without pretending they occupy extra hexes. */
   relatedLocations?: string[];
+  /** Structured geography safe to expose without consulting mutable site or formation truth. */
+  geography?: CampaignHexGeography;
 }
 
 /**

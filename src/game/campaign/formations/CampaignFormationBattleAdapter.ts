@@ -22,7 +22,7 @@ import {
   getCampaignFormationEffectiveExperience,
   isCampaignFormationPresentAtLocation
 } from "./FormationLifecycleService";
-import { resolveCampaignFormationPresentation } from "./CampaignFormationPresentation";
+import { resolveCampaignFormationRecordPresentation } from "./CampaignFormationPresentation";
 import type {
   CampaignFormationBattleSeed,
   CampaignFormationRecord,
@@ -149,11 +149,7 @@ export function createCampaignFormationBattleSeed(
   );
   const baseExperience = formation.experience.base;
   const earnedExperience = formation.experience.earned;
-  const formationPresentation = resolveCampaignFormationPresentation({
-    legacyLabel: formation.origin.legacyLabel,
-    legacyOrdinal: formation.origin.legacyOrdinal,
-    unitType: formation.campaignUnitType
-  });
+  const formationPresentation = resolveCampaignFormationRecordPresentation(formation);
   const unit: ScenarioUnit = {
     type: template.type,
     hex: structuredClone(context.hex),

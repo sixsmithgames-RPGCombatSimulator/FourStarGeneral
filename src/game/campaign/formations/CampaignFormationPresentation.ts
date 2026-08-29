@@ -18,6 +18,20 @@ export interface CampaignFormationPresentation {
   readonly commandLabel: string;
   readonly typeLabel: string;
   readonly hasAuthoredSubordinateIdentity: boolean;
+  /**
+   * Distinguishes a real selectable formation from an intentionally aggregate strength step
+   * and a legacy capacity record. Consumers must never infer this from the display name.
+   */
+  readonly operationalRepresentation: "formation" | "strengthStep" | "capacity";
+}
+
+/** Minimal persistent identity source shared by runtime, save migration, and presentation callers. */
+export interface CampaignFormationRecordPresentationSource {
+  readonly campaignUnitType: string;
+  readonly origin: {
+    readonly legacyLabel: string | null | undefined;
+    readonly legacyOrdinal: number | null | undefined;
+  };
 }
 
 interface AuthoredCommand {
@@ -26,6 +40,12 @@ interface AuthoredCommand {
   readonly formationTypeLabels?: readonly string[];
   readonly formationNames: readonly string[];
   readonly hasSubordinateIdentity?: boolean;
+}
+
+interface AbstractCommandPresentation {
+  readonly commandLabel: string;
+  readonly typeLabel: string;
+  readonly operationalRepresentation: "strengthStep" | "capacity";
 }
 
 const AUTHORED_COMMANDS: Readonly<Record<string, readonly AuthoredCommand[]>> = Object.freeze({
@@ -342,45 +362,84 @@ const AUTHORED_COMMANDS: Readonly<Record<string, readonly AuthoredCommand[]>> = 
   ]
 });
 
-const ABSTRACT_COMMAND_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  "U.S. 82nd Airborne Division groups": "82d Airborne Division",
-  "U.S. 101st Airborne Division groups": "101st Airborne Division",
-  "U.S. 2nd Infantry Division advance groups": "2d Infantry Division",
-  "U.S. 90th Infantry Division advance groups": "90th Infantry Division",
-  "U.S. 2nd Ranger Battalion groups": "2d Ranger Battalion",
-  "Western embarkation supply columns": "U.S. First Army Transportation",
-  "Omaha embarkation supply columns": "U.S. First Army Service Troops",
-  "Solent supply columns": "Second Army Cross-Channel Supply Columns",
-  "Eastern embarkation supply columns": "Second Army Embarkation Columns",
-  "Utah follow-on battalion groups": "U.S. First Army Reinforcement Command",
-  "Omaha follow-on battalion groups": "U.S. First Army Reinforcement Command",
-  "Gold and Juno follow-on battalion groups": "Gold–Juno Reinforcement Group",
-  "Sword follow-on battalion groups": "I Corps Reinforcement Group",
-  "British 51st Highland Division advance groups": "51st (Highland) Infantry Division Advance Echelon"
-});
-
-const ABSTRACT_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  "U.S. 82nd Airborne Division groups": "airborne strength group",
-  "U.S. 101st Airborne Division groups": "airborne strength group",
-  "U.S. 2nd Infantry Division advance groups": "infantry arrival group",
-  "U.S. 90th Infantry Division advance groups": "infantry arrival group",
-  "U.S. 2nd Ranger Battalion groups": "Ranger strength group",
-  "Western embarkation supply columns": "transport column",
-  "Omaha embarkation supply columns": "transport column",
-  "Solent supply columns": "transport column",
-  "Eastern embarkation supply columns": "transport column",
-  "Utah follow-on battalion groups": "follow-on infantry group",
-  "Omaha follow-on battalion groups": "follow-on infantry group",
-  "Gold and Juno follow-on battalion groups": "follow-on infantry group",
-  "Sword follow-on battalion groups": "follow-on infantry group",
-  "British 51st Highland Division advance groups": "follow-up infantry group"
+const ABSTRACT_COMMANDS: Readonly<Record<string, AbstractCommandPresentation>> = Object.freeze({
+  "U.S. 82nd Airborne Division groups": {
+    commandLabel: "82d Airborne Division",
+    typeLabel: "airborne strength group",
+    operationalRepresentation: "strengthStep"
+  },
+  "U.S. 101st Airborne Division groups": {
+    commandLabel: "101st Airborne Division",
+    typeLabel: "airborne strength group",
+    operationalRepresentation: "strengthStep"
+  },
+  "U.S. 2nd Infantry Division advance groups": {
+    commandLabel: "2d Infantry Division",
+    typeLabel: "infantry arrival group",
+    operationalRepresentation: "strengthStep"
+  },
+  "U.S. 90th Infantry Division advance groups": {
+    commandLabel: "90th Infantry Division",
+    typeLabel: "infantry arrival group",
+    operationalRepresentation: "strengthStep"
+  },
+  "U.S. 2nd Ranger Battalion groups": {
+    commandLabel: "2d Ranger Battalion",
+    typeLabel: "Ranger strength group",
+    operationalRepresentation: "strengthStep"
+  },
+  "Western embarkation supply columns": {
+    commandLabel: "First U.S. Army",
+    typeLabel: "Legacy transport capacity",
+    operationalRepresentation: "capacity"
+  },
+  "Omaha embarkation supply columns": {
+    commandLabel: "First U.S. Army",
+    typeLabel: "Legacy transport capacity",
+    operationalRepresentation: "capacity"
+  },
+  "Solent supply columns": {
+    commandLabel: "British Second Army",
+    typeLabel: "Legacy transport capacity",
+    operationalRepresentation: "capacity"
+  },
+  "Eastern embarkation supply columns": {
+    commandLabel: "British Second Army",
+    typeLabel: "Legacy transport capacity",
+    operationalRepresentation: "capacity"
+  },
+  "Utah follow-on battalion groups": {
+    commandLabel: "First U.S. Army",
+    typeLabel: "follow-on infantry group",
+    operationalRepresentation: "strengthStep"
+  },
+  "Omaha follow-on battalion groups": {
+    commandLabel: "First U.S. Army",
+    typeLabel: "follow-on infantry group",
+    operationalRepresentation: "strengthStep"
+  },
+  "Gold and Juno follow-on battalion groups": {
+    commandLabel: "British Second Army",
+    typeLabel: "follow-on infantry group",
+    operationalRepresentation: "strengthStep"
+  },
+  "Sword follow-on battalion groups": {
+    commandLabel: "I Corps",
+    typeLabel: "follow-on infantry group",
+    operationalRepresentation: "strengthStep"
+  },
+  "British 51st Highland Division advance groups": {
+    commandLabel: "51st (Highland) Infantry Division",
+    typeLabel: "follow-up infantry group",
+    operationalRepresentation: "strengthStep"
+  }
 });
 
 const BASE_COMMAND_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  Bristol: "U.S. First Army",
+  Bristol: "First U.S. Army",
   Exeter: "Second Tactical Air Force",
-  Plymouth: "U.S. First Army",
-  Portland: "U.S. First Army",
+  Plymouth: "First U.S. Army",
+  Portland: "First U.S. Army",
   Portsmouth: "British Second Army",
   Southampton: "British Second Army",
   Tangmere: "Second Tactical Air Force"
@@ -419,21 +478,42 @@ export function resolveCampaignFormationPresentation(
           formationName: command.formationNames[remaining]!,
           commandLabel: command.commandLabel,
           typeLabel: command.formationTypeLabels?.[remaining] ?? command.typeLabel,
-          hasAuthoredSubordinateIdentity: command.hasSubordinateIdentity ?? true
+          hasAuthoredSubordinateIdentity: command.hasSubordinateIdentity ?? true,
+          operationalRepresentation: command.hasSubordinateIdentity === false ? "strengthStep" : "formation"
         };
       }
       remaining -= command.formationNames.length;
     }
   }
 
-  const commandLabel = (legacyLabel ? ABSTRACT_COMMAND_LABELS[legacyLabel] : undefined)
-    ?? normalizeCommandLabel(legacyLabel, input.unitType);
+  const abstract = legacyLabel ? ABSTRACT_COMMANDS[legacyLabel] : undefined;
+  const commandLabel = abstract?.commandLabel ?? normalizeCommandLabel(legacyLabel, input.unitType);
   return {
     formationName: commandLabel,
     commandLabel,
-    typeLabel: (legacyLabel ? ABSTRACT_TYPE_LABELS[legacyLabel] : undefined) ?? formatFormationType(input.unitType),
-    hasAuthoredSubordinateIdentity: false
+    typeLabel: abstract?.typeLabel ?? formatFormationType(input.unitType),
+    hasAuthoredSubordinateIdentity: false,
+    operationalRepresentation: abstract?.operationalRepresentation ?? "strengthStep"
   };
+}
+
+/**
+ * Canonical record-oriented identity path. Runtime, save migration, planners, and UI adapters
+ * should use this instead of reading the persisted presentation snapshot in `formation.name`.
+ */
+export function resolveCampaignFormationRecordPresentation(
+  formation: CampaignFormationRecordPresentationSource
+): CampaignFormationPresentation {
+  return resolveCampaignFormationPresentation({
+    legacyLabel: formation.origin.legacyLabel,
+    legacyOrdinal: formation.origin.legacyOrdinal,
+    unitType: formation.campaignUnitType
+  });
+}
+
+/** True only for legacy aggregate records that represent transport capacity rather than a unit. */
+export function isCampaignCapacityPresentation(presentation: CampaignFormationPresentation): boolean {
+  return presentation.operationalRepresentation === "capacity";
 }
 
 /** Resolves the concise command identity used by aggregate map disclosures. */
@@ -446,7 +526,7 @@ export function resolveCampaignForceGroupCommandLabel(
   if (commands && commands.length > 1) {
     return Array.from(new Set(commands.map((command) => command.commandLabel))).join(" / ");
   }
-  return (legacyLabel?.trim() ? ABSTRACT_COMMAND_LABELS[legacyLabel.trim()] : undefined)
+  return (legacyLabel?.trim() ? ABSTRACT_COMMANDS[legacyLabel.trim()]?.commandLabel : undefined)
     ?? normalizeCommandLabel(legacyLabel, unitType);
 }
 

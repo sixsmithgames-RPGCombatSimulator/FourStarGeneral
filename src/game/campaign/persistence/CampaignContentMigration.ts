@@ -10,6 +10,7 @@ import {
   relocateCampaignFormation,
   synchronizeCampaignFormationForceProjection
 } from "../formations/FormationLifecycleService";
+import { resolveCampaignFormationRecordPresentation } from "../formations/CampaignFormationPresentation";
 import { computeCampaignContentHash } from "../runtime/CampaignCanonical";
 import { assertCampaignRuntimeState } from "../runtime/CampaignInvariantValidator";
 import { createCampaignRuntime, projectLegacyCampaignState } from "../runtime/CampaignScenarioAdapter";
@@ -50,6 +51,12 @@ export const CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH = "fnv1a32-ef096780";
 /** Exact identity after the sourced full-theater directory and grouped historical networks were added. */
 export const CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH = "fnv1a32-57874b26";
 
+/** Exact identity after structured geography replaced overfilled one-hex network disclosures. */
+export const CENTRAL_CHANNEL_GEOGRAPHY_DISCLOSURE_CONTENT_HASH = "fnv1a32-7b7b0efc";
+
+/** Exact identity after every opening lodgment received source-backed operational geography. */
+export const CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH = "fnv1a32-7f19aa02";
+
 const NEW_CONTACT_TILE_KEYS = ["27,24", "29,25"] as const;
 const AIRFIELD_TILE_KEY = "30,25";
 const CHANNEL_TASK_FORCE_TILE_KEY = "20,18";
@@ -63,6 +70,31 @@ const AIRFIELD_REINFORCEMENT_LABELS = new Set([
 export interface CampaignContentMigrationResult {
   readonly runtime: CampaignRuntimeState;
   readonly migrated: boolean;
+}
+
+export interface CampaignFormationIdentityReconciliationResult {
+  readonly runtime: CampaignRuntimeState;
+  readonly changedFormationIds: readonly string[];
+}
+
+/**
+ * Reconciles the persisted display snapshot from stable origin metadata without changing IDs,
+ * placement, lifecycle state, orders, reservations, or integrity-bound historical records.
+ */
+export function reconcileSavedCampaignFormationIdentities(
+  source: CampaignRuntimeState
+): CampaignFormationIdentityReconciliationResult {
+  const runtime = structuredClone(source);
+  const changedFormationIds: string[] = [];
+  runtime.formationOrder.forEach((formationId) => {
+    const formation = runtime.formations[formationId];
+    if (!formation) return;
+    const canonical = resolveCampaignFormationRecordPresentation(formation).formationName;
+    if (formation.name === canonical) return;
+    formation.name = canonical;
+    changedFormationIds.push(formationId);
+  });
+  return { runtime, changedFormationIds };
 }
 
 function cloneAuthoredFronts(definition: CampaignScenarioDefinition): CampaignRuntimeState["compatibility"]["initialFronts"] {
@@ -232,15 +264,55 @@ function createCorrectedPristineOpening(
  * Unknown hashes and future content combinations remain read-only instead of receiving guessed map state.
  */
 export function migrateCampaignRuntimeContent(
-  source: CampaignRuntimeState,
+  input: CampaignRuntimeState,
   definition: CampaignScenarioDefinition
 ): CampaignContentMigrationResult {
+  const identityReconciliation = reconcileSavedCampaignFormationIdentities(input);
+  const source = identityReconciliation.runtime;
   const currentHash = computeCampaignContentHash(definition);
   if (source.scenarioKey !== definition.key) {
     throw contentMismatch("Campaign save belongs to a different authored scenario.", source, currentHash);
   }
   if (source.scenarioContentHash === currentHash) {
-    return { runtime: structuredClone(source), migrated: false };
+    assertCampaignRuntimeState(source);
+    return { runtime: source, migrated: identityReconciliation.changedFormationIds.length > 0 };
+  }
+
+  if (definition.key === "central_channel"
+    && currentHash === CENTRAL_CHANNEL_STRATEGIC_GEOGRAPHY_CONTENT_HASH) {
+    if (source.scenarioContentHash === CENTRAL_CHANNEL_GEOGRAPHY_DISCLOSURE_CONTENT_HASH
+      || source.scenarioContentHash === CENTRAL_CHANNEL_HISTORICAL_MAP_CONTENT_HASH
+      || source.scenarioContentHash === CENTRAL_CHANNEL_THEATER_SUPPORT_CONTENT_HASH
+      || source.scenarioContentHash === CENTRAL_CHANNEL_BASE_DISCLOSURE_CONTENT_HASH
+      || source.scenarioContentHash === CENTRAL_CHANNEL_FULL_THEATER_CONTENT_HASH) {
+      // Geography and briefing-directory fields do not alter runtime placement, orders, or rules state.
+      const migrated = { ...structuredClone(source), scenarioContentHash: currentHash };
+      assertCampaignRuntimeState(migrated);
+      return { runtime: migrated, migrated: true };
+    }
+    const retiredScopeHashes = new Set([
+      CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH,
+      CENTRAL_CHANNEL_CONTACT_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_OPENING_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_CLARITY_REPAIR_CONTENT_HASH,
+      CENTRAL_CHANNEL_PRE_COUNTERATTACK_CONTENT_HASH,
+      CENTRAL_CHANNEL_NORMANDY_DPLUS1_CONTENT_HASH,
+      CENTRAL_CHANNEL_REGISTERED_MAP_CONTENT_HASH
+    ]);
+    if (!retiredScopeHashes.has(source.scenarioContentHash)) {
+      throw contentMismatch("Campaign save content has no certified migration to the complete Normandy strategic geography.", source, currentHash);
+    }
+    if (!isPristineOpening(source)) {
+      throw contentMismatch(
+        "This save contains progress on a retired campaign scope. It was preserved, but its orders, formations, and outcomes cannot be guessed onto the expanded Normandy theater. Start a new Normandy campaign or load it in a compatible earlier build.",
+        source,
+        currentHash
+      );
+    }
+    return {
+      runtime: createCorrectedPristineOpening(source, definition, currentHash),
+      migrated: true
+    };
   }
 
   if (definition.key === "central_channel"

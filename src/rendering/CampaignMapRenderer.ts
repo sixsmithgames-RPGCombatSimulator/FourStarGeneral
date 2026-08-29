@@ -7,6 +7,7 @@ import {
   resolveCampaignBaseCommandLabel,
   resolveCampaignForceGroupCommandLabel
 } from "../game/campaign/formations/CampaignFormationPresentation";
+import { projectLegacyForceGroupAsSupportCapacity } from "../game/campaign/logistics/CampaignSupportCapacityAdapter";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const HEX_STROKE = "#0e1a2b";
@@ -24,14 +25,14 @@ const LOCATION_LABEL_LAYER_ID = "campaign-map-location-labels";
 const FRIENDLY_BASE_DISCLOSURE_LAYER_ID = "campaign-map-friendly-base-disclosures";
 const MAX_CAMPAIGN_FORCE_ACTORS = 4;
 const FORMATIONS_PER_CAMPAIGN_ACTOR = 3;
-const THEATER_MARKER_BADGE_RADIUS = 11;
+const THEATER_MARKER_VISUAL_RADIUS = 11;
 // Friendly staging hubs sit only one or two 10 km hexes apart in southern England.
 // Keep their pointer footprint bounded to the visible badge so a later SVG sibling
 // cannot steal a click aimed at the center of a neighboring marker. The map list is
 // the large-target alternative for every dense theater marker.
-const THEATER_BASE_HIT_RADIUS = THEATER_MARKER_BADGE_RADIUS;
-const THEATER_KNOWN_SITE_HIT_RADIUS = THEATER_MARKER_BADGE_RADIUS;
-const THEATER_MARKER_ICON_SIZE = 17;
+const THEATER_BASE_HIT_RADIUS = 18;
+const THEATER_KNOWN_SITE_HIT_RADIUS = 18;
+const THEATER_MARKER_ICON_SIZE = 22;
 
 /** Maps sprite keys declared in campaign data to asset URLs (PNG sprites). */
 const CAMPAIGN_SPRITES: Record<string, string> = {
@@ -348,6 +349,7 @@ export class CampaignMapRenderer {
       return;
     }
     group.classList.add(className);
+    if (className === "selected") this.setEntitySelection(hexKey, true);
   }
 
   /** Clears a highlight class from a specific hex. */
@@ -357,11 +359,34 @@ export class CampaignMapRenderer {
       return;
     }
     group.classList.remove(className);
+    if (className === "selected") this.setEntitySelection(hexKey, false);
   }
 
   /** Removes highlight class from all tracked hexes. */
   clearAllHighlights(className: string): void {
     this.hexGroups.forEach((group) => group.classList.remove(className));
+    if (className === "selected") {
+      this.viewportRoot?.querySelectorAll<SVGGElement>(
+        ".campaign-base-marker.is-selected, .campaign-known-site.is-selected, .campaign-intel-contact.is-selected"
+      ).forEach((marker) => {
+        marker.classList.remove("is-selected");
+        marker.removeAttribute("aria-current");
+      });
+      this.hexGroups.forEach((group) => group.classList.remove("entity-selected"));
+    }
+  }
+
+  /** Keeps entity selection on its one interactive marker instead of recoloring the occupied tile. */
+  private setEntitySelection(hexKey: string, selected: boolean): void {
+    const markers = Array.from(this.viewportRoot?.querySelectorAll<SVGGElement>(
+      `.campaign-base-marker[data-hex="${hexKey}"], .campaign-known-site[data-hex="${hexKey}"], .campaign-intel-contact[data-hex="${hexKey}"]`
+    ) ?? []);
+    markers.forEach((marker) => {
+      marker.classList.toggle("is-selected", selected);
+      if (selected) marker.setAttribute("aria-current", "location");
+      else marker.removeAttribute("aria-current");
+    });
+    this.hexGroups.get(hexKey)?.classList.toggle("entity-selected", selected && markers.length > 0);
   }
 
   /** Returns the pixel center of a given hex so overlays can animate focus. */
@@ -738,6 +763,10 @@ export class CampaignMapRenderer {
         this.renderTaskForce(layer, hexKey, cx, cy, iconSize, instance.rotation ?? 0, markerLabel);
         return;
       }
+      if (this.isFriendlyInstallation(instance, scenario) && Boolean(paletteEntry?.mapLabel?.trim())) {
+        // The progressive-disclosure marker is the installation's one visual and interaction owner.
+        return;
+      }
 
       const asset = CAMPAIGN_SPRITES[spriteKey];
       if (!asset) {
@@ -751,13 +780,8 @@ export class CampaignMapRenderer {
       image.setAttribute("height", String(iconSize));
       image.setAttribute("x", String(cx - iconSize / 2));
       image.setAttribute("y", String(cy - iconSize / 2));
-      if (this.isFriendlyInstallation(instance, scenario) && Boolean(paletteEntry?.mapLabel?.trim())) {
-        // The focusable disclosure marker owns the interactive accessible name.
-        image.setAttribute("aria-hidden", "true");
-      } else {
-        image.setAttribute("role", "img");
-        image.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
-      }
+      image.setAttribute("role", "img");
+      image.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
       image.classList.add("campaign-sprite");
 
       // Apply rotation if specified
@@ -883,26 +907,28 @@ export class CampaignMapRenderer {
       const center = this.getHexCenter(hexKey);
       if (!center) return;
 
-      const readyForces = this.resolveForces(instance, scenario)?.filter((force) => force.count > 0) ?? [];
+      const assignedForces = this.resolveForces(instance, scenario)?.filter((force) => (
+        force.count > 0 && projectLegacyForceGroupAsSupportCapacity(force) === null
+      )) ?? [];
       const roleLabel = this.formatMarkerLabel(palette.role);
-      const totalReady = readyForces.reduce((sum, force) => sum + force.count, 0);
-      const commandLabels = Array.from(new Set(readyForces.map((force) => (
+      const totalAssigned = assignedForces.reduce((sum, force) => sum + force.count, 0);
+      const commandLabels = Array.from(new Set(assignedForces.map((force) => (
         resolveCampaignForceGroupCommandLabel(force.label, force.unitType)
       ))));
       const baseCommandLabel = resolveCampaignBaseCommandLabel(baseName);
       const formationNoun = palette.role === "airbase" ? "air formations" : "formations";
-      const commandSummary = totalReady === 0
-        ? "No formations ready"
+      const commandSummary = totalAssigned === 0
+        ? "No formations assigned"
         : baseCommandLabel
-          ? `${baseCommandLabel} · ${totalReady} ${formationNoun} ready`
+          ? `${baseCommandLabel} · ${totalAssigned} ${formationNoun} assigned`
         : commandLabels.length === 1
-          ? `${commandLabels[0]} · ${totalReady} formation${totalReady === 1 ? "" : "s"} ready`
-          : `${commandLabels[0]} + ${commandLabels.length - 1} command${commandLabels.length === 2 ? "" : "s"} · ${totalReady} ready`;
+          ? `${commandLabels[0]} · ${totalAssigned} formation${totalAssigned === 1 ? "" : "s"} assigned`
+          : `${commandLabels[0]} + ${commandLabels.length - 1} command${commandLabels.length === 2 ? "" : "s"} · ${totalAssigned} assigned`;
       const disclosureLines = [commandSummary];
       const longestLine = [baseName, ...disclosureLines].reduce((longest, line) => Math.max(longest, line.length), 0);
       const cardWidth = Math.min(300, Math.max(168, longestLine * fontSize * 0.56 + 28));
       const cardHeight = 19 + disclosureLines.length * lineHeight + 12;
-      const gap = THEATER_MARKER_BADGE_RADIUS + 10;
+      const gap = THEATER_MARKER_VISUAL_RADIUS + 10;
       const prefersRight = center.cx < this.mapPixelWidth * 0.58;
       const unclampedX = prefersRight ? center.cx + gap : center.cx - gap - cardWidth;
       const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
@@ -921,37 +947,46 @@ export class CampaignMapRenderer {
       marker.classList.add("campaign-base-marker");
       marker.setAttribute("data-hex", hexKey);
       marker.setAttribute("data-base-name", baseName);
+      marker.setAttribute("data-density-tier", palette.role === "airbase" ? "detail" : "operational");
       marker.setAttribute("data-disclosure-side", prefersRight ? "right" : "left");
       marker.setAttribute("role", "button");
       marker.setAttribute("tabindex", "0");
       marker.setAttribute("aria-label", accessibleName);
 
-      // This badge is the overview-scale identity owner. Counter-scaling in CSS keeps its physical
-      // footprint stable while the authored map and ordinary strategic sprites continue to zoom.
-      const badge = document.createElementNS(SVG_NS, "g");
-      badge.classList.add("campaign-base-marker__badge");
-      badge.setAttribute("pointer-events", "none");
-      badge.setAttribute("aria-hidden", "true");
-      const badgeRing = document.createElementNS(SVG_NS, "circle");
-      badgeRing.setAttribute("cx", String(center.cx));
-      badgeRing.setAttribute("cy", String(center.cy));
-      badgeRing.setAttribute("r", String(THEATER_MARKER_BADGE_RADIUS));
-      badgeRing.setAttribute("fill", "rgba(11, 29, 24, 0.94)");
-      badgeRing.setAttribute("stroke", "#8bd3a9");
-      badgeRing.setAttribute("stroke-width", "1.4");
-      badgeRing.setAttribute("vector-effect", "non-scaling-stroke");
-      badge.appendChild(badgeRing);
-      const badgeIcon = document.createElementNS(SVG_NS, "image");
-      badgeIcon.classList.add("campaign-base-marker__icon");
-      badgeIcon.setAttribute("href", asset);
-      badgeIcon.setAttribute("x", String(center.cx - THEATER_MARKER_ICON_SIZE / 2));
-      badgeIcon.setAttribute("y", String(center.cy - THEATER_MARKER_ICON_SIZE / 2));
-      badgeIcon.setAttribute("width", String(THEATER_MARKER_ICON_SIZE));
-      badgeIcon.setAttribute("height", String(THEATER_MARKER_ICON_SIZE));
-      badgeIcon.setAttribute("preserveAspectRatio", "xMidYMid meet");
-      badgeIcon.setAttribute("data-marker-sprite-key", spriteKey);
-      badge.appendChild(badgeIcon);
-      marker.appendChild(badge);
+      const installation = document.createElementNS(SVG_NS, "image");
+      installation.classList.add("campaign-base-marker__sprite");
+      installation.setAttribute("href", asset);
+      installation.setAttribute("x", String(center.cx - THEATER_MARKER_ICON_SIZE / 2));
+      installation.setAttribute("y", String(center.cy - THEATER_MARKER_ICON_SIZE / 2));
+      installation.setAttribute("width", String(THEATER_MARKER_ICON_SIZE));
+      installation.setAttribute("height", String(THEATER_MARKER_ICON_SIZE));
+      installation.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      installation.setAttribute("data-marker-sprite-key", spriteKey);
+      installation.setAttribute("data-authoritative-anchor", "true");
+      installation.setAttribute("pointer-events", "none");
+      installation.setAttribute("aria-hidden", "true");
+      marker.appendChild(installation);
+      this.spriteIndex.set(hexKey, installation);
+
+      if (totalAssigned > 0) {
+        const cue = document.createElementNS(SVG_NS, "g");
+        cue.classList.add("campaign-base-marker__strength");
+        cue.setAttribute("pointer-events", "none");
+        cue.setAttribute("aria-hidden", "true");
+        const cueCount = this.resolveCampaignForceActorCount(totalAssigned);
+        const cueWidth = cueCount * 3 + Math.max(0, cueCount - 1) * 1.5;
+        for (let index = 0; index < cueCount; index += 1) {
+          const pip = document.createElementNS(SVG_NS, "rect");
+          pip.setAttribute("x", String(center.cx - cueWidth / 2 + index * 4.5));
+          pip.setAttribute("y", String(center.cy + 7));
+          pip.setAttribute("width", "3");
+          pip.setAttribute("height", "2");
+          pip.setAttribute("rx", "0.5");
+          pip.setAttribute("fill", "#d7bf76");
+          cue.appendChild(pip);
+        }
+        marker.appendChild(cue);
+      }
 
       const hitTarget = document.createElementNS(SVG_NS, "circle");
       hitTarget.classList.add("campaign-base-marker__hit-target");
@@ -977,6 +1012,17 @@ export class CampaignMapRenderer {
       focusRing.setAttribute("pointer-events", "none");
       focusRing.setAttribute("aria-hidden", "true");
       marker.appendChild(focusRing);
+
+      const selectionLocator = document.createElementNS(SVG_NS, "polygon");
+      selectionLocator.classList.add("campaign-map-selection-locator");
+      selectionLocator.setAttribute("points", this.buildHexPolygon(center.cx, center.cy, 0.18));
+      selectionLocator.setAttribute("fill", "none");
+      selectionLocator.setAttribute("stroke", "#d7b45f");
+      selectionLocator.setAttribute("stroke-width", "2");
+      selectionLocator.setAttribute("vector-effect", "non-scaling-stroke");
+      selectionLocator.setAttribute("pointer-events", "none");
+      selectionLocator.setAttribute("aria-hidden", "true");
+      marker.appendChild(selectionLocator);
 
       const disclosure = document.createElementNS(SVG_NS, "g");
       disclosure.classList.add("campaign-base-disclosure");
@@ -1027,6 +1073,7 @@ export class CampaignMapRenderer {
       });
 
       marker.appendChild(disclosure);
+      this.bindViewportFittedDisclosure(marker, disclosure);
       layer.appendChild(marker);
     });
   }
@@ -1110,6 +1157,10 @@ export class CampaignMapRenderer {
       if (!controller || controller !== this.viewModel?.observerFaction || paletteEntry?.role === "taskForce") {
         return;
       }
+      if (this.isFriendlyInstallation(instance, scenario) && Boolean(paletteEntry?.mapLabel?.trim())) {
+        // Assigned strength is disclosed by the base marker; a permanent force disk would create a second entity.
+        return;
+      }
 
       const forces = this.resolveForces(instance, scenario)?.filter((force) => force.count > 0) ?? [];
       if (!forces || forces.length === 0) {
@@ -1153,10 +1204,6 @@ export class CampaignMapRenderer {
       stack.setAttribute("aria-label", accessibleName);
       // The installation/hex beneath the visual formation remains the interaction owner.
       stack.setAttribute("pointer-events", "none");
-
-      const title = document.createElementNS(SVG_NS, "title");
-      title.textContent = accessibleName;
-      stack.appendChild(title);
 
       const footprint = document.createElementNS(SVG_NS, "circle");
       footprint.setAttribute("cx", String(cx));
@@ -1407,6 +1454,10 @@ export class CampaignMapRenderer {
   /** Renders immutable briefing sites without consulting hidden runtime tiles. */
   private renderKnownStrategicSites(layer: SVGGElement, viewModel: CampaignMapViewModel): void {
     layer.setAttribute("aria-label", "Briefed strategic sites");
+    const objectiveHexKeys = new Set(viewModel.scenario.objectives.map((objective) => {
+      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+      return CoordinateSystem.makeHexKey(offset.col, offset.row);
+    }));
     (viewModel.knownStrategicSites ?? []).forEach((site) => {
       const hex = this.hexGroups.get(site.locationHexKey);
       if (!hex) return;
@@ -1429,44 +1480,23 @@ export class CampaignMapRenderer {
         return;
       }
 
-      const markerCx = cx - (sharesHexWithContact ? THEATER_MARKER_BADGE_RADIUS + 2 : 0);
+      const markerCx = cx - (sharesHexWithContact ? THEATER_MARKER_VISUAL_RADIUS + 4 : 0);
       const roleLabel = this.formatMarkerLabel(site.role);
-      const precisionLabel = site.locationPrecision === "fixed" ? "fixed mapped location" : "representative ten-kilometer sector";
       const statusLabel = site.category === "enemyInstallation"
         ? "Current control, condition, and garrison remain unconfirmed."
         : site.category === "alliedSupport"
-          ? "Allied support context; this marker does not issue orders."
-          : "Geographic reference; this marker does not imply current control.";
-      const relatedSummary = site.relatedLocations.length > 0
-        ? ` Includes ${site.relatedLocations.join(", ")}.`
-        : "";
-      const accessibleName = `${site.label}, briefed ${roleLabel.toLowerCase()}, ${precisionLabel}. ${site.summary}${relatedSummary} ${statusLabel} Source: ${site.sourceLabel}.`;
+          ? "Allied support site; no local orders are available."
+          : "Mapped geographic reference; current control is not implied.";
+      const accessibleName = `${site.label}, briefed ${roleLabel.toLowerCase()}. ${statusLabel}`;
       const marker = document.createElementNS(SVG_NS, "g");
       marker.classList.add("campaign-known-site");
       marker.setAttribute("data-known-site-id", site.id);
       marker.setAttribute("data-marker-sprite-key", resolvedSpriteKey);
+      marker.setAttribute("data-density-tier", objectiveHexKeys.has(site.locationHexKey) ? "operational" : "detail");
       marker.setAttribute("data-hex", site.locationHexKey);
       marker.setAttribute("role", "button");
       marker.setAttribute("tabindex", "0");
       marker.setAttribute("aria-label", accessibleName);
-
-      const title = document.createElementNS(SVG_NS, "title");
-      title.textContent = accessibleName;
-      marker.appendChild(title);
-
-      const ring = document.createElementNS(SVG_NS, "circle");
-      ring.classList.add("campaign-known-site__badge-ring");
-      ring.setAttribute("cx", String(markerCx));
-      ring.setAttribute("cy", String(cy));
-      ring.setAttribute("r", String(THEATER_MARKER_BADGE_RADIUS));
-      ring.setAttribute("fill", "rgba(24, 29, 32, 0.94)");
-      ring.setAttribute("stroke", "#d1b468");
-      ring.setAttribute("stroke-width", "1.4");
-      ring.setAttribute("vector-effect", "non-scaling-stroke");
-      if (site.locationPrecision === "sector") ring.setAttribute("stroke-dasharray", "3 2");
-      ring.setAttribute("pointer-events", "none");
-      ring.setAttribute("aria-hidden", "true");
-      marker.appendChild(ring);
 
       const image = document.createElementNS(SVG_NS, "image");
       image.classList.add("campaign-known-site__sprite");
@@ -1479,13 +1509,14 @@ export class CampaignMapRenderer {
       image.setAttribute("opacity", "0.9");
       image.setAttribute("pointer-events", "none");
       image.setAttribute("aria-hidden", "true");
+      image.setAttribute("data-authoritative-anchor", "true");
       marker.appendChild(image);
 
       const focusRing = document.createElementNS(SVG_NS, "circle");
       focusRing.classList.add("campaign-known-site__focus-ring");
       focusRing.setAttribute("cx", String(markerCx));
       focusRing.setAttribute("cy", String(cy));
-      focusRing.setAttribute("r", String(THEATER_MARKER_BADGE_RADIUS + 3));
+      focusRing.setAttribute("r", String(THEATER_MARKER_VISUAL_RADIUS + 3));
       focusRing.setAttribute("fill", "rgba(209, 180, 104, 0.1)");
       focusRing.setAttribute("stroke", "#ffe2a0");
       focusRing.setAttribute("stroke-width", "1.5");
@@ -1493,6 +1524,17 @@ export class CampaignMapRenderer {
       focusRing.setAttribute("pointer-events", "none");
       focusRing.setAttribute("aria-hidden", "true");
       marker.appendChild(focusRing);
+
+      const selectionLocator = document.createElementNS(SVG_NS, "polygon");
+      selectionLocator.classList.add("campaign-map-selection-locator");
+      selectionLocator.setAttribute("points", this.buildHexPolygon(markerCx, cy, 0.18));
+      selectionLocator.setAttribute("fill", "none");
+      selectionLocator.setAttribute("stroke", "#d7b45f");
+      selectionLocator.setAttribute("stroke-width", "2");
+      selectionLocator.setAttribute("vector-effect", "non-scaling-stroke");
+      selectionLocator.setAttribute("pointer-events", "none");
+      selectionLocator.setAttribute("aria-hidden", "true");
+      marker.appendChild(selectionLocator);
 
       const hitTarget = document.createElementNS(SVG_NS, "circle");
       hitTarget.classList.add("campaign-known-site__hit-target");
@@ -1512,16 +1554,14 @@ export class CampaignMapRenderer {
           ? "Allied supporting site"
           : "Strategic geography";
       const disclosureLines = [
-        `${categoryLabel} · ${site.locationPrecision === "fixed" ? "fixed" : "sector"}`,
-        ...this.wrapDisclosureText("Includes", site.relatedLocations),
-        ...this.wrapDisclosureSentence(statusLabel),
-        "Select for briefing details"
+        categoryLabel,
+        ...this.wrapDisclosureSentence(statusLabel)
       ];
       const fontSize = 11;
       const lineHeight = 14;
       const cardWidth = 244;
       const cardHeight = 21 + disclosureLines.length * lineHeight + 11;
-      const gap = THEATER_MARKER_BADGE_RADIUS + 10;
+      const gap = THEATER_MARKER_VISUAL_RADIUS + 10;
       const prefersRight = markerCx < this.mapPixelWidth * 0.58;
       const unclampedX = prefersRight ? markerCx + gap : markerCx - gap - cardWidth;
       const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
@@ -1534,7 +1574,7 @@ export class CampaignMapRenderer {
       disclosure.setAttribute("pointer-events", "none");
       disclosure.setAttribute("aria-hidden", "true");
       const connector = document.createElementNS(SVG_NS, "line");
-      connector.setAttribute("x1", String(markerCx + (prefersRight ? THEATER_MARKER_BADGE_RADIUS : -THEATER_MARKER_BADGE_RADIUS)));
+      connector.setAttribute("x1", String(markerCx + (prefersRight ? THEATER_MARKER_VISUAL_RADIUS : -THEATER_MARKER_VISUAL_RADIUS)));
       connector.setAttribute("y1", String(cy));
       connector.setAttribute("x2", String(cardEdgeX));
       connector.setAttribute("y2", String(Math.max(cardY + 10, Math.min(cardY + cardHeight - 10, cy))));
@@ -1567,32 +1607,59 @@ export class CampaignMapRenderer {
         text.textContent = line;
         text.setAttribute("x", String(cardX + 11));
         text.setAttribute("y", String(cardY + 34 + index * lineHeight));
-        text.setAttribute("font-size", String(index === disclosureLines.length - 1 ? fontSize - 1 : fontSize));
+        text.setAttribute("font-size", String(fontSize));
         text.setAttribute("font-weight", index === 0 ? "600" : "400");
-        text.setAttribute("fill", index === disclosureLines.length - 1 ? "#d1b468" : "#d9e1d5");
+        text.setAttribute("fill", "#d9e1d5");
         disclosure.appendChild(text);
       });
       marker.appendChild(disclosure);
+      this.bindViewportFittedDisclosure(marker, disclosure);
       layer.appendChild(marker);
     });
   }
 
-  /** Wraps marker disclosure lists without painting long permanent labels across adjacent hexes. */
-  private wrapDisclosureText(prefix: string, values: readonly string[], maxCharacters = 38): string[] {
-    if (values.length === 0) return [];
-    const lines: string[] = [];
-    let current = `${prefix} · `;
-    values.forEach((value) => {
-      const candidate = current.endsWith(" · ") ? `${current}${value}` : `${current} · ${value}`;
-      if (candidate.length > maxCharacters && !current.endsWith(" · ")) {
-        lines.push(current);
-        current = value;
-      } else {
-        current = candidate;
-      }
-    });
-    if (current && !current.endsWith(" · ")) lines.push(current);
-    return lines;
+  /**
+   * Keeps the one hover/focus disclosure inside the camera viewport after pan and zoom.
+   * The authored map coordinates remain the anchor; only the transient disclosure receives
+   * a screen-derived correction, so map registration and hit geometry are unaffected.
+   */
+  private bindViewportFittedDisclosure(marker: SVGGElement, disclosure: SVGGElement): void {
+    disclosure.setAttribute("data-viewport-fit", "dynamic");
+    const fit = (): void => {
+      disclosure.style.setProperty("--campaign-disclosure-shift-x", "0px");
+      disclosure.style.setProperty("--campaign-disclosure-shift-y", "0px");
+      const svg = marker.ownerSVGElement;
+      const ctm = this.viewportRoot?.getScreenCTM?.();
+      if (!svg || !ctm) return;
+      const viewport = svg.getBoundingClientRect();
+      const card = disclosure.getBoundingClientRect();
+      if (viewport.width <= 0 || viewport.height <= 0 || card.width <= 0 || card.height <= 0) return;
+      const margin = 8;
+      const left = Math.max(viewport.left + margin, margin);
+      const right = Math.min(viewport.right - margin, window.innerWidth - margin);
+      const top = Math.max(viewport.top + margin, margin);
+      const bottom = Math.min(viewport.bottom - margin, window.innerHeight - margin);
+      const shiftScreenX = card.left < left
+        ? left - card.left
+        : card.right > right
+          ? right - card.right
+          : 0;
+      const shiftScreenY = card.top < top
+        ? top - card.top
+        : card.bottom > bottom
+          ? bottom - card.bottom
+          : 0;
+      const scaleX = Math.max(0.001, Math.hypot(ctm.a, ctm.b));
+      const scaleY = Math.max(0.001, Math.hypot(ctm.c, ctm.d));
+      disclosure.style.setProperty("--campaign-disclosure-shift-x", `${shiftScreenX / scaleX}px`);
+      disclosure.style.setProperty("--campaign-disclosure-shift-y", `${shiftScreenY / scaleY}px`);
+    };
+    const scheduleFit = (): void => {
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(fit);
+      else fit();
+    };
+    marker.addEventListener("pointerenter", scheduleFit);
+    marker.addEventListener("focus", scheduleFit);
   }
 
   /** Wraps a sentence into bounded SVG text lines because SVG text nodes do not wrap themselves. */

@@ -1,3 +1,40 @@
+## 2026-08-29 — Campaign professionalization corrective tranche: map ownership and command continuity
+
+### Intended behavior
+- One friendly base marker owns its visual identity, pointer/keyboard target, disclosure, accessible name, and selection locator.
+- Strategic entities remain legible in screen pixels at theater, normal, and close zoom without transparent targets stealing adjacent hexes.
+- A known site exposes one concise custom disclosure and no browser-native gameplay tooltip or authoring/provenance dump.
+- A map rerender restores the selected entity, movement origin, front target, order preview, map-list state, inspector route, and accessible selected state.
+- The active inspector presents authored strategic geography before installation/formation facts, keeps a fixed parent route during formation drill-down, and retains a visible Orders state with an exact blocker when an action is unavailable.
+
+### Current behavior
+- Friendly bases are rendered three times: a hex-scaled installation sprite, a permanent formation footprint, and a counter-scaled circular badge. Selection then recolors the entire hex.
+- Marker scale is derived from zoom using map-space transforms, allowing visible markers and their targets to shrink below usable screen-pixel dimensions.
+- Known sites combine an SVG `title` with a second custom disclosure whose ordinary map copy contains precision taxonomy, related-location lists, sources, and an instruction.
+- `CampaignMapRenderer.render()` reconstructs the SVG while `CampaignScreen.renderCampaignMap()` restores camera binding but not selection or other presentation state.
+- The inspector lacks an authored geography contract and places the base-return route after the long formation body; a blocked reconstruction action can lose its only visible explanation.
+
+### Expected change
+- Skip standalone installation and permanent force-stack rendering for a friendly base; render one centered owned installation marker with a restrained strength cue and screen-space selection/focus locator.
+- Make marker visuals/disclosures counter-scale to a bounded screen-pixel contract while pointer geometry remains explicit and sibling-safe.
+- Remove gameplay SVG titles and reduce site disclosure to name, concrete type, and one safe assessment.
+- Add one post-render restoration method owned by `CampaignScreen` and call it after renderer/viewport reconstruction.
+- Extend the command hex projection with optional authored geography facts and the inspector route with a fixed parent action and state-owned Orders explanation.
+
+### Impact analysis
+- Consumers: campaign map/list selection, `MapViewport`, campaign overlay switching, inspector routing, planner origin/target highlighting, keyboard selection, accessibility snapshots, and campaign CSS.
+- Events: `scenarioLoaded`, `intelligenceUpdated`, `segmentResolved`, `dayAdvanced`, UI selection changes, and map overlay changes.
+- Visual risks: marker density across the 58×50 map, neighboring English-base hit targets, selection contrast, known-site collisions, force visibility, and compact-sheet coverage.
+- State risks: renderer changes remain presentation-only. No campaign scenario, economy, formation, order, intelligence, combat, RNG, or save truth is mutated.
+- High-risk boundary: `CampaignMapRenderer.ts` and coordinate-derived marker placement change. Canonical hex centers and coordinate conversion stay unchanged; geometry regressions must measure the final rendered screen-space contract.
+
+### Verification
+- Add/update focused map renderer, viewport, command foundation, command shell, selection restoration, and action-blocker regressions that fail on the recorded behavior.
+- Run focused tests, `npm run test:campaign`, `npm test`, `npm run build`, zero-warning `npm run lint`, skill validation, and `git diff --check`.
+- Independently review UI/UX and test nonredundancy before one batched production push; certify exact live reproductions through the external Chrome extension only.
+
+---
+
 ## 2026-08-27 — Campaign command interface and period-literacy overhaul
 
 ### Decision

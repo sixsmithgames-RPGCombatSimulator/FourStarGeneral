@@ -176,6 +176,7 @@ export interface CampaignKnownStrategicSiteView {
   category: "enemyInstallation" | "strategicGeography" | "alliedSupport";
   locationPrecision: "fixed" | "sector";
   relatedLocations: string[];
+  geography?: import("./campaignTypes").CampaignHexGeography;
 }
 
 /** Player-safe theater context that deliberately has no exact map coordinate. */

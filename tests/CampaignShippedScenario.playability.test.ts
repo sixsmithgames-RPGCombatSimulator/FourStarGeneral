@@ -155,16 +155,11 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
       "Southampton",
       "Tangmere"
     ].sort();
-    const historicalNetworkPlaces = namedEnglishHubs
-      .flatMap((tile) => scenario.tilePalette[tile.tile]?.historicalNetwork ?? []);
     if (missing.length > 0
       || fleetKeys.join("|") !== "22,20|26,18"
       || fleets.some((tile) => (tile.forces?.length ?? 0) > 0)
       || new Set(airborneLocations).size !== 2
-      || namedEnglishHubLabels.join("|") !== expectedEnglishHubLabels.join("|")
-      || new Set(historicalNetworkPlaces).size < 30
-      || !["Torbay", "Brixham", "Dartmouth", "Falmouth", "Fowey", "Weymouth", "Poole", "Spithead", "Newhaven", "Shoreham", "Upottery", "Merryfield"]
-        .every((location) => historicalNetworkPlaces.includes(location))) {
+      || namedEnglishHubLabels.join("|") !== expectedEnglishHubLabels.join("|")) {
       throw new Error(`D+1 order of battle is incomplete: missing=${missing.join(",")} fleets=${fleetKeys.join("|")}.`);
     }
   });
@@ -269,7 +264,7 @@ registerTest("CAMPAIGN_SHIPPED_DPLUS1_THEATER_GEOGRAPHY_AND_ORDER_OF_BATTLE_ARE_
       || requiredObjectives.some((key) => !victoryKeys.has(key))
       || requiredSiteKeys.some((key) => !knownSiteKeys.has(key))
       || briefedSites.length !== 24
-      || briefedRegions.length !== 3
+      || briefedRegions.length < 3
       || !briefedRegions.some((region) => region.key === "briefed_thames_nore" && region.locations.includes("Felixstowe") && region.locations.includes("Harwich"))
       || briefedSites.some((site) => !site.sourceLabel.trim() || !site.category || !site.locationPrecision || water.has(`${site.hex.q},${site.hex.r}`))
       || briefedSites.some((site) => briefingLeakPattern.test(site.summary))

@@ -1,6 +1,10 @@
 /** Typed context-inspector shell and Player-safe route rendering. */
 
-import type { CampaignCommandFormationView, CampaignCommandShellView } from "../CampaignCommandShell";
+import type {
+  CampaignCommandFormationView,
+  CampaignCommandShellView,
+  CampaignCommandStrategicGeographyView
+} from "../CampaignCommandShell";
 import type { CampaignCommandSelection } from "../CampaignCommandUIState";
 
 interface InspectorFact {
@@ -9,7 +13,7 @@ interface InspectorFact {
 }
 
 interface InspectorFormationGroup {
-  readonly key: "ready" | "committed" | "arriving";
+  readonly key: "ready" | "committed" | "transit" | "arriving" | "recovering";
   readonly label: string;
   readonly formations: readonly CampaignCommandFormationView[];
 }
@@ -37,6 +41,7 @@ interface CampaignInspectorRoute {
   readonly identityHeading?: string;
   readonly presenceHeading?: string;
   readonly mapTarget?: { readonly hexKey: string; readonly label: string };
+  readonly parentRoute?: { readonly hexKey: string; readonly label: string };
 }
 
 function createText(tagName: keyof HTMLElementTagNameMap, className: string, value: string): HTMLElement {
@@ -115,6 +120,12 @@ export function renderCampaignContextInspector(
   const content = route.presentation === "friendlyBase"
     ? renderFriendlyBaseRoute(route)
     : renderGenericRoute(route);
+  if (route.parentRoute) {
+    const parentAction = createText("button", "campaign-context-inspector__parent-route", route.parentRoute.label) as HTMLButtonElement;
+    parentAction.type = "button";
+    parentAction.dataset.campaignMapHexTarget = route.parentRoute.hexKey;
+    content.unshift(parentAction);
+  }
   if (route.mapTarget) {
     const mapAction = createText("button", "campaign-context-inspector__map-action", route.mapTarget.label) as HTMLButtonElement;
     mapAction.type = "button";
@@ -133,6 +144,22 @@ function createFacts(facts: readonly InspectorFact[]): HTMLDListElement {
     list.append(createText("dt", "", fact.label), createText("dd", "", fact.value));
   });
   return list;
+}
+
+function createStrategicGeographyFacts(
+  geography: CampaignCommandStrategicGeographyView,
+  selectedTitle?: string
+): InspectorFact[] {
+  return [
+    { label: "Ground", value: [geography.terrain, geography.landform].filter(Boolean).join(" · ") },
+    ...(geography.settlement && geography.settlement !== selectedTitle
+      ? [{ label: "Place", value: geography.settlement }]
+      : []),
+    ...(geography.roads?.length ? [{ label: "Roads", value: geography.roads.join(" · ") }] : []),
+    ...(geography.railways?.length ? [{ label: "Rail", value: geography.railways.join(" · ") }] : []),
+    ...(geography.waterways?.length ? [{ label: "Waterways", value: geography.waterways.join(" · ") }] : []),
+    ...(geography.operationalFeatures?.length ? [{ label: "Features", value: geography.operationalFeatures.join(" · ") }] : [])
+  ];
 }
 
 function renderGenericRoute(route: CampaignInspectorRoute): HTMLElement[] {
@@ -256,6 +283,7 @@ function resolveInspectorRoute(
         ? hex.summary ?? `${hex.roleLabel} under ${hex.controlLabel.toLowerCase()}.`
         : "No projected installation or force record is present at this location.",
       facts: isFriendlyBase && hex ? [
+        ...(hex.strategicGeography ? createStrategicGeographyFacts(hex.strategicGeography, hex.displayLabel) : []),
         { label: "Status", value: `${hex.roleLabel} · ${hex.controlLabel}` },
         ...(hex.historicalNetwork?.length ? [{
           label: hex.roleLabel === "Air base"
@@ -271,12 +299,12 @@ function resolveInspectorRoute(
         ...(hex.objectives.length > 0 ? [{ label: "Supports", value: hex.objectives.join(", ") }] : []),
         ...(hex.fronts.length > 0 ? [{ label: "Front", value: hex.fronts.join(", ") }] : [])
       ] : [
-        { label: "Location", value: hex?.locationLabel ?? selection.id },
+        ...(hex?.strategicGeography ? createStrategicGeographyFacts(hex.strategicGeography, hex.displayLabel) : []),
+        ...(!hex?.displayLabel ? [{ label: "Location", value: hex?.locationLabel ?? selection.id }] : []),
         ...(hex ? [
           { label: "Control", value: hex.controlLabel },
           { label: "Type", value: hex.roleLabel },
           ...(hex.historicalNetwork?.length ? [{ label: "Includes", value: hex.historicalNetwork.join(" · ") }] : []),
-          ...(hex.sourceLabel ? [{ label: "Source", value: hex.sourceLabel }] : []),
           ...(hex.forces.length > 0 ? [{ label: "Projected forces", value: hex.forces.join("; ") }] : []),
           ...(hex.capabilities?.length ? [{ label: "Operational contribution", value: hex.capabilities.join(" · ") }] : []),
           ...(hex.infrastructure ? [{ label: "Infrastructure", value: hex.infrastructure }] : []),
@@ -412,9 +440,13 @@ function resolveInspectorRoute(
           { label: "Honors", value: rosterFormation.honors.join(", ") || "None" }
         ],
         mode: "projected",
-        ...(location?.presentation === "friendlyBase" && rosterFormation.locationHexKey
-          ? { mapTarget: { hexKey: rosterFormation.locationHexKey, label: `Back to ${location.displayLabel ?? "base"}` } }
-          : {})
+        ...(location?.presentation === "friendlyBase" && rosterFormation.locationHexKey ? {
+          parentRoute: { hexKey: rosterFormation.locationHexKey, label: `Back to ${location.displayLabel ?? "base"}` },
+          mode: "projectedWithActions" as const,
+          showSelectionActions: location.showSelectionActions ?? location.hasContextActions === true,
+          showEngagementAction: location.showEngagementAction === true,
+          actionSummary: location.actionSummary
+        } : {})
       };
     }
     const formation = view.afterActionReports
@@ -462,8 +494,7 @@ function resolveInspectorRoute(
       facts: [
         { label: "Context", value: region.categoryLabel },
         { label: "Includes", value: region.locations.join(" · ") },
-        { label: "Command status", value: region.commandStatus },
-        { label: "Source", value: region.sourceLabel }
+        { label: "Command status", value: region.commandStatus }
       ],
       mode: "projected"
     };
@@ -499,11 +530,19 @@ function resolveInspectorRoute(
 function groupBaseFormations(formations: readonly CampaignCommandFormationView[]): InspectorFormationGroup[] {
   const ready: CampaignCommandFormationView[] = [];
   const committed: CampaignCommandFormationView[] = [];
+  const transit: CampaignCommandFormationView[] = [];
   const arriving: CampaignCommandFormationView[] = [];
+  const recovering: CampaignCommandFormationView[] = [];
   formations.forEach((formation) => {
-    if (formation.availabilityLabel || formation.statusLabel.toLowerCase() === "unavailable") {
+    const posture = formation.postureKey;
+    const status = formation.statusLabel.toLowerCase();
+    if (posture === "scheduledArrival" || formation.availabilityLabel || status === "unavailable") {
       arriving.push(formation);
-    } else if (formation.statusLabel.toLowerCase() === "ready" && !formation.currentOrderId) {
+    } else if (posture === "inTransit" || status === "in transit") {
+      transit.push(formation);
+    } else if (posture === "recovering" || ["isolated", "refitting", "shattered"].includes(status)) {
+      recovering.push(formation);
+    } else if (posture === "ready" || (status === "ready" && !formation.currentOrderId)) {
       ready.push(formation);
     } else {
       committed.push(formation);
@@ -511,8 +550,10 @@ function groupBaseFormations(formations: readonly CampaignCommandFormationView[]
   });
   return [
     { key: "ready", label: "Ready now", formations: ready },
-    { key: "committed", label: "Committed or in transit", formations: committed },
-    { key: "arriving", label: "Arriving here", formations: arriving }
+    { key: "committed", label: "Committed", formations: committed },
+    { key: "transit", label: "In transit", formations: transit },
+    { key: "arriving", label: "Arriving here", formations: arriving },
+    { key: "recovering", label: "Recovering or unavailable", formations: recovering }
   ];
 }
 

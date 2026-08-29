@@ -1,5 +1,5 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
-import type { CampaignPendingEngagement, CampaignScenarioData, ProductionAllocation } from "../../core/campaignTypes";
+import type { CampaignHexGeography, CampaignPendingEngagement, CampaignScenarioData, ProductionAllocation } from "../../core/campaignTypes";
 import type { CampaignIntelOperationType, CampaignIntelOperationView, CampaignMapViewModel } from "../../core/campaignIntelTypes";
 import type {
   CampaignOrder,
@@ -22,6 +22,7 @@ import {
   type CampaignCommandOrderCommitView,
   type CampaignCommandOrderView,
   type CampaignCommandPriorityView,
+  type CampaignCommandStrategicGeographyView,
   type CampaignCommandSituationView,
   type CampaignCommandShellView
 } from "../campaign/CampaignCommandShell";
@@ -44,7 +45,8 @@ import {
   type CampaignActionContext,
   type CampaignActionId
 } from "../campaign/CampaignOrderExperience";
-import { resolveCampaignFormationPresentation } from "../../game/campaign/formations/CampaignFormationPresentation";
+import { resolveCampaignFormationRecordPresentation } from "../../game/campaign/formations/CampaignFormationPresentation";
+import { projectCampaignFormationPosture } from "../../game/campaign/formations/CampaignFormationPosture";
 import {
   projectCampaignAssociatedLocations,
   resolveCampaignFriendlyBaseSummary,
@@ -107,6 +109,34 @@ function formatCampaignAfterActionEquipmentLabel(storageKey: string): string {
     .trim()
     .toLowerCase();
   return words || "equipment";
+}
+
+function projectCampaignStrategicGeography(
+  geography: CampaignHexGeography | undefined,
+  terrain: "land" | "water",
+  settlement?: string,
+  operationalFeature?: string
+): CampaignCommandStrategicGeographyView {
+  return {
+    terrain: terrain === "water" ? "Water" : "Land",
+    ...(geography?.terrainCharacter ? { landform: geography.terrainCharacter } : {}),
+    ...(geography?.placeName || settlement ? { settlement: geography?.placeName ?? settlement } : {}),
+    ...(geography?.roads?.length ? { roads: [...geography.roads] } : {}),
+    ...(geography?.railways?.length ? { railways: [...geography.railways] } : {}),
+    ...(geography?.waterways?.length ? { waterways: [...geography.waterways] } : {}),
+    ...((geography?.operationalFeatures?.length || operationalFeature) ? {
+      operationalFeatures: geography?.operationalFeatures?.length
+        ? [...geography.operationalFeatures]
+        : operationalFeature ? [operationalFeature] : []
+    } : {})
+  };
+}
+
+function isAuthoredCampaignWaterHex(waterHexes: ReadonlySet<string>, offsetHexKey: string): boolean {
+  const offset = CoordinateSystem.parseHexKey(offsetHexKey);
+  if (!offset) return false;
+  const axial = CoordinateSystem.offsetToAxial(offset.col, offset.row);
+  return waterHexes.has(`${axial.q},${axial.r}`);
 }
 
 /** Projects every reported non-loss condition change into concise, player-facing AAR evidence. */
@@ -334,12 +364,44 @@ export class CampaignScreen {
     const canvas = this.element.querySelector<HTMLDivElement>("#campaignMapCanvas");
     const view = this.campaignState.getCampaignMapView("Player");
     if (!svg || !canvas || !view) return;
+    const previewState = {
+      origins: Array.from(svg.querySelectorAll<SVGGElement>(".campaign-hex.order-preview-origin"))
+        .map((group) => group.dataset.hex)
+        .filter((hexKey): hexKey is string => Boolean(hexKey)),
+      targets: Array.from(svg.querySelectorAll<SVGGElement>(".campaign-hex.order-preview-target"))
+        .map((group) => group.dataset.hex)
+        .filter((hexKey): hexKey is string => Boolean(hexKey))
+    };
     this.renderer.render(svg, canvas, view);
     this.renderer.setTerrainOverlayVisible(this.editMode);
     this.renderer.setIntelCoverageVisible(this.intelCoverageVisible);
     (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
       .setIntelContactsVisible?.(this.commandInterface?.getActiveWorkspace() === "intelligence");
     this.syncViewportAfterRender();
+    this.restoreCampaignMapPresentationState(previewState);
+  }
+
+  /** Reapplies typed command presentation after the SVG renderer reconstructs every layer. */
+  private restoreCampaignMapPresentationState(previewState: {
+    readonly origins: readonly string[];
+    readonly targets: readonly string[];
+  }): void {
+    this.renderer.clearAllHighlights("selected");
+    this.renderer.clearAllHighlights("origin");
+    if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
+
+    const front = this.selectedFrontKey
+      ? this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === this.selectedFrontKey)
+      : null;
+    if (front) {
+      front.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
+      if (this.selectedFrontTargetHexKey) this.renderer.highlightHex(this.selectedFrontTargetHexKey, "selected");
+    } else if (this.selectedHexKey) {
+      this.renderer.highlightHex(this.selectedHexKey, "selected");
+    }
+
+    previewState.origins.forEach((hexKey) => this.renderer.highlightHex(hexKey, "order-preview-origin"));
+    previewState.targets.forEach((hexKey) => this.renderer.highlightHex(hexKey, "order-preview-target"));
   }
 
   /** Identifies the active camera preset in the visible command strip and assistive state. */
@@ -564,14 +626,15 @@ export class CampaignScreen {
       .map(
         (formation, idx) => {
         const sprite = getSpriteForScenarioType(formation.campaignUnitType, "Player", "E");
+        const formationPresentation = resolveCampaignFormationRecordPresentation(formation);
         const checked = initiallySelectedFormationIds.has(formation.id) ? " checked" : "";
         return `
         <label class="redeploy-formation-row" data-unit-row="${idx}">
           <input type="checkbox" data-formation-index="${idx}"${checked} />
           ${sprite ? `<img class="redeploy-formation-sprite" src="${this.escapeHtml(sprite)}" alt="" aria-hidden="true" />` : ""}
           <span class="redeploy-formation-copy">
-            <strong>${this.escapeHtml(formation.name)}</strong>
-            <small>${this.escapeHtml(this.formatCampaignUnitLabel(formation.campaignUnitType))} · ${Math.round(formation.readiness)}% ready</small>
+            <strong>${this.escapeHtml(formationPresentation.formationName)}</strong>
+            <small>${this.escapeHtml(formationPresentation.typeLabel)} · Readiness ${Math.round(formation.readiness)}%</small>
             <em data-unit-note="${idx}"></em>
           </span>
         </label>`;
@@ -2678,6 +2741,7 @@ export class CampaignScreen {
     }
 
     const scenario = view.scenario;
+    const authoredWaterHexes = new Set(scenario.mapExtents?.waterHexes ?? []);
     const playerEconomy = scenario.economies.find((economy) => economy.faction === "Player");
     const draftReservations = this.campaignState.getCampaignDraftReservations("Player");
     const displayStock = (value: number, key: string): string => {
@@ -2749,12 +2813,10 @@ export class CampaignScreen {
       const rightPriority = priorityForceHexes.has(right.hexKey) ? 0 : 1;
       return leftPriority - rightPriority || left.hexKey.localeCompare(right.hexKey) || left.label.localeCompare(right.label);
     });
-    const formations = this.campaignState.getCampaignFormationRoster("Player").map((formation) => {
-      const formationPresentation = resolveCampaignFormationPresentation({
-        legacyLabel: formation.origin.legacyLabel,
-        legacyOrdinal: formation.origin.legacyOrdinal,
-        unitType: formation.campaignUnitType
-      });
+    const formations = this.campaignState.getCampaignFormationRoster("Player").flatMap((formation) => {
+      const formationPresentation = resolveCampaignFormationRecordPresentation(formation);
+      if (formationPresentation.operationalRepresentation === "capacity") return [];
+      const posture = projectCampaignFormationPosture(formation);
       const locationHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
       const personnelPools = Object.values(formation.personnel);
       const fit = personnelPools.reduce((sum, pool) => sum + pool.fit, 0);
@@ -2769,11 +2831,10 @@ export class CampaignScreen {
         (sum, pool) => sum + pool.operational + pool.damaged + pool.disabled + pool.destroyed,
         0
       );
-      const statusLabel = formation.status.replace(/([a-z])([A-Z])/g, "$1 $2");
       const availabilityLabel = formation.status === "unavailable" && formation.availableFromSegment !== undefined
         ? this.campaignState.segmentToTimeDisplay(formation.availableFromSegment)
         : null;
-      return {
+      return [{
         id: formation.id,
         name: formationPresentation.formationName,
         commandLabel: formationPresentation.commandLabel,
@@ -2781,7 +2842,18 @@ export class CampaignScreen {
         typeLabel: formationPresentation.typeLabel,
         ownershipLabel: formation.ownership.charAt(0).toUpperCase() + formation.ownership.slice(1),
         locationHexKey,
-        statusLabel: statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1),
+        statusLabel: posture.label,
+        postureKey: posture.posture === "scheduledArrival"
+          ? "scheduledArrival" as const
+          : posture.posture === "inTransit"
+            ? "inTransit" as const
+            : posture.posture === "isolated" || posture.posture === "refitting" || posture.posture === "shattered"
+              ? "recovering" as const
+              : posture.posture === "awaitingPlacement" || posture.posture === "retired"
+                ? "unavailable" as const
+                : posture.posture,
+        canReceiveOrders: posture.canReceiveOrders,
+        blockingReason: posture.blockingReason,
         availabilityLabel,
         readiness: `${Math.round(formation.readiness)}%`,
         cohesion: `${Math.round(formation.cohesion)}%`,
@@ -2796,7 +2868,7 @@ export class CampaignScreen {
         latestHistory: availabilityLabel
           ? `Scheduled to become available ${availabilityLabel}.`
           : formation.battleHistory[formation.battleHistory.length - 1]?.summary ?? null
-      };
+      }];
     });
     const knownSites = (view.knownStrategicSites ?? []).map((site) => ({
       id: site.id,
@@ -2811,7 +2883,13 @@ export class CampaignScreen {
           ? "Allied supporting site"
           : "Strategic geography",
       locationPrecision: site.locationPrecision,
-      relatedLocations: [...site.relatedLocations]
+      relatedLocations: [...site.relatedLocations],
+      strategicGeography: projectCampaignStrategicGeography(
+        site.geography,
+        site.geography?.terrain ?? (isAuthoredCampaignWaterHex(authoredWaterHexes, site.locationHexKey) ? "water" : "land"),
+        site.geography?.placeName ?? site.label,
+        this.formatCampaignLabel(site.role)
+      )
     }));
     const knownRegions = (view.knownStrategicRegions ?? []).map((region) => {
       const presentation = resolveCampaignTheaterRegionPresentation({
@@ -2879,13 +2957,15 @@ export class CampaignScreen {
         ? this.campaignState.getCampaignInfrastructureRepairActionPreview(hexKey)
         : null;
       const showBaseSelectionActions = redeployPreview?.availability === "available"
-        || repairPreview?.availability === "available";
+        || repairPreview !== null;
       const nextArrival = locatedFormations.find((formation) => formation.availabilityLabel)?.availabilityLabel ?? null;
       const hasAssignedFormation = locatedFormations.some((formation) => (
         formation.currentOrderId || formation.statusLabel.toLowerCase() !== "ready"
       ));
       const baseActionSummary = !isFriendlyBase || showBaseSelectionActions
-        ? undefined
+        ? repairPreview?.availability === "blocked"
+          ? `${repairPreview?.reason ?? "Reconstruction is unavailable."} ${repairPreview?.correctiveAction ?? "Review the facility and available resources."}`.trim()
+          : undefined
         : nextArrival
           ? `Reinforcements arrive ${nextArrival}. Movement orders become available after they arrive.`
           : hasAssignedFormation
@@ -2912,6 +2992,13 @@ export class CampaignScreen {
             ? "Naval base"
             : roleLabel;
       const associatedLocations = projectCampaignAssociatedLocations(authoredMapLabel, palette?.historicalNetwork);
+      const terrain = authoredWaterHexes.has(`${tile.hex.q},${tile.hex.r}`) ? "water" as const : "land" as const;
+      const strategicGeography = projectCampaignStrategicGeography(
+        palette?.geography,
+        palette?.geography?.terrain ?? terrain,
+        authoredMapLabel,
+        roleLabel !== "Region" ? roleLabel : undefined
+      );
       return {
         hexKey,
         roleLabel: isAlliedAssaultFleet ? "Naval task force" : isFriendlyBase ? friendlyBaseRoleLabel : roleLabel,
@@ -2923,6 +3010,7 @@ export class CampaignScreen {
           actionSummary: baseActionSummary
         } : {}),
         ...(associatedLocations.length ? { historicalNetwork: associatedLocations } : {}),
+        strategicGeography,
         ...(authoredMapLabel || isAlliedAssaultFleet ? {
           displayLabel: authoredMapLabel ?? "Allied Assault Fleet",
           summary: isFriendlyBase
@@ -2959,11 +3047,10 @@ export class CampaignScreen {
             : "Current control unconfirmed",
         displayLabel: site.label,
         summary: site.summary,
-        locationLabel: site.locationPrecision === "fixed"
-          ? `${site.label} · fixed mapped location`
-          : `${site.label} · representative 10 km sector`,
+        locationLabel: site.label,
         sourceLabel: site.sourceLabel,
         ...(site.relatedLocations.length ? { historicalNetwork: [...site.relatedLocations] } : {}),
+        ...(site.strategicGeography ? { strategicGeography: site.strategicGeography } : {}),
         hasContextActions: false,
         forces: [],
         capabilities: [],
@@ -3045,11 +3132,7 @@ export class CampaignScreen {
         formations: report.friendlyFormations.map((formation) => {
           const currentFormation = this.campaignState.getCampaignFormationSnapshot(formation.formationId);
           const presentation = currentFormation
-            ? resolveCampaignFormationPresentation({
-              legacyLabel: currentFormation.origin.legacyLabel,
-              legacyOrdinal: currentFormation.origin.legacyOrdinal,
-              unitType: currentFormation.campaignUnitType
-            })
+            ? resolveCampaignFormationRecordPresentation(currentFormation)
             : null;
           const materiallyChanged = formation.personnelLost > 0
             || Object.values(formation.equipmentLost).some((loss) => loss > 0)
@@ -3323,7 +3406,7 @@ export class CampaignScreen {
       .filter((formation) => formation.battles > 0 || formation.honors.length > 0)
       .sort((left, right) => right.honors.length - left.honors.length || right.battles - left.battles)
       .slice(0, 3)
-      .map((formation) => `${formation.name} · ${formation.battles} battle${formation.battles === 1 ? "" : "s"}${formation.honors.length > 0 ? ` · ${formation.honors.join(", ")}` : ""}`);
+      .map((presentedFormation) => `${presentedFormation.name} · ${presentedFormation.battles} battle${presentedFormation.battles === 1 ? "" : "s"}${presentedFormation.honors.length > 0 ? ` · ${presentedFormation.honors.join(", ")}` : ""}`);
 
     this.commandInterface.render({
       theaterTitle: scenario.title,

@@ -1,7 +1,9 @@
 import "./domEnvironment.js";
+import { readFileSync } from "node:fs";
 import { registerTest } from "./harness.js";
 import { CampaignMapRenderer } from "../src/rendering/CampaignMapRenderer";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
+import { MapViewport } from "../src/ui/controls/MapViewport";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import type { CampaignMapViewModel } from "../src/core/campaignIntelTypes";
 import { buildCampaignMapView, createCampaignKnowledgeState } from "../src/state/CampaignIntelligence";
@@ -112,7 +114,7 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
   });
 });
 
-registerTest("CAMPAIGN_RENDERER_REVEALS_FRIENDLY_BASES_WITHOUT_PERMANENT_LABEL_CLUTTER", async ({ Given, When, Then }) => {
+registerTest("FSG_CAM_041_BASE_DISCLOSURE_DOES_NOT_INFER_READINESS_FROM_AUTHORED_COUNTS", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   canvas.appendChild(svg);
@@ -197,10 +199,11 @@ registerTest("CAMPAIGN_RENDERER_REVEALS_FRIENDLY_BASES_WITHOUT_PERMANENT_LABEL_C
       || markers.length !== 2
       || bristol?.getAttribute("role") !== "button"
       || bristol.getAttribute("tabindex") !== "0"
-      || !bristol.getAttribute("aria-label")?.includes("Bristol, Logistics Hub. No formations ready")
-      || bristolHitRadius !== 11
-      || !bristolCard?.textContent?.includes("No formations ready")
-      || !portsmouthCard?.textContent?.includes("British Second Army · 2 formations ready")
+      || !bristol.getAttribute("aria-label")?.includes("Bristol, Logistics Hub. No formations assigned")
+      || bristolHitRadius < 18
+      || !bristolCard?.textContent?.includes("No formations assigned")
+      || !portsmouthCard?.textContent?.includes("British Second Army · 2 formations assigned")
+      || /\bready\b/i.test(`${bristolCard?.textContent ?? ""} ${portsmouthCard?.textContent ?? ""}`)
       || Boolean(bristol.querySelector("title"))
       || !cardsStayInsideMap) {
       throw new Error("Friendly-base disclosure lost historical identity, accessibility, bounded geometry, or decluttering.");
@@ -217,7 +220,7 @@ registerTest("CAMPAIGN_RENDERER_REVEALS_FRIENDLY_BASES_WITHOUT_PERMANENT_LABEL_C
   });
 });
 
-registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_ACTIONABLE", async ({ Given, When, Then }) => {
+registerTest("FSG_CAM_036_KNOWN_SITES_USE_ONE_PLAYER_SAFE_DISCLOSURE", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   canvas.appendChild(svg);
@@ -232,71 +235,42 @@ registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_
 
   await When("the theater is presented through bounded progressive-disclosure markers", () => {});
 
-  await Then("all friendly bases and briefed sites have physical icons and hit targets without permanent text clutter", () => {
-    const baseMarkers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-base-marker"));
+  await Then("every briefed site has one physical icon, one disclosure, and no competing native tooltip", () => {
     const knownSiteMarkers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-known-site"));
-    const baseNames = new Set(baseMarkers.map((marker) => marker.dataset.baseName));
-    const expectedBases = ["Bristol", "Exeter", "Plymouth", "Portland", "Portsmouth", "Southampton", "Tangmere"];
     const permanentLabels = new Set(Array.from(svg.querySelectorAll(".campaign-map-location-label"))
       .map((entry) => entry.textContent?.trim() ?? ""));
     const expectedKnownLabels = new Set((view.knownStrategicSites ?? []).map((site) => site.label));
-    const bristolMarker = svg.querySelector<SVGGElement>('.campaign-base-marker[data-base-name="Bristol"]');
-    const baseMarkerContractHolds = baseMarkers.every((marker) => (
-      marker.getAttribute("role") === "button"
-      && marker.getAttribute("tabindex") === "0"
-      && Boolean(marker.querySelector(".campaign-base-marker__badge .campaign-base-marker__icon"))
-      && Number(marker.querySelector(".campaign-base-marker__hit-target")?.getAttribute("r")) === 11
-      && Boolean(marker.querySelector(".campaign-base-disclosure"))
-    ));
     const siteMarkerContractHolds = knownSiteMarkers.every((marker) => (
       marker.getAttribute("role") === "button"
       && marker.getAttribute("tabindex") === "0"
-      && Boolean(marker.querySelector(".campaign-known-site__badge-ring"))
-      && Boolean(marker.querySelector(".campaign-known-site__sprite"))
-      && Number(marker.querySelector(".campaign-known-site__hit-target")?.getAttribute("r")) === 11
-      && marker.querySelector(".campaign-known-site-disclosure")?.textContent?.includes("Select for briefing details")
+      && marker.querySelectorAll(".campaign-known-site__sprite[data-authoritative-anchor='true']").length === 1
+      && !marker.querySelector(".campaign-known-site__badge-ring")
+      && Number(marker.querySelector(".campaign-known-site__hit-target")?.getAttribute("r")) >= 18
+      && !marker.querySelector("title")
+      && !/select for|source:|representative ten-kilometer sector/i.test(
+        `${marker.querySelector(".campaign-known-site-disclosure")?.textContent ?? ""} ${marker.getAttribute("aria-label") ?? ""}`
+      )
     ));
     const siteDisclosureLinesAreBounded = Array.from(
       svg.querySelectorAll<SVGTextElement>(".campaign-known-site-disclosure__line")
     ).every((line) => (line.textContent?.length ?? 0) <= 38);
-    const markerCenters = [
-      ...baseMarkers.map((marker) => marker.querySelector<SVGCircleElement>(".campaign-base-marker__hit-target")),
-      ...knownSiteMarkers.map((marker) => marker.querySelector<SVGCircleElement>(".campaign-known-site__hit-target"))
-    ].filter((circle): circle is SVGCircleElement => Boolean(circle))
-      .map((circle) => ({ cx: Number(circle.getAttribute("cx")), cy: Number(circle.getAttribute("cy")) }));
-    const overviewZooms = [0.1, 0.14, 0.34, 0.5, 0.714, 1];
-    const markerPairsStayDistinct = overviewZooms.every((zoom) => {
-      const markerScale = Math.min(1 / zoom, 0.74 + 0.7 * zoom);
-      const nonScalingOutlineRadius = 1.4 / 2;
-      const combinedPaintedDiameter = 2 * ((11 * zoom * markerScale) + nonScalingOutlineRadius);
-      return markerCenters.every((left, leftIndex) => markerCenters.slice(leftIndex + 1).every((right) => (
-        Math.hypot(left.cx - right.cx, left.cy - right.cy) * zoom >= combinedPaintedDiameter + 0.01
-      )));
-    });
-    if (baseMarkers.length !== 7
-      || knownSiteMarkers.length !== 24
-      || expectedBases.some((label) => !baseNames.has(label) || permanentLabels.has(label))
-      || !svg.querySelector('.campaign-base-marker[data-base-name="Plymouth"] .campaign-base-disclosure')?.textContent?.includes("U.S. First Army")
-      || svg.querySelector('.campaign-force-stack[data-hex="5,5"]')
-      || !bristolMarker?.textContent?.includes("No formations ready")
-      || Boolean(bristolMarker?.querySelector("title"))
+    if (knownSiteMarkers.length !== 24
       || [...expectedKnownLabels].some((label) => permanentLabels.has(label))
-      || !baseMarkerContractHolds
       || !siteMarkerContractHolds
-      || !siteDisclosureLinesAreBounded
-      || !markerPairsStayDistinct) {
-      throw new Error(`Complete-theater marker literacy regressed: bases=${baseMarkers.length} sites=${knownSiteMarkers.length}.`);
+      || !siteDisclosureLinesAreBounded) {
+      throw new Error(`Known-site disclosure ownership regressed: ${JSON.stringify({
+        sites: knownSiteMarkers.length,
+        siteMarkerContractHolds,
+        siteDisclosureLinesAreBounded
+      })}.`);
     }
   });
 
   await Then("Douvres uses safe recon presentation and every marker preserves pointer and keyboard selection parity", () => {
     const douvres = svg.querySelector<SVGGElement>('.campaign-known-site[data-known-site-id="briefed_douvres"]');
     const douvresSprite = douvres?.querySelector<SVGImageElement>(".campaign-known-site__sprite");
-    const firstBase = svg.querySelector<SVGGElement>(".campaign-base-marker");
     const activations: Array<{ hexKey: string; hasTile: boolean }> = [];
     renderer.onHexClick((hexKey, tile) => activations.push({ hexKey, hasTile: Boolean(tile) }));
-    firstBase?.querySelector(".campaign-base-marker__hit-target")
-      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     douvres?.querySelector(".campaign-known-site__hit-target")
       ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     douvres?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
@@ -306,13 +280,102 @@ registerTest("CAMPAIGN_RENDERER_COMPLETE_THEATER_MARKERS_STAY_LITERATE_SAFE_AND_
       || !douvresSprite?.getAttribute("href")?.includes("Recon_Icon.png")
       || douvresSprite.getAttribute("href")?.includes("Airbase")
       || !douvres.getAttribute("aria-label")?.includes("briefed intel node")
-      || activations.length !== 4
-      || activations[0]?.hasTile !== true
-      || activations.slice(1).some((activation) => activation.hexKey !== douvres.dataset.hex || activation.hasTile)) {
+      || activations.length !== 3
+      || activations.some((activation) => activation.hexKey !== douvres.dataset.hex || activation.hasTile)) {
       throw new Error(`Overview activation or Douvres presentation diverged: ${JSON.stringify({ activations, marker: douvres?.outerHTML })}.`);
     }
     if (svg.outerHTML.includes("716th surviving coastal artillery group")) {
       throw new Error("A hidden Douvres runtime formation leaked through the safe known-site marker.");
+    }
+  });
+});
+
+registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING", async ({ Given, When, Then }) => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.id = "campaignDensityContractMap";
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const view = buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0);
+  const renderer = new CampaignMapRenderer();
+
+  await Given("all independently selectable base and known-site markers in the shipped theater", () => {
+    renderer.render(svg, canvas as HTMLDivElement, view);
+  });
+
+  await When("semantic density tiers are applied across supported overview and detail zooms", () => {});
+
+  await Then("selected and tier-priority markers stay operable while lower-priority markers leave pointer flow", () => {
+    const root = svg.querySelector<SVGGElement>("#viewportRoot");
+    const markers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-base-marker, .campaign-known-site"));
+    const selected = markers[0];
+    const selectedHex = selected?.dataset.hex;
+    if (!root || !selected || !selectedHex) throw new Error("Density contract fixture did not render an addressable campaign marker.");
+    renderer.highlightHex(selectedHex, "selected");
+    const viewport = new MapViewport("#campaignDensityContractMap", null, 0.1);
+    viewport.setViewportRoot(root);
+    const violations: string[] = [];
+    let priorVisibleCount = 0;
+    for (const zoom of [0.1, 0.34, 0.714, 1, 1.5]) {
+      viewport.setTransform(zoom, 0, 0);
+      const density = root.dataset.campaignMapDensity;
+      const visible = markers.filter((marker) => marker.classList.contains("is-selected")
+        || density === "detail"
+        || (density === "operational" && marker.dataset.densityTier === "operational"));
+      const hidden = markers.filter((marker) => !visible.includes(marker));
+      if (!density || markers.some((marker) => !["operational", "detail"].includes(marker.dataset.densityTier ?? ""))) {
+        violations.push(`zoom ${zoom}: missing explicit viewport or marker density tier`);
+      }
+      if (!visible.includes(selected)) violations.push(`zoom ${zoom}: selected marker was density-hidden`);
+      if (zoom === 0.1 && (visible.length !== 1 || hidden.length === 0)) {
+        violations.push(`zoom ${zoom}: theater tier kept ${visible.length}/${markers.length} independent markers in pointer flow`);
+      }
+      if (visible.length < priorVisibleCount) violations.push(`zoom ${zoom}: disclosure regressed from ${priorVisibleCount} to ${visible.length}`);
+      priorVisibleCount = visible.length;
+
+      const markerScale = Number(root.style.getPropertyValue("--campaign-map-marker-scale"));
+      const hitScale = Number(root.style.getPropertyValue("--campaign-map-hit-scale"));
+      const geometry = visible.map((marker, index) => {
+        const sprite = marker.querySelector<SVGImageElement>(".campaign-base-marker__sprite, .campaign-known-site__sprite");
+        const target = marker.querySelector<SVGCircleElement>(".campaign-base-marker__hit-target, .campaign-known-site__hit-target");
+        const visualDiameter = Number(sprite?.getAttribute("width")) * zoom * markerScale;
+        const hitRadius = Number(target?.getAttribute("r")) * zoom * hitScale;
+        if (visualDiameter < 22) violations.push(`zoom ${zoom}: visible marker ${index} is ${visualDiameter.toFixed(2)}px`);
+        if (density !== "theater" && hitRadius * 2 < 36) violations.push(`zoom ${zoom}: marker ${index} hit target is ${(hitRadius * 2).toFixed(2)}px`);
+        return {
+          index,
+          identity: marker.dataset.baseName ?? marker.dataset.knownSiteId ?? `marker-${index}`,
+          hex: marker.dataset.hex ?? "unknown",
+          cx: Number(target?.getAttribute("cx")),
+          cy: Number(target?.getAttribute("cy")),
+          hitRadius
+        };
+      });
+      geometry.forEach((left, leftIndex) => geometry.slice(leftIndex + 1).forEach((right) => {
+        const separation = Math.hypot(left.cx - right.cx, left.cy - right.cy) * zoom;
+        if (separation <= Math.max(left.hitRadius, right.hitRadius)) {
+          violations.push(`zoom ${zoom}: ${left.identity} (${left.hex}) target captures ${right.identity} (${right.hex}) center at ${separation.toFixed(2)}px`);
+        }
+      }));
+    }
+
+    const shellCss = readFileSync("index.html", "utf8");
+    const theaterHidesSecondaryPointerFlow = /data-campaign-map-density="theater"[\s\S]{0,320}display:\s*none;[\s\S]{0,80}pointer-events:\s*none;/.test(shellCss);
+    const theaterSelectedMarkerYieldsPointerFlow = /data-campaign-map-density="theater"[\s\S]{0,260}\.campaign-base-marker\.is-selected[\s\S]{0,260}pointer-events:\s*none;/.test(shellCss);
+    const operationalHidesDetailPointerFlow = /data-campaign-map-density="operational"[\s\S]{0,240}data-density-tier="detail"[\s\S]{0,240}display:\s*none;[\s\S]{0,80}pointer-events:\s*none;/.test(shellCss);
+    const compactHitTargetContract = /@media\s*\(max-width:\s*520px\)[\s\S]*campaign-base-marker__hit-target[\s\S]{0,260}\*\s*1\.22[3-9]/.test(shellCss);
+    if (!theaterHidesSecondaryPointerFlow) violations.push("theater-hidden markers remain in pointer flow");
+    if (!theaterSelectedMarkerYieldsPointerFlow) violations.push("theater selected marker still captures neighboring 10 km hexes");
+    if (!operationalHidesDetailPointerFlow) violations.push("operational-hidden detail markers remain in pointer flow");
+    if (!compactHitTargetContract) violations.push("compact hit targets do not expand from 36px to at least 44px");
+
+    if (markers.length !== 31 || violations.length > 0) {
+      throw new Error(`Campaign semantic-zoom density is not first-class: ${JSON.stringify({
+        markerCount: markers.length,
+        violations: violations.slice(0, 16),
+        totalViolations: violations.length
+      })}.`);
     }
   });
 });

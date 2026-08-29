@@ -73,6 +73,18 @@ export interface CampaignCommandKnownSiteView {
   readonly categoryLabel: string;
   readonly locationPrecision: "fixed" | "sector";
   readonly relatedLocations: readonly string[];
+  readonly strategicGeography?: CampaignCommandStrategicGeographyView;
+}
+
+/** Authored, rules-safe geography for one operational cell. Missing fields remain unknown. */
+export interface CampaignCommandStrategicGeographyView {
+  readonly terrain: "Land" | "Water";
+  readonly landform?: string;
+  readonly settlement?: string;
+  readonly roads?: readonly string[];
+  readonly railways?: readonly string[];
+  readonly waterways?: readonly string[];
+  readonly operationalFeatures?: readonly string[];
 }
 
 /** Sourced theater context that intentionally has no exact selectable map hex. */
@@ -98,6 +110,9 @@ export interface CampaignCommandFormationView {
   readonly ownershipLabel: string;
   readonly locationHexKey: string | null;
   readonly statusLabel: string;
+  readonly postureKey?: "ready" | "assigned" | "committed" | "inTransit" | "scheduledArrival" | "recovering" | "unavailable";
+  readonly canReceiveOrders?: boolean;
+  readonly blockingReason?: string | null;
   readonly availabilityLabel?: string | null;
   readonly readiness: string;
   readonly cohesion: string;
@@ -132,6 +147,8 @@ export interface CampaignCommandHexView {
   readonly actionSummary?: string;
   /** Real places consolidated into this one rules-bearing node at the 10 km campaign scale. */
   readonly historicalNetwork?: readonly string[];
+  /** Authored geography is presented before installations, formations, and orders. */
+  readonly strategicGeography?: CampaignCommandStrategicGeographyView;
   readonly forces: readonly string[];
   readonly capabilities?: readonly string[];
   readonly infrastructure: string | null;

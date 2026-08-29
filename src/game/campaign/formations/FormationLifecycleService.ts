@@ -22,6 +22,7 @@ import type {
   CampaignFormationStatus
 } from "./campaignFormationTypes";
 import { resolveCampaignFormationPresentation } from "./CampaignFormationPresentation";
+import { projectCampaignFormationPosture } from "./CampaignFormationPosture";
 
 const TERMINAL_FORMATION_STATUSES = new Set<CampaignFormationStatus>(["destroyed", "captured"]);
 
@@ -122,7 +123,8 @@ export function isCampaignFormationPlaced(formation: CampaignFormationRecord): b
 
 /** True when a placed formation has entered the operational order of battle. */
 export function isCampaignFormationAvailable(formation: CampaignFormationRecord): boolean {
-  return formation.status !== "unavailable";
+  const posture = projectCampaignFormationPosture(formation).posture;
+  return posture !== "scheduledArrival" && posture !== "retired";
 }
 
 /**
@@ -131,9 +133,7 @@ export function isCampaignFormationAvailable(formation: CampaignFormationRecord)
  * persistent roster, but neither belongs in a location's aggregate force projection.
  */
 export function isCampaignFormationPresentAtLocation(formation: CampaignFormationRecord): boolean {
-  return isCampaignFormationPlaced(formation)
-    && isCampaignFormationAvailable(formation)
-    && formation.status !== "inTransit";
+  return projectCampaignFormationPosture(formation).presentAtLocation;
 }
 
 /**

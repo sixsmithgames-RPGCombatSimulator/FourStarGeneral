@@ -2060,14 +2060,33 @@
       cursor: pointer;
       outline: none;
     }
+    #viewportRoot[data-campaign-map-density="theater"] .campaign-base-marker:not(.is-selected),
+    #viewportRoot[data-campaign-map-density="theater"] .campaign-known-site:not(.is-selected) {
+      display: none;
+      pointer-events: none;
+    }
+    #viewportRoot[data-campaign-map-density="theater"] .campaign-base-marker.is-selected .campaign-base-marker__hit-target,
+    #viewportRoot[data-campaign-map-density="theater"] .campaign-known-site.is-selected .campaign-known-site__hit-target {
+      pointer-events: none;
+    }
+    #viewportRoot[data-campaign-map-density="operational"] .campaign-base-marker[data-density-tier="detail"]:not(.is-selected),
+    #viewportRoot[data-campaign-map-density="operational"] .campaign-known-site[data-density-tier="detail"]:not(.is-selected) {
+      display: none;
+      pointer-events: none;
+    }
+    .campaign-base-marker__sprite,
+    .campaign-base-marker__strength,
+    .campaign-known-site__sprite,
+    .campaign-map-selection-locator {
+      transform: scale(var(--campaign-map-marker-scale, 1));
+      transform-box: fill-box;
+      transform-origin: center;
+    }
     .campaign-base-marker__hit-target,
     .campaign-base-marker__focus-ring,
-    .campaign-base-marker__badge,
-    .campaign-known-site__badge-ring,
-    .campaign-known-site__sprite,
     .campaign-known-site__focus-ring,
     .campaign-known-site__hit-target {
-      transform: scale(var(--campaign-map-marker-scale, 1));
+      transform: scale(var(--campaign-map-hit-scale, 1));
       transform-box: fill-box;
       transform-origin: center;
     }
@@ -2081,7 +2100,10 @@
     }
     .campaign-base-disclosure,
     .campaign-known-site-disclosure {
-      transform: scale(var(--campaign-map-inverse-zoom-resting, 0.92));
+      transform: translate(
+        var(--campaign-disclosure-shift-x, 0px),
+        var(--campaign-disclosure-shift-y, 0px)
+      ) scale(var(--campaign-map-inverse-zoom-resting, 0.92));
       transform-box: fill-box;
     }
     .campaign-base-marker[data-disclosure-side="right"] .campaign-base-disclosure,
@@ -2102,7 +2124,27 @@
     .campaign-known-site:focus .campaign-known-site-disclosure {
       opacity: 1;
       visibility: visible;
-      transform: scale(var(--campaign-map-inverse-zoom, 1));
+      transform: translate(
+        var(--campaign-disclosure-shift-x, 0px),
+        var(--campaign-disclosure-shift-y, 0px)
+      ) scale(var(--campaign-map-inverse-zoom, 1));
+    }
+    .campaign-map-selection-locator {
+      opacity: 0;
+      visibility: hidden;
+    }
+    .campaign-base-marker.is-selected .campaign-map-selection-locator,
+    .campaign-known-site.is-selected .campaign-map-selection-locator {
+      opacity: 1;
+      visibility: visible;
+    }
+    .campaign-base-marker__sprite,
+    .campaign-known-site__sprite {
+      filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.95));
+    }
+    .campaign-base-marker:focus-visible .campaign-base-marker__focus-ring,
+    .campaign-known-site:focus-visible .campaign-known-site__focus-ring {
+      stroke-width: 2;
     }
     .campaign-map-viewport::-webkit-scrollbar {
       width: 10px;
@@ -2125,9 +2167,12 @@
       transition: fill 120ms ease, stroke 120ms ease, stroke-width 120ms ease;
     }
     .campaign-hex.selected polygon {
-      fill: rgba(91, 192, 255, 0.18);
-      stroke: #5bc0ff;
+      fill: transparent;
+      stroke: #d7b45f;
       stroke-width: 1.5;
+    }
+    .campaign-hex.selected.entity-selected polygon {
+      stroke: transparent;
     }
     .campaign-hex.origin polygon {
       fill: rgba(245, 196, 109, 0.18);
@@ -2456,6 +2501,10 @@
     }
 
     @media (max-width: 520px) {
+      .campaign-base-marker__hit-target,
+      .campaign-known-site__hit-target {
+        transform: scale(calc(var(--campaign-map-hit-scale, 1) * 1.223));
+      }
       .campaign-intel-drawer { left: 0; right: 0; bottom: 0; height: 76vh; border-radius: 16px 16px 0 0; }
       .campaign-intel-situation-grid { grid-template-columns: 1fr; }
       .campaign-intel-operation-grid { grid-template-columns: 1fr 1fr; }

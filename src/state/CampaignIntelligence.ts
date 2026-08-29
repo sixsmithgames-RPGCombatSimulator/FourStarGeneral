@@ -932,7 +932,8 @@ export function buildCampaignMapView(
       spriteKey: site.spriteKey,
       category: site.category,
       locationPrecision: site.locationPrecision,
-      relatedLocations: [...(site.relatedLocations ?? [])]
+      relatedLocations: [...(site.relatedLocations ?? [])],
+      ...(site.geography ? { geography: structuredClone(site.geography) } : {})
     }))
     .sort((left, right) => left.locationHexKey.localeCompare(right.locationHexKey) || left.id.localeCompare(right.id));
   const knownStrategicRegions = (scenario.briefedStrategicRegions ?? [])

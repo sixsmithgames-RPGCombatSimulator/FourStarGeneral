@@ -510,7 +510,7 @@ export class CampaignMapOverlayController {
   private objectiveEntry(objective: CampaignCommandObjectiveView): MapListEntry {
     return {
       key: objective.key,
-      marker: objective.status === "Completed" ? "✓" : objective.status === "Failed" ? "!" : "◎",
+      marker: objective.status === "Completed" ? "OK" : objective.status === "Failed" ? "!" : "OBJ",
       label: objective.label,
       meta: `${objective.status}${objective.hexKey ? ` · ${objective.hexKey}` : ""}`,
       selection: { kind: "objective", id: objective.key }
@@ -520,7 +520,7 @@ export class CampaignMapOverlayController {
   private forceEntry(force: CampaignCommandForceView, index: number): MapListEntry {
     return {
       key: `${force.hexKey}:${index}`,
-      marker: "◆",
+      marker: "UNIT",
       label: force.label,
       meta: `${force.count.toLocaleString()} · ${force.hexKey}`,
       selection: { kind: "hex", id: force.hexKey }
@@ -530,7 +530,7 @@ export class CampaignMapOverlayController {
   private formationEntry(formation: CampaignCommandFormationView): MapListEntry {
     return {
       key: formation.id,
-      marker: formation.statusLabel === "Ready" ? "◆" : "◇",
+      marker: "UNIT",
       label: formation.name,
       meta: `${formation.statusLabel}${formation.availabilityLabel ? ` · available ${formation.availabilityLabel}` : ""} · ${formation.readiness}${formation.locationHexKey ? ` · ${formation.locationHexKey}` : " · Off map"}`,
       selection: { kind: "formation", id: formation.id }
@@ -540,7 +540,7 @@ export class CampaignMapOverlayController {
   private contactEntry(contact: CampaignCommandContactView): MapListEntry {
     return {
       key: contact.id,
-      marker: contact.state === "current" ? "◇" : "◈",
+      marker: "INT",
       label: contact.locationLabel ?? contact.label,
       meta: `${contact.locationRoleLabel ? `${contact.locationRoleLabel} · ` : ""}${contact.locationLabel ? `${contact.label} · ` : ""}${contact.confidenceBand} confidence · ${contact.locationHexKey} · ${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"} old`,
       selection: { kind: "contact", id: contact.id }
@@ -548,11 +548,23 @@ export class CampaignMapOverlayController {
   }
 
   private knownSiteEntry(site: CampaignCommandKnownSiteView): MapListEntry {
+    const marker = site.roleLabel.toLowerCase().includes("fortification")
+      ? "BAT"
+      : site.roleLabel === "Naval Base"
+        ? "PORT"
+        : site.roleLabel === "Airbase" || site.roleLabel === "Intel Node"
+          ? "AIR"
+          : "SITE";
+    const status = site.categoryLabel === "Known opposing installation"
+      ? "Status unconfirmed"
+      : site.categoryLabel === "Allied supporting site"
+        ? "Allied support"
+        : "Mapped place";
     return {
       key: site.id,
-      marker: "SITE",
+      marker,
       label: site.label,
-      meta: `${site.categoryLabel} · ${site.locationPrecision === "fixed" ? "fixed location" : "10 km sector"} · ${site.roleLabel}`,
+      meta: `${site.roleLabel} · ${status}`,
       selection: { kind: "hex", id: site.locationHexKey }
     };
   }
@@ -572,7 +584,7 @@ export class CampaignMapOverlayController {
     const representedPlaces = describeCampaignAssociatedLocations(hex.roleLabel, hex.historicalNetwork?.length ?? 0);
     return {
       key: `strategic:${hex.hexKey}`,
-      marker: isFleet ? "FLEET" : "BASE",
+      marker: isFleet ? "NAV" : "BASE",
       label: hex.displayLabel ?? hex.roleLabel,
       meta: `${hex.roleLabel} · ${representedPlaces ? `${representedPlaces} · ` : ""}${hex.controlLabel}`,
       selection: { kind: "hex", id: hex.hexKey }
@@ -582,7 +594,7 @@ export class CampaignMapOverlayController {
   private orderEntry(order: CampaignCommandOrderView): MapListEntry {
     return {
       key: order.id,
-      marker: order.status === "conflict" || order.status === "blocked" ? "!" : "→",
+      marker: order.status === "conflict" || order.status === "blocked" ? "!" : "ORD",
       label: order.label,
       meta: `${order.status} · ${order.mapHexKeys?.join(" → ") || "Theater-wide"}`,
       selection: { kind: "order", id: order.id }
@@ -592,7 +604,7 @@ export class CampaignMapOverlayController {
   private frontEntry(front: CampaignCommandFrontView): MapListEntry {
     return {
       key: front.key,
-      marker: "━",
+      marker: "FRONT",
       label: front.label,
       meta: `${front.initiativeLabel} · ${front.hexKeys.length} sector${front.hexKeys.length === 1 ? "" : "s"}`,
       selection: { kind: "front", id: front.key }

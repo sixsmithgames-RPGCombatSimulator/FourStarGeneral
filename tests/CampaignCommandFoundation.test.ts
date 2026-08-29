@@ -291,7 +291,7 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
       || headings.indexOf("Assigned commands") <= headings.indexOf("Embarkation port")
       || headings.indexOf("Orders") <= headings.indexOf("Assigned commands")
       || !headings.includes("Ready now (1)")
-      || !headings.includes("Committed or in transit (1)")
+      || !headings.includes("Committed (1)")
       || !headings.includes("Arriving here (1)")
       || routeCopy.includes("Projected forces")
       || routeCopy.includes("4,5")
@@ -314,7 +314,8 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
       || !formationCopy.includes("Cohesion")
       || !formationCopy.includes("D+1 · 7 June 1944")
       || back?.textContent !== "Back to First Army Depot"
-      || footer?.hidden !== true) {
+      || footer?.hidden
+      || !footer?.querySelector("[data-plan-campaign-redeploy]")) {
       throw new Error(`Formation drill-in lost detail, base return, or scroll reset: '${formationCopy}'.`);
     }
     body.scrollTop = 180;
@@ -659,7 +660,8 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")?.click();
     const siteInspector = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
     if (!siteInspector.includes("Current control unconfirmed")
-      || !siteInspector.includes("Theater signals directory")
+      || !siteInspector.includes("The fixed relay location is known")
+      || siteInspector.includes("Theater signals directory")
       || !root.querySelector<HTMLElement>(".action-section")?.hidden) {
       throw new Error("Briefed site inspector leaked live status or exposed runtime actions.");
     }
