@@ -4933,7 +4933,9 @@ export class BattleScreen {
 
     container.querySelector<HTMLButtonElement>("[data-mission-end='confirm']")?.addEventListener("click", () => {
       this.disposeMissionEndModal();
-      void this.handleEndMission();
+      // This result modal already asks whether the commander wants to return to headquarters.
+      // Carry that confirmation forward so the generic toolbar confirmation is not shown again.
+      void this.handleEndMission(true);
     });
 
     container.querySelector<HTMLButtonElement>("[data-mission-end='continue']")?.addEventListener("click", () => {
@@ -9308,8 +9310,8 @@ export class BattleScreen {
   /**
    * Handles ending the mission and returning to headquarters.
    */
-  private async handleEndMission(): Promise<void> {
-    const confirmed = await this.confirmMissionEndRequest();
+  private async handleEndMission(alreadyConfirmed = false): Promise<void> {
+    const confirmed = alreadyConfirmed || await this.confirmMissionEndRequest();
     if (!confirmed) {
       return;
     }

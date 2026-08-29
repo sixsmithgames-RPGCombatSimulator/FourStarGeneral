@@ -58,6 +58,38 @@ registerTest("BATTLESCREEN_MISSION_END_MODAL_USES_SAFE_ASCII_STATUS_MARKERS", as
   });
 });
 
+registerTest("BATTLESCREEN_MISSION_RESULT_RETURNS_TO_HQ_WITHOUT_DUPLICATE_CONFIRMATION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let alreadyConfirmed: boolean | undefined;
+
+  await Given("a terminal mission result that already asks whether to return to headquarters", async () => {
+    const root = mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).element = root;
+    (screen as any).missionEndModal = null;
+    (screen as any).missionStatus = { objectives: [] };
+    (screen as any).handleEndMission = (confirmed: boolean) => {
+      alreadyConfirmed = confirmed;
+    };
+    (screen as any).announceBattleUpdate = () => {};
+  });
+
+  await When("the commander chooses End Mission from that result", async () => {
+    (screen as any).showMissionEndModal("playerVictory", "The opposing force is no longer combat-effective.");
+    const button = document.querySelector<HTMLButtonElement>("[data-mission-end='confirm']");
+    button?.click();
+  });
+
+  await Then("the result confirmation is carried into the headquarters handoff", async () => {
+    if (alreadyConfirmed !== true) {
+      throw new Error("Expected the terminal result to bypass the redundant generic end-mission confirmation.");
+    }
+    if ((screen as any).missionEndModal !== null) {
+      throw new Error("Expected the completed result modal to close before the headquarters handoff.");
+    }
+  });
+});
+
 registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Given, When, Then }) => {
   let patrolScenarioName = "";
   let resolvedScenarioName = "";
