@@ -1847,17 +1847,30 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
     : "the contested sector";
   const objectiveHexes = (scenario.objectives ?? []).map((objective) => ({
     hex: objective.hex,
-    key: makeKey(objective.hex)
+    key: makeKey(objective.hex),
+    owner: objective.owner
   }));
+  // Objective ownership is territorial state, not a live unit-occupancy query. Seed it from the
+  // authored scenario and change it only when a formation physically occupies the objective.
+  // Otherwise an objective silently becomes neutral as soon as its capturing unit moves away,
+  // which can make an unbounded campaign engagement impossible to resolve coherently.
+  const objectiveControl = new Map<string, TurnFaction>(
+    objectiveHexes.map((objective) => [objective.key, objective.owner])
+  );
+  const securedFriendlyObjectives = new Set<string>();
   let currentOutcome: MissionOutcome = { state: "inProgress" };
   let currentTurn = 0;
 
-  const buildOccupancy = (): ReadonlyMap<string, TurnFaction> => {
-    const occupancy = new Map<string, TurnFaction>();
-    scenario.sides.Bot.units.forEach((unit) => occupancy.set(makeKey(unit.hex), "Bot"));
-    scenario.sides.Ally?.units.forEach((unit) => occupancy.set(makeKey(unit.hex), "Ally"));
-    scenario.sides.Player.units.forEach((unit) => occupancy.set(makeKey(unit.hex), "Player"));
-    return occupancy;
+  const recordObjectiveControl = (occupancy: ReadonlyMap<string, TurnFaction>): void => {
+    objectiveHexes.forEach((objective) => {
+      const occupant = occupancy.get(objective.key);
+      if (occupant === "Bot") {
+        objectiveControl.set(objective.key, "Bot");
+      } else if (isFriendlyOccupant(occupant)) {
+        objectiveControl.set(objective.key, "Player");
+        securedFriendlyObjectives.add(objective.key);
+      }
+    });
   };
 
   const countFriendlyObjectives = (occupancy: ReadonlyMap<string, TurnFaction>): number => objectiveHexes
@@ -1886,7 +1899,9 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
     const friendlyHeld = countFriendlyObjectives(occupancy);
     const objectiveTotal = objectiveHexes.length;
     const botForce = getGroundForceScore(botUnits);
-    const primarySatisfied = objectiveTotal > 0 && friendlyHeld === objectiveTotal;
+    const primarySatisfied = objectiveTotal > 0 && friendlyHeld === objectiveTotal
+      && (playerRole === "attacker"
+        || (securedFriendlyObjectives.size === objectiveTotal && currentOutcome.state === "playerVictory"));
     const primaryState: ObjectiveState = primarySatisfied
       ? "completed"
       : currentOutcome.state === "playerDefeat" ? "failed" : "inProgress";
@@ -1904,7 +1919,7 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
           state: primaryState,
           detail: objectiveTotal > 0
             ? playerRole === "defender"
-              ? `Friendly control: ${friendlyHeld}/${objectiveTotal} defended positions at ${battleHexKey}. Secure every position to break the assault. ${timeDetail}`
+              ? `Secured positions: ${securedFriendlyObjectives.size}/${objectiveTotal}; friendly control: ${friendlyHeld}/${objectiveTotal} at ${battleHexKey}. Secure each position and retain control, or break the opposing ground force. ${timeDetail}`
               : `Friendly control: ${friendlyHeld}/${objectiveTotal} tactical objectives at ${battleHexKey}. Secure every position to win the engagement. ${timeDetail}`
             : `Maintain an effective ground force at ${battleHexKey}. ${timeDetail}`
         },
@@ -1925,24 +1940,26 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
 
   const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
     currentTurn = snapshot.turnSummary.turnNumber;
+    recordObjectiveControl(snapshot.occupancy);
     if (currentOutcome.state === "inProgress") {
       const playerForce = getGroundForceScore([...(snapshot.allyUnits ?? []), ...snapshot.playerUnits]);
       const botForce = getGroundForceScore(snapshot.botUnits);
-      const friendlyHeld = countFriendlyObjectives(snapshot.occupancy);
-      const opposingHeld = countOpposingObjectives(snapshot.occupancy);
+      const friendlyHeld = countFriendlyObjectives(objectiveControl);
+      const opposingHeld = countOpposingObjectives(objectiveControl);
       if (playerForce <= 0) {
         currentOutcome = { state: "playerDefeat", reason: "No effective friendly ground formations remain in the engagement." };
       } else if (botForce <= 0) {
         currentOutcome = { state: "playerVictory", reason: "The opposing ground force is no longer combat-effective." };
-      } else if (objectiveHexes.length > 0 && friendlyHeld === objectiveHexes.length) {
-        currentOutcome = playerRole === "defender"
-          ? { state: "playerVictory", reason: "Friendly forces held every defended position and broke the opposing assault." }
-          : { state: "playerVictory", reason: "Friendly forces secured every tactical objective in the engagement area." };
+      } else if (playerRole === "attacker" && objectiveHexes.length > 0 && friendlyHeld === objectiveHexes.length) {
+        currentOutcome = { state: "playerVictory", reason: "Friendly forces secured every tactical objective in the engagement area." };
+      } else if (playerRole === "defender" && objectiveHexes.length > 0
+        && securedFriendlyObjectives.size === objectiveHexes.length && friendlyHeld === objectiveHexes.length) {
+        currentOutcome = { state: "playerVictory", reason: "Friendly forces secured every defended position and broke the opposing assault." };
       } else if (playerRole === "defender" && objectiveHexes.length > 0 && opposingHeld === objectiveHexes.length) {
         currentOutcome = { state: "playerDefeat", reason: "Opposing forces secured every tactical objective in the defended engagement area." };
       }
     }
-    return buildStatus(currentTurn, snapshot.occupancy, snapshot.playerUnits, snapshot.botUnits);
+    return buildStatus(currentTurn, objectiveControl, snapshot.playerUnits, snapshot.botUnits);
   };
 
   return {
@@ -1950,10 +1967,21 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
       return deriveStatus(snapshot);
     },
     getStatus(): MissionStatus {
-      return buildStatus(currentTurn, buildOccupancy(), scenario.sides.Player.units, scenario.sides.Bot.units);
+      return buildStatus(currentTurn, objectiveControl, scenario.sides.Player.units, scenario.sides.Bot.units);
     },
     serializeState(): SerializedMissionRulesState {
-      return { version: 1, kind: "campaignBattle", data: { outcome: currentOutcome, turn: currentTurn } };
+      return {
+        version: 1,
+        kind: "campaignBattle",
+        data: {
+          outcome: currentOutcome,
+          turn: currentTurn,
+          securedFriendlyObjectives: objectiveHexes
+            .filter((objective) => securedFriendlyObjectives.has(objective.key))
+            .map((objective) => objective.key),
+          objectiveControl: [...objectiveControl.entries()]
+        }
+      };
     },
     hydrateState(snapshot: SerializedMissionRulesState): void {
       const data = readMissionRuleState(snapshot, "campaignBattle");
@@ -1963,6 +1991,26 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
       }
       currentOutcome = structuredClone(outcome);
       currentTurn = Number.isInteger(data["turn"]) && Number(data["turn"]) >= 0 ? Number(data["turn"]) : 0;
+      const savedControl = data["objectiveControl"];
+      if (Array.isArray(savedControl)) {
+        const objectiveKeys = new Set(objectiveHexes.map((objective) => objective.key));
+        savedControl.forEach((entry) => {
+          if (!Array.isArray(entry) || entry.length !== 2) return;
+          const [key, faction] = entry;
+          if (typeof key === "string" && objectiveKeys.has(key) && (faction === "Player" || faction === "Bot")) {
+            objectiveControl.set(key, faction);
+          }
+        });
+      }
+      const savedSecured = data["securedFriendlyObjectives"];
+      if (Array.isArray(savedSecured)) {
+        const objectiveKeys = new Set(objectiveHexes.map((objective) => objective.key));
+        savedSecured.forEach((key) => {
+          if (typeof key === "string" && objectiveKeys.has(key)) {
+            securedFriendlyObjectives.add(key);
+          }
+        });
+      }
     }
   } satisfies MissionRulesController;
 }

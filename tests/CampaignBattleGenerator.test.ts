@@ -360,7 +360,57 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
       throw new Error(`Campaign objective still advertised a tactical deadline: ${initial.objectives[0]?.detail}`);
     }
 
+    const authoredFriendlyControl = normalized.objectives.filter((objective) => objective.owner === "Player").length;
+    if (!initial.objectives[0]?.detail?.includes(`Friendly control: ${authoredFriendlyControl}/${normalized.objectives.length}`)) {
+      throw new Error(`Campaign objective control did not begin from authored ownership: ${initial.objectives[0]?.detail}`);
+    }
+
+    const capturableObjective = normalized.objectives.find((objective) => objective.owner === "Bot");
+    if (!capturableObjective) throw new Error("Campaign scenario did not expose an opposing objective for control persistence testing.");
+    const capturableKey = `${capturableObjective.hex.q},${capturableObjective.hex.r}`;
+    const controlController = createMissionRulesController("campaign", normalized);
     const friendlyUnit = structuredClone(normalized.sides.Player.units[0] ?? normalized.sides.Bot.units[0]!);
+    const captured = controlController.onTurnAdvanced({
+      turnSummary: { turnNumber: 2 } as never,
+      scenario: normalized,
+      occupancy: new Map([[capturableKey, "Player"]]),
+      playerUnits: [friendlyUnit],
+      botUnits: normalized.sides.Bot.units,
+      allyUnits: normalized.sides.Ally?.units
+    });
+    const capturedCount = authoredFriendlyControl + 1;
+    if (!captured.objectives[0]?.detail?.includes(`Friendly control: ${capturedCount}/${normalized.objectives.length}`)) {
+      throw new Error(`Campaign capture was not recorded: ${captured.objectives[0]?.detail}`);
+    }
+    const vacated = controlController.onTurnAdvanced({
+      turnSummary: { turnNumber: 3 } as never,
+      scenario: normalized,
+      occupancy: new Map(),
+      playerUnits: [friendlyUnit],
+      botUnits: normalized.sides.Bot.units,
+      allyUnits: normalized.sides.Ally?.units
+    });
+    if (!vacated.objectives[0]?.detail?.includes(`Friendly control: ${capturedCount}/${normalized.objectives.length}`)) {
+      throw new Error(`A vacated campaign objective forgot its controlling side: ${vacated.objectives[0]?.detail}`);
+    }
+    const controlSnapshot = controlController.serializeState();
+    const restoredControlController = createMissionRulesController("campaign", normalized);
+    restoredControlController.hydrateState(controlSnapshot);
+    if (!restoredControlController.getStatus().objectives[0]?.detail?.includes(`Friendly control: ${capturedCount}/${normalized.objectives.length}`)) {
+      throw new Error("Campaign objective control did not survive tactical save hydration.");
+    }
+    const recaptured = restoredControlController.onTurnAdvanced({
+      turnSummary: { turnNumber: 4 } as never,
+      scenario: normalized,
+      occupancy: new Map([[capturableKey, "Bot"]]),
+      playerUnits: [friendlyUnit],
+      botUnits: normalized.sides.Bot.units,
+      allyUnits: normalized.sides.Ally?.units
+    });
+    if (!recaptured.objectives[0]?.detail?.includes(`Friendly control: ${authoredFriendlyControl}/${normalized.objectives.length}`)) {
+      throw new Error(`Opposing recapture did not change persistent campaign control: ${recaptured.objectives[0]?.detail}`);
+    }
+
     const ongoing = controller.onTurnAdvanced({
       turnSummary: { turnNumber: 30 } as never,
       scenario: normalized,
@@ -396,23 +446,40 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
       availableForces: [{ hexKey: "5,5", unitType: "Infantry_42", count: 2 }]
     }));
     const normalizedDefense = normalizeScenarioSource(defense as unknown as RawScenarioInput, { turnLimit: 0 });
-    const defenseController = createMissionRulesController("campaign", normalizedDefense);
-    const friendlyControl = new Map<string, "Player">();
-    normalizedDefense.objectives.forEach((objective) => friendlyControl.set(`${objective.hex.q},${objective.hex.r}`, "Player"));
+    let defenseController = createMissionRulesController("campaign", normalizedDefense);
     const defenseFriendlyUnit = structuredClone(normalizedDefense.sides.Bot.units[0]!);
-    const defenseVictory = defenseController.onTurnAdvanced({
-      turnSummary: { turnNumber: 6 } as never,
-      scenario: normalizedDefense,
-      occupancy: friendlyControl,
-      playerUnits: [defenseFriendlyUnit],
-      botUnits: normalizedDefense.sides.Bot.units,
-      allyUnits: normalizedDefense.sides.Ally?.units
+    const initialDefense = defenseController.getStatus();
+    if (initialDefense.outcome.state !== "inProgress" || initialDefense.objectives[0]?.state !== "inProgress") {
+      throw new Error("Campaign defense ended merely because authored positions began under friendly control.");
+    }
+    let defenseVictory = initialDefense;
+    normalizedDefense.objectives.forEach((objective, index) => {
+      const movedFriendlyUnit = { ...structuredClone(defenseFriendlyUnit), hex: structuredClone(objective.hex) };
+      defenseVictory = defenseController.onTurnAdvanced({
+        turnSummary: { turnNumber: 6 + index } as never,
+        scenario: normalizedDefense,
+        occupancy: new Map([[`${objective.hex.q},${objective.hex.r}`, "Player"]]),
+        playerUnits: [movedFriendlyUnit],
+        botUnits: normalizedDefense.sides.Bot.units,
+        allyUnits: normalizedDefense.sides.Ally?.units
+      });
+      if (index < normalizedDefense.objectives.length - 1 && defenseVictory.outcome.state !== "inProgress") {
+        throw new Error(`Campaign defense ended before its formation secured every objective (step ${index + 1}).`);
+      }
+      if (index === 1 && index < normalizedDefense.objectives.length - 1) {
+        const restoredDefenseController = createMissionRulesController("campaign", normalizedDefense);
+        restoredDefenseController.hydrateState(defenseController.serializeState());
+        if (!restoredDefenseController.getStatus().objectives[0]?.detail?.includes("Secured positions: 2/")) {
+          throw new Error("Sequential defender objective progress did not survive tactical save hydration.");
+        }
+        defenseController = restoredDefenseController;
+      }
     });
     if (defenseVictory.outcome.state !== "playerVictory"
       || defenseVictory.objectives[0]?.state !== "completed"
       || defenseVictory.objectives[1]?.state !== "inProgress"
-      || !defenseVictory.outcome.reason?.includes("held every defended position")) {
-      throw new Error("Campaign defense did not end naturally after friendly forces secured every defended objective.");
+      || !defenseVictory.outcome.reason?.includes("secured every defended position")) {
+      throw new Error("Campaign defense did not end naturally after one formation sequentially secured every defended objective.");
     }
 
     const forceCollapseController = createMissionRulesController("campaign", normalizedDefense);
