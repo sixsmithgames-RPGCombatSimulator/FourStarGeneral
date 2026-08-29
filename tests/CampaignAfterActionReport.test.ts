@@ -5,9 +5,68 @@ import { registerTest } from "./harness.js";
 import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
 import { validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
 import { assertCampaignAfterActionReport } from "../src/game/campaign/aar/CampaignAfterActionReportService";
+import type { CampaignAfterActionDecisionRequired } from "../src/game/campaign/aar/CampaignAfterActionReportTypes";
 import { extractCampaignBattleResultPackage } from "../src/game/campaign/results/CampaignBattleResultExtractor";
 import { validateCampaignRuntimeState } from "../src/game/campaign/runtime/CampaignInvariantValidator";
 import { commitFixture, missionStatus, tacticalStateFixture } from "./CampaignBattleResultExtraction.test.js";
+
+registerTest("CAMPAIGN_AAR_REQUIRES_RECONSTRUCTION_ONLY_FOR_STRUCTURAL_DAMAGE", async ({ Given, When, Then }) => {
+  let intactDecisions: readonly CampaignAfterActionDecisionRequired[] = [];
+  let damagedDecisions: readonly CampaignAfterActionDecisionRequired[] = [];
+  let intactCapacity = -1;
+  let intactIntegrity = -1;
+
+  await Given("two captured installations at reduced capacity, one intact and one structurally damaged", () => {});
+  await When("the immutable campaign reports classify their required follow-up decisions", () => {
+    const intact = commitFixture();
+    const intactTacticalState = tacticalStateFixture(intact.runtime, intact.pkg);
+    const [intactModification] = intactTacticalState.hexModifications ?? [];
+    if (!intactModification || intactModification.type !== "fortifications") {
+      throw new Error("Intact-capture fixture has no installation modification.");
+    }
+    intactModification.integrity = intactModification.maxIntegrity;
+    intactModification.damageState = "intact";
+    const intactResult = extractCampaignBattleResultPackage({
+      battlePackage: intact.pkg,
+      tacticalState: intactTacticalState,
+      missionStatus,
+      result: "attackerVictory"
+    });
+    intact.campaign.applyCampaignBattleResult(intactResult);
+    const intactReport = intact.campaign.getCampaignAfterActionReport(intactResult.engagementId);
+    const intactInfrastructure = intact.campaign.getCampaignBattleInfrastructureReport(intactResult.engagementId);
+    if (!intactReport || !intactInfrastructure?.infrastructureAfter) {
+      throw new Error("Intact capture did not retain its report and infrastructure audit.");
+    }
+    intactDecisions = intactReport.decisionsRequired;
+    intactCapacity = intactInfrastructure.capacityAfter.effectiveness;
+    intactIntegrity = intactInfrastructure.infrastructureAfter.integrity;
+
+    const damaged = commitFixture();
+    const damagedResult = extractCampaignBattleResultPackage({
+      battlePackage: damaged.pkg,
+      tacticalState: tacticalStateFixture(damaged.runtime, damaged.pkg),
+      missionStatus,
+      result: "attackerVictory"
+    });
+    damaged.campaign.applyCampaignBattleResult(damagedResult);
+    const damagedReport = damaged.campaign.getCampaignAfterActionReport(damagedResult.engagementId);
+    if (!damagedReport) throw new Error("Damaged capture did not retain its after-action report.");
+    damagedDecisions = damagedReport.decisionsRequired;
+  });
+  await Then("temporary garrison reorganization creates no repair dead end while real damage retains reconstruction", () => {
+    const falseRepair = intactDecisions.find((decision) => decision.targetKind === "infrastructure");
+    const realRepair = damagedDecisions.find((decision) => decision.targetKind === "infrastructure");
+    if (intactIntegrity !== 100 || intactCapacity !== 0.5 || falseRepair) {
+      throw new Error(`Intact capture was misclassified as repairable damage: ${JSON.stringify({ intactIntegrity, intactCapacity, falseRepair })}.`);
+    }
+    if (!realRepair
+      || realRepair.title !== "Reconstruct the battle area"
+      || !realRepair.detail.includes("35 of 100 integrity")) {
+      throw new Error(`Structural damage lost its actionable reconstruction decision: ${JSON.stringify(realRepair)}.`);
+    }
+  });
+});
 
 registerTest("CAMPAIGN_AAR_RETAINS_PLAYER_SAFE_BEFORE_AFTER_HISTORY", async ({ Given, When, Then }) => {
   const { campaign, runtime, pkg } = commitFixture();

@@ -151,14 +151,16 @@ function buildDecisions(
     ));
   if (infrastructure.controllerAfter === viewerFaction
     && infrastructure.infrastructureAfter
-    && infrastructure.capacityAfter.effectiveness < 1) {
+    && infrastructure.infrastructureAfter.integrity < infrastructure.infrastructureAfter.maxIntegrity) {
+    const remainingIntegrity = infrastructure.infrastructureAfter.integrity;
+    const maximumIntegrity = infrastructure.infrastructureAfter.maxIntegrity;
     add(
       "repair-infrastructure",
-      infrastructure.capacityAfter.effectiveness < 0.5 ? "critical" : "attention",
+      remainingIntegrity / Math.max(1, maximumIntegrity) < 0.5 ? "critical" : "attention",
       "infrastructure",
       infrastructure.battleHexKey,
-      "Repair the battle area",
-      `The installation is operating at ${Math.round(infrastructure.capacityAfter.effectiveness * 100)}% effectiveness.`
+      "Reconstruct the battle area",
+      `The installation retains ${remainingIntegrity} of ${maximumIntegrity} integrity. Review the reconstruction requirement before the next operation.`
     );
   }
   if (control.occupationOutcome === "failedNoEligibleOccupier" || control.occupationOutcome === "failedEnemyPresence") {

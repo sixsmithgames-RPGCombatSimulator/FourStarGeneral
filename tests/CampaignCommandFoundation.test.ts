@@ -14,8 +14,10 @@ import { assertCampaignCommandDOMSafe, findCampaignCommandDOMLeaks } from "../sr
 import { CampaignCommandViewAssembler } from "../src/ui/campaign/CampaignCommandViewAssembler";
 import {
   projectCampaignAfterActionDecisionTargetId,
+  projectCampaignAfterActionInfrastructureEffect,
   projectCampaignAfterActionTitle,
-  projectRuntimeHexKeyToCampaignOffset
+  projectRuntimeHexKeyToCampaignOffset,
+  shouldPresentCampaignAfterActionDecision
 } from "../src/ui/campaign/CampaignCommandProjection";
 import {
   describeCampaignAssociatedLocations,
@@ -723,6 +725,49 @@ registerTest("CAMPAIGN_AAR_COORDINATES_PROJECT_TO_OPERATIONAL_MAP_IDENTITY", asy
       throw new Error(
         `AAR projection mixed runtime and operational coordinates: location='${locationHexKey}', title='${fallbackTitle}', objective='${objectiveTitle}', infrastructure='${infrastructureTarget}', formation='${formationTarget}'.`
       );
+    }
+  });
+});
+
+registerTest("CAMPAIGN_AAR_PROJECTION_DISTINGUISHES_CAPTURE_REORGANIZATION_FROM_RECONSTRUCTION", async ({ Given, When, Then }) => {
+  const intactAudit = { integrity: 160, maxIntegrity: 160, captureDisruptionUntilSegment: 8 };
+  const damagedAudit = { integrity: 90, maxIntegrity: 160, captureDisruptionUntilSegment: 8 };
+  let staleRepairVisible = true;
+  let otherInfrastructureDecisionVisible = false;
+  let damagedRepairVisible = false;
+  let intactEffect = "";
+  let damagedEffect = "";
+
+  await Given("an affected saved repair prompt, an intact captured fort, and a genuinely damaged captured fort", () => {});
+  await When("the reports cross the command presentation boundary", () => {
+    staleRepairVisible = shouldPresentCampaignAfterActionDecision("infrastructure", "Repair the battle area", intactAudit);
+    otherInfrastructureDecisionVisible = shouldPresentCampaignAfterActionDecision("infrastructure", "Assign the port commandant", intactAudit);
+    damagedRepairVisible = shouldPresentCampaignAfterActionDecision("infrastructure", "Reconstruct the battle area", damagedAudit);
+    intactEffect = projectCampaignAfterActionInfrastructureEffect({
+      roleLabel: "Heavy fortification",
+      integrityBefore: 160,
+      infrastructureAfter: intactAudit,
+      effectivenessAfter: 0.5,
+      disruptionTimeLabel: "D+2 · 8 June 1944, 00:00–03:00"
+    }) ?? "";
+    damagedEffect = projectCampaignAfterActionInfrastructureEffect({
+      roleLabel: "Heavy fortification",
+      integrityBefore: 160,
+      infrastructureAfter: damagedAudit,
+      effectivenessAfter: 0.5,
+      disruptionTimeLabel: "D+2 · 8 June 1944, 00:00–03:00"
+    }) ?? "";
+  });
+  await Then("only the obsolete false repair is suppressed and both operational effects remain truthful", () => {
+    if (staleRepairVisible
+      || !otherInfrastructureDecisionVisible
+      || !damagedRepairVisible
+      || !intactEffect.includes("captured intact")
+      || !intactEffect.includes("new garrison reorganizes")
+      || !intactEffect.includes("full capacity returns D+2")
+      || !damagedEffect.includes("160 → 90 integrity")
+      || !damagedEffect.includes("garrison reorganization continues until D+2")) {
+      throw new Error(`Capture and repair projection diverged: ${JSON.stringify({ staleRepairVisible, otherInfrastructureDecisionVisible, damagedRepairVisible, intactEffect, damagedEffect })}.`);
     }
   });
 });

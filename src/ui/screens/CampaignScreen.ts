@@ -28,8 +28,10 @@ import {
 import { CampaignCommandScreen as CampaignCommandInterface } from "../campaign/CampaignCommandScreen";
 import {
   projectCampaignAfterActionDecisionTargetId,
+  projectCampaignAfterActionInfrastructureEffect,
   projectCampaignAfterActionTitle,
-  projectRuntimeHexKeyToCampaignOffset
+  projectRuntimeHexKeyToCampaignOffset,
+  shouldPresentCampaignAfterActionDecision
 } from "../campaign/CampaignCommandProjection";
 import {
   CampaignActionRegistry,
@@ -1748,37 +1750,49 @@ export class CampaignScreen {
       selectedRole = palette?.role ?? null;
       selectedCanRedeploy = owner === "Player"
         && this.campaignState.getCampaignRedeployActionPreview(this.selectedHexKey, "Player").availability === "available";
-      if (selectedInfrastructure && (selectedInfrastructure.repairPoints > 0 || selectedInfrastructure.infrastructure.activeRepairOrderId)) {
+      if (selectedInfrastructure && (
+        selectedInfrastructure.repairPoints > 0
+        || selectedInfrastructure.infrastructure.activeRepairOrderId
+        || selectedInfrastructure.infrastructure.captureDisruptionUntilSegment !== null
+      )) {
         const infrastructure = selectedInfrastructure.infrastructure;
-        const integrityPercent = Math.round(infrastructure.effectiveness * 100);
-        const disruption = infrastructure.captureDisruptionUntilSegment !== null
-          ? ` · Capture disruption clears ${this.campaignState.segmentToTimeDisplay(infrastructure.captureDisruptionUntilSegment)}`
-          : "";
+        const capacityPercent = Math.round(infrastructure.effectiveness * 100);
+        const reorganizationTime = infrastructure.captureDisruptionUntilSegment !== null
+          ? this.campaignState.segmentToTimeDisplay(infrastructure.captureDisruptionUntilSegment)
+          : null;
         const repairStatus = infrastructure.activeRepairOrderId
           ? "Reconstruction order active"
           : selectedInfrastructure.repairPoints > 0
             ? `${selectedInfrastructure.repairPoints} integrity missing · ${selectedInfrastructure.repairRate}/segment repair rate`
-            : "Fully operational";
-        const repairDescriptor = this.campaignActionRegistry.resolve("infrastructureRepair", {
-          selectionKind: "hex",
-          selectionId: this.selectedHexKey
-        });
-        const repairAction = selectedInfrastructure.repairPoints > 0 && !infrastructure.activeRepairOrderId
+            : "Garrison reorganization in progress";
+        const repairDescriptor = selectedInfrastructure.repairPoints > 0
+          ? this.campaignActionRegistry.resolve("infrastructureRepair", {
+            selectionKind: "hex",
+            selectionId: this.selectedHexKey
+          })
+          : null;
+        const repairAction = repairDescriptor && !infrastructure.activeRepairOrderId
           ? `<button type="button" data-draft-infrastructure-repair data-reason-code="${repairDescriptor.reasonCode ?? ""}" ${repairDescriptor.availability === "available" ? "" : "disabled"} title="${this.escapeHtml(repairDescriptor.availability === "available" ? "Review the full reconstruction plan." : `${repairDescriptor.reason ?? "Reconstruction is unavailable."} ${repairDescriptor.correctiveAction ?? ""}`.trim())}">Plan reconstruction</button>`
           : "";
+        const reorganizationNotice = reorganizationTime
+          ? selectedInfrastructure.repairPoints > 0
+            ? `The new garrison is reorganizing the position until ${reorganizationTime}. Structural reconstruction remains required.`
+            : `The new garrison is reorganizing the position. Full capacity returns ${reorganizationTime}; no reconstruction order is required.`
+          : null;
         items.push(`
           <section class="campaign-infrastructure-card" data-infrastructure-state="${this.escapeHtml(infrastructure.damageState)}">
             <div class="campaign-infrastructure-card__heading">
               <strong>Installation condition</strong>
               <span>${this.escapeHtml(infrastructure.damageState.replace(/([A-Z])/g, " $1").toLowerCase())}</span>
             </div>
-            <div class="campaign-infrastructure-meter" role="meter" aria-label="Installation effectiveness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${integrityPercent}">
-              <span style="width:${integrityPercent}%"></span>
+            <div class="campaign-infrastructure-meter" role="meter" aria-label="Installation operational capacity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${capacityPercent}">
+              <span style="width:${capacityPercent}%"></span>
             </div>
-            <p>${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${integrityPercent}% operational capacity${this.escapeHtml(disruption)}</p>
+            <p>${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity · ${capacityPercent}% operational capacity</p>
             <p>${this.escapeHtml(repairStatus)}</p>
+            ${reorganizationNotice ? `<p>${this.escapeHtml(reorganizationNotice)}</p>` : ""}
             ${selectedInfrastructure.repairPoints > 0 ? `<p>${selectedInfrastructure.suppliesCost} supply · ${selectedInfrastructure.manpowerCost} personnel${infrastructure.activeRepairOrderId ? " committed" : ""} · ETA ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedInfrastructure.completeSegment))}${selectedInfrastructure.engineerFormationName ? ` · ${this.escapeHtml(selectedInfrastructure.engineerFormationName)}` : ""}</p>` : ""}
-            ${repairDescriptor.reason ? `<small><strong>Reconstruction unavailable.</strong> ${this.escapeHtml(repairDescriptor.reason)} ${this.escapeHtml(repairDescriptor.correctiveAction ?? "")}</small>` : ""}
+            ${repairDescriptor?.reason ? `<small><strong>Reconstruction unavailable.</strong> ${this.escapeHtml(repairDescriptor.reason)} ${this.escapeHtml(repairDescriptor.correctiveAction ?? "")}</small>` : ""}
             ${repairAction ? `<div class="campaign-context-actions">${repairAction}</div>` : ""}
           </section>
         `);
@@ -2908,6 +2922,8 @@ export class CampaignScreen {
     const runtime = this.campaignState.getRuntimeSnapshot();
     const postBattleAutosaveStatus = this.campaignState.getPostBattleAutosaveStatus();
     const afterActionReports = this.campaignState.getCampaignAfterActionReports().map((report) => {
+      const infrastructureAudit = this.campaignState.getCampaignBattleInfrastructureReport(report.engagementId);
+      const infrastructureAfter = infrastructureAudit?.infrastructureAfter ?? null;
       const locationHexKey = projectRuntimeHexKeyToCampaignOffset(report.battleHexKey) ?? report.battleHexKey;
       const charged = [
         [report.economyCharged.supplies, "supply"],
@@ -2927,12 +2943,23 @@ export class CampaignScreen {
           : report.strategicResult === "withdrawal"
             ? "Withdrawal"
             : "Stalemate";
+      const projectedInfrastructureEffect = projectCampaignAfterActionInfrastructureEffect({
+        roleLabel: this.formatCampaignLabel(report.infrastructureRole ?? "Installation"),
+        integrityBefore: report.infrastructureIntegrityBefore,
+        infrastructureAfter,
+        effectivenessAfter: report.infrastructureEffectivenessAfter,
+        disruptionTimeLabel: infrastructureAfter?.captureDisruptionUntilSegment == null
+          ? null
+          : this.campaignState.segmentToTimeDisplay(infrastructureAfter.captureDisruptionUntilSegment)
+      });
+      const infrastructureEffect = projectedInfrastructureEffect
+        ?? (report.infrastructureIntegrityBefore !== null || report.infrastructureIntegrityAfter !== null
+          ? `${this.formatCampaignLabel(report.infrastructureRole ?? "Installation")}: ${report.infrastructureIntegrityBefore ?? 0} → ${report.infrastructureIntegrityAfter ?? 0} integrity · ${Math.round(report.infrastructureEffectivenessAfter * 100)}% operational capacity`
+          : null);
       const operationalEffects = [
         `Control: ${report.controllerBefore} → ${report.controllerAfter}`,
         `Fronts: ${report.frontsBefore} → ${report.frontsAfter}`,
-        report.infrastructureIntegrityBefore !== null || report.infrastructureIntegrityAfter !== null
-          ? `${report.infrastructureRole ?? "Installation"}: ${report.infrastructureIntegrityBefore ?? 0} → ${report.infrastructureIntegrityAfter ?? 0} integrity · ${Math.round(report.infrastructureEffectivenessAfter * 100)}% effective`
-          : null,
+        infrastructureEffect,
         report.campaignPhaseBefore !== report.campaignPhaseAfter
           ? `Campaign phase: ${report.campaignPhaseBefore} → ${report.campaignPhaseAfter}`
           : null
@@ -2970,14 +2997,16 @@ export class CampaignScreen {
         objectiveChanges: report.campaignObjectiveChanges.map((objective) => (
           `${objective.label}: ${objective.statusBefore} → ${objective.statusAfter} · ${Math.round(objective.progressAfter * 100)}%${objective.scoreAwarded > 0 ? ` · +${objective.scoreAwarded} points` : ""}`
         )),
-        decisions: report.decisionsRequired.map((decision) => ({
-          id: decision.id,
-          severity: decision.severity,
-          targetKind: decision.targetKind,
-          targetId: projectCampaignAfterActionDecisionTargetId(decision.targetKind, decision.targetId),
-          title: decision.title,
-          detail: decision.detail
-        }))
+        decisions: report.decisionsRequired
+          .filter((decision) => shouldPresentCampaignAfterActionDecision(decision.targetKind, decision.title, infrastructureAfter))
+          .map((decision) => ({
+            id: decision.id,
+            severity: decision.severity,
+            targetKind: decision.targetKind,
+            targetId: projectCampaignAfterActionDecisionTargetId(decision.targetKind, decision.targetId),
+            title: decision.title,
+            detail: decision.detail
+          }))
       };
     });
     const advanceRecords = this.campaignState.getCampaignAdvanceTimeline(24);

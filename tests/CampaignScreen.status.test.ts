@@ -36,6 +36,108 @@ registerTest("CAMPAIGNSCREEN_COUNTERATTACK_STAGE_STOPS_ADVERTISING_A_RESOLVED_TH
   });
 });
 
+registerTest("CAMPAIGNSCREEN_EXPLAINS_CAPTURE_REORGANIZATION_WITHOUT_HIDING_REAL_RECONSTRUCTION", async ({ Given, When, Then }) => {
+  const screen = Object.create(CampaignScreen.prototype) as CampaignScreen;
+  const selectedOffset = "29,23";
+  const selectedAxial = CoordinateSystem.offsetToAxial(29, 23);
+  const selection = document.createElement("div");
+  const queue = document.createElement("button");
+  let status: any;
+
+  await Given("a captured installation under timed reorganization at full integrity", () => {
+    document.body.replaceChildren(selection, queue);
+    status = {
+      infrastructure: {
+        role: "fortificationHeavy",
+        maxIntegrity: 160,
+        integrity: 160,
+        damageState: "intact",
+        effectiveness: 0.5,
+        disabled: false,
+        lastDamageSegment: null,
+        lastRepairSegment: null,
+        lastCapturedSegment: 0,
+        capturedFrom: "Bot",
+        capturedBy: "Player",
+        captureDisruptionUntilSegment: 8,
+        activeRepairOrderId: null
+      },
+      controller: "Player",
+      repairRate: 5,
+      repairPoints: 0,
+      durationSegments: 0,
+      completeSegment: 0,
+      suppliesCost: 0,
+      manpowerCost: 0,
+      engineerFormationId: null,
+      engineerFormationName: null,
+      canDraftRepair: false,
+      repairBlockReason: "Facility is fully operational."
+    };
+    (screen as any).selectionContainer = selection;
+    (screen as any).queueEngagementButton = queue;
+    (screen as any).selectedHexKey = selectedOffset;
+    (screen as any).selectedFrontKey = null;
+    (screen as any).moveOriginHexKey = null;
+    (screen as any).campaignStatusMessage = null;
+    (screen as any).editMode = false;
+    (screen as any).campaignActionRegistry = {
+      resolve: () => ({ availability: "available", reasonCode: null, reason: null, correctiveAction: null })
+    };
+    (screen as any).campaignState = {
+      getCampaignMapView: () => ({
+        scenario: {
+          tiles: [{ tile: "fort", hex: selectedAxial, factionControl: "Player", forces: [] }],
+          tilePalette: { fort: { role: "fortificationHeavy", factionControl: "Player" } },
+          fronts: []
+        }
+      }),
+      getCampaignInfrastructureStatus: () => status,
+      getCampaignRedeployActionPreview: () => ({ availability: "blocked" }),
+      getHeadquartersStatusMessage: () => null,
+      getPendingEngagements: () => [],
+      getActiveCampaignBattlePackage: () => null,
+      segmentToTimeDisplay: () => "D+2 · 8 June 1944, 00:00–03:00"
+    };
+  });
+  await When("the intact handover and then a structurally damaged handover are selected", () => {
+    (screen as any).renderSelection();
+  });
+  await Then("the intact position shows automatic recovery while damage still exposes reconstruction", () => {
+    const intactText = selection.textContent ?? "";
+    if (selection.querySelector("[role='meter']")?.getAttribute("aria-valuenow") !== "50"
+      || !intactText.includes("160/160 integrity · 50% operational capacity")
+      || !intactText.includes("Garrison reorganization in progress")
+      || !intactText.includes("Full capacity returns D+2 · 8 June 1944, 00:00–03:00")
+      || !intactText.includes("no reconstruction order is required")
+      || selection.querySelector("[data-draft-infrastructure-repair]")) {
+      throw new Error(`Intact capture did not explain its timed reorganization: '${intactText}'.`);
+    }
+
+    status = {
+      ...status,
+      infrastructure: { ...status.infrastructure, integrity: 90, damageState: "breached" },
+      repairPoints: 70,
+      durationSegments: 14,
+      completeSegment: 14,
+      suppliesCost: 140,
+      manpowerCost: 280,
+      engineerFormationId: "formation-1",
+      engineerFormationName: "1st Infantry Division",
+      canDraftRepair: true,
+      repairBlockReason: null
+    };
+    (screen as any).renderSelection();
+    const damagedText = selection.textContent ?? "";
+    if (!damagedText.includes("70 integrity missing")
+      || !damagedText.includes("Structural reconstruction remains required")
+      || damagedText.includes("no reconstruction order is required")
+      || !selection.querySelector("[data-draft-infrastructure-repair]")) {
+      throw new Error(`Damaged capture lost its reconstruction path: '${damagedText}'.`);
+    }
+  });
+});
+
 registerTest("CAMPAIGNSCREEN_RENDERS_HEADQUARTERS_STATUS_HANDOFF", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let selectionInfo: HTMLElement | null = null;
