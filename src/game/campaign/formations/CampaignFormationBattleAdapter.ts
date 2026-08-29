@@ -99,6 +99,7 @@ export function attachCampaignFormationProvenanceToContext(
 /** True when the formation has a battle representation and is not unavailable for tactical commitment. */
 export function isCampaignFormationBattleEligible(formation: CampaignFormationRecord): boolean {
   return isCampaignFormationPresentAtLocation(formation)
+    && !formation.currentOrderId
     && (formation.status === "ready" || formation.status === "committed" || formation.status === "isolated")
     && mapCampaignUnitToAllocationKey(formation.campaignUnitType) !== null;
 }

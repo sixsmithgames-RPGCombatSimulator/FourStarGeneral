@@ -740,27 +740,35 @@ registerTest("PRECOMBAT_ALLOCATIONS_LOOKUP_GUARDS", async ({ Given, When, Then }
   });
 });
 
-registerTest("PRECOMBAT_CAMPAIGN_AIRBORNE_DEFENDERS_ARE_PRESENTED_AS_GROUND_FORCES", async ({ Given, When, Then }) => {
+registerTest("PRECOMBAT_CAMPAIGN_AIRBORNE_FORMATIONS_ARE_PRESENTED_AS_GROUND_FORCES", async ({ Given, When, Then }) => {
   const screen = Object.create(PrecombatScreen.prototype) as PrecombatScreen;
   const airborne = getAllocationOption("airborneDetachment");
-  let category: AllocationCategory | null = null;
-  let description = "";
+  const categories: AllocationCategory[] = [];
+  const descriptions: string[] = [];
 
-  await Given("an airborne formation already committed to a Player campaign defense", async () => {
+  await Given("an airborne formation already ashore in a Player campaign engagement", async () => {
     if (!airborne) throw new Error("Airborne allocation metadata is unavailable.");
-    (screen as any).isPlayerDefensiveEngagement = () => true;
+    (screen as any).engagementContext = { engagementId: "grounded-airborne" };
   });
 
   await When("precombat prepares its allocation presentation", async () => {
-    category = (screen as any).getAllocationPresentationCategory(airborne);
-    description = (screen as any).getAllocationPresentationDescription(airborne);
+    for (const playerDefense of [false, true]) {
+      (screen as any).isPlayerDefensiveEngagement = () => playerDefense;
+      (screen as any).engagementContext = {
+        engagementId: "grounded-airborne",
+        availableForces: playerDefense ? [] : [{ unitType: "Paratrooper", formationIds: ["campaign-para"] }],
+        enemyForces: playerDefense ? [{ unitType: "Paratrooper", formationIds: ["campaign-para"] }] : []
+      };
+      categories.push((screen as any).getAllocationPresentationCategory(airborne));
+      descriptions.push((screen as any).getAllocationPresentationDescription(airborne));
+    }
   });
 
-  await Then("the formation appears with ground units and never asks for another transport flight", async () => {
-    if (category !== "units"
-      || !/already on the ground/i.test(description)
-      || /requires? (?:a )?transport flight/i.test(description)) {
-      throw new Error(`Campaign airborne presentation remained misleading: ${String(category)} / ${description}`);
+  await Then("the formation appears with ground units for either role and never asks for another transport flight", async () => {
+    if (categories.some((category) => category !== "units")
+      || descriptions.some((description) => !/already on the ground/i.test(description))
+      || descriptions.some((description) => /requires? (?:a )?transport flight/i.test(description))) {
+      throw new Error(`Campaign airborne presentation remained misleading: ${categories.join("|")} / ${descriptions.join("|")}`);
     }
   });
 });

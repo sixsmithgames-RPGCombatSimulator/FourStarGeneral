@@ -786,6 +786,35 @@ registerTest("CAMPAIGN_FORMATIONS_TACTICAL_PROVENANCE", async ({ Given, When, Th
   });
 });
 
+registerTest("CAMPAIGN_FORMATION_SELECTION_EXCLUDES_READY_FORMATIONS_WITH_ACTIVE_ORDERS", async ({ Given, When, Then }) => {
+  const scenario = buildFormationScenario();
+  const runtime = createCampaignRuntime(splitLegacyCampaignScenario(scenario), runtimeOptions(scenario));
+  const context = attachCampaignFormationProvenanceToContext(buildEngagementContext(), runtime);
+  const infantryIds = context.availableForces
+    .filter((group) => group.unitType === "Infantry_42")
+    .flatMap((group) => group.formationIds ?? []);
+  let selectedIds: string[] = [];
+
+  await Given("two ready formations are at the front but one already owns a campaign order", () => {
+    const ordered = runtime.formations[infantryIds[0]];
+    if (!ordered || infantryIds.length !== 2) throw new Error("Ordered-formation fixture is incomplete.");
+    ordered.currentOrderId = "order-already-committed";
+  });
+
+  await When("the exact precombat selector requests every formation behind the aggregate cap", () => {
+    selectedIds = selectCampaignFormationsForAllocation(runtime, context, "infantry", 2).map((formation) => formation.id);
+  });
+
+  await Then("only the order-free formation remains eligible for the visible cap and later commitment", () => {
+    const orderedId = infantryIds[0];
+    const freeId = infantryIds[1];
+    if (selectedIds.length !== 1 || selectedIds[0] !== freeId
+      || isCampaignFormationBattleEligible(runtime.formations[orderedId])) {
+      throw new Error(`Active-order eligibility diverged: ${JSON.stringify({ infantryIds, selectedIds })}`);
+    }
+  });
+});
+
 registerTest("CAMPAIGN_HEAVY_ARTILLERY_RETAINS_EXACT_TACTICAL_PROVENANCE", async ({ Given, When, Then }) => {
   const formation = createCampaignFormationRecord({
     id: "formation-heavy-artillery",

@@ -6,6 +6,7 @@ import { BattleState } from "../src/state/BattleState";
 import { ensureCampaignState } from "../src/state/CampaignState";
 import { ensureTutorialState } from "../src/state/TutorialState";
 import { getAllMissionKeys, getMissionSummaryPackage } from "../src/data/missions";
+import { getAllocationOption } from "../src/data/unitAllocation";
 
 function mountPrecombatDom(): void {
   document.body.innerHTML = `
@@ -183,6 +184,7 @@ registerTest("PRECOMBAT_CAMPAIGN_CONTEXT_STAYS_OUTSIDE_BUDGET_GRID", async ({ Gi
       missionType: "meetingEngagement",
       forceRatio: 1,
       availableForces: [{ hexKey: "3,4", unitType: "Infantry_42", count: 2 }],
+      allocationCaps: { infantry: 2 },
       airSorties: 0,
       rpReserve: 100,
       intelligenceBriefing: {
@@ -210,6 +212,74 @@ registerTest("PRECOMBAT_CAMPAIGN_CONTEXT_STAYS_OUTSIDE_BUDGET_GRID", async ({ Gi
       || /meeting engagement|hex 4,4/i.test(banner.textContent ?? "")
       || ((banner.textContent ?? "").match(/medium confidence/gi)?.length ?? 0) !== 1) {
       throw new Error("Campaign context repeated mission identity or occupied the sticky header/budget grid.");
+    }
+  });
+});
+
+registerTest("PRECOMBAT_CAMPAIGN_ATTACK_RECONCILES_READY_AIRBORNE_WITH_THE_COMMIT_PATH", async ({ Given, When, Then }) => {
+  const campaignState = ensureCampaignState();
+  const originalBuildUnits = campaignState.buildCampaignFormationBattleUnits;
+  let unitCard: HTMLElement | null = null;
+  let supportCard: HTMLElement | null = null;
+  let proceedDisabled = true;
+  let effectiveMax = 0;
+  let bannerCopy = "";
+
+  await Given("six airborne formations are physically in range but only one remains battle-ready", () => {
+    (campaignState as any).buildCampaignFormationBattleUnits = (
+      _engagementId: string,
+      allocationKey: string,
+      quantity: number
+    ) => allocationKey === "airborneDetachment" && quantity > 0 ? [{ unitId: "ready-para" }] : [];
+  });
+
+  await When("campaign precombat renders the exact eligible force and the commander selects it", () => {
+    const screen = createScreen();
+    const internals = screen as any;
+    internals.activeMissionKey = "campaign";
+    internals.campaignBattlePackage = null;
+    internals.engagementContext = {
+      engagementId: "post-battle-counterattack",
+      battleHexKey: "31,23",
+      attacker: "Player",
+      defender: "Bot",
+      missionType: "meetingEngagement",
+      forceRatio: 1,
+      availableForces: [{ hexKey: "30,23", unitType: "Paratrooper", count: 6, formationIds: ["ready-para"] }],
+      allocationCaps: { airborneDetachment: 6 },
+      enemyForces: [],
+      airSorties: 0,
+      rpReserve: 600
+    };
+    internals.allocationBudget = 640;
+    internals.allocationCounts.set("airborneDetachment", 1);
+    internals.rerenderAllocations();
+    internals.updateBudgetDisplay();
+    internals.renderEngagementContextBanner();
+
+    unitCard = document.querySelector('#allocationUnitList [data-key="airborneDetachment"]');
+    supportCard = document.querySelector('#allocationSupportList [data-key="airborneDetachment"]');
+    proceedDisabled = internals.proceedToBattleButton.disabled;
+    effectiveMax = internals.getEffectiveMaxQuantity(getAllocationOption("airborneDetachment"));
+    bannerCopy = document.getElementById("engagementContextBanner")?.textContent ?? "";
+  });
+
+  await Then("the one ready formation is a grounded Unit, the other five are explained, and battle can start", () => {
+    try {
+      const unitCopy = unitCard?.textContent ?? "";
+      if (!unitCard || supportCard
+        || effectiveMax !== 1
+        || proceedDisabled
+        || !/already on the ground/i.test(unitCopy)
+        || /transport flight/i.test(unitCopy)
+        || !/In position ×1/i.test(unitCopy)
+        || !/1 combat-ready ground formation/i.test(bannerCopy)
+        || !/5 recovering or otherwise unavailable/i.test(bannerCopy)) {
+        throw new Error(`Campaign airborne commitment stayed inconsistent: max=${effectiveMax}, disabled=${proceedDisabled}, card=${unitCopy}, banner=${bannerCopy}`);
+      }
+    } finally {
+      (campaignState as any).buildCampaignFormationBattleUnits = originalBuildUnits;
+      document.body.innerHTML = "";
     }
   });
 });

@@ -34,8 +34,10 @@ import type { CampaignBattlePackage } from "../../game/campaign/engagements/Camp
 import { describeForceRatio, MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import {
   CAMPAIGN_AIR_UNIT_TYPES,
+  CAMPAIGN_NON_FORMATION_SUPPORT_KEYS,
   CAMPAIGN_NAVAL_UNIT_TYPES,
-  RESERVE_PURCHASABLE_KEYS
+  RESERVE_PURCHASABLE_KEYS,
+  mapCampaignUnitToAllocationKey
 } from "../../game/campaign/campaignForceMapping";
 
 type AllocationListElement = HTMLElement & {
@@ -843,7 +845,7 @@ export class PrecombatScreen {
           selections: Array.from(this.allocationCounts.entries()).flatMap(([allocationKey, quantity]) => {
             const option = getAllocationOption(allocationKey);
             return option && quantity > 0
-              ? [{ allocationKey, category: option.category, quantity, unitRpCost: option.costPerUnit }]
+              ? [{ allocationKey, category: this.getAllocationPresentationCategory(option), quantity, unitRpCost: option.costPerUnit }]
               : [];
           })
         });
@@ -950,6 +952,20 @@ export class PrecombatScreen {
     }
   }
 
+  private getCampaignEligibleFormationCount(allocationKey: string, committed: number): number {
+    if (!this.engagementContext || committed <= 0) return Math.max(0, committed);
+    if (this.isPlayerDefensiveEngagement()
+      || RESERVE_PURCHASABLE_KEYS.includes(allocationKey)
+      || CAMPAIGN_NON_FORMATION_SUPPORT_KEYS.includes(allocationKey)) {
+      return Math.max(0, committed);
+    }
+    return ensureCampaignState().buildCampaignFormationBattleUnits(
+      this.engagementContext.engagementId,
+      allocationKey,
+      committed
+    ).length;
+  }
+
   private getEffectiveMaxQuantity(option: UnitAllocationOption): number {
     if (!this.engagementContext) {
       return option.maxQuantity;
@@ -963,7 +979,11 @@ export class PrecombatScreen {
       return option.maxQuantity;
     }
     const committed = this.engagementContext.allocationCaps[option.key] ?? 0;
-    return Math.min(option.maxQuantity, committed);
+    // Strategic aggregate counters include formations physically present in the sector even when
+    // battle losses leave some of them shattered or refitting. The precombat cap must reflect the
+    // exact persistent formations that can enter this battle, not that broader map-stack count.
+    const eligible = this.getCampaignEligibleFormationCount(option.key, committed);
+    return Math.min(option.maxQuantity, committed, eligible);
   }
 
   /**
@@ -984,7 +1004,12 @@ export class PrecombatScreen {
       if (!option || cap <= 0) {
         continue;
       }
-      total += (this.isPlayerDefensiveEngagement() ? cap : Math.min(cap, option.maxQuantity)) * option.costPerUnit;
+      const committedQuantity = this.isPlayerDefensiveEngagement()
+        ? cap
+        : RESERVE_PURCHASABLE_KEYS.includes(option.key)
+          ? Math.min(cap, option.maxQuantity)
+          : this.getEffectiveMaxQuantity(option);
+      total += committedQuantity * option.costPerUnit;
     }
     return total;
   }
@@ -1148,7 +1173,7 @@ export class PrecombatScreen {
         label: option.label,
         quantity,
         costPerUnit: option.costPerUnit,
-        category: option.category
+        category: this.getAllocationPresentationCategory(option)
       });
 
       const depotPayload = option.depotPayload;
@@ -1231,20 +1256,29 @@ export class PrecombatScreen {
     return this.isAllocationImplemented(option) && findTemplateForUnitKey(option.key) !== null;
   }
 
-  /**
-   * Campaign airborne formations at a defensive engagement are already ashore and fighting on the
-   * operational map. Present them with the ground force package instead of implying that the
-   * commander must requisition a new transport flight.
-   */
+  /** Campaign airborne formations in a strategic engagement are already ashore at the front. */
+  private isGroundedCampaignAirborne(option: UnitAllocationOption): boolean {
+    const playerFormationGroups = this.isPlayerDefensiveEngagement()
+      ? this.engagementContext?.enemyForces
+      : this.engagementContext?.availableForces;
+    return Boolean(
+      this.engagementContext
+      && option.key === "airborneDetachment"
+      && playerFormationGroups?.some((group) => (
+        group.unitType === "Paratrooper" && (group.formationIds?.length ?? 0) > 0
+      ))
+    );
+  }
+
   private getAllocationPresentationCategory(option: UnitAllocationOption): AllocationCategory {
-    return this.isPlayerDefensiveEngagement() && option.key === "airborneDetachment"
+    return this.isGroundedCampaignAirborne(option)
       ? "units"
       : option.category;
   }
 
   private getAllocationPresentationDescription(option: UnitAllocationOption): string {
-    return this.isPlayerDefensiveEngagement() && option.key === "airborneDetachment"
-      ? "Airborne infantry already on the ground at the defended operational hex and ready for tactical deployment."
+    return this.isGroundedCampaignAirborne(option)
+      ? "Airborne infantry already on the ground in this sector and ready for tactical deployment."
       : option.description;
   }
 
@@ -1812,10 +1846,33 @@ export class PrecombatScreen {
     const committedDefenseLine = committedAirborne > 0
       ? `${committedGroups} formations: ${committedLine} line formation${committedLine === 1 ? "" : "s"} · ${committedAirborne} airborne formation${committedAirborne === 1 ? "" : "s"} already on the ground`
       : `${committedGroups} formation${committedGroups === 1 ? "" : "s"} locked to this battle`;
-    const groundGroupsInRange = context.availableForces
-      .filter((group) => !CAMPAIGN_AIR_UNIT_TYPES.includes(group.unitType) && !CAMPAIGN_NAVAL_UNIT_TYPES.includes(group.unitType))
-      .reduce((sum, group) => sum + group.count, 0);
-    const navalSupport = context.allocationCaps?.shoreFireControlParty ?? 0;
+    const groundAllocationKeys = new Set(context.availableForces.flatMap((group) => {
+      if (CAMPAIGN_AIR_UNIT_TYPES.includes(group.unitType) || CAMPAIGN_NAVAL_UNIT_TYPES.includes(group.unitType)) return [];
+      const allocationKey = mapCampaignUnitToAllocationKey(group.unitType);
+      return allocationKey
+        && !RESERVE_PURCHASABLE_KEYS.includes(allocationKey)
+        && !CAMPAIGN_NON_FORMATION_SUPPORT_KEYS.includes(allocationKey)
+        ? [allocationKey]
+        : [];
+    }));
+    const allocationCaps = context.allocationCaps ?? {};
+    const groundGroupsInRange = [...groundAllocationKeys].reduce(
+      (sum, allocationKey) => sum + (allocationCaps[allocationKey] ?? 0),
+      0
+    );
+    const combatReadyGroundGroups = [...groundAllocationKeys].reduce(
+      (sum, allocationKey) => sum + this.getCampaignEligibleFormationCount(
+        allocationKey,
+        allocationCaps[allocationKey] ?? 0
+      ),
+      0
+    );
+    const unavailableGroundGroups = Math.max(0, groundGroupsInRange - combatReadyGroundGroups);
+    const groundAvailabilityLine = `${combatReadyGroundGroups} combat-ready ground formation${combatReadyGroundGroups === 1 ? "" : "s"}`
+      + (unavailableGroundGroups > 0
+        ? ` · ${unavailableGroundGroups} recovering or otherwise unavailable for this battle`
+        : "");
+    const navalSupport = allocationCaps.shoreFireControlParty ?? 0;
     const intelligenceLine = briefing
       ? `${briefing.resistanceBand.charAt(0).toUpperCase()}${briefing.resistanceBand.slice(1)} resistance · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
       : legacyRatio.label;
@@ -1825,7 +1882,7 @@ export class PrecombatScreen {
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
       ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     ` : `
-      <span style="display:block;"><strong>Forces in range</strong> · ${groundGroupsInRange} ground formations · ${context.airSorties} air sorties${navalSupport > 0 ? ` · ${navalSupport} naval fire-support option${navalSupport === 1 ? "" : "s"}` : ""} · ${context.rpReserve.toLocaleString()} RP reserve</span>
+      <span style="display:block;"><strong>Forces in range</strong> · ${groundAvailabilityLine} · ${context.airSorties} air sorties${navalSupport > 0 ? ` · ${navalSupport} naval fire-support option${navalSupport === 1 ? "" : "s"}` : ""} · ${context.rpReserve.toLocaleString()} RP reserve</span>
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
       ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     `;
@@ -1876,10 +1933,14 @@ export class PrecombatScreen {
    * begin a tactical battle.
    */
   private hasOperationalCombatForces(): boolean {
-    return (ALLOCATION_BY_CATEGORY.get("units") ?? []).some((option) => {
-      if (option.key === "supplyConvoy" || !this.isUnitAllowedByScenario(option.key)) {
+    const { restrictedUnits } = this.getScenarioUnitRestrictions();
+    return allocationOptions.some((option) => {
+      if (option.key === "supplyConvoy"
+        || this.getAllocationPresentationCategory(option) !== "units"
+        || restrictedUnits.includes(option.key)) {
         return false;
       }
+      if (!this.engagementContext && !this.isUnitAllowedByScenario(option.key)) return false;
       return (this.allocationCounts.get(option.key) ?? 0) > 0;
     });
   }
