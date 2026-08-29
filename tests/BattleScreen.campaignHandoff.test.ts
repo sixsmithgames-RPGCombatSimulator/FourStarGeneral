@@ -26,7 +26,7 @@ registerTest("BATTLESCREEN_CAMPAIGN_PRECOMBAT_MISSION_CONTROLS_TACTICAL_HANDOFF"
       getPrecombatMissionInfo() {
         return {
           missionKey: "campaign",
-          title: "Port Assault",
+          title: "Port Assault — Hex 28,38",
           briefing: "Break the defended port line.",
           objectives: [],
           doctrine: "Concentrate combat power.",
@@ -74,6 +74,49 @@ registerTest("BATTLESCREEN_CAMPAIGN_PRECOMBAT_MISSION_CONTROLS_TACTICAL_HANDOFF"
     }
     if (engineResetCount !== 1) {
       throw new Error(`Expected stale training engine to reset once, received ${engineResetCount}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_PRESERVES_THE_HYDRATED_CAMPAIGN_SCENARIO", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let refreshCount = 0;
+  let resetCount = 0;
+
+  await Given("a cold-start battle screen already hydrated from a campaign checkpoint", async () => {
+    document.body.innerHTML = "<div id=\"battleScreen\"></div>";
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).uiState = {
+      selectedMission: "campaign",
+      selectedDifficulty: "Normal",
+      isFromCampaign: true
+    };
+    (screen as any).scenario = { name: "Fortified Assault — Hex 29,23" };
+    (screen as any).activeMissionSessionKey = "campaign:Normal:Fortified Assault — Hex 29,23";
+    (screen as any).battleState = {
+      getPrecombatMissionInfo: () => ({
+        missionKey: "campaign",
+        title: "Fortified Assault — Hex 29,23"
+      }),
+      resetEngineState: () => {
+        resetCount += 1;
+      }
+    };
+    (screen as any).refreshScenario = () => {
+      refreshCount += 1;
+      (screen as any).scenario = { name: "Coastal Push" };
+    };
+  });
+
+  await When("the screen manager reveals the restored battle", async () => {
+    (screen as any).handleScreenShown(new CustomEvent("screen:shown", { detail: { id: "battle" } }));
+  });
+
+  await Then("screen activation keeps the restored engagement instead of reseeding the default battle", async () => {
+    if (refreshCount !== 0 || resetCount !== 0 || (screen as any).scenario.name !== "Fortified Assault — Hex 29,23") {
+      throw new Error(
+        `Cold resume was clobbered: refresh=${refreshCount}, reset=${resetCount}, scenario=${(screen as any).scenario.name}.`
+      );
     }
   });
 });

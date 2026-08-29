@@ -8295,6 +8295,7 @@ export class BattleScreen {
     this.activeMissionSessionKey = this.getMissionSessionKey();
     this.initializeBattleMap();
     this.initializeDeploymentMirrors();
+    this.restoreBattlePhasePresentationAfterResume();
     this.syncTurnContext();
     this.renderMissionStatus();
     this.restoreInitiativeTurnControlsAfterResume();
@@ -10245,6 +10246,28 @@ export class BattleScreen {
     }
     this.initializeInitiativeTurnControls();
     this.syncInitiativeTurnControlsState();
+  }
+
+  /** Restores combat-only panel state that is not part of the authoritative engine snapshot. */
+  private restoreBattlePhasePresentationAfterResume(): void {
+    const engine = this.battleState.tryGetGameEngine();
+    if (!engine || engine.phase === "deployment") {
+      setMissionStartedUI(false);
+      return;
+    }
+
+    const reserves = engine.getReserveSnapshot();
+    const mirroredReserves = ensureDeploymentState().getReserves();
+    this.battleLoadout?.markBattlePhaseStarted();
+    this.reservePresenter?.markBattlePhaseStarted(reserves, mirroredReserves);
+    this.lockDeploymentInteractions();
+    this.deploymentPanel?.enableReserveCallups();
+    this.collapseDeploymentPanelForBattlePhase();
+    if (this.beginBattleButton) {
+      this.beginBattleButton.disabled = true;
+      this.beginBattleButton.setAttribute("aria-disabled", "true");
+    }
+    setMissionStartedUI(true);
   }
 
   /**
@@ -12219,7 +12242,8 @@ export class BattleScreen {
   }
 
   private getMissionSessionKey(): string {
-    return `${this.resolveActiveMissionKey()}:${this.uiState?.selectedDifficulty ?? "Normal"}:${this.scenario.name}`;
+    const missionTitle = this.battleState.getPrecombatMissionInfo?.()?.title ?? this.scenario.name;
+    return `${this.resolveActiveMissionKey()}:${this.uiState?.selectedDifficulty ?? "Normal"}:${missionTitle}`;
   }
 
   /**
@@ -12251,7 +12275,6 @@ export class BattleScreen {
     }
 
     this.synchronizeActiveMissionContext();
-    this.refreshScenario();
     const nextMissionSessionKey = this.getMissionSessionKey();
     const scenarioChanged = this.activeMissionSessionKey !== nextMissionSessionKey;
 

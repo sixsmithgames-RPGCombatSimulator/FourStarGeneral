@@ -417,6 +417,61 @@ registerTest("BATTLESCREEN_TACTICAL_RESUME_REBUILDS_ACTIVE_INITIATIVE_CONTROLS",
   });
 });
 
+registerTest("BATTLESCREEN_TACTICAL_RESUME_RESTORES_BATTLE_PHASE_PRESENTATION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let deploymentLocked = 0;
+  let reservesEnabled = 0;
+  let deploymentElement: HTMLElement;
+
+  await Given("a cold-start tactical checkpoint already in the player battle phase", async () => {
+    document.body.innerHTML = `
+      <div id="battleScreen" class="battle-main"></div>
+      <button id="beginBattle" type="button">Begin Mission</button>
+      <button id="endMissionButton" type="button" class="hidden">End Mission</button>
+    `;
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).battleState = {
+      tryGetGameEngine: () => ({
+        phase: "playerTurn",
+        getReserveSnapshot: () => []
+      })
+    };
+    (screen as any).battleMainContainer = document.getElementById("battleScreen");
+    (screen as any).beginBattleButton = document.getElementById("beginBattle");
+    (screen as any).baseCampAssignButton = null;
+    deploymentElement = document.createElement("section");
+    (screen as any).deploymentPanel = {
+      lockInteractions: () => {
+        deploymentLocked += 1;
+      },
+      enableReserveCallups: () => {
+        reservesEnabled += 1;
+      },
+      getElement: () => deploymentElement
+    };
+    (screen as any).battleLoadout = null;
+    (screen as any).reservePresenter = null;
+  });
+
+  await When("the non-authoritative battle chrome is reconstructed", async () => {
+    (screen as any).restoreBattlePhasePresentationAfterResume();
+  });
+
+  await Then("deployment is locked and hidden while mission controls return", async () => {
+    const begin = document.getElementById("beginBattle") as HTMLButtonElement | null;
+    const end = document.getElementById("endMissionButton");
+    if (deploymentLocked !== 1
+      || reservesEnabled !== 1
+      || !deploymentElement.hasAttribute("hidden")
+      || !(screen as any).battleMainContainer.hasAttribute("data-panel-collapsed")
+      || !begin?.disabled
+      || !begin.classList.contains("hidden")
+      || end?.classList.contains("hidden")) {
+      throw new Error("Cold tactical resume did not restore combat-only panel and mission state.");
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_COMPLETED_PEER_FOLLOW_UP_DOES_NOT_CONSUME_PENDING_ACTIVATION", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let completionCalls = 0;
