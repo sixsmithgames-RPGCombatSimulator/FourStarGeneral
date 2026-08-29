@@ -9298,16 +9298,6 @@ export class BattleScreen {
         `Turn ${summary.turnNumber} begins. Active faction: ${summary.activeFaction}. Phase: ${summary.phase}.`
       );
       this.announceSupplyAttrition(report);
-
-      // Auto-open the roster at the start of the player's turn when reserves are available.
-      if (summary.activeFaction === "Player" && summary.phase === "playerTurn") {
-        try {
-          const engineReserves = this.battleState.ensureGameEngine().getReserveSnapshot();
-          if (engineReserves.length > 0 && this.popupManager.getActivePopup() !== "armyRoster") {
-            this.popupManager.openPopup("armyRoster");
-          }
-        } catch { }
-      }
     } finally {
       this.flushDeferredMissionLogSync();
       this.deferMissionLogSync = false;

@@ -97,3 +97,59 @@ registerTest("BATTLESCREEN_AUTO_SENTRY_APPLIES_TO_EACH_IDLE_STACK_MEMBER_BEFORE_
     }
   });
 });
+
+registerTest("BATTLESCREEN_TURN_ADVANCE_DOES_NOT_AUTO_OPEN_ARMY_ROSTER_WHILE_RESERVES_REMAIN", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let popupOpenCalls = 0;
+  let turnNumber = 1;
+  const reserves = [{ allocationKey: "Infantry_42" }];
+
+  await Given("a player battle with reserves standing by across consecutive turns", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).battleState = {
+      endPlayerTurn: () => ({ attrition: [] }),
+      getCurrentTurnSummary: () => ({
+        turnNumber: turnNumber++,
+        activeFaction: "Player",
+        phase: "playerTurn"
+      }),
+      consumeBotTurnSummary: () => null,
+      ensureGameEngine: () => ({
+        getReserveSnapshot: () => reserves
+      })
+    };
+    (screen as any).popupManager = {
+      getActivePopup: () => null,
+      openPopup: (popupId: string) => {
+        if (popupId === "armyRoster") {
+          popupOpenCalls += 1;
+        }
+      }
+    };
+    (screen as any).publishSelectionIntel = () => {};
+    (screen as any).triggerSupportImpacts = async () => {};
+    (screen as any).triggerAirOperations = async () => {};
+    (screen as any).flushDeferredMissionLogSync = () => {};
+    (screen as any).clearSelectedHex = () => {};
+    (screen as any).refreshDeploymentMirrors = () => {};
+    (screen as any).updateTurnStatusDisplay = () => {};
+    (screen as any).updateTurnControls = () => {};
+    (screen as any).refreshIdleUnitHighlights = () => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).announceSupplyAttrition = () => {};
+  });
+
+  await When("two player turns begin with the reserve queue unchanged", async () => {
+    await (screen as any).executeTurnAdvance({});
+    await (screen as any).executeTurnAdvance({});
+  });
+
+  await Then("the roster remains passive and the reserves remain available", async () => {
+    if (popupOpenCalls !== 0) {
+      throw new Error(`Expected no automatic Army Roster popup, received ${popupOpenCalls} open calls.`);
+    }
+    if (reserves.length !== 1) {
+      throw new Error("Turn advancement should not consume or hide the available reserve.");
+    }
+  });
+});

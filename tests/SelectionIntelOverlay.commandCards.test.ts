@@ -101,6 +101,16 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
       throw new Error(`Expected tactical note to render, received ${noteText}`);
     }
 
+    const title = document.getElementById("battleIntelOverlayTitle");
+    if (title?.textContent !== "Engineer Company" || title.getAttribute("aria-label") !== "Engineer Company") {
+      throw new Error("Expected the visible and accessible tactical title to begin with the same formation identity.");
+    }
+    overlay?.update({ ...intel, unitLabel: "Armoured Reconnaissance Squadron", hexKey: "5,2" });
+    if (String(title.textContent) !== "Armoured Reconnaissance Squadron"
+      || title.getAttribute("aria-label") !== "Armoured Reconnaissance Squadron") {
+      throw new Error("Expected rapid tactical selection changes to replace both visible and accessible formation identity.");
+    }
+
     overlay?.dispose();
     container.remove();
   });

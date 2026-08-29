@@ -209,6 +209,11 @@ export class SelectionIntelOverlay {
     this.syncCollapsedState();
     if (this.titleElement) {
       this.titleElement.textContent = title;
+      // Keep the platform accessibility tree in lockstep with rapid tactical selection changes.
+      // Chromium can retain the previous computed heading name when only textContent changes on
+      // this persistent overlay node, which makes assistive output identify a different formation
+      // from the title the player can see.
+      this.titleElement.setAttribute("aria-label", title);
     }
     if (this.metaElement) {
       this.metaElement.textContent = summary;
