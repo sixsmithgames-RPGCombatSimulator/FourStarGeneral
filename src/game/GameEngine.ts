@@ -10895,7 +10895,7 @@ private automateSupplyConvoys(
     if (!context) {
       return [];
     }
-    const { unit, definition, moveType, remaining } = context;
+    const { unit, definition, flags, moveType, remaining } = context;
     if (this.isTowableUnit(unit) && this.resolveTowState(unit) !== "towed") {
       // Emplaced batteries must use Move Out before they can be towed. Keep the
       // movement overlay consistent with moveUnit(), which enforces the same rule.
@@ -10950,7 +10950,7 @@ private automateSupplyConvoys(
         // All units may move at least 1 hex per turn regardless of terrain cost.
         // This mirrors the bot AI guarantee and prevents heavy/towed units from being
         // stranded on beaches or other high-cost terrain when their allowance is small.
-        const isFirstStep = current.cost === 0;
+        const isFirstStep = flags.movementPointsUsed === 0 && current.cost === 0;
         const withinBudget = newCost <= remaining && (!Number.isFinite(availableFuel) || newFuelCost <= availableFuel + 1e-6);
         if (withinBudget || isFirstStep) {
           queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });

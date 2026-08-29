@@ -21,7 +21,14 @@ const plains: TerrainDefinition = {
   blocksLOS: false
 };
 
-const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
+const forest: TerrainDefinition = {
+  moveCost: { leg: 2, wheel: 2, track: 2, air: 1 },
+  defense: 4,
+  accMod: -20,
+  blocksLOS: true
+};
+
+const terrain: TerrainDictionary = { plains, forest } as unknown as TerrainDictionary;
 
 const infantryDef: UnitTypeDefinition = {
   class: "infantry",
@@ -106,10 +113,11 @@ function scenario(): ScenarioData {
 function createEngine(
   playerUnits: ScenarioUnit[],
   botUnits: ScenarioUnit[] = [],
-  initialSupportAssets?: GameEngineConfig["initialSupportAssets"]
+  initialSupportAssets?: GameEngineConfig["initialSupportAssets"],
+  scenarioData: ScenarioData = scenario()
 ): GameEngine {
   const config: GameEngineConfig = {
-    scenario: scenario(),
+    scenario: scenarioData,
     unitTypes,
     terrain,
     playerSide: side(
@@ -131,6 +139,50 @@ function createEngine(
   engine.startPlayerTurnPhase();
   return engine;
 }
+
+registerTest("PARTIALLY_MOVED_UNIT_ONLY_HIGHLIGHTS_DESTINATIONS_WITHIN_REMAINING_BUDGET", async ({ Then }) => {
+  const mover: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "E" as ScenarioUnit["facing"],
+    unitId: "partial-mover"
+  };
+  const movementScenario = scenario();
+  movementScenario.tiles[0] = [
+    { tile: "plains" },
+    { tile: "plains" },
+    { tile: "forest" },
+    { tile: "plains" },
+    { tile: "plains" }
+  ];
+  movementScenario.tilePalette.forest = {
+    terrain: "forest",
+    terrainType: "rural",
+    density: "average",
+    features: ["trees"],
+    recon: "intel"
+  };
+
+  const engine = createEngine([mover], [], undefined, movementScenario);
+  engine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 }, mover.unitId);
+
+  const budget = engine.getMovementBudget({ q: 1, r: 0 }, mover.unitId);
+  if (!budget || budget.remaining !== 1) {
+    throw new Error(`Expected one movement point to remain after the first step, received ${JSON.stringify(budget)}.`);
+  }
+
+  const reachable = engine.getReachableHexes({ q: 1, r: 0 }, mover.unitId);
+  if (reachable.some((hex) => hex.q === 2 && hex.r === 0)) {
+    throw new Error("A two-point forest hex was highlighted after the unit had only one movement point remaining.");
+  }
+
+  await Then("movement highlights remain consistent with the authoritative remaining-movement check", () => {});
+});
 
 registerTest("CAMPAIGN_NGFS_ASSET_IS_REAL_USABLE_AND_SAVE_COMPLETE", async ({ Then }) => {
   const observer: ScenarioUnit = {
