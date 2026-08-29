@@ -4741,12 +4741,23 @@ export class BattleScreen {
     const missionInfo = this.battleState.getPrecombatMissionInfo();
     const trackedObjectives = this.missionStatus?.objectives ?? [];
     const briefingObjectives = missionInfo?.objectives ?? [];
-    const totalObjectives = Math.max(trackedObjectives.length, briefingObjectives.length, this.scenario.objectives.length);
+    const semanticObjectiveCount = Math.max(trackedObjectives.length, briefingObjectives.length);
+    const tacticalPointCount = this.scenario.objectives.length;
+    const presentsTacticalPoints = tacticalPointCount > semanticObjectiveCount;
+    const totalObjectives = presentsTacticalPoints
+      ? tacticalPointCount
+      : Math.max(semanticObjectiveCount, tacticalPointCount);
     const displayIndex = Math.min(Math.max(this.currentObjectiveIndex, 0), Math.max(totalObjectives - 1, 0));
     const trackedObjective = trackedObjectives[displayIndex];
     const briefingObjective = briefingObjectives[displayIndex]?.replace(/^(Primary|Secondary|Tertiary):\s*/i, "");
-    const title = trackedObjective?.label ?? briefingObjective ?? "Objective awaiting confirmation";
-    const state = trackedObjective?.state ?? "pending";
+    const primaryDirective = trackedObjectives[0]?.label
+      ?? briefingObjectives[0]?.replace(/^(Primary|Secondary|Tertiary):\s*/i, "")
+      ?? "Secure the engagement area";
+    const tacticalPointVerb = /^hold\b/i.test(primaryDirective) ? "Hold" : "Secure";
+    const title = presentsTacticalPoints
+      ? `${tacticalPointVerb} Engagement Point ${displayIndex + 1}`
+      : trackedObjective?.label ?? briefingObjective ?? `Engagement Objective ${displayIndex + 1}`;
+    let state = trackedObjective?.state ?? "pending";
     const stateLabels: Record<string, string> = {
       pending: "In Progress",
       inProgress: "In Progress",
@@ -4755,19 +4766,36 @@ export class BattleScreen {
     };
     const tier = trackedObjective?.tier ?? (displayIndex === 0 ? "primary" : "secondary");
     const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+    let stateLabel = stateLabels[state] ?? state;
+
+    if (presentsTacticalPoints) {
+      const markerStatus = this.missionStatus?.markers?.[displayIndex]?.status;
+      if (markerStatus === "player") {
+        state = "completed";
+        stateLabel = "Secured";
+      } else if (markerStatus === "enemy") {
+        state = "inProgress";
+        stateLabel = "Enemy Held";
+      } else {
+        state = "inProgress";
+        stateLabel = "Open";
+      }
+    }
 
     this.objectiveIndexElement.textContent = totalObjectives > 0
-      ? `${tierLabel} Objective ${displayIndex + 1} of ${totalObjectives}`
+      ? presentsTacticalPoints
+        ? `Tactical Objective ${displayIndex + 1} of ${totalObjectives}`
+        : `${tierLabel} Objective ${displayIndex + 1} of ${totalObjectives}`
       : "Objective";
     this.objectiveTitleElement.textContent = title;
-    this.objectiveStatusElement.textContent = stateLabels[state] ?? state;
+    this.objectiveStatusElement.textContent = stateLabel;
     this.objectiveStatusElement.dataset.state = state;
     this.objectiveSummaryButton.disabled = this.scenario.objectives.length === 0;
     this.objectiveSummaryButton.setAttribute(
       "aria-label",
-      `${title}. Status: ${stateLabels[state] ?? state}. Focus this objective on the map.`
+      `${title}. Status: ${stateLabel}. Focus this objective on the map.`
     );
-    this.objectiveSummaryButton.title = `${title}. Status: ${stateLabels[state] ?? state}. Select to focus it on the map.`;
+    this.objectiveSummaryButton.title = `${title}. Status: ${stateLabel}. Select to focus it on the map.`;
   }
 
   private renderMissionStatus(): void {

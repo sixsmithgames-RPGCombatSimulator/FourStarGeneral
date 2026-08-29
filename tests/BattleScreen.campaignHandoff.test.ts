@@ -271,6 +271,63 @@ registerTest("BATTLESCREEN_CAMPAIGN_FORMATION_NAME_OVERRIDES_GENERIC_TACTICAL_TY
   });
 });
 
+registerTest("BATTLESCREEN_CAMPAIGN_MAP_POINTS_NEVER_RENDER_PLACEHOLDER_OBJECTIVES", async ({ Given, When, Then }) => {
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+  const summaryButton = document.createElement("button");
+  const indexElement = document.createElement("span");
+  const titleElement = document.createElement("span");
+  const statusElement = document.createElement("span");
+
+  await Given("four focusable tactical points and two semantic campaign objectives", () => {
+    (screen as any).objectiveSummaryButton = summaryButton;
+    (screen as any).objectiveIndexElement = indexElement;
+    (screen as any).objectiveTitleElement = titleElement;
+    (screen as any).objectiveStatusElement = statusElement;
+    (screen as any).currentObjectiveIndex = 2;
+    (screen as any).scenario = {
+      objectives: [
+        { hex: { q: 1, r: 1 } },
+        { hex: { q: 2, r: 1 } },
+        { hex: { q: 3, r: 1 } },
+        { hex: { q: 4, r: 1 } }
+      ]
+    };
+    (screen as any).missionStatus = {
+      objectives: [
+        { id: "secure", label: "Secure the engagement area", tier: "primary", state: "inProgress" },
+        { id: "break", label: "Break the opposing ground force", tier: "secondary", state: "inProgress" }
+      ],
+      markers: [
+        { status: "player" },
+        { status: "enemy" },
+        { status: "unoccupied" },
+        { status: "unoccupied" }
+      ]
+    };
+    (screen as any).battleState = {
+      getPrecombatMissionInfo: () => ({
+        objectives: ["Primary: Secure the engagement area", "Secondary: Break the opposing ground force"]
+      })
+    };
+  });
+
+  await When("the objective card renders the third focusable map point", () => {
+    (screen as any).renderBattleObjectiveSummary();
+  });
+
+  await Then("the card gives that point an actionable order and map status", () => {
+    if (indexElement.textContent !== "Tactical Objective 3 of 4"
+      || titleElement.textContent !== "Secure Engagement Point 3"
+      || statusElement.textContent !== "Open"
+      || statusElement.dataset.state !== "inProgress"
+      || summaryButton.getAttribute("aria-label")?.includes("awaiting confirmation")) {
+      throw new Error(
+        `Campaign tactical point summary drifted: index=${indexElement.textContent}, title=${titleElement.textContent}, status=${statusElement.textContent}.`
+      );
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_CAMPAIGN_TITLE_STAYS_DISTINCT_FROM_ENGAGEMENT_TITLE", async ({ Given, When, Then }) => {
   const screen = Object.create(BattleScreen.prototype) as BattleScreen;
   const campaignTitle = document.createElement("span");
