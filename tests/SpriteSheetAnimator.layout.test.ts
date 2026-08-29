@@ -5,8 +5,10 @@ import {
   getSpriteSheetFrameDuration,
   getSpriteSheetFrameOpacity,
   loadSpriteSheetImage,
+  resolveSpriteSheetSpec,
   sliceSpriteSheet,
-  resolveSpriteSheetSpecAsync
+  resolveSpriteSheetSpecAsync,
+  SpriteSheetAnimation
 } from "../src/rendering/SpriteSheetAnimator";
 
 registerTest("SPRITESHEET_ANIMATOR_KEEPS_SINGLE_ROW_STRIPS_COMPATIBLE", async ({ Given, When, Then }) => {
@@ -161,6 +163,71 @@ registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_VEHICLE_HIT_LAYOUT", async
     }
     if (!(firstDuration < finalDuration)) {
       throw new Error(`Expected vehicle-hit playback to slow slightly into the tail, received first=${firstDuration}, final=${finalDuration}.`);
+    }
+  });
+});
+
+registerTest("SPRITESHEET_ANIMATION_CATCHES_UP_AFTER_A_THROTTLED_FRAME", async ({ Given, When, Then }) => {
+  const parent = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  const animation = new SpriteSheetAnimation();
+  const spec = resolveSpriteSheetSpec({
+    imagePath: "test-impact-sheet.png",
+    columns: 7,
+    rows: 7,
+    frameWidth: 10,
+    frameHeight: 10,
+    frameCount: 49,
+    getFrameDuration: () => 20,
+    loop: false
+  });
+  const frameCanvases = Array.from({ length: 49 }, () => document.createElement("canvas"));
+  const frames = {
+    frameWidth: 10,
+    frameHeight: 10,
+    sourceFrameWidth: 10,
+    sourceFrameHeight: 10,
+    anchorPixelX: 5,
+    anchorPixelY: 5,
+    frameCanvases,
+    frameDataUrls: frameCanvases.map((_, index) => `data:image/png;base64,frame-${index}`)
+  };
+  const originalWindowRaf = window.requestAnimationFrame;
+  const originalGlobalRaf = globalThis.requestAnimationFrame;
+  let scheduled: FrameRequestCallback | null = null;
+  let completed = false;
+  let startTime = 0;
+
+  await Given("a 49-frame impact effect running in a throttled browser tab", () => {
+    const captureRaf = (callback: FrameRequestCallback): number => {
+      scheduled = callback;
+      return 1;
+    };
+    window.requestAnimationFrame = captureRaf;
+    globalThis.requestAnimationFrame = captureRaf;
+    animation.configure(spec, frames, parent, 0, 0, 1);
+  });
+
+  await When("the next browser frame arrives after the complete effect duration", () => {
+    try {
+      startTime = performance.now();
+      animation.play(() => {
+        completed = true;
+      });
+      if (!scheduled) {
+        throw new Error("Expected playback to schedule an animation frame.");
+      }
+      const runScheduledFrame = scheduled as FrameRequestCallback;
+      runScheduledFrame(startTime + 2_000);
+    } finally {
+      window.requestAnimationFrame = originalWindowRaf;
+      globalThis.requestAnimationFrame = originalGlobalRaf;
+      animation.release();
+    }
+  });
+
+  await Then("the stale visual frames are skipped and combat is released immediately", () => {
+    if (!completed) {
+      throw new Error("Expected throttled sprite playback to complete from elapsed clock time.");
     }
   });
 });

@@ -732,27 +732,37 @@ export class SpriteSheetAnimation {
       return;
     }
 
-    const elapsed = currentTime - this.lastFrameTimestamp;
-    const frameDuration = getSpriteSheetFrameDuration(this.spec, this.currentFrame, this.spec.frameCount);
+    let elapsed = currentTime - this.lastFrameTimestamp;
+    let advanced = false;
 
-    // Only advance ONE frame per tick to ensure each frame is visible.
-    // Otherwise large delays can cause the animation to skip frames invisibly.
-    if (elapsed >= frameDuration) {
-      this.lastFrameTimestamp = currentTime;
+    // Consume every frame interval represented by the clock. Foreground playback still advances
+    // smoothly, while a throttled/background tab skips stale frames instead of stretching a
+    // sub-second combat effect across tens of seconds and blocking authoritative resolution.
+    while (this.isPlaying && this.spec) {
+      const frameDuration = getSpriteSheetFrameDuration(this.spec, this.currentFrame, this.spec.frameCount);
+      if (elapsed < frameDuration) {
+        break;
+      }
 
+      elapsed -= frameDuration;
+      this.lastFrameTimestamp += frameDuration;
       const nextFrame = this.currentFrame + 1;
       if (nextFrame >= this.spec.frameCount) {
         if (this.spec.loop) {
           this.currentFrame = 0;
-          this.updateFrame(0);
-        } else {
-          this.finish();
-          return;
+          advanced = true;
+          continue;
         }
-      } else {
-        this.currentFrame = nextFrame;
-        this.updateFrame(this.currentFrame);
+        this.finish();
+        return;
       }
+
+      this.currentFrame = nextFrame;
+      advanced = true;
+    }
+
+    if (advanced) {
+      this.updateFrame(this.currentFrame);
     }
 
     requestAnimationFrame(this.tick);
