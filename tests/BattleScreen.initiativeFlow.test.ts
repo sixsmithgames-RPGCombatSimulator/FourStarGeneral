@@ -1208,6 +1208,45 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_ADVANCES_ONLY_A_DRAINED_ROUND", a
   });
 });
 
+registerTest("BATTLESCREEN_NEW_INITIATIVE_ROUND_REFRESHES_THE_PHASE_LABEL_AFTER_ACTIVATION_STARTS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let activationStarted = false;
+  let refreshedAfterActivation = false;
+
+  await Given("a drained initiative round advancing into a fresh player activation", () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeTurnAdvanceInProgress = false;
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({ _phase: "playerTurn", _activeFaction: "Player" }),
+      getCurrentTurnSummary: () => ({ turnNumber: 9, activeFaction: "Player", phase: "playerTurn" })
+    };
+    (screen as any).executeTurnAdvance = async () => {};
+    (screen as any).initiativeMethods = {
+      startNextInitiativeTurnPhase: () => {
+        activationStarted = true;
+      }
+    };
+    (screen as any).clearInitiativeGroupSkipState = () => {};
+    (screen as any).focusCurrentInitiativeActivation = () => {};
+    (screen as any).highlightCurrentInitiativeGroup = () => {};
+    (screen as any).syncInitiativeTurnControlsState = () => {};
+    (screen as any).updateTurnStatusDisplay = () => {
+      refreshedAfterActivation = activationStarted;
+    };
+    (screen as any).updateTurnControls = () => {};
+  });
+
+  await When("the next initiative round starts", async () => {
+    await (screen as any).advanceInitiativeRound();
+  });
+
+  await Then("the phase label is refreshed only after the first activation exists", () => {
+    if (!refreshedAfterActivation) {
+      throw new Error("Expected the new-turn phase label to refresh after initiative activation started.");
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_TUTORIAL_NEXT_GROUP_FINISHES_ONLY_THE_GUIDED_INITIATIVE_GROUP", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let observedOptions: { bypassConfirmation?: boolean } | undefined;

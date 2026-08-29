@@ -1,6 +1,38 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
+import { HexMapRenderer } from "../src/rendering/HexMapRenderer";
+
+registerTest("HEXMAP_OBJECTIVE_MARKERS_DO_NOT_BLOCK_HEX_ORDERS", async ({ Given, When, Then }) => {
+  const renderer = new HexMapRenderer();
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const viewportRoot = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  const cell = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+  await Given("a rendered tactical hex that also carries an objective marker", () => {
+    cell.dataset.cx = "120";
+    cell.dataset.cy = "96";
+    viewportRoot.appendChild(cell);
+    svg.appendChild(viewportRoot);
+    (renderer as any).svgElement = svg;
+    (renderer as any).viewportRoot = viewportRoot;
+    (renderer as any).hexElementMap = new Map([["4,5", cell]]);
+  });
+
+  await When("the objective marker is mounted above the hex", () => {
+    renderer.renderObjectiveMarker("4,5", { status: "unoccupied" });
+  });
+
+  await Then("the marker is pointer-transparent so the underlying hex still receives orders", () => {
+    const marker = svg.querySelector<SVGGElement>(".objective-marker");
+    if (!marker) {
+      throw new Error("Expected the tactical objective marker to render.");
+    }
+    if (marker.getAttribute("pointer-events") !== "none") {
+      throw new Error("Objective marker can intercept the underlying hex click.");
+    }
+  });
+});
 
 registerTest("BATTLESCREEN_PATROL_OBJECTIVE_MARKERS_USE_TOWN_STATUS", async ({ Given, When, Then }) => {
   let screen: BattleScreen;

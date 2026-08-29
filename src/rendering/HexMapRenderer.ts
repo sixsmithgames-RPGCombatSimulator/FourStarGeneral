@@ -4396,6 +4396,7 @@ export class HexMapRenderer implements IMapRenderer {
     const cy = Number(cell.dataset.cy ?? 0);
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("objective-marker");
+    group.setAttribute("pointer-events", "none");
 
     const status = options?.status ?? "unoccupied";
 

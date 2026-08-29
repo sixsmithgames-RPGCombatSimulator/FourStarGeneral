@@ -10616,6 +10616,8 @@ export class BattleScreen {
       this.initiativeMethods.startNextInitiativeTurnPhase();
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
+      this.updateTurnStatusDisplay(postAdvanceSummary);
+      this.updateTurnControls(postAdvanceSummary);
     } catch (error) {
       console.error("Failed to advance initiative round:", error);
       this.announceBattleUpdate("Unable to advance initiative round. Check console for details.");
