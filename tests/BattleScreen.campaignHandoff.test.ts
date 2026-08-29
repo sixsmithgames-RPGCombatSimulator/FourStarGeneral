@@ -1,7 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
-import { BattleState } from "../src/state/BattleState";
+import { BattleState, projectCampaignRosterFormationNames } from "../src/state/BattleState";
 import { ensureCampaignState } from "../src/state/CampaignState";
 import { buildCompleteActiveBattleSave } from "./TacticalSaveCompleteness.test.js";
 import {
@@ -267,6 +267,70 @@ registerTest("BATTLESCREEN_CAMPAIGN_FORMATION_NAME_OVERRIDES_GENERIC_TACTICAL_TY
   await Then("the campaign formation name is shown instead of a generic catalog label", async () => {
     if (label !== "U.S. 1st Infantry Division") {
       throw new Error(`Expected campaign formation identity, received ${label ?? "<none>"}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_REFRESHES_FROZEN_LEGACY_PROVENANCE_FROM_CAMPAIGN_IDENTITY", async ({ Given, When, Then }) => {
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+  const campaignState = ensureCampaignState();
+  const originalSnapshot = campaignState.getCampaignFormationSnapshot.bind(campaignState);
+  let label: string | null = null;
+
+  await Given("an older tactical save whose frozen provenance still carries a generic formation label", async () => {
+    (campaignState as any).getCampaignFormationSnapshot = (formationId: string) => formationId === "formation-old-save"
+      ? { name: "1st Battalion, 8th Infantry Regiment" }
+      : null;
+  });
+
+  await When("the battle inspector resolves that persistent formation by its stable campaign ID", async () => {
+    try {
+      label = (screen as any).resolveUnitLabelForUnit({
+        type: "Infantry_42",
+        campaignProvenance: {
+          formationId: "formation-old-save",
+          formationName: "U.S. 4th Infantry Division battalions 1"
+        }
+      });
+    } finally {
+      (campaignState as any).getCampaignFormationSnapshot = originalSnapshot;
+    }
+  });
+
+  await Then("the corrected origin-backed identity replaces the stale frozen display name", async () => {
+    if (label !== "1st Battalion, 8th Infantry Regiment") {
+      throw new Error(`Expected refreshed campaign formation identity, received ${label ?? "<none>"}.`);
+    }
+  });
+});
+
+registerTest("BATTLE_ROSTER_REFRESHES_DESTROYED_OLD_SAVE_FORMATION_NAMES", async ({ Given, When, Then }) => {
+  let casualtyLabel = "";
+
+  await Given("an older tactical save casualty carrying a stable formation ID and a frozen generic label", async () => {});
+
+  await When("the visible roster is projected without rewriting the saved casualty record", async () => {
+    const rawSnapshot = {
+      updatedAt: "battle:4",
+      frontline: [],
+      support: [],
+      reserves: [],
+      casualties: [{
+        unitId: "casualty-1",
+        campaignFormationId: "formation-old-casualty",
+        label: "British 3rd Infantry Division battalions 1"
+      }],
+      metrics: {}
+    } as any;
+    const projected = projectCampaignRosterFormationNames(rawSnapshot, (formationId) => (
+      formationId === "formation-old-casualty" ? "1st Battalion, Suffolk Regiment" : null
+    ));
+    casualtyLabel = projected.casualties[0]?.label ?? "";
+  });
+
+  await Then("the casualty roster uses the corrected campaign identity at the display boundary", async () => {
+    if (casualtyLabel !== "1st Battalion, Suffolk Regiment") {
+      throw new Error(`Expected corrected casualty identity, received ${casualtyLabel || "<none>"}.`);
     }
   });
 });

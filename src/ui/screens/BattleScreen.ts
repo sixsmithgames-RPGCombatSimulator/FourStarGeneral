@@ -14820,6 +14820,13 @@ export class BattleScreen {
   }
 
   private resolveUnitLabelForUnit(unit: ScenarioUnit): string | null {
+    const campaignFormationId = unit.campaignProvenance?.formationId?.trim();
+    const currentFormationName = campaignFormationId
+      ? ensureCampaignState().getCampaignFormationSnapshot(campaignFormationId)?.name.trim()
+      : null;
+    if (currentFormationName) {
+      return currentFormationName;
+    }
     const campaignFormationName = unit.campaignProvenance?.formationName?.trim();
     if (campaignFormationName) {
       return campaignFormationName;

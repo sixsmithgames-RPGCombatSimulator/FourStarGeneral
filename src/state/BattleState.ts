@@ -21,6 +21,26 @@ import { findGeneralById, type GeneralRosterEntry } from "../utils/rosterStorage
 import type { AllocationCategory } from "../data/unitAllocation";
 import { ensureDeploymentState, type DeploymentPoolEntry } from "./DeploymentState";
 import type { MissionKey } from "./UIState";
+import { ensureCampaignState } from "./CampaignState";
+
+/** Refreshes campaign-bound roster labels without mutating the tactical save or its integrity boundary. */
+export function projectCampaignRosterFormationNames(
+  snapshot: BattleRosterSnapshot,
+  resolveFormationName: (formationId: string) => string | null
+): BattleRosterSnapshot {
+  const projectUnits = (units: BattleRosterSnapshot["frontline"]): BattleRosterSnapshot["frontline"] => units.map((unit) => {
+    const formationId = unit.campaignFormationId?.trim();
+    const formationName = formationId ? resolveFormationName(formationId)?.trim() : null;
+    return formationName ? { ...unit, label: formationName } : unit;
+  });
+  return {
+    ...snapshot,
+    frontline: projectUnits(snapshot.frontline),
+    support: projectUnits(snapshot.support),
+    reserves: projectUnits(snapshot.reserves),
+    casualties: projectUnits(snapshot.casualties)
+  };
+}
 
 /**
  * Snapshot captured when the commander commits their precombat allocations.
@@ -154,7 +174,7 @@ export class BattleState {
   initializeEngine(config: GameEngineConfig): void {
     this.engineConfig = structuredClone(config);
     this.gameEngine = new GameEngine(structuredClone(config));
-    this.rosterSnapshot = this.gameEngine.getRosterSnapshot();
+    this.rosterSnapshot = this.projectCampaignRosterNames(this.gameEngine.getRosterSnapshot());
     // Seed supply cache immediately so UI panels can render depot totals before the first turn advance.
     this.refreshSupplySnapshot("Player");
     this.refreshSupplySnapshot("Bot");
@@ -189,8 +209,14 @@ export class BattleState {
     if (!this.gameEngine) {
       return this.rosterSnapshot ? structuredClone(this.rosterSnapshot) : null;
     }
-    this.rosterSnapshot = this.gameEngine.getRosterSnapshot();
+    this.rosterSnapshot = this.projectCampaignRosterNames(this.gameEngine.getRosterSnapshot());
     return structuredClone(this.rosterSnapshot);
+  }
+
+  private projectCampaignRosterNames(snapshot: BattleRosterSnapshot): BattleRosterSnapshot {
+    return projectCampaignRosterFormationNames(snapshot, (formationId) => (
+      ensureCampaignState().getCampaignFormationSnapshot(formationId)?.name ?? null
+    ));
   }
 
   /**
@@ -400,7 +426,7 @@ export class BattleState {
     this.precombatMissionInfo = snapshot.precombatMission ? structuredClone(snapshot.precombatMission) : null;
     this.assignedCommanderId = snapshot.assignedCommanderId;
     this.campaignBridgeState = snapshot.campaignBridge ? structuredClone(snapshot.campaignBridge) : null;
-    this.rosterSnapshot = engine.getRosterSnapshot();
+    this.rosterSnapshot = this.projectCampaignRosterNames(engine.getRosterSnapshot());
     this.refreshSupplySnapshot("Player");
     this.refreshSupplySnapshot("Bot");
     this.refreshSupplySnapshot("Ally");

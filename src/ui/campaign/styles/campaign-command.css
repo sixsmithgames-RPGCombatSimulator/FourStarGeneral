@@ -591,6 +591,81 @@
   gap: var(--campaign-space-2);
 }
 
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-command {
+  display: grid;
+  gap: 0.34rem;
+  padding: 0.5rem;
+  border: 1px solid var(--campaign-color-border);
+  border-radius: var(--campaign-radius-small);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-command > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--campaign-space-2);
+  padding: 0.12rem 0.14rem 0.42rem;
+  border-bottom: 1px solid var(--campaign-color-border);
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-command > header strong {
+  color: var(--campaign-color-accent);
+  font-size: 0.7rem;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-command > header small {
+  color: var(--campaign-color-text-muted);
+  font-size: 0.58rem;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-command > article[data-material-change="true"] {
+  border-left: 3px solid var(--campaign-color-warning);
+  background: rgba(215, 161, 77, 0.06);
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-formation__effects {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 0.28rem 0.65rem;
+  margin: 0;
+  padding: 0;
+  color: var(--campaign-color-warning);
+  font-size: 0.62rem;
+  list-style: none;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-formation__effects li::before {
+  content: "\2022";
+  margin-right: 0.3rem;
+  color: var(--campaign-color-text-muted);
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-unchanged {
+  border: 1px solid color-mix(in srgb, var(--campaign-color-border) 72%, transparent);
+  border-radius: var(--campaign-radius-small);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-unchanged > summary {
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0.7rem 0.75rem;
+  color: var(--campaign-color-text-muted);
+  cursor: pointer;
+  font-size: 0.64rem;
+  font-weight: 750;
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-unchanged[open] > summary {
+  border-bottom: 1px solid var(--campaign-color-border);
+}
+
+#campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-unchanged > article {
+  margin: 0.34rem;
+}
+
 #campaignScreen[data-campaign-command-ui="v2"] .campaign-aar-continue {
   min-height: 40px;
   padding: 0.55rem 0.9rem;

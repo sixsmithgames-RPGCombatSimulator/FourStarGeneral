@@ -22,6 +22,7 @@ import {
   getCampaignFormationEffectiveExperience,
   isCampaignFormationPresentAtLocation
 } from "./FormationLifecycleService";
+import { resolveCampaignFormationPresentation } from "./CampaignFormationPresentation";
 import type {
   CampaignFormationBattleSeed,
   CampaignFormationRecord,
@@ -130,6 +131,11 @@ export function createCampaignFormationBattleSeed(
   );
   const baseExperience = formation.experience.base;
   const earnedExperience = formation.experience.earned;
+  const formationPresentation = resolveCampaignFormationPresentation({
+    legacyLabel: formation.origin.legacyLabel,
+    legacyOrdinal: formation.origin.legacyOrdinal,
+    unitType: formation.campaignUnitType
+  });
   const unit: ScenarioUnit = {
     type: template.type,
     hex: structuredClone(context.hex),
@@ -147,7 +153,7 @@ export function createCampaignFormationBattleSeed(
       sourceSegment: context.sourceSegment,
       faction: String(formation.faction),
       ownership: formation.ownership,
-      formationName: formation.name,
+      formationName: formationPresentation.formationName,
       campaignUnitType: formation.campaignUnitType
     },
     ammo: Math.max(0, formation.supply.ammo),

@@ -23,10 +23,242 @@ export interface CampaignFormationPresentation {
 interface AuthoredCommand {
   readonly commandLabel: string;
   readonly typeLabel: string;
+  readonly formationTypeLabels?: readonly string[];
   readonly formationNames: readonly string[];
+  readonly hasSubordinateIdentity?: boolean;
 }
 
 const AUTHORED_COMMANDS: Readonly<Record<string, readonly AuthoredCommand[]>> = Object.freeze({
+  // Exact ground order-of-battle identities are source-traced in docs/NORMANDY_DPLUS1_OOB_MANIFEST.md.
+  "U.S. 4th Infantry Division battalions": [
+    {
+      commandLabel: "8th Infantry Regiment",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "1st Battalion, 8th Infantry Regiment",
+        "2d Battalion, 8th Infantry Regiment",
+        "3d Battalion, 8th Infantry Regiment"
+      ]
+    },
+    {
+      commandLabel: "12th Infantry Regiment",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "1st Battalion, 12th Infantry Regiment",
+        "2d Battalion, 12th Infantry Regiment",
+        "3d Battalion, 12th Infantry Regiment"
+      ]
+    },
+    {
+      commandLabel: "22d Infantry Regiment",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "1st Battalion, 22d Infantry Regiment",
+        "2d Battalion, 22d Infantry Regiment",
+        "3d Battalion, 22d Infantry Regiment"
+      ]
+    }
+  ],
+  "VII Corps engineer groups": [
+    {
+      commandLabel: "VII Corps Engineers",
+      typeLabel: "Engineer formation",
+      formationTypeLabels: ["Engineer special brigade", "Engineer combat battalion"],
+      formationNames: ["1st Engineer Special Brigade", "4th Engineer Combat Battalion"]
+    }
+  ],
+  "U.S. 1st Infantry Division battalions": [
+    {
+      commandLabel: "16th Infantry Regiment",
+      typeLabel: "Infantry battalion strength step",
+      formationNames: ["16th Infantry Regiment", "16th Infantry Regiment", "16th Infantry Regiment"],
+      hasSubordinateIdentity: false
+    },
+    {
+      commandLabel: "18th Infantry Regiment",
+      typeLabel: "Infantry battalion strength step",
+      formationNames: ["18th Infantry Regiment", "18th Infantry Regiment", "18th Infantry Regiment"],
+      hasSubordinateIdentity: false
+    },
+    {
+      commandLabel: "26th Infantry Regiment",
+      typeLabel: "Infantry regimental advance element",
+      formationNames: ["26th Infantry Regiment advance element"],
+      hasSubordinateIdentity: false
+    }
+  ],
+  "U.S. 29th Infantry Division battalions": [
+    {
+      commandLabel: "116th Infantry Regiment",
+      typeLabel: "Infantry battalion strength step",
+      formationNames: ["116th Infantry Regiment", "116th Infantry Regiment", "116th Infantry Regiment"],
+      hasSubordinateIdentity: false
+    },
+    {
+      commandLabel: "115th Infantry Regiment",
+      typeLabel: "Infantry battalion strength step",
+      formationNames: ["115th Infantry Regiment", "115th Infantry Regiment"],
+      hasSubordinateIdentity: false
+    }
+  ],
+  "V Corps engineer groups": [
+    {
+      commandLabel: "V Corps Engineer Special Brigades",
+      typeLabel: "Engineer special brigade",
+      formationNames: ["5th Engineer Special Brigade", "6th Engineer Special Brigade"]
+    }
+  ],
+  "British 50th Infantry Division battalions": [
+    {
+      commandLabel: "69th Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "5th Battalion, East Yorkshire Regiment",
+        "6th Battalion, Green Howards",
+        "7th Battalion, Green Howards"
+      ]
+    },
+    {
+      commandLabel: "151st Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "6th Battalion, Durham Light Infantry",
+        "8th Battalion, Durham Light Infantry",
+        "9th Battalion, Durham Light Infantry"
+      ]
+    },
+    {
+      commandLabel: "231st Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "1st Battalion, Hampshire Regiment",
+        "1st Battalion, Dorsetshire Regiment",
+        "2nd Battalion, Devonshire Regiment"
+      ]
+    }
+  ],
+  "British 8th Armoured Brigade regiments": [
+    {
+      commandLabel: "8th Armoured Brigade",
+      typeLabel: "Sherman armoured regiment",
+      formationNames: [
+        "4th/7th Royal Dragoon Guards",
+        "Nottinghamshire Yeomanry (Sherwood Rangers)",
+        "24th Lancers"
+      ]
+    }
+  ],
+  "British 22nd Armoured Brigade advance groups": [
+    {
+      commandLabel: "22nd Armoured Brigade, 7th Armoured Division",
+      typeLabel: "Cromwell armoured regiment",
+      formationNames: [
+        "1st Royal Tank Regiment",
+        "5th Royal Tank Regiment",
+        "4th County of London Yeomanry (Sharpshooters)"
+      ]
+    }
+  ],
+  "3rd Canadian Infantry Division battalions": [
+    {
+      commandLabel: "7th Canadian Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "Royal Winnipeg Rifles",
+        "Regina Rifle Regiment",
+        "Canadian Scottish Regiment"
+      ]
+    },
+    {
+      commandLabel: "8th Canadian Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "Queen's Own Rifles of Canada",
+        "Le Régiment de la Chaudière",
+        "North Shore (New Brunswick) Regiment"
+      ]
+    },
+    {
+      commandLabel: "9th Canadian Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "Highland Light Infantry of Canada",
+        "Stormont, Dundas and Glengarry Highlanders",
+        "North Nova Scotia Highlanders"
+      ]
+    }
+  ],
+  "2nd Canadian Armoured Brigade regiments": [
+    {
+      commandLabel: "2nd Canadian Armoured Brigade",
+      typeLabel: "Sherman armoured regiment",
+      formationNames: [
+        "6th Armoured Regiment (1st Hussars)",
+        "10th Armoured Regiment (The Fort Garry Horse)",
+        "27th Armoured Regiment (The Sherbrooke Fusiliers Regiment)"
+      ]
+    }
+  ],
+  "British 3rd Infantry Division battalions": [
+    {
+      commandLabel: "8th Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "1st Battalion, Suffolk Regiment",
+        "2nd Battalion, East Yorkshire Regiment",
+        "1st Battalion, South Lancashire Regiment"
+      ]
+    },
+    {
+      commandLabel: "9th Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "2nd Battalion, Lincolnshire Regiment",
+        "1st Battalion, King's Own Scottish Borderers",
+        "2nd Battalion, Royal Ulster Rifles"
+      ]
+    },
+    {
+      commandLabel: "185th Infantry Brigade",
+      typeLabel: "Infantry battalion",
+      formationNames: [
+        "2nd Battalion, Royal Warwickshire Regiment",
+        "1st Battalion, Royal Norfolk Regiment",
+        "2nd Battalion, King's Shropshire Light Infantry"
+      ]
+    }
+  ],
+  "British 27th Armoured Brigade regiments": [
+    {
+      commandLabel: "27th Armoured Brigade",
+      typeLabel: "Sherman armoured regiment",
+      formationNames: [
+        "13th/18th Royal Hussars (Queen Mary's Own)",
+        "Staffordshire Yeomanry (Queen's Own Royal Regiment)",
+        "East Riding Yeomanry"
+      ]
+    }
+  ],
+  "British 6th Airborne Division groups": [
+    {
+      commandLabel: "3rd Parachute Brigade",
+      typeLabel: "Parachute infantry battalion",
+      formationNames: [
+        "8th (Midlands) Battalion, Parachute Regiment",
+        "9th (Eastern and Home Counties) Battalion, Parachute Regiment",
+        "1st Canadian Parachute Battalion"
+      ]
+    },
+    {
+      commandLabel: "5th Parachute Brigade",
+      typeLabel: "Parachute infantry battalion",
+      formationNames: [
+        "7th (Light Infantry) Battalion, Parachute Regiment",
+        "12th (Yorkshire) Battalion, Parachute Regiment",
+        "13th (Lancashire) Battalion, Parachute Regiment"
+      ]
+    }
+  ],
   "Eastern tactical fighter groups": [
     {
       commandLabel: "No. 126 (RCAF) Wing",
@@ -69,23 +301,40 @@ const AUTHORED_COMMANDS: Readonly<Record<string, readonly AuthoredCommand[]>> = 
   ],
   "Eastern medium bomber groups": [
     {
-      commandLabel: "No. 2 Group RAF",
-      typeLabel: "Medium-bomber squadron",
+      commandLabel: "No. 137 Wing RAF",
+      typeLabel: "Boston and Mitchell bomber squadron",
+      formationTypeLabels: [
+        "Boston light-bomber squadron",
+        "Boston light-bomber squadron",
+        "Mitchell medium-bomber squadron"
+      ],
       formationNames: [
         "No. 88 Squadron RAF",
-        "No. 342 Squadron RAF",
-        "No. 226 Squadron RAF",
+        "No. 342 (Lorraine) Squadron RAF",
+        "No. 226 Squadron RAF"
+      ]
+    },
+    {
+      commandLabel: "No. 139 Wing RAF",
+      typeLabel: "Mitchell bomber squadron",
+      formationNames: [
         "No. 98 Squadron RAF"
       ]
     }
   ],
   "Western medium bomber groups": [
     {
-      commandLabel: "No. 2 Group RAF",
-      typeLabel: "Medium-bomber squadron",
+      commandLabel: "No. 139 Wing RAF",
+      typeLabel: "Mitchell bomber squadron",
       formationNames: [
         "No. 180 Squadron RAF",
-        "No. 320 (Netherlands) Squadron RAF",
+        "No. 320 (Netherlands) Squadron RAF"
+      ]
+    },
+    {
+      commandLabel: "No. 138 Wing RAF",
+      typeLabel: "Mosquito light-bomber squadron",
+      formationNames: [
         "No. 107 Squadron RAF",
         "No. 305 (Polish) Squadron RAF"
       ]
@@ -94,14 +343,37 @@ const AUTHORED_COMMANDS: Readonly<Record<string, readonly AuthoredCommand[]>> = 
 });
 
 const ABSTRACT_COMMAND_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  "Western embarkation supply columns": "Western Task Force Service Command",
-  "Omaha embarkation supply columns": "U.S. First Army Service Command",
-  "Solent supply columns": "British Second Army Service Command",
-  "Eastern embarkation supply columns": "British Second Army Service Command",
+  "U.S. 82nd Airborne Division groups": "82d Airborne Division",
+  "U.S. 101st Airborne Division groups": "101st Airborne Division",
+  "U.S. 2nd Infantry Division advance groups": "2d Infantry Division",
+  "U.S. 90th Infantry Division advance groups": "90th Infantry Division",
+  "U.S. 2nd Ranger Battalion groups": "2d Ranger Battalion",
+  "Western embarkation supply columns": "U.S. First Army Transportation",
+  "Omaha embarkation supply columns": "U.S. First Army Service Troops",
+  "Solent supply columns": "Second Army Cross-Channel Supply Columns",
+  "Eastern embarkation supply columns": "Second Army Embarkation Columns",
   "Utah follow-on battalion groups": "U.S. First Army Reinforcement Command",
   "Omaha follow-on battalion groups": "U.S. First Army Reinforcement Command",
-  "Gold and Juno follow-on battalion groups": "British Second Army Reinforcement Command",
-  "Sword follow-on battalion groups": "British Second Army Reinforcement Command"
+  "Gold and Juno follow-on battalion groups": "Gold–Juno Reinforcement Group",
+  "Sword follow-on battalion groups": "I Corps Reinforcement Group",
+  "British 51st Highland Division advance groups": "51st (Highland) Infantry Division Advance Echelon"
+});
+
+const ABSTRACT_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  "U.S. 82nd Airborne Division groups": "airborne strength group",
+  "U.S. 101st Airborne Division groups": "airborne strength group",
+  "U.S. 2nd Infantry Division advance groups": "infantry arrival group",
+  "U.S. 90th Infantry Division advance groups": "infantry arrival group",
+  "U.S. 2nd Ranger Battalion groups": "Ranger strength group",
+  "Western embarkation supply columns": "transport column",
+  "Omaha embarkation supply columns": "transport column",
+  "Solent supply columns": "transport column",
+  "Eastern embarkation supply columns": "transport column",
+  "Utah follow-on battalion groups": "follow-on infantry group",
+  "Omaha follow-on battalion groups": "follow-on infantry group",
+  "Gold and Juno follow-on battalion groups": "follow-on infantry group",
+  "Sword follow-on battalion groups": "follow-on infantry group",
+  "British 51st Highland Division advance groups": "follow-up infantry group"
 });
 
 const BASE_COMMAND_LABELS: Readonly<Record<string, string>> = Object.freeze({
@@ -146,8 +418,8 @@ export function resolveCampaignFormationPresentation(
         return {
           formationName: command.formationNames[remaining]!,
           commandLabel: command.commandLabel,
-          typeLabel: command.typeLabel,
-          hasAuthoredSubordinateIdentity: true
+          typeLabel: command.formationTypeLabels?.[remaining] ?? command.typeLabel,
+          hasAuthoredSubordinateIdentity: command.hasSubordinateIdentity ?? true
         };
       }
       remaining -= command.formationNames.length;
@@ -159,7 +431,7 @@ export function resolveCampaignFormationPresentation(
   return {
     formationName: commandLabel,
     commandLabel,
-    typeLabel: formatFormationType(input.unitType),
+    typeLabel: (legacyLabel ? ABSTRACT_TYPE_LABELS[legacyLabel] : undefined) ?? formatFormationType(input.unitType),
     hasAuthoredSubordinateIdentity: false
   };
 }
@@ -171,7 +443,9 @@ export function resolveCampaignForceGroupCommandLabel(
 ): string {
   const commands = legacyLabel?.trim() ? AUTHORED_COMMANDS[legacyLabel.trim()] : undefined;
   if (commands?.length === 1) return commands[0]!.commandLabel;
-  if (commands && commands.length > 1) return commands.map((command) => command.commandLabel).join(" / ");
+  if (commands && commands.length > 1) {
+    return Array.from(new Set(commands.map((command) => command.commandLabel))).join(" / ");
+  }
   return (legacyLabel?.trim() ? ABSTRACT_COMMAND_LABELS[legacyLabel.trim()] : undefined)
     ?? normalizeCommandLabel(legacyLabel, unitType);
 }

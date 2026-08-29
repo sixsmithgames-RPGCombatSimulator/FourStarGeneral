@@ -264,6 +264,94 @@ registerTest("CAMPAIGN_FORMATIONS_USE_PERIOD_COMMANDS_AND_AUTHORED_AIR_IDENTITIE
   });
 });
 
+registerTest("CAMPAIGN_FORMATIONS_RESOLVE_SOURCE_BACKED_DDAY_GROUND_HIERARCHIES", async ({ Given, When, Then }) => {
+  const exactGroups = [
+    ["U.S. 4th Infantry Division battalions", 9, "Infantry_42"],
+    ["VII Corps engineer groups", 2, "Engineer"],
+    ["V Corps engineer groups", 2, "Engineer"],
+    ["British 50th Infantry Division battalions", 9, "Infantry_42"],
+    ["British 8th Armoured Brigade regiments", 3, "Medium_Tank"],
+    ["British 22nd Armoured Brigade advance groups", 3, "Medium_Tank"],
+    ["3rd Canadian Infantry Division battalions", 9, "Infantry_42"],
+    ["2nd Canadian Armoured Brigade regiments", 3, "Medium_Tank"],
+    ["British 3rd Infantry Division battalions", 9, "Infantry_42"],
+    ["British 27th Armoured Brigade regiments", 3, "Medium_Tank"],
+    ["British 6th Airborne Division groups", 6, "Paratrooper"]
+  ] as const;
+  let resolved: ReturnType<typeof resolveCampaignFormationPresentation>[][] = [];
+
+  await Given("the source-backed U.S., British, and Canadian D-Day formation groups", async () => {
+    resolved = exactGroups.map(([legacyLabel, count, unitType]) => Array.from(
+      { length: count },
+      (_, legacyOrdinal) => resolveCampaignFormationPresentation({ legacyLabel, legacyOrdinal, unitType })
+    ));
+  });
+
+  await When("their stable campaign presentation is resolved", async () => {});
+
+  await Then("every exact record has one subordinate identity at the correct command echelon", async () => {
+    const allExact = resolved.every((group, groupIndex) => {
+      const expectedCount = exactGroups[groupIndex]![1];
+      return group.length === expectedCount
+        && new Set(group.map((entry) => entry.formationName)).size === expectedCount
+        && group.every((entry) => entry.hasAuthoredSubordinateIdentity
+          && entry.commandLabel !== entry.formationName
+          && !/(?:groups?|battalions|regiments|columns)\s+\d+$/i.test(entry.formationName));
+    });
+    const sword = resolved[8]!;
+    const orne = resolved[10]!;
+    const utah = resolved[0]!;
+    if (!allExact
+      || sword[0]?.formationName !== "1st Battalion, Suffolk Regiment"
+      || sword[8]?.formationName !== "2nd Battalion, King's Shropshire Light Infantry"
+      || orne[2]?.formationName !== "1st Canadian Parachute Battalion"
+      || orne[5]?.commandLabel !== "5th Parachute Brigade"
+      || utah[0]?.commandLabel !== "8th Infantry Regiment"
+      || utah[8]?.formationName !== "3d Battalion, 22d Infantry Regiment") {
+      throw new Error(`Ground formation presentation diverged from the OOB manifest: ${JSON.stringify(resolved)}.`);
+    }
+  });
+});
+
+registerTest("CAMPAIGN_FORMATIONS_KEEP_ABSTRACT_STRENGTH_STEPS_GROUPED", async ({ Given, When, Then }) => {
+  let omahaSteps: ReturnType<typeof resolveCampaignFormationPresentation>[] = [];
+  let americanAirborne: ReturnType<typeof resolveCampaignFormationPresentation>[][] = [];
+
+  await Given("three campaign strength steps under the 16th Infantry Regiment", async () => {
+    omahaSteps = Array.from({ length: 3 }, (_, legacyOrdinal) => resolveCampaignFormationPresentation({
+      legacyLabel: "U.S. 1st Infantry Division battalions",
+      legacyOrdinal,
+      unitType: "Infantry_42"
+    }));
+    americanAirborne = ["U.S. 82nd Airborne Division groups", "U.S. 101st Airborne Division groups"].map(
+      (legacyLabel) => Array.from({ length: 6 }, (_, legacyOrdinal) => resolveCampaignFormationPresentation({
+        legacyLabel,
+        legacyOrdinal,
+        unitType: "Paratrooper"
+      }))
+    );
+  });
+
+  await When("the UI resolves an intentionally aggregate formation count", async () => {});
+
+  await Then("it uses the real command without inventing numbered battalions", async () => {
+    if (omahaSteps.some((entry) => entry.commandLabel !== "16th Infantry Regiment"
+      || entry.formationName !== "16th Infantry Regiment"
+      || entry.hasAuthoredSubordinateIdentity)) {
+      throw new Error(`Abstract strength steps were presented as invented subordinates: ${JSON.stringify(omahaSteps)}.`);
+    }
+    const expectedAirborneCommands = ["82d Airborne Division", "101st Airborne Division"];
+    if (americanAirborne.some((division, divisionIndex) => division.some((entry) => (
+      entry.commandLabel !== expectedAirborneCommands[divisionIndex]
+      || entry.formationName !== expectedAirborneCommands[divisionIndex]
+      || entry.typeLabel !== "airborne strength group"
+      || entry.hasAuthoredSubordinateIdentity
+    )))) {
+      throw new Error(`Airborne records claimed false subordinate tactical identities: ${JSON.stringify(americanAirborne)}.`);
+    }
+  });
+});
+
 registerTest("CAMPAIGN_FORMATIONS_DETERMINISTIC_LEGACY_REGISTRY", async ({ Given, When, Then }) => {
   const scenario = buildFormationScenario();
   const definition = splitLegacyCampaignScenario(scenario);
@@ -646,6 +734,7 @@ registerTest("CAMPAIGN_FORMATIONS_TACTICAL_PROVENANCE", async ({ Given, When, Th
 
   await Given("friendly and enemy engagement pools linked to persistent records", async () => {
     if (!friendly || !botId) throw new Error("Formation provenance was not attached to engagement force pools.");
+    friendly.name = "Legacy infantry group 1";
   });
 
   await When("campaign records become friendly deployment and generated enemy tactical units", async () => {});
@@ -660,6 +749,14 @@ registerTest("CAMPAIGN_FORMATIONS_TACTICAL_PROVENANCE", async ({ Given, When, Th
     });
     if (!seed || seed.unit.campaignProvenance?.formationId !== friendly.id) {
       throw new Error("Friendly tactical seed lost its campaign formation identity.");
+    }
+    const expectedPresentation = resolveCampaignFormationPresentation({
+      legacyLabel: friendly.origin.legacyLabel,
+      legacyOrdinal: friendly.origin.legacyOrdinal,
+      unitType: friendly.campaignUnitType
+    });
+    if (seed.unit.campaignProvenance.formationName !== expectedPresentation.formationName) {
+      throw new Error("Tactical seed froze a legacy stored name instead of the corrected origin-backed identity.");
     }
     const deployment = new DeploymentState();
     deployment.initialize([{ key: "infantry", label: "Infantry Battalion", remaining: 1, campaignUnits: [seed.unit] }]);

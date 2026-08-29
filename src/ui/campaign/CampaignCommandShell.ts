@@ -302,9 +302,12 @@ export interface CampaignCommandAdvanceView {
 export interface CampaignCommandAfterActionFormationView {
   readonly id: string;
   readonly name: string;
+  readonly commandLabel: string;
   readonly personnel: string;
   readonly condition: string;
+  readonly effects?: readonly string[];
   readonly disposition: string;
+  readonly materiallyChanged: boolean;
 }
 
 export interface CampaignCommandAfterActionDecisionView {
@@ -1026,16 +1029,60 @@ export class CampaignCommandShell {
     if (selected.formations.length === 0) {
       formationList.append(createTextElement("p", "campaign-aar-empty", "No friendly persistent formations were committed."));
     } else {
-      formationList.replaceChildren(...selected.formations.map((formation) => {
+      const createFormationRow = (formation: CampaignCommandAfterActionFormationView): HTMLElement => {
         const row = document.createElement("article");
         row.dataset.formationId = formation.id;
+        row.dataset.materialChange = formation.materiallyChanged ? "true" : "false";
         row.append(
           createTextElement("strong", "", formation.name),
           createTextElement("span", "", formation.personnel),
-          createTextElement("span", "", formation.condition),
-          createTextElement("small", "", formation.disposition)
+          createTextElement("span", "", formation.condition)
         );
+        if (formation.effects?.length) {
+          const effects = document.createElement("ul");
+          effects.className = "campaign-aar-formation__effects";
+          effects.append(...formation.effects.map((effect) => createTextElement("li", "", effect)));
+          row.append(effects);
+        }
+        row.append(createTextElement("small", "", formation.disposition));
         return row;
+      };
+      const commandGroups = new Map<string, CampaignCommandAfterActionFormationView[]>();
+      selected.formations.forEach((formation) => {
+        const members = commandGroups.get(formation.commandLabel) ?? [];
+        members.push(formation);
+        commandGroups.set(formation.commandLabel, members);
+      });
+      formationList.replaceChildren(...Array.from(commandGroups.entries()).map(([commandLabel, members]) => {
+        const command = document.createElement("section");
+        command.className = "campaign-aar-command";
+        command.dataset.commandLabel = commandLabel;
+        const changed = members.filter((formation) => formation.materiallyChanged);
+        const unchanged = members.filter((formation) => !formation.materiallyChanged);
+        const statusParts = [
+          changed.length > 0 ? `${changed.length} affected` : null,
+          unchanged.length > 0 ? `${unchanged.length} with no reported loss or condition change` : null
+        ].filter((entry): entry is string => entry !== null);
+        const commandHeader = document.createElement("header");
+        commandHeader.append(
+          createTextElement("strong", "", commandLabel),
+          createTextElement("small", "", statusParts.join(" · "))
+        );
+        command.append(commandHeader, ...changed.map(createFormationRow));
+        if (unchanged.length > 0) {
+          const unchangedDisclosure = document.createElement("details");
+          unchangedDisclosure.className = "campaign-aar-unchanged";
+          unchangedDisclosure.append(
+            createTextElement(
+              "summary",
+              "",
+              `${unchanged.length} formation${unchanged.length === 1 ? "" : "s"} returned with no reported loss or condition change`
+            ),
+            ...unchanged.map(createFormationRow)
+          );
+          command.append(unchangedDisclosure);
+        }
+        return command;
       }));
     }
     formations.append(formationList);

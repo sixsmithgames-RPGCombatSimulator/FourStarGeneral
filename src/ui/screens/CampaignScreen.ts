@@ -100,6 +100,39 @@ export function resolveCampaignCounterattackStageLabel(options: {
   return "Enemy counterattack will interrupt the next campaign resolution.";
 }
 
+function formatCampaignAfterActionEquipmentLabel(storageKey: string): string {
+  const words = storageKey
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
+  return words || "equipment";
+}
+
+/** Projects every reported non-loss condition change into concise, player-facing AAR evidence. */
+export function projectCampaignAfterActionFormationEffects(formation: {
+  readonly equipmentLost: Readonly<Record<string, number>>;
+  readonly fatigueBefore: number;
+  readonly fatigueAfter: number;
+  readonly experienceGained: number;
+  readonly statusAfter: string;
+}): string[] {
+  const effects = Object.entries(formation.equipmentLost)
+    .filter(([, lost]) => lost > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, lost]) => `${lost.toLocaleString()} ${formatCampaignAfterActionEquipmentLabel(key)} lost`);
+  if (formation.fatigueBefore !== formation.fatigueAfter) {
+    effects.push(`Fatigue ${Math.round(formation.fatigueBefore)} → ${Math.round(formation.fatigueAfter)}`);
+  }
+  if (formation.experienceGained > 0) {
+    effects.push(`+${formation.experienceGained.toLocaleString()} experience`);
+  }
+  if (formation.statusAfter !== "ready") {
+    effects.push(`Status: ${formation.statusAfter.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()}`);
+  }
+  return effects;
+}
+
 export class CampaignScreen {
   private readonly screenManager: IScreenManager;
   private readonly campaignState = ensureCampaignState();
@@ -3009,13 +3042,34 @@ export class CampaignScreen {
         tacticalObjectives: report.tacticalObjectives.map((objective) => (
           `${objective.label}: ${String(objective.state).replace(/([a-z])([A-Z])/g, "$1 $2")}`
         )),
-        formations: report.friendlyFormations.map((formation) => ({
-          id: formation.formationId,
-          name: formation.name,
-          personnel: `${formation.personnelAfter.toLocaleString()} / ${formation.personnelBefore.toLocaleString()} personnel · −${formation.personnelLost.toLocaleString()}`,
-          condition: `Readiness ${Math.round(formation.readinessBefore)} → ${Math.round(formation.readinessAfter)} · Cohesion ${Math.round(formation.cohesionBefore)} → ${Math.round(formation.cohesionAfter)}`,
-          disposition: `${formation.disposition.replace(/([a-z])([A-Z])/g, "$1 $2")} · ${formation.dispositionExplanation}`
-        })),
+        formations: report.friendlyFormations.map((formation) => {
+          const currentFormation = this.campaignState.getCampaignFormationSnapshot(formation.formationId);
+          const presentation = currentFormation
+            ? resolveCampaignFormationPresentation({
+              legacyLabel: currentFormation.origin.legacyLabel,
+              legacyOrdinal: currentFormation.origin.legacyOrdinal,
+              unitType: currentFormation.campaignUnitType
+            })
+            : null;
+          const materiallyChanged = formation.personnelLost > 0
+            || Object.values(formation.equipmentLost).some((loss) => loss > 0)
+            || formation.readinessBefore !== formation.readinessAfter
+            || formation.cohesionBefore !== formation.cohesionAfter
+            || formation.fatigueBefore !== formation.fatigueAfter
+            || formation.experienceGained > 0
+            || formation.statusAfter !== "ready"
+            || formation.disposition !== "held";
+          return {
+            id: formation.formationId,
+            name: presentation?.formationName ?? formation.name,
+            commandLabel: presentation?.commandLabel ?? formation.name,
+            personnel: `${formation.personnelAfter.toLocaleString()} / ${formation.personnelBefore.toLocaleString()} personnel · −${formation.personnelLost.toLocaleString()}`,
+            condition: `Readiness ${Math.round(formation.readinessBefore)} → ${Math.round(formation.readinessAfter)} · Cohesion ${Math.round(formation.cohesionBefore)} → ${Math.round(formation.cohesionAfter)}`,
+            effects: projectCampaignAfterActionFormationEffects(formation),
+            disposition: `${formation.disposition.replace(/([a-z])([A-Z])/g, "$1 $2")} · ${formation.dispositionExplanation}`,
+            materiallyChanged
+          };
+        }),
         objectiveChanges: report.campaignObjectiveChanges.map((objective) => (
           `${objective.label}: ${objective.statusBefore} → ${objective.statusAfter} · ${Math.round(objective.progressAfter * 100)}%${objective.scoreAwarded > 0 ? ` · +${objective.scoreAwarded} points` : ""}`
         )),

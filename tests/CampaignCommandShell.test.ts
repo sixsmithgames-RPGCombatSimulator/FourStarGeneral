@@ -15,7 +15,10 @@ import { computeCampaignContentHash } from "../src/game/campaign/runtime/Campaig
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import { ensureCampaignState } from "../src/state/CampaignState";
 import { CampaignCommandShell } from "../src/ui/campaign/CampaignCommandShell";
-import { CampaignScreen } from "../src/ui/screens/CampaignScreen";
+import {
+  CampaignScreen,
+  projectCampaignAfterActionFormationEffects
+} from "../src/ui/screens/CampaignScreen";
 
 /** Builds the compatibility markup required for shell composition without loading index.html. */
 function mountCommandShellFixture(includeDeveloperTemplates = false): HTMLElement {
@@ -435,9 +438,11 @@ registerTest("CAMPAIGN_COMMAND_SHELL_PRESENTS_ACCESSIBLE_AFTER_ACTION_ARCHIVE", 
         formations: [{
           id: "formation-1",
           name: "1st Infantry <Group>",
+          commandLabel: "1st Infantry Division",
           personnel: "76 / 100 personnel · −24",
           condition: "Readiness 90 → 62 · Cohesion 85 → 60",
-          disposition: "occupied · Secured the harbor"
+          disposition: "occupied · Secured the harbor",
+          materiallyChanged: true
         }],
         objectiveChanges: ["Secure harbor: active → completed · +75 points"],
         decisions: [{
@@ -496,6 +501,125 @@ registerTest("CAMPAIGN_COMMAND_SHELL_PRESENTS_ACCESSIBLE_AFTER_ACTION_ARCHIVE", 
     }
     if (root.innerHTML.includes("<Harbor>") || root.innerHTML.includes("<Group>")) {
       throw new Error("AAR projection text was interpreted as HTML.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_COMMAND_SHELL_EMPHASIZES_AFFECTED_FORMATIONS_WITHOUT_HIDING_EXACT_RECORDS", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+
+  await Given("an after-action report with two affected battalions and four formations with no reported loss or condition change", async () => {
+    root = mountCommandShellFixture();
+    const shell = new CampaignCommandShell(root, {});
+    if (!shell.initialize()) throw new Error("Campaign command shell did not initialize.");
+    const formationNames = [
+      "8th Battalion",
+      "9th Battalion",
+      "1st Canadian Parachute Battalion",
+      "7th Battalion",
+      "12th Battalion",
+      "13th Battalion"
+    ];
+    const formations = Array.from({ length: 6 }, (_, index) => ({
+      id: `formation-${index + 1}`,
+      name: formationNames[index]!,
+      commandLabel: index < 3 ? "3rd Parachute Brigade" : "5th Parachute Brigade",
+      personnel: index === 0 ? "118 / 150 personnel · −32" : "150 / 150 personnel · −0",
+      condition: index === 0
+        ? "Readiness 100 → 61 · Cohesion 100 → 68"
+        : "Readiness 100 → 100 · Cohesion 100 → 100",
+      effects: index === 1 ? ["2 field guns lost"] : [],
+      disposition: "held · Retained the defended position",
+      materiallyChanged: index <= 1
+    }));
+    shell.render({
+      theaterTitle: "Operation Overlord",
+      campaignPhase: "D+1 lodgment",
+      timeLabel: "D+1 · 7 June 1944, 06:00–09:00",
+      commandStatus: "Planning",
+      saveStatus: "Saved",
+      unreadReports: 1,
+      afterActionReports: [{
+        id: "aar-density",
+        title: "After action: Orne",
+        timeLabel: "D+1 · 7 June 1944, 06:00–09:00",
+        result: "victory",
+        resultLabel: "Victory",
+        acknowledged: false,
+        summary: "The airborne lodgment held.",
+        location: "Operational hex 31,22",
+        checkpointStatus: null,
+        personnelLosses: "32",
+        opponentLosses: "19",
+        resourcesSpent: "No theater resources charged",
+        scoreChange: "0 → 100",
+        operationalEffects: [],
+        tacticalObjectives: ["Hold the engagement area: completed"],
+        formations,
+        objectiveChanges: ["Hold the Normandy Lodgment: in progress → completed"],
+        decisions: []
+      }],
+      resources: [],
+      objectives: [],
+      forces: [],
+      airPower: 0,
+      navalPower: 0,
+      intelligenceCapacity: "0/0 available",
+      orders: [],
+      advance: {
+        mode: "segment",
+        enabled: true,
+        pauseAfterEveryResolution: false,
+        summary: "Battle resolved.",
+        alerts: [],
+        timeline: []
+      }
+    });
+  });
+
+  await When("the report opens at command-level reading density", async () => {});
+
+  await Then("affected formations are immediately visible and every other exact record remains available by disclosure", async () => {
+    const commands = Array.from(root.querySelectorAll<HTMLElement>(".campaign-aar-command"));
+    const affected = root.querySelectorAll<HTMLElement>("[data-material-change='true']");
+    const disclosures = Array.from(root.querySelectorAll<HTMLDetailsElement>(".campaign-aar-unchanged"));
+    const exactIds = Array.from(root.querySelectorAll<HTMLElement>("[data-formation-id]"), (row) => row.dataset.formationId);
+    if (commands.length !== 2
+      || affected.length !== 2
+      || disclosures.length !== 2
+      || disclosures.some((details) => details.open)
+      || !root.textContent?.includes("2 field guns lost")
+      || !disclosures.some((details) => details.textContent?.includes("1 formation returned with no reported loss or condition change"))
+      || !disclosures.some((details) => details.textContent?.includes("3 formations returned with no reported loss or condition change"))
+      || new Set(exactIds).size !== 6
+      || exactIds.length !== 6) {
+      throw new Error("The AAR did not prioritize affected formations while preserving the exact committed roster.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_AAR_EXPLAINS_EQUIPMENT_FATIGUE_EXPERIENCE_AND_STATUS_CHANGES", async ({ Given, When, Then }) => {
+  let effects: string[] = [];
+
+  await Given("a formation result whose personnel and readiness are unchanged but other recorded conditions changed", async () => {});
+
+  await When("the result is projected into player-facing AAR evidence", async () => {
+    effects = projectCampaignAfterActionFormationEffects({
+      equipmentLost: { field_guns: 2 },
+      fatigueBefore: 12,
+      fatigueAfter: 27,
+      experienceGained: 3,
+      statusAfter: "refitting"
+    });
+  });
+
+  await Then("every reported reason is visible without exposing storage-key formatting", async () => {
+    if (!effects.includes("2 field guns lost")
+      || !effects.includes("Fatigue 12 → 27")
+      || !effects.includes("+3 experience")
+      || !effects.includes("Status: refitting")
+      || effects.some((effect) => effect.includes("field_guns"))) {
+      throw new Error(`AAR condition evidence was incomplete or storage-facing: ${JSON.stringify(effects)}.`);
     }
   });
 });
@@ -856,10 +980,12 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
       || !inspectorCopy.includes("Assigned commands")
       || !inspectorCopy.includes("Orders")
       || !inspectorCopy.includes("Reinforcements arrive")
-      || !inspectorCopy.includes("U.S. 2nd Infantry Division")
-      || !inspectorCopy.includes("U.S. 90th Infantry Division")
+      || !inspectorCopy.includes("2d Infantry Division")
+      || !inspectorCopy.includes("90th Infantry Division")
+      || !inspectorCopy.includes("infantry arrival groups")
       || !inspectorCopy.includes("Arriving here")
       || /segment\s+[68]/i.test(inspectorCopy)
+      || /Infantry 42/i.test(inspectorCopy)
       || formationButtons.length !== 0
       || /Plan redeployment/i.test(inspectorCopy)
       || !document.querySelector<HTMLElement>(".campaign-context-inspector .action-section")?.hidden) {
@@ -920,7 +1046,7 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
       || !routeCopy.includes("Logistics and embarkation")
       || !routeCopy.includes("Assigned commands")
       || !routeCopy.includes("Ready now")
-      || !routeCopy.includes("U.S. First Army Service Command")
+      || !routeCopy.includes("U.S. First Army Service Troops")
       || routeCopy.includes("Projected forces")
       || routeCopy.includes(`hex ${portlandHexKey}`)
       || selection?.hidden

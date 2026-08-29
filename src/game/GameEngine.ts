@@ -252,6 +252,8 @@ export type RosterStatus = "frontline" | "reserve" | "support" | "casualty";
 
 export interface RosterUnitSummary {
   readonly unitId: string;
+  /** Stable campaign identity used only to refresh player-facing names across old tactical saves. */
+  readonly campaignFormationId?: string;
   readonly unitKey: string | null;
   readonly label: string;
   readonly unitType: string;
@@ -16849,6 +16851,7 @@ private automateSupplyConvoys(
 
       return {
         unitId: `${unit.type}_${axialKey(unit.hex)}`,
+        ...(unit.campaignProvenance?.formationId ? { campaignFormationId: unit.campaignProvenance.formationId } : {}),
         unitKey,
         label,
         unitType: unit.type,
@@ -16915,6 +16918,9 @@ private automateSupplyConvoys(
 
       return {
         unitId: `reserve_${index}`,
+        ...(reserve.unit.campaignProvenance?.formationId
+          ? { campaignFormationId: reserve.unit.campaignProvenance.formationId }
+          : {}),
         unitKey,
         label,
         unitType: reserve.unit.type,
@@ -16950,6 +16956,9 @@ private automateSupplyConvoys(
 
       return {
         unitId: `casualty_${index}`,
+        ...(casualty.unit.campaignProvenance?.formationId
+          ? { campaignFormationId: casualty.unit.campaignProvenance.formationId }
+          : {}),
         unitKey: casualty.unitKey,
         label: casualty.label,
         unitType: casualty.unit.type,

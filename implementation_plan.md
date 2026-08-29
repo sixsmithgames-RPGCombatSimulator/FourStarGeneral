@@ -1661,3 +1661,36 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Commit and push once, wait for the automatic production deployment, then resume the live Turn 6 defense and prove Mission Complete, AAR, return to campaign, and clean console state.
 
 ---
+
+## Source-Backed Formation Identity and AAR Command Density — 2026-08-29
+
+### Intended behavior
+- Every exact Allied formation shown to the player uses a dated, source-backed WWII subordinate identity and immediate period command.
+- Campaign strength steps and logistics abstractions remain grouped under authentic commands; the interface never invents plausible battalion, squadron, or column numbers.
+- Enemy formation identity remains governed by intelligence quality even when the internal scenario OOB is exact.
+- The AAR makes the formations that actually changed immediately legible while preserving every exact committed record in accessible drill-down.
+
+### Current behavior
+- Ground records without a special mapping collapse to repeated labels such as `British 6th Airborne Division` and `British 3rd Infantry Division battalions`.
+- Stored AAR presentation bypasses the current formation resolver and prints the frozen legacy name even when a safe presentation correction exists.
+- Every committed row opens at equal visual priority, so one damaged battalion is buried among many unchanged formations.
+
+### Expected new behavior
+- U.S., British, and Canadian exact groups resolve deterministically from retained origin label and ordinal into the source-traced OOB manifest.
+- Real commands own their subordinate rows; aggregate strength steps opt out of subordinate disclosure and stay grouped.
+- AAR display names resolve from current origin metadata without mutating stored report facts or integrity hashes.
+- Materially changed rows are open and emphasized. Only rows with no personnel, equipment, readiness, cohesion, fatigue, experience, status, or disposition change are collapsed under a counted disclosure.
+
+### Impact analysis
+- Consumers: formation seeding, existing-save roster projection, base inspector, tactical formation label handoff, saved AAR projection, and AAR report density.
+- State boundary: persistent IDs, origin records, authored campaign counts, save checksums, and immutable report content remain unchanged. This is a presentation mapping and hierarchy change.
+- Historical boundary: exact identities and abstractions are separately declared in `docs/NORMANDY_DPLUS1_OOB_MANIFEST.md`; no generated ordinal fallback is introduced.
+
+### Verification
+- Prove exact D-Day ground groups resolve every authored ordinal once with unique subordinate names and correct command echelons.
+- Prove known campaign strength steps remain grouped and explicitly lack fabricated subordinate identity.
+- Prove AAR default density shows affected rows first, collapses only unchanged rows, and retains every exact formation ID once.
+- Run typecheck, campaign suite, full tests, focused lint, production build, skill validation, and `git diff --check`.
+- Batch into one push, wait for the one automatic production deployment, then replay the saved defense AAR and inspect exact names, command grouping, disclosure behavior, viewports, console, and broken images through external Chrome.
+
+---

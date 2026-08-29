@@ -86,7 +86,7 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
 
     const engine = this.battleState.ensureGameEngine();
     const turn = engine.getTurnSummary();
-    const roster = engine.getRosterSnapshot();
+    const roster = this.battleState.getRosterSnapshot?.() ?? engine.getRosterSnapshot();
     const reserves = engine.getReserveSnapshot();
     const mission = this.battleState.getPrecombatMissionInfo();
     const logisticsSnapshot = engine.getLogisticsSnapshot();
