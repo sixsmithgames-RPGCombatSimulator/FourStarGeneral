@@ -267,6 +267,7 @@ function resolveInspectorRoute(
         }] : []),
         ...(hex.capabilities?.length ? [{ label: "Provides", value: hex.capabilities.join(" · ") }] : []),
         ...(hex.infrastructure ? [{ label: "Condition", value: hex.infrastructure }] : []),
+        ...(hex.infrastructureRecovery ? [{ label: "Recovery", value: hex.infrastructureRecovery }] : []),
         ...(hex.objectives.length > 0 ? [{ label: "Supports", value: hex.objectives.join(", ") }] : []),
         ...(hex.fronts.length > 0 ? [{ label: "Front", value: hex.fronts.join(", ") }] : [])
       ] : [
@@ -279,6 +280,7 @@ function resolveInspectorRoute(
           ...(hex.forces.length > 0 ? [{ label: "Projected forces", value: hex.forces.join("; ") }] : []),
           ...(hex.capabilities?.length ? [{ label: "Operational contribution", value: hex.capabilities.join(" · ") }] : []),
           ...(hex.infrastructure ? [{ label: "Infrastructure", value: hex.infrastructure }] : []),
+          ...(hex.infrastructureRecovery ? [{ label: "Recovery", value: hex.infrastructureRecovery }] : []),
           ...(hex.objectives.length > 0 ? [{ label: "Objectives", value: hex.objectives.join(", ") }] : []),
           ...(hex.fronts.length > 0 ? [{ label: "Fronts", value: hex.fronts.join(", ") }] : [])
         ] : [])

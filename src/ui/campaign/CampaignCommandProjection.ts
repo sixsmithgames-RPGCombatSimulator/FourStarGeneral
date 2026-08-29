@@ -17,6 +17,22 @@ export interface CampaignAfterActionInfrastructureEffectView {
   readonly disruptionTimeLabel: string | null;
 }
 
+export interface CampaignInfrastructureRecoveryView {
+  readonly integrity: number;
+  readonly maxIntegrity: number;
+  readonly captureDisruptionUntilSegment: number | null;
+  readonly disruptionTimeLabel: string | null;
+}
+
+export interface CampaignInfrastructureConditionView {
+  readonly roleLabel: string;
+  readonly damageStateLabel: string;
+  readonly integrity: number;
+  readonly maxIntegrity: number;
+  readonly effectiveness: number;
+  readonly conciseBaseIdentity: boolean;
+}
+
 /** Converts the runtime's axial `q,r` identity into the campaign UI/map's offset `col,row` identity. */
 export function projectRuntimeHexKeyToCampaignOffset(runtimeHexKey: string | null): string | null {
   if (!runtimeHexKey) return null;
@@ -81,4 +97,24 @@ export function projectCampaignAfterActionInfrastructureEffect(
     ? ` · garrison reorganization continues until ${view.disruptionTimeLabel}`
     : "";
   return `${view.roleLabel}: ${integrityBefore} → ${after.integrity} integrity · ${capacityPercent}% operational capacity${reorganization}`;
+}
+
+/** Projects timed capture recovery without confusing it with player-ordered structural reconstruction. */
+export function projectCampaignInfrastructureRecoveryStatus(
+  view: CampaignInfrastructureRecoveryView
+): string | null {
+  if (view.captureDisruptionUntilSegment === null || !view.disruptionTimeLabel) return null;
+  return view.integrity < view.maxIntegrity
+    ? `The new garrison is reorganizing the position until ${view.disruptionTimeLabel}. Structural reconstruction remains required.`
+    : `The new garrison is reorganizing the position. Full capacity returns ${view.disruptionTimeLabel}; no reconstruction order is required.`;
+}
+
+/** Builds the one active-inspector condition fact from current infrastructure and timed recovery truth. */
+export function projectCampaignInfrastructureCondition(
+  view: CampaignInfrastructureConditionView
+): string {
+  const identity = view.conciseBaseIdentity
+    ? view.damageStateLabel
+    : `${view.roleLabel} · ${view.damageStateLabel} · ${view.integrity}/${view.maxIntegrity} integrity`;
+  return `${identity} · ${Math.round(view.effectiveness * 100)}% operational capacity`;
 }

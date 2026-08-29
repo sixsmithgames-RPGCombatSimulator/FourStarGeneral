@@ -30,6 +30,8 @@ import {
   projectCampaignAfterActionDecisionTargetId,
   projectCampaignAfterActionInfrastructureEffect,
   projectCampaignAfterActionTitle,
+  projectCampaignInfrastructureCondition,
+  projectCampaignInfrastructureRecoveryStatus,
   projectRuntimeHexKeyToCampaignOffset,
   shouldPresentCampaignAfterActionDecision
 } from "../campaign/CampaignCommandProjection";
@@ -1774,11 +1776,12 @@ export class CampaignScreen {
         const repairAction = repairDescriptor && !infrastructure.activeRepairOrderId
           ? `<button type="button" data-draft-infrastructure-repair data-reason-code="${repairDescriptor.reasonCode ?? ""}" ${repairDescriptor.availability === "available" ? "" : "disabled"} title="${this.escapeHtml(repairDescriptor.availability === "available" ? "Review the full reconstruction plan." : `${repairDescriptor.reason ?? "Reconstruction is unavailable."} ${repairDescriptor.correctiveAction ?? ""}`.trim())}">Plan reconstruction</button>`
           : "";
-        const reorganizationNotice = reorganizationTime
-          ? selectedInfrastructure.repairPoints > 0
-            ? `The new garrison is reorganizing the position until ${reorganizationTime}. Structural reconstruction remains required.`
-            : `The new garrison is reorganizing the position. Full capacity returns ${reorganizationTime}; no reconstruction order is required.`
-          : null;
+        const reorganizationNotice = projectCampaignInfrastructureRecoveryStatus({
+          integrity: infrastructure.integrity,
+          maxIntegrity: infrastructure.maxIntegrity,
+          captureDisruptionUntilSegment: infrastructure.captureDisruptionUntilSegment,
+          disruptionTimeLabel: reorganizationTime
+        });
         items.push(`
           <section class="campaign-infrastructure-card" data-infrastructure-state="${this.escapeHtml(infrastructure.damageState)}">
             <div class="campaign-infrastructure-card__heading">
@@ -2815,6 +2818,26 @@ export class CampaignScreen {
       const hasPresentForces = groups.some((force) => force.count > 0);
       const isFriendlyBase = controller === "Player"
         && (palette?.role === "airbase" || palette?.role === "logisticsHub" || palette?.role === "navalBase");
+      const infrastructureCondition = infrastructure
+        ? projectCampaignInfrastructureCondition({
+          roleLabel: infrastructureRole,
+          damageStateLabel: damageState,
+          integrity: infrastructure.integrity,
+          maxIntegrity: infrastructure.maxIntegrity,
+          effectiveness: infrastructure.effectiveness,
+          conciseBaseIdentity: isFriendlyBase
+        })
+        : null;
+      const infrastructureRecovery = infrastructure
+        ? projectCampaignInfrastructureRecoveryStatus({
+          integrity: infrastructure.integrity,
+          maxIntegrity: infrastructure.maxIntegrity,
+          captureDisruptionUntilSegment: infrastructure.captureDisruptionUntilSegment,
+          disruptionTimeLabel: infrastructure.captureDisruptionUntilSegment === null
+            ? null
+            : this.campaignState.segmentToTimeDisplay(infrastructure.captureDisruptionUntilSegment)
+        })
+        : null;
       const locatedFormations = formations.filter((formation) => formation.locationHexKey === hexKey);
       const redeployPreview = isFriendlyBase
         ? this.campaignState.getCampaignRedeployActionPreview(hexKey, "Player")
@@ -2884,9 +2907,8 @@ export class CampaignScreen {
         hasContextActions: isFriendlyBase ? showBaseSelectionActions : controller === "Player" && hasPresentForces,
         forces: groups.filter((force) => force.count > 0).map((force) => `${force.label ?? this.formatCampaignLabel(force.unitType)} · ${force.count}`),
         capabilities,
-        infrastructure: infrastructure
-          ? `${isFriendlyBase ? "" : `${infrastructureRole} · `}${damageState}${isFriendlyBase ? "" : ` · ${infrastructure.integrity}/${infrastructure.maxIntegrity} integrity`} · ${Math.round(infrastructure.effectiveness * 100)}% effective`
-          : null,
+        infrastructure: infrastructureCondition,
+        infrastructureRecovery,
         objectives: objectives.filter((objective) => objective.hexKey === hexKey).map((objective) => objective.label),
         fronts: scenario.fronts.filter((front) => front.hexKeys.includes(hexKey)).map((front) => front.label)
       };

@@ -16,6 +16,8 @@ import {
   projectCampaignAfterActionDecisionTargetId,
   projectCampaignAfterActionInfrastructureEffect,
   projectCampaignAfterActionTitle,
+  projectCampaignInfrastructureCondition,
+  projectCampaignInfrastructureRecoveryStatus,
   projectRuntimeHexKeyToCampaignOffset,
   shouldPresentCampaignAfterActionDecision
 } from "../src/ui/campaign/CampaignCommandProjection";
@@ -335,6 +337,72 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
     root.remove();
     Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
     window.dispatchEvent(new Event("resize"));
+  });
+});
+
+registerTest("CAMPAIGN_ACTIVE_INSPECTOR_EXPLAINS_INTACT_CAPTURE_RECOVERY_WITHOUT_RECONSTRUCTION", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+  let screen: CampaignCommandScreen;
+
+  await Given("a captured heavy fort at full integrity whose new garrison is temporarily operating at half capacity", () => {
+    root = mountFoundationFixture();
+    screen = new CampaignCommandScreen(root, {}, { v2Enabled: true });
+    if (!screen.initialize()) throw new Error("Managed campaign command screen did not initialize.");
+    const infrastructure = projectCampaignInfrastructureCondition({
+      roleLabel: "Fortification Heavy",
+      damageStateLabel: "Intact",
+      integrity: 160,
+      maxIntegrity: 160,
+      effectiveness: 0.5,
+      conciseBaseIdentity: false
+    });
+    const infrastructureRecovery = projectCampaignInfrastructureRecoveryStatus({
+      integrity: 160,
+      maxIntegrity: 160,
+      captureDisruptionUntilSegment: 8,
+      disruptionTimeLabel: "D+2 · 8 June 1944, 00:00–03:00"
+    });
+    screen.render({
+      ...createSafeView("Capture Recovery Inspector"),
+      hexes: [{
+        hexKey: "29,23",
+        roleLabel: "Fortification Heavy",
+        controlLabel: "Friendly control",
+        displayLabel: "Operational hex 29,23",
+        summary: "Heavy fortification under friendly control.",
+        locationLabel: "Operational hex 29,23",
+        hasContextActions: false,
+        showSelectionActions: false,
+        showEngagementAction: false,
+        forces: [],
+        infrastructure,
+        infrastructureRecovery,
+        objectives: [],
+        fronts: []
+      }]
+    });
+  });
+
+  await When("the captured fort is selected in the active Campaign Command inspector", () => {
+    screen.revealInspector({ kind: "hex", id: "29,23" });
+  });
+
+  await Then("the visible route names the reason, recovery time, and automatic status without offering reconstruction", () => {
+    const inspector = root.querySelector<HTMLElement>("#campaignContextInspector");
+    const route = inspector?.querySelector<HTMLElement>("#campaignContextInspectorRoute");
+    const copy = route?.textContent ?? "";
+    if (inspector?.dataset.routeMode !== "projected"
+      || !copy.includes("160/160 integrity · 50% operational capacity")
+      || !copy.includes("new garrison is reorganizing")
+      || !copy.includes("Full capacity returns D+2 · 8 June 1944, 00:00–03:00")
+      || !copy.includes("no reconstruction order is required")
+      || !copy.includes("Recovery")
+      || route?.querySelector("[data-draft-infrastructure-repair]")
+      || !inspector?.querySelector<HTMLElement>(".campaign-context-inspector__action-footer")?.hidden) {
+      throw new Error(`Active inspector did not explain intact capture recovery cleanly: '${inspector?.textContent ?? ""}'.`);
+    }
+    screen.destroy();
+    root.remove();
   });
 });
 
@@ -737,6 +805,8 @@ registerTest("CAMPAIGN_AAR_PROJECTION_DISTINGUISHES_CAPTURE_REORGANIZATION_FROM_
   let damagedRepairVisible = false;
   let intactEffect = "";
   let damagedEffect = "";
+  let intactRecovery = "";
+  let damagedRecovery = "";
 
   await Given("an affected saved repair prompt, an intact captured fort, and a genuinely damaged captured fort", () => {});
   await When("the reports cross the command presentation boundary", () => {
@@ -757,6 +827,14 @@ registerTest("CAMPAIGN_AAR_PROJECTION_DISTINGUISHES_CAPTURE_REORGANIZATION_FROM_
       effectivenessAfter: 0.5,
       disruptionTimeLabel: "D+2 · 8 June 1944, 00:00–03:00"
     }) ?? "";
+    intactRecovery = projectCampaignInfrastructureRecoveryStatus({
+      ...intactAudit,
+      disruptionTimeLabel: "D+2 · 8 June 1944, 00:00–03:00"
+    }) ?? "";
+    damagedRecovery = projectCampaignInfrastructureRecoveryStatus({
+      ...damagedAudit,
+      disruptionTimeLabel: "D+2 · 8 June 1944, 00:00–03:00"
+    }) ?? "";
   });
   await Then("only the obsolete false repair is suppressed and both operational effects remain truthful", () => {
     if (staleRepairVisible
@@ -766,8 +844,12 @@ registerTest("CAMPAIGN_AAR_PROJECTION_DISTINGUISHES_CAPTURE_REORGANIZATION_FROM_
       || !intactEffect.includes("new garrison reorganizes")
       || !intactEffect.includes("full capacity returns D+2")
       || !damagedEffect.includes("160 → 90 integrity")
-      || !damagedEffect.includes("garrison reorganization continues until D+2")) {
-      throw new Error(`Capture and repair projection diverged: ${JSON.stringify({ staleRepairVisible, otherInfrastructureDecisionVisible, damagedRepairVisible, intactEffect, damagedEffect })}.`);
+      || !damagedEffect.includes("garrison reorganization continues until D+2")
+      || !intactRecovery.includes("Full capacity returns D+2")
+      || !intactRecovery.includes("no reconstruction order is required")
+      || !damagedRecovery.includes("Structural reconstruction remains required")
+      || damagedRecovery.includes("no reconstruction order is required")) {
+      throw new Error(`Capture and repair projection diverged: ${JSON.stringify({ staleRepairVisible, otherInfrastructureDecisionVisible, damagedRepairVisible, intactEffect, damagedEffect, intactRecovery, damagedRecovery })}.`);
     }
   });
 });

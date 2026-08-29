@@ -1600,3 +1600,31 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Run focused AAR, campaign screen, and campaign command tests; campaign suite; build; zero-warning lint; full tests; and `git diff --check` before release.
 
 ---
+
+## Active Inspector Capture-Recovery Clarity — 2026-08-29
+
+### Intended behavior
+- Following an AAR focus route selects the affected installation and immediately explains its current condition and recovery in the active campaign inspector.
+- Temporary post-capture reorganization states its cause, current operating capacity, and exact automatic return time without presenting reconstruction as a player command.
+- The persistent Orders footer contains only commands the player can actually issue.
+
+### Current behavior
+- The active command-shell inspector shows `160/160 integrity · 50% effective` but does not explain why capacity is reduced or when it returns.
+- A legacy compatibility card contains the recovery explanation, but that card is hidden beneath the active shell and therefore does not help the player.
+
+### Expected new behavior
+- The active inspector separates a concise `Condition` fact from a visible `Recovery` fact.
+- An intact captured fortification states that the new garrison is reorganizing, gives the exact full-capacity time, and explicitly confirms that no reconstruction order is required.
+- A structurally damaged installation retains its real reconstruction workflow while also disclosing any simultaneous capture handover.
+
+### Impact analysis
+- Consumers: campaign hex projection, active context inspector, selected-installation legacy compatibility projection, and command-foundation semantic coverage.
+- State boundary: presentation only; integrity, effectiveness, disruption timing, order legality, campaign events, and saves remain unchanged.
+- Visual risk: the new fact can add inspector height, but it stays in the scrollable body rather than the fixed action footer.
+
+### Verification
+- Add an active-shell regression proving `Condition` and `Recovery` project from authoritative infrastructure state, including exact time and absence of a reconstruction action.
+- Run campaign tests, full tests, typecheck, focused zero-warning lint, production build, skill validation, and `git diff --check`.
+- Push once, wait for the single Vercel deployment, then verify computed visibility and capture the selected installation through external Chrome.
+
+---

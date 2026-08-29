@@ -135,6 +135,8 @@ export interface CampaignCommandHexView {
   readonly forces: readonly string[];
   readonly capabilities?: readonly string[];
   readonly infrastructure: string | null;
+  /** Concise timed recovery context shown beside condition, never in the Orders footer. */
+  readonly infrastructureRecovery?: string | null;
   readonly objectives: readonly string[];
   readonly fronts: readonly string[];
 }
