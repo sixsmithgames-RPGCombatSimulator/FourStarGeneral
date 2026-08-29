@@ -388,6 +388,7 @@ export class BattleScreen {
   private selectionIntelOverlay: SelectionIntelOverlay | null = null;
   private readonly battleActivityLog: BattleActivityLog | null;
   private activeMissionSessionKey: string | null = null;
+  private pendingTacticalResumePresentation: TacticalUIResumeContext | null = null;
   private battleIntelOverlayRoot: HTMLElement | null = null;
 
   /** Temporary debug overlay to visualize bot/player placements regardless of recon/LOS. Disable when done. */
@@ -7590,10 +7591,12 @@ export class BattleScreen {
   /**
    * Kicks off deployment phase mirrors on first screen load.
    */
-  private initializeDeploymentMirrors(): void {
+  private initializeDeploymentMirrors(preserveHydratedSelection = false): void {
     this.primeDeploymentState();
     this.refreshDeploymentMirrors("sync");
-    this.ensureDefaultSelection();
+    if (!preserveHydratedSelection) {
+      this.ensureDefaultSelection();
+    }
   }
 
   /**
@@ -8296,7 +8299,7 @@ export class BattleScreen {
 
     this.activeMissionSessionKey = this.getMissionSessionKey();
     this.initializeBattleMap(true);
-    this.initializeDeploymentMirrors();
+    this.initializeDeploymentMirrors(true);
     this.restoreBattlePhasePresentationAfterResume();
     this.syncTurnContext();
     this.renderMissionStatus();
@@ -8304,7 +8307,19 @@ export class BattleScreen {
     void this.requestTacticalTurnStartAutosave();
     this.syncQueuedTargetMarkers();
     this.battleActivityLog?.sync(this.activityEvents);
-    this.battleActivityLog?.setCollapsed(ui.activityLogCollapsed);
+    this.battleActivityLog?.setCollapsed(ui.activityLogCollapsed || this.activityEvents.length === 0);
+    this.pendingTacticalResumePresentation = structuredClone(ui);
+    this.highlightCurrentInitiativeGroup();
+    this.syncLegacyEndTurnButton();
+    this.lastTacticalFocusElementId = ui.focusedElementId;
+  }
+
+  /** Applies camera, selection, popup, and focus only after ScreenManager makes the battle measurable. */
+  private flushPendingTacticalResumePresentation(): void {
+    const ui = this.pendingTacticalResumePresentation;
+    if (!ui) return;
+    this.pendingTacticalResumePresentation = null;
+
     if (ui.viewport && this.mapViewport) {
       this.mapViewport.setTransform(ui.viewport.zoom, ui.viewport.panX, ui.viewport.panY);
     }
@@ -8314,9 +8329,6 @@ export class BattleScreen {
     }
     if (ui.intelOverlayExpanded) this.expandBattleIntelOverlayIfCollapsed();
     if (ui.openPopup) this.popupManager.openPopup(ui.openPopup);
-    this.highlightCurrentInitiativeGroup();
-    this.syncLegacyEndTurnButton();
-    this.lastTacticalFocusElementId = ui.focusedElementId;
     if (ui.focusedElementId) {
       window.requestAnimationFrame(() => {
         const focusTarget = document.getElementById(ui.focusedElementId ?? "");
@@ -12301,6 +12313,7 @@ export class BattleScreen {
         missionKey: this.uiState?.selectedMission ?? "training"
       });
     }
+    this.flushPendingTacticalResumePresentation();
   }
 
   /**
@@ -14730,6 +14743,10 @@ export class BattleScreen {
   }
 
   private resolveUnitLabelForUnit(unit: ScenarioUnit): string | null {
+    const campaignFormationName = unit.campaignProvenance?.formationName?.trim();
+    if (campaignFormationName) {
+      return campaignFormationName;
+    }
     const scenarioType = unit.type as string;
     const deploymentState = ensureDeploymentState();
     const unitKey = deploymentState.getUnitKeyForScenarioType(scenarioType);
@@ -15111,6 +15128,7 @@ export class BattleScreen {
   }
 
   private resetMissionDerivedUiState(): void {
+    this.pendingTacticalResumePresentation = null;
     if (this.tutorialQueuedMapClickTimerId !== null) {
       window.clearTimeout(this.tutorialQueuedMapClickTimerId);
       this.tutorialQueuedMapClickTimerId = null;

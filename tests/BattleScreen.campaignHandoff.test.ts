@@ -84,6 +84,7 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_PRESERVES_THE_HYDRATED_CAMPAIGN_
   let screen: BattleScreen;
   let refreshCount = 0;
   let resetCount = 0;
+  let defaultSelectionCount = 0;
 
   await Given("a cold-start battle screen already hydrated from a campaign checkpoint", async () => {
     document.body.innerHTML = "<div id=\"battleScreen\"></div>";
@@ -109,17 +110,24 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_PRESERVES_THE_HYDRATED_CAMPAIGN_
       (screen as any).scenario = { name: "Coastal Push" };
     };
     (screen as any).hexMapRenderer = null;
+    (screen as any).primeDeploymentState = () => {};
+    (screen as any).refreshDeploymentMirrors = () => {};
+    (screen as any).ensureDefaultSelection = () => {
+      defaultSelectionCount += 1;
+    };
   });
 
   await When("the screen manager reveals the restored battle", async () => {
     (screen as any).handleScreenShown(new CustomEvent("screen:shown", { detail: { id: "battle" } }));
     (screen as any).initializeBattleMap(true);
+    (screen as any).initializeDeploymentMirrors(true);
   });
 
   await Then("screen activation keeps the restored engagement instead of reseeding the default battle", async () => {
-    if (refreshCount !== 0 || resetCount !== 0 || (screen as any).scenario.name !== "Fortified Assault — Hex 29,23") {
+    if (refreshCount !== 0 || resetCount !== 0 || defaultSelectionCount !== 0
+      || (screen as any).scenario.name !== "Fortified Assault — Hex 29,23") {
       throw new Error(
-        `Cold resume was clobbered: refresh=${refreshCount}, reset=${resetCount}, scenario=${(screen as any).scenario.name}.`
+        `Cold resume was clobbered: refresh=${refreshCount}, reset=${resetCount}, defaultSelection=${defaultSelectionCount}, scenario=${(screen as any).scenario.name}.`
       );
     }
   });
@@ -137,6 +145,9 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
   const save = buildCompleteActiveBattleSave(binding);
   let screen: BattleScreen;
   let preserveHydratedScenario: boolean | null = null;
+  let preserveHydratedSelection: boolean | null = null;
+  let restoredSelectionKey: string | null = null;
+  let activityLogCollapsed: boolean | null = null;
   let resumeError: unknown = null;
   let campaignTitle: HTMLElement;
   let missionTitle: HTMLElement;
@@ -177,7 +188,12 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
     (screen as any).activityEvents = [];
     (screen as any).initiativeSkippedUnitIds = new Set<string>();
     (screen as any).popupManager = { openPopup() {} };
-    (screen as any).battleActivityLog = null;
+    (screen as any).battleActivityLog = {
+      sync() {},
+      setCollapsed(collapsed: boolean) {
+        activityLogCollapsed = collapsed;
+      }
+    };
     (screen as any).mapViewport = null;
     (screen as any).resetMissionDerivedUiState = () => {};
     (screen as any).calculateMissionStatusFromEngine = () => null;
@@ -187,14 +203,18 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
     (screen as any).initializeBattleMap = (preserve: boolean) => {
       preserveHydratedScenario = preserve;
     };
-    (screen as any).initializeDeploymentMirrors = () => {};
+    (screen as any).initializeDeploymentMirrors = (preserve: boolean) => {
+      preserveHydratedSelection = preserve;
+    };
     (screen as any).restoreBattlePhasePresentationAfterResume = () => {};
     (screen as any).syncTurnContext = () => {};
     (screen as any).renderMissionStatus = () => {};
     (screen as any).restoreInitiativeTurnControlsAfterResume = () => {};
     (screen as any).requestTacticalTurnStartAutosave = async () => {};
     (screen as any).syncQueuedTargetMarkers = () => {};
-    (screen as any).applySelectedHex = () => {};
+    (screen as any).applySelectedHex = (hexKey: string) => {
+      restoredSelectionKey = hexKey;
+    };
     (screen as any).expandBattleIntelOverlayIfCollapsed = () => {};
     (screen as any).highlightCurrentInitiativeGroup = () => {};
     (screen as any).syncLegacyEndTurnButton = () => {};
@@ -203,6 +223,7 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
   await When("the checkpoint hydrates before the tactical map is reconstructed", async () => {
     try {
       screen.resumeActiveCampaignBattle(save);
+      (screen as any).handleScreenShown(new CustomEvent("screen:shown", { detail: { id: "battle" } }));
     } catch (error) {
       resumeError = error;
     } finally {
@@ -215,12 +236,37 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
     if (preserveHydratedScenario !== true) {
       throw new Error(`Cold resume rebuilt the map without preserving its hydrated scenario: ${String(preserveHydratedScenario)}.`);
     }
+    if (preserveHydratedSelection !== true || restoredSelectionKey !== "1,1" || activityLogCollapsed !== true) {
+      throw new Error(
+        `Cold resume presentation timing drifted: preserveSelection=${String(preserveHydratedSelection)}, selection=${restoredSelectionKey}, logCollapsed=${String(activityLogCollapsed)}.`
+      );
+    }
     if ((screen as any).scenario.name !== "Meeting Engagement — Hex 1,1"
       || campaignTitle.textContent !== "Operation Overlord - Central Channel Sector"
       || missionTitle.textContent !== "Meeting Engagement — Hex 1,1") {
       throw new Error(
         `Cold resume presentation drifted: scenario=${(screen as any).scenario.name}, campaign=${campaignTitle.textContent}, engagement=${missionTitle.textContent}.`
       );
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_CAMPAIGN_FORMATION_NAME_OVERRIDES_GENERIC_TACTICAL_TYPE", async ({ Given, When, Then }) => {
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+  let label: string | null = null;
+
+  await Given("a tactical unit carrying its immutable campaign formation identity", async () => {});
+
+  await When("the battle inspector resolves the player's unit label", async () => {
+    label = (screen as any).resolveUnitLabelForUnit({
+      type: "Infantry_42",
+      campaignProvenance: { formationName: "U.S. 1st Infantry Division" }
+    });
+  });
+
+  await Then("the campaign formation name is shown instead of a generic catalog label", async () => {
+    if (label !== "U.S. 1st Infantry Division") {
+      throw new Error(`Expected campaign formation identity, received ${label ?? "<none>"}.`);
     }
   });
 });
