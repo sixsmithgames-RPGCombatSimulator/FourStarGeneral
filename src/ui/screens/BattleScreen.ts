@@ -2388,6 +2388,7 @@ export class BattleScreen {
           detailSections
         });
 
+        this.refreshCampaignMissionStatusAfterTacticalAction();
         this.completeTutorialPhase("attack_intro");
         this.battleState.emitBattleUpdate("manual");
         this.completeInitiativeActivationAfterPlayerOrder(actingUnitId);
@@ -11693,6 +11694,7 @@ export class BattleScreen {
     }
 
     this.logInitiativeBotActivationActivity(event, fromKey, toKey);
+    this.refreshCampaignMissionStatusAfterTacticalAction();
   }
 
   private logInitiativeBotActivationActivity(
@@ -13049,6 +13051,7 @@ export class BattleScreen {
         type: "move",
         summary: `Unit moved from ${fromKey} to ${toKey}.`
       });
+      this.refreshCampaignMissionStatusAfterTacticalAction();
       this.completeTutorialPhase("movement_intro");
 
       this.battleState.emitBattleUpdate("manual");
@@ -13079,6 +13082,13 @@ export class BattleScreen {
         summary: moveFailureMessage
       });
     }
+  }
+
+  private refreshCampaignMissionStatusAfterTacticalAction(): void {
+    if (this.uiState?.selectedMission !== "campaign") {
+      return;
+    }
+    this.evaluateMissionRules();
   }
 
   private buildMoveFailureMessage(error: unknown): string {

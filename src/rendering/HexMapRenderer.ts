@@ -15473,7 +15473,7 @@ export class HexMapRenderer implements IMapRenderer {
     );
 
     const burstPromises = Array.from({ length: burstCount }).map((_, index) =>
-      new Promise<void>((resolve) => {
+      new Promise<void>((resolve, reject) => {
         window.setTimeout(() => {
           const offsetX = (Math.random() - 0.5) * jitterPx * 2;
           const offsetY = (Math.random() - 0.5) * jitterPx * 1.6;
@@ -15488,7 +15488,7 @@ export class HexMapRenderer implements IMapRenderer {
               ...impactSoundRequest,
               gainMultiplier: index === 0 ? 0.78 : 0.64
             }
-          ).then(() => resolve());
+          ).then(resolve, reject);
         }, index * staggerMs);
       })
     );

@@ -24,6 +24,9 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
     resolved.playerSupplyNorth = getSpriteForScenarioType("Supply_Truck", "Player", "NE");
     resolved.botSupplyWest = getSpriteForScenarioType("Supply_Truck", "Bot", "W");
     resolved.playerSupplyAllocation = getSpriteForAllocationKey("supplyConvoy", "Player", "W");
+    resolved.playerHowitzerSouth = getSpriteForScenarioType("Howitzer_105", "Player", "SE");
+    resolved.botHowitzerNorth = getSpriteForScenarioType("Howitzer_105", "Bot", "NE");
+    resolved.botHowitzerWest = getSpriteForScenarioType("Howitzer_105", "Bot", "W");
     resolved.playerTransportNorth = getSpriteForScenarioType("Transport_Ship", "Player", "NE");
     resolved.playerTransportEast = getSpriteForScenarioType("Transport_Ship", "Player", "E");
     resolved.playerTransportSouth = getSpriteForScenarioType("Transport_Ship", "Player", "SE");
@@ -110,6 +113,18 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
 
     if (!resolved.playerSupplyAllocation?.includes("Wheeled_Supply_USA_Sideview")) {
       throw new Error(`Expected supply allocation west view to use USA supply Sideview art, saw ${String(resolved.playerSupplyAllocation)}.`);
+    }
+
+    if (!resolved.playerHowitzerSouth?.includes("Artillery_Howitzer_USA_Southview")) {
+      throw new Error(`Expected player howitzer to keep USA Southview art, saw ${String(resolved.playerHowitzerSouth)}.`);
+    }
+
+    if (!resolved.botHowitzerNorth?.includes("Artillery_leFH18_German_Northview")) {
+      throw new Error(`Expected enemy howitzer north view to use German leFH 18 art, saw ${String(resolved.botHowitzerNorth)}.`);
+    }
+
+    if (!resolved.botHowitzerWest?.includes("Artillery_leFH18_German_Sideview")) {
+      throw new Error(`Expected enemy howitzer west view to use German leFH 18 art, saw ${String(resolved.botHowitzerWest)}.`);
     }
 
     const navalExpectations: Array<[string, string]> = [

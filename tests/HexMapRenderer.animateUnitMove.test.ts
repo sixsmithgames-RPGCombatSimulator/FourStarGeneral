@@ -1501,3 +1501,32 @@ registerTest("HEXMAP_IMPACT_HITS_USE_THE_REGISTERED_SPRITE_EFFECT", async ({ Giv
     }
   });
 });
+
+registerTest("HEXMAP_FAILED_IMPACT_EFFECT_RELEASES_ATTACK_RESOLUTION", async ({ Given, When, Then }) => {
+  const renderer = new HexMapRenderer();
+  let rejection: unknown;
+
+  await Given("a vehicle impact whose authored animation fails to play", () => {
+    (renderer as any).playCombatAnimation = async () => {
+      throw new Error("impact sheet unavailable");
+    };
+  });
+
+  await When("the renderer awaits the spark burst", async () => {
+    try {
+      await (renderer as any).playSparkBurst("0,0", {
+        defenderClass: "vehicle",
+        burstCount: 1,
+        durationMs: 1
+      });
+    } catch (error) {
+      rejection = error;
+    }
+  });
+
+  await Then("the failed effect rejects instead of leaving combat permanently pending", () => {
+    if (!(rejection instanceof Error) || rejection.message !== "impact sheet unavailable") {
+      throw new Error(`Expected the impact failure to propagate, received ${String(rejection)}.`);
+    }
+  });
+});

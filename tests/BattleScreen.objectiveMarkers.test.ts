@@ -34,6 +34,28 @@ registerTest("HEXMAP_OBJECTIVE_MARKERS_DO_NOT_BLOCK_HEX_ORDERS", async ({ Given,
   });
 });
 
+registerTest("BATTLESCREEN_CAMPAIGN_TACTICAL_ACTION_REFRESHES_OBJECTIVE_CONTROL", async ({ Given, When, Then }) => {
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+  let evaluationCount = 0;
+
+  await Given("a campaign battle whose unit has just completed a tactical action", () => {
+    (screen as any).uiState = { selectedMission: "campaign" };
+    (screen as any).evaluateMissionRules = () => {
+      evaluationCount += 1;
+    };
+  });
+
+  await When("the post-action mission presentation is refreshed", () => {
+    (screen as any).refreshCampaignMissionStatusAfterTacticalAction();
+  });
+
+  await Then("objective control is recalculated immediately", () => {
+    if (evaluationCount !== 1) {
+      throw new Error(`Expected one immediate campaign mission evaluation, received ${evaluationCount}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_PATROL_OBJECTIVE_MARKERS_USE_TOWN_STATUS", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let clearCalls = 0;

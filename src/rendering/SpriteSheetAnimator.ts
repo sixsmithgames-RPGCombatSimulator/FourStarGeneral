@@ -173,16 +173,12 @@ export async function sliceSpriteSheet(
   const sourceCellWidth = image.naturalWidth / columns;
   const sourceCellHeight = image.naturalHeight / rows;
 
-  // FAIL FAST: Validate the image divides evenly into cells
-  if (!Number.isInteger(sourceCellWidth) || !Number.isInteger(sourceCellHeight)) {
-    const error = new Error(
-      `[SpriteSheet] ASSET/SPEC MISMATCH - Image dimensions ${image.naturalWidth}×${image.naturalHeight} ` +
-      `do not divide evenly into ${columns}×${rows} grid. ` +
-      `Cell size would be ${sourceCellWidth.toFixed(3)}×${sourceCellHeight.toFixed(3)} (non-integer). ` +
-      `This indicates the spec columns/rows are WRONG for this asset.`
+  const usesUnevenPartitions = !Number.isInteger(sourceCellWidth) || !Number.isInteger(sourceCellHeight);
+  if (usesUnevenPartitions) {
+    console.info(
+      `[SpriteSheet] Normalizing authored ${image.naturalWidth}×${image.naturalHeight} sheet across a ${columns}×${rows} grid ` +
+      `(${sourceCellWidth.toFixed(3)}×${sourceCellHeight.toFixed(3)} average cell size).`
     );
-    console.error(error.message);
-    throw error;
   }
 
   // FAIL FAST: Validate frameCount doesn't exceed grid capacity
@@ -195,16 +191,17 @@ export async function sliceSpriteSheet(
     throw error;
   }
 
-  console.log(`[SpriteSheet] ✓ Validation passed: ${sourceCellWidth}×${sourceCellHeight}px per cell`);
+  console.log(`[SpriteSheet] ✓ Validation passed: ${sourceCellWidth}×${sourceCellHeight}px average cell size`);
   // console.log(`[SpriteSheet] Computed source rectangles (1px inset per side):`);
 
   const frameCanvases: HTMLCanvasElement[] = [];
   const frameDataUrls: string[] = [];
   const inset = 1; // source-pixel border trimmed from each side to prevent neighbor bleed
 
-  // Actual output frame dimensions after inset trimming (no scaling)
-  const actualFrameWidth = sourceCellWidth - inset * 2;
-  const actualFrameHeight = sourceCellHeight - inset * 2;
+  // Normalize slightly uneven authored partitions to the smallest cell so every cached frame
+  // has identical integer geometry. Exact-grid sheets keep their existing dimensions.
+  const actualFrameWidth = Math.max(1, Math.floor(sourceCellWidth) - inset * 2);
+  const actualFrameHeight = Math.max(1, Math.floor(sourceCellHeight) - inset * 2);
 
   // Anchor is calculated based on the ACTUAL output frame dimensions
   const desiredAnchorX = actualFrameWidth * anchorX;
@@ -220,20 +217,26 @@ export async function sliceSpriteSheet(
     const col = i % columns;
     const row = Math.floor(i / columns);
 
-    // Source rectangle in the loaded sheet - use derived cell size, not spec frameWidth/Height
-    const sx = col * sourceCellWidth + inset;
-    const sy = row * sourceCellHeight + inset;
-    const sw = sourceCellWidth - inset * 2;
-    const sh = sourceCellHeight - inset * 2;
+    // Proportional integer boundaries preserve every source pixel when an authored sheet is a
+    // few pixels wider/taller than an even grid. The at-most-one-pixel variance is normalized
+    // into the fixed output size below.
+    const cellLeft = Math.round((col * image.naturalWidth) / columns);
+    const cellRight = Math.round(((col + 1) * image.naturalWidth) / columns);
+    const cellTop = Math.round((row * image.naturalHeight) / rows);
+    const cellBottom = Math.round(((row + 1) * image.naturalHeight) / rows);
+    const sx = cellLeft + inset;
+    const sy = cellTop + inset;
+    const sw = Math.max(1, cellRight - cellLeft - inset * 2);
+    const sh = Math.max(1, cellBottom - cellTop - inset * 2);
 
     // // DEBUG: Log computed rectangles for first 4 frames
     // if (i < 4) {
     //   console.log(`[SpriteSheet]   Frame ${i}: col=${col} row=${row} rect=(x:${sx}, y:${sy}, w:${sw}, h:${sh})`);
     // }
 
-    // Output canvas MUST match source rectangle exactly - no scaling, no interpolation artifacts
-    const outputWidth = sw;
-    const outputHeight = sh;
+    // Every cached frame uses one stable integer output size.
+    const outputWidth = actualFrameWidth;
+    const outputHeight = actualFrameHeight;
 
     // Create FRESH canvas for this frame only - NEVER reuse
     const canvas = document.createElement("canvas");
@@ -262,7 +265,7 @@ export async function sliceSpriteSheet(
     ctx.globalCompositeOperation = "source-over";
     ctx.clearRect(0, 0, outputWidth, outputHeight);
 
-    // Draw source cell at (0,0) with 1:1 pixel mapping - NO SCALING
+    // Exact-grid sheets retain 1:1 mapping. Uneven sheets normalize a one-pixel cell variance.
     ctx.drawImage(
       image,
       sx, sy, sw, sh,
@@ -300,7 +303,7 @@ export async function sliceSpriteSheet(
   validateLeadingFrameUniqueness(sourceLabel, frameDataUrls);
 
   console.log(
-    `[SpriteSheet] Sliced ${frameCount} frames at ${actualFrameWidth}x${actualFrameHeight}px each (1:1 from source, no scaling); ` +
+    `[SpriteSheet] Sliced ${frameCount} frames at ${actualFrameWidth}x${actualFrameHeight}px each${usesUnevenPartitions ? " (normalized from uneven partitions)" : ""}; ` +
     `source cells were ${sourceCellWidth}x${sourceCellHeight}px, inset=${inset}px trimmed per side; ` +
     `anchor=(${desiredAnchorX.toFixed(1)}, ${desiredAnchorY.toFixed(1)})`
   );
@@ -346,10 +349,10 @@ function smallExplosionFrameDuration(frameIndex: number): number {
 }
 
 function impactHitsFrameDuration(frameIndex: number): number {
-  if (frameIndex < 4) return 18;
-  if (frameIndex < 10) return 24;
-  if (frameIndex < 16) return 30;
-  return 36;
+  if (frameIndex < 7) return 12;
+  if (frameIndex < 21) return 14;
+  if (frameIndex < 35) return 17;
+  return 20;
 }
 
 /**
@@ -394,14 +397,14 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
   },
   impactHits: {
     imagePath: impactHitsUrl,
-    columns: 6,
-    rows: 4,
-    frameCount: 24,
+    columns: 7,
+    rows: 7,
+    frameCount: 49,
     loop: false,
-    renderScale: 0.24,
+    renderScale: 0.3,
     anchorX: 0.5,
     anchorY: 0.5,
-    fadeOutStartFrame: 16,
+    fadeOutStartFrame: 35,
     getFrameDuration: (frameIndex) => impactHitsFrameDuration(frameIndex)
   },
   dustCloud: {

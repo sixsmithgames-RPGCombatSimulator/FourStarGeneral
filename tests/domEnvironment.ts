@@ -22,7 +22,7 @@ const hostClearTimeout = globalThis.clearTimeout.bind(globalThis);
 const MOCK_IMAGE_DIMENSIONS: ReadonlyArray<{ readonly match: RegExp; readonly width: number; readonly height: number }> = [
   { match: /muzzle_flash/i, width: 256, height: 64 },
   { match: /explosion|FSG_Explosion/i, width: 1536, height: 1024 },
-  { match: /sparks|FSG_Sparks/i, width: 1536, height: 1024 },
+  { match: /sparks|FSG_Sparks/i, width: 1397, height: 986 },
   { match: /dust_cloud/i, width: 256, height: 64 },
   { match: /tracer/i, width: 256, height: 64 },
   { match: /Campaign Map -- Central Channel/i, width: 2048, height: 1024 }

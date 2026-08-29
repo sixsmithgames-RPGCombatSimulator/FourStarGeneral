@@ -121,6 +121,7 @@ registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_EXPLOSION_LAYOUT_AND_STAGE
 
 registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_VEHICLE_HIT_LAYOUT", async ({ Given, When, Then }) => {
   let resolved: Awaited<ReturnType<typeof resolveSpriteSheetSpecAsync>> | null = null;
+  let frames: Awaited<ReturnType<typeof sliceSpriteSheet>> | null = null;
   let firstDuration = 0;
   let finalDuration = 0;
 
@@ -129,19 +130,31 @@ registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_VEHICLE_HIT_LAYOUT", async
 
   await When("the renderer derives the impact-hit sprite geometry", async () => {
     resolved = await resolveSpriteSheetSpecAsync(COMBAT_ANIMATIONS.impactHits);
+    const asset = await loadSpriteSheetImage(COMBAT_ANIMATIONS.impactHits.imagePath);
+    frames = await sliceSpriteSheet(
+      asset.image,
+      COMBAT_ANIMATIONS.impactHits.columns!,
+      COMBAT_ANIMATIONS.impactHits.rows!,
+      COMBAT_ANIMATIONS.impactHits.frameCount!,
+      COMBAT_ANIMATIONS.impactHits.anchorX,
+      COMBAT_ANIMATIONS.impactHits.anchorY
+    );
     firstDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 1, resolved.frameCount);
-    finalDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 23, resolved.frameCount);
+    finalDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 48, resolved.frameCount);
   });
 
-  await Then("vehicle hit sprites resolve as a compact 6x4 sheet with fast playback", async () => {
-    if (!resolved) {
+  await Then("vehicle hit sprites resolve as the authored 7x7 sheet with normalized frame geometry", async () => {
+    if (!resolved || !frames) {
       throw new Error("Expected impact-hit metadata to resolve.");
     }
-    if (resolved.columns !== 6 || resolved.rows !== 4) {
-      throw new Error(`Expected impact-hit sheet to resolve as 6x4, received ${resolved.columns}x${resolved.rows}.`);
+    if (resolved.columns !== 7 || resolved.rows !== 7 || resolved.frameCount !== 49) {
+      throw new Error(`Expected impact-hit sheet to resolve as 7x7/49, received ${resolved.columns}x${resolved.rows}/${resolved.frameCount}.`);
     }
-    if (resolved.frameWidth !== 256 || resolved.frameHeight !== 256) {
-      throw new Error(`Expected 256x256 impact-hit frames, received ${resolved.frameWidth}x${resolved.frameHeight}.`);
+    if (Math.abs(resolved.frameWidth - 1397 / 7) > 0.001 || Math.abs(resolved.frameHeight - 986 / 7) > 0.001) {
+      throw new Error(`Expected geometry derived from the 1397x986 authored sheet, received ${resolved.frameWidth}x${resolved.frameHeight}.`);
+    }
+    if (frames.frameWidth !== 197 || frames.frameHeight !== 138 || frames.frameCanvases.length !== 49) {
+      throw new Error(`Expected 49 normalized 197x138 cached frames, received ${frames.frameCanvases.length} at ${frames.frameWidth}x${frames.frameHeight}.`);
     }
     if (resolved.renderScale >= COMBAT_ANIMATIONS.explosionSmall.renderScale!) {
       throw new Error("Expected vehicle-hit sprites to render smaller than explosion sprites.");

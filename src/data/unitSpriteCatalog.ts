@@ -211,10 +211,22 @@ const GROUND_UNIT_SPRITES: Record<string, SpriteCatalogEntry> = {
   Anti_Tank_Tank: directionalSprite("Tankkiller_M10_USA"),
 
   // Artillery
-  Howitzer_105: directionalSprite("Artillery_Howitzer_USA"),
-  Howitzer: directionalSprite("Artillery_Howitzer_USA"),
-  Artillery_105mm: directionalSprite("Artillery_Howitzer_USA"),
-  Artillery_155mm: directionalSprite("Artillery_Howitzer_USA"),
+  Howitzer_105: factionDirectionalSprites({
+    Player: "Artillery_Howitzer_USA",
+    Bot: "Artillery_leFH18_German"
+  }),
+  Howitzer: factionDirectionalSprites({
+    Player: "Artillery_Howitzer_USA",
+    Bot: "Artillery_leFH18_German"
+  }),
+  Artillery_105mm: factionDirectionalSprites({
+    Player: "Artillery_Howitzer_USA",
+    Bot: "Artillery_leFH18_German"
+  }),
+  Artillery_155mm: factionDirectionalSprites({
+    Player: "Artillery_Howitzer_USA",
+    Bot: "Artillery_Hummel_German"
+  }),
   Rocket_Artillery: factionDirectionalSprites({
     Player: "Artillery_Calliope_USA",
     Bot: "Artillery_Nebelwerfer_German"
