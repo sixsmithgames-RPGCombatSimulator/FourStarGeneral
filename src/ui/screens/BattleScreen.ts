@@ -4387,15 +4387,6 @@ export class BattleScreen {
       }
     });
 
-    this.baseCampAssignButton?.addEventListener("click", () => this.handleAssignBaseCamp());
-    this.deploymentPanelToggleButton?.addEventListener("click", () => {
-      this.deploymentPanelBody?.classList.toggle("hidden");
-      this.deploymentPanelToggleButton?.setAttribute(
-        "aria-expanded",
-        this.deploymentPanelBody?.classList.contains("hidden") ? "false" : "true"
-      );
-    });
-
     // Hook into tutorial overlay's request to focus a hex safely utilizing the engine's viewport tools.
     if (this.element.dataset.tutorialFocusBound !== "true") {
       this.element.dataset.tutorialFocusBound = "true";

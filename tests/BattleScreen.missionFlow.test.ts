@@ -2187,3 +2187,32 @@ registerTest("BATTLESCREEN_BIND_PANEL_EVENTS_IS_IDEMPOTENT", async ({ Given, Whe
     }
   });
 });
+
+registerTest("BATTLESCREEN_PANEL_EVENT_STREAM_DOES_NOT_REBIND_DOM_CONTROLS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let baseCampBindings = 0;
+  let toggleBindings = 0;
+
+  await Given("the deployment event stream and its DOM controls are initialized through separate owners", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).deploymentPanel = { on() { return () => {}; } };
+    (screen as any).panelEventsBound = false;
+    (screen as any).battleState = { ensureGameEngine() { return {}; } };
+    (screen as any).baseCampAssignButton = {
+      addEventListener() { baseCampBindings += 1; }
+    };
+    (screen as any).deploymentPanelToggleButton = {
+      addEventListener() { toggleBindings += 1; }
+    };
+  });
+
+  await When("the deployment component event stream is bound", async () => {
+    (screen as any).bindPanelEvents();
+  });
+
+  await Then("it does not add a second base-camp or sidebar-toggle click handler", async () => {
+    if (baseCampBindings !== 0 || toggleBindings !== 0) {
+      throw new Error(`Deployment DOM controls were rebound: base camp ${baseCampBindings}, toggle ${toggleBindings}.`);
+    }
+  });
+});
