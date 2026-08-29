@@ -12,7 +12,11 @@ import { CampaignCommandUIState } from "../src/ui/campaign/CampaignCommandUIStat
 import { CampaignUIEvents } from "../src/ui/campaign/CampaignUIEvents";
 import { assertCampaignCommandDOMSafe, findCampaignCommandDOMLeaks } from "../src/ui/campaign/CampaignCommandInformationSafety";
 import { CampaignCommandViewAssembler } from "../src/ui/campaign/CampaignCommandViewAssembler";
-import { projectRuntimeHexKeyToCampaignOffset } from "../src/ui/campaign/CampaignCommandProjection";
+import {
+  projectCampaignAfterActionDecisionTargetId,
+  projectCampaignAfterActionTitle,
+  projectRuntimeHexKeyToCampaignOffset
+} from "../src/ui/campaign/CampaignCommandProjection";
 import {
   describeCampaignAssociatedLocations,
   projectCampaignAssociatedLocations,
@@ -692,6 +696,34 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     screen.destroy();
     Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
     window.dispatchEvent(new Event("resize"));
+  });
+});
+
+registerTest("CAMPAIGN_AAR_COORDINATES_PROJECT_TO_OPERATIONAL_MAP_IDENTITY", async ({ Given, When, Then }) => {
+  let locationHexKey: string | null = null;
+  let fallbackTitle = "";
+  let objectiveTitle = "";
+  let infrastructureTarget: string | null = null;
+  let formationTarget: string | null = null;
+
+  await Given("an immutable battle report recorded at runtime axial hex 29,9", () => {});
+  await When("the report and its required decision cross into the operational command interface", () => {
+    locationHexKey = projectRuntimeHexKeyToCampaignOffset("29,9");
+    fallbackTitle = projectCampaignAfterActionTitle("After action: 29,9", null, "29,9");
+    objectiveTitle = projectCampaignAfterActionTitle("After action: Secure the bridge", "Secure the bridge", "29,9");
+    infrastructureTarget = projectCampaignAfterActionDecisionTargetId("infrastructure", "29,9");
+    formationTarget = projectCampaignAfterActionDecisionTargetId("formation", "formation-1");
+  });
+  await Then("player-facing coordinates use the matching offset hex without changing non-coordinate identities", () => {
+    if (locationHexKey !== "29,23"
+      || fallbackTitle !== `After action: ${locationHexKey}`
+      || objectiveTitle !== "After action: Secure the bridge"
+      || infrastructureTarget !== locationHexKey
+      || formationTarget !== "formation-1") {
+      throw new Error(
+        `AAR projection mixed runtime and operational coordinates: location='${locationHexKey}', title='${fallbackTitle}', objective='${objectiveTitle}', infrastructure='${infrastructureTarget}', formation='${formationTarget}'.`
+      );
+    }
   });
 });
 

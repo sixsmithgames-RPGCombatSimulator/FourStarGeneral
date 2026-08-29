@@ -26,7 +26,11 @@ import {
   type CampaignCommandShellView
 } from "../campaign/CampaignCommandShell";
 import { CampaignCommandScreen as CampaignCommandInterface } from "../campaign/CampaignCommandScreen";
-import { projectRuntimeHexKeyToCampaignOffset } from "../campaign/CampaignCommandProjection";
+import {
+  projectCampaignAfterActionDecisionTargetId,
+  projectCampaignAfterActionTitle,
+  projectRuntimeHexKeyToCampaignOffset
+} from "../campaign/CampaignCommandProjection";
 import {
   CampaignActionRegistry,
   decorateCampaignOrderComposer,
@@ -838,19 +842,20 @@ export class CampaignScreen {
       onAfterActionTargetSelected: (targetKind, targetId) => {
         this.commandInterface?.navigate({ kind: targetKind, id: targetId, focus: true });
         const runtime = this.campaignState.getRuntimeSnapshot();
-        let runtimeHexKey = targetKind === "infrastructure" ? targetId : null;
-        if (targetKind === "formation" && targetId) runtimeHexKey = runtime?.formations[targetId]?.locationHexKey ?? null;
-        if (targetKind === "engagement" && targetId) runtimeHexKey = this.campaignState.getCampaignAfterActionReport(targetId)?.battleHexKey ?? null;
-        if (runtimeHexKey) {
-          const [q, r] = runtimeHexKey.split(",").map(Number);
-          if (Number.isFinite(q) && Number.isFinite(r)) {
-            const offset = CoordinateSystem.axialToOffset(q, r);
-            const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
-            this.selectedHexKey = offsetKey;
-            this.renderer.clearAllHighlights("selected");
-            this.renderer.highlightHex(offsetKey, "selected");
-            this.renderSelection();
-          }
+        let selectedHexKey = targetKind === "infrastructure" ? targetId : null;
+        if (targetKind === "formation" && targetId) {
+          selectedHexKey = projectRuntimeHexKeyToCampaignOffset(runtime?.formations[targetId]?.locationHexKey ?? null);
+        }
+        if (targetKind === "engagement" && targetId) {
+          selectedHexKey = projectRuntimeHexKeyToCampaignOffset(
+            this.campaignState.getCampaignAfterActionReport(targetId)?.battleHexKey ?? null
+          );
+        }
+        if (selectedHexKey) {
+          this.selectedHexKey = selectedHexKey;
+          this.renderer.clearAllHighlights("selected");
+          this.renderer.highlightHex(selectedHexKey, "selected");
+          this.renderSelection();
         }
       },
       onSelectionRequested: (selection) => {
@@ -2934,7 +2939,7 @@ export class CampaignScreen {
       ].filter((entry): entry is string => entry !== null);
       return {
         id: report.reportId,
-        title: report.title,
+        title: projectCampaignAfterActionTitle(report.title, report.objectiveLabel, report.battleHexKey),
         timeLabel: this.campaignState.segmentToTimeDisplay(report.segment),
         result: report.strategicResult,
         resultLabel,
@@ -2969,7 +2974,7 @@ export class CampaignScreen {
           id: decision.id,
           severity: decision.severity,
           targetKind: decision.targetKind,
-          targetId: decision.targetId,
+          targetId: projectCampaignAfterActionDecisionTargetId(decision.targetKind, decision.targetId),
           title: decision.title,
           detail: decision.detail
         }))

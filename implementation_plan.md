@@ -1526,3 +1526,37 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Commit and push once, wait for the single production deployment, then recapture complete-theater and base-detail frames through the external Chrome extension.
 
 ---
+
+## Campaign AAR Operational-Coordinate Routing Repair — 2026-08-29
+
+### Intended behavior
+- An after-action report names and focuses the same operational offset hex shown on the campaign map.
+- Continuing to an infrastructure decision opens Logistics with that exact operational hex selected.
+- Immutable campaign result and control records retain their existing runtime axial coordinate contract.
+
+### Current behavior
+- A battle at operational offset hex `29,23` is retained internally at axial hex `29,9`.
+- The focus control projects that location correctly, but the fallback AAR title and infrastructure decision route expose the internal axial key.
+- Continuing to the repair decision therefore opens Logistics on nonexistent operational hex `29,9`.
+
+### Expected new behavior
+- The command projection converts axial `29,9` to operational offset `29,23` for fallback report copy and infrastructure navigation.
+- Objective-titled reports and non-coordinate decision identities remain unchanged.
+- Invalid infrastructure coordinate targets fail closed instead of selecting an unrelated map hex.
+
+### Edge cases
+- High odd columns retain the row shift required by odd-q offset geometry.
+- Formation and engagement decisions continue to resolve their own domain IDs before map focus.
+- Existing saved AARs remain valid because no immutable report schema, hash, or runtime coordinate is rewritten.
+
+### Impact analysis
+- Consumers: campaign AAR projection, command navigator, Logistics inspector selection, and selected-hex highlighting.
+- State boundary: only runtime-to-presentation conversion changes; campaign truth, battle application, and save integrity remain untouched.
+- Visual behavior: report title, Focus, Continue, map highlight, and Logistics inspector now agree on one operational hex.
+
+### Verification
+- Add a high-column regression proving runtime `29,9` projects to operational `29,23` for both fallback title and infrastructure decision routing.
+- Preserve objective titles and formation identifiers in the same regression.
+- Run focused campaign command tests, TypeScript, campaign tests, build, lint, and `git diff --check`.
+
+---
