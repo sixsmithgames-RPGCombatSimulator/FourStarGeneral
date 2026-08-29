@@ -1,7 +1,9 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
+import { BattleState } from "../src/state/BattleState";
 import { ensureCampaignState } from "../src/state/CampaignState";
+import { buildCompleteActiveBattleSave } from "./TacticalSaveCompleteness.test.js";
 import {
   commitFixture,
   missionStatus,
@@ -106,16 +108,118 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_PRESERVES_THE_HYDRATED_CAMPAIGN_
       refreshCount += 1;
       (screen as any).scenario = { name: "Coastal Push" };
     };
+    (screen as any).hexMapRenderer = null;
   });
 
   await When("the screen manager reveals the restored battle", async () => {
     (screen as any).handleScreenShown(new CustomEvent("screen:shown", { detail: { id: "battle" } }));
+    (screen as any).initializeBattleMap(true);
   });
 
   await Then("screen activation keeps the restored engagement instead of reseeding the default battle", async () => {
     if (refreshCount !== 0 || resetCount !== 0 || (screen as any).scenario.name !== "Fortified Assault — Hex 29,23") {
       throw new Error(
         `Cold resume was clobbered: refresh=${refreshCount}, reset=${resetCount}, scenario=${(screen as any).scenario.name}.`
+      );
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION", async ({ Given, When, Then }) => {
+  const campaign = ensureCampaignState();
+  const originalGetRuntimeSnapshot = campaign.getRuntimeSnapshot;
+  const binding = {
+    campaignId: "cold-resume-campaign",
+    campaignRevision: 12,
+    scenarioKey: "central_channel",
+    engagementId: "cold-resume-engagement"
+  };
+  const save = buildCompleteActiveBattleSave(binding);
+  let screen: BattleScreen;
+  let preserveHydratedScenario: boolean | null = null;
+  let resumeError: unknown = null;
+  let campaignTitle: HTMLElement;
+  let missionTitle: HTMLElement;
+
+  await Given("a fresh battle screen and a verified campaign-bound tactical checkpoint", async () => {
+    document.body.innerHTML = `
+      <div id="battleScreen">
+        <span id="battleCampaignTitle">Operation</span>
+        <span id="battleMissionTitle">Coastal Push</span>
+      </div>
+    `;
+    campaignTitle = document.getElementById("battleCampaignTitle") as HTMLElement;
+    missionTitle = document.getElementById("battleMissionTitle") as HTMLElement;
+    (campaign as any).getRuntimeSnapshot = () => ({
+      campaignId: binding.campaignId,
+      revision: binding.campaignRevision,
+      scenarioKey: binding.scenarioKey,
+      activeEngagementId: binding.engagementId
+    });
+
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).element = document.getElementById("battleScreen");
+    (screen as any).uiState = {
+      selectedMission: "training",
+      selectedDifficulty: "Normal",
+      isFromCampaign: false
+    };
+    (screen as any).battleState = new BattleState();
+    (screen as any).scenario = { name: "Coastal Push", objectives: [] };
+    (screen as any).campaignTitleElement = campaignTitle;
+    (screen as any).missionTitleElement = missionTitle;
+    (screen as any).missionBriefingElement = null;
+    (screen as any).missionObjectivesList = null;
+    (screen as any).missionDoctrineElement = null;
+    (screen as any).missionTurnLimitElement = null;
+    (screen as any).missionSuppliesList = null;
+    (screen as any).objectiveHexKeys = new Set<string>();
+    (screen as any).activityEvents = [];
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    (screen as any).popupManager = { openPopup() {} };
+    (screen as any).battleActivityLog = null;
+    (screen as any).mapViewport = null;
+    (screen as any).resetMissionDerivedUiState = () => {};
+    (screen as any).calculateMissionStatusFromEngine = () => null;
+    (screen as any).renderBattleObjectiveSummary = () => {};
+    (screen as any).teardownInitiativeSystemUi = () => {};
+    (screen as any).applyBattleAnimationMode = () => {};
+    (screen as any).initializeBattleMap = (preserve: boolean) => {
+      preserveHydratedScenario = preserve;
+    };
+    (screen as any).initializeDeploymentMirrors = () => {};
+    (screen as any).restoreBattlePhasePresentationAfterResume = () => {};
+    (screen as any).syncTurnContext = () => {};
+    (screen as any).renderMissionStatus = () => {};
+    (screen as any).restoreInitiativeTurnControlsAfterResume = () => {};
+    (screen as any).requestTacticalTurnStartAutosave = async () => {};
+    (screen as any).syncQueuedTargetMarkers = () => {};
+    (screen as any).applySelectedHex = () => {};
+    (screen as any).expandBattleIntelOverlayIfCollapsed = () => {};
+    (screen as any).highlightCurrentInitiativeGroup = () => {};
+    (screen as any).syncLegacyEndTurnButton = () => {};
+  });
+
+  await When("the checkpoint hydrates before the tactical map is reconstructed", async () => {
+    try {
+      screen.resumeActiveCampaignBattle(save);
+    } catch (error) {
+      resumeError = error;
+    } finally {
+      (campaign as any).getRuntimeSnapshot = originalGetRuntimeSnapshot;
+    }
+  });
+
+  await Then("the saved scenario renders directly and the campaign and engagement headers return", async () => {
+    if (resumeError) throw resumeError;
+    if (preserveHydratedScenario !== true) {
+      throw new Error(`Cold resume rebuilt the map without preserving its hydrated scenario: ${String(preserveHydratedScenario)}.`);
+    }
+    if ((screen as any).scenario.name !== "Meeting Engagement — Hex 1,1"
+      || campaignTitle.textContent !== "Operation Overlord - Central Channel Sector"
+      || missionTitle.textContent !== "Meeting Engagement — Hex 1,1") {
+      throw new Error(
+        `Cold resume presentation drifted: scenario=${(screen as any).scenario.name}, campaign=${campaignTitle.textContent}, engagement=${missionTitle.textContent}.`
       );
     }
   });

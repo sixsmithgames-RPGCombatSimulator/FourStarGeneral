@@ -8263,6 +8263,8 @@ export class BattleScreen {
     this.missionStatus = this.calculateMissionStatusFromEngine()
       ?? structuredClone(save.battle.missionStatus);
     this.lastMissionPhaseId = this.missionStatus.phase?.id ?? null;
+    this.refreshObjectiveHexKeys();
+    this.hydrateMissionBriefing(false);
 
     this.teardownInitiativeSystemUi();
     if (save.battle.initiative) {
@@ -8293,7 +8295,7 @@ export class BattleScreen {
     this.applyBattleAnimationMode(ui.animationMode);
 
     this.activeMissionSessionKey = this.getMissionSessionKey();
-    this.initializeBattleMap();
+    this.initializeBattleMap(true);
     this.initializeDeploymentMirrors();
     this.restoreBattlePhasePresentationAfterResume();
     this.syncTurnContext();
@@ -11949,12 +11951,14 @@ export class BattleScreen {
   /**
    * Renders the battle map SVG and wires input handlers once DOM and engine dependencies are ready.
    */
-  private initializeBattleMap(): void {
+  private initializeBattleMap(preserveHydratedScenario = false): void {
+    if (!preserveHydratedScenario) {
+      this.refreshScenario();
+    }
     this.activeMissionSessionKey = this.getMissionSessionKey();
     if (!this.hexMapRenderer) {
       return;
     }
-    this.refreshScenario();
     this.ensureEngine();
     const scenarioClone = this.cloneScenario();
     const svg = this.element.querySelector<SVGSVGElement>("#battleHexMap");
@@ -15084,13 +15088,7 @@ export class BattleScreen {
     }
     this.scenario = this.buildScenarioData();
 
-    // Initialize objective hex keys for visual highlighting
-    this.objectiveHexKeys.clear();
-    if (this.scenario.objectives) {
-      for (const objective of this.scenario.objectives) {
-        this.objectiveHexKeys.add(`${objective.hex.q},${objective.hex.r}`);
-      }
-    }
+    this.refreshObjectiveHexKeys();
 
     this.missionRulesController = createMissionRulesController(missionKey, this.scenario, this.uiState?.selectedDifficulty ?? "Normal");
     this.missionStatus = this.missionRulesController.getStatus();
@@ -15100,6 +15098,16 @@ export class BattleScreen {
 
     // Setup objective cycling handler
     this.setupObjectiveCycling();
+  }
+
+  /** Rebuilds objective lookup data without replacing an authoritative hydrated scenario. */
+  private refreshObjectiveHexKeys(): void {
+    this.objectiveHexKeys.clear();
+    if (this.scenario.objectives) {
+      for (const objective of this.scenario.objectives) {
+        this.objectiveHexKeys.add(`${objective.hex.q},${objective.hex.r}`);
+      }
+    }
   }
 
   private resetMissionDerivedUiState(): void {
