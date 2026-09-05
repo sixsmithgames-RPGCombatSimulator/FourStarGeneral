@@ -75,7 +75,9 @@ export function createCampaignContextInspector(workspacePanel: HTMLElement): HTM
   const selection = workspacePanel.querySelector<HTMLElement>(".selection-section");
   const action = workspacePanel.querySelector<HTMLElement>(".action-section");
   const actionFooter = inspector.querySelector<HTMLElement>(".campaign-context-inspector__action-footer");
-  if (selection) actionFooter?.appendChild(selection);
+  // Target choices and contextual information share the information scroll owner;
+  // only the concise primary engagement action occupies the bounded footer.
+  if (selection) inspector.querySelector(".campaign-context-inspector__body")?.appendChild(selection);
   if (action) actionFooter?.appendChild(action);
   return inspector;
 }
@@ -110,7 +112,7 @@ export function renderCampaignContextInspector(
   }
   if (compatibilitySelection) compatibilitySelection.hidden = !showSelectionActions;
   if (compatibilityActions) compatibilityActions.hidden = !showEngagementAction;
-  if (actionFooter) actionFooter.hidden = !(showSelectionActions || showEngagementAction || route.actionSummary);
+  if (actionFooter) actionFooter.hidden = !(showEngagementAction || route.actionSummary);
   if (!routeContainer) return;
   const useCompatibility = route.mode === "compatibility";
   routeContainer.hidden = useCompatibility;

@@ -439,14 +439,14 @@ registerTest("FSG_CAM_043_FORMATION_DRILLDOWN_PRESERVES_BASE_ORDER_CONTEXT", asy
   await Then("a fixed back route and the applicable Orders context remain immediately available", () => {
     const route = inspector.querySelector<HTMLElement>("#campaignContextInspectorRoute");
     const back = route?.querySelector<HTMLButtonElement>("[data-campaign-map-hex-target='2,2']");
-    const footer = inspector.querySelector<HTMLElement>(".campaign-context-inspector__action-footer");
+    const selectionActions = inspector.querySelector<HTMLElement>(".campaign-context-inspector__body .selection-section");
     const selectedMode = popupLayer.querySelector<HTMLButtonElement>(".redeploy-mode-card.selected");
     const checkedFormations = Array.from(popupLayer.querySelectorAll<HTMLInputElement>("[data-formation-index]:checked"));
     const checkedRow = checkedFormations[0]?.closest<HTMLElement>(".redeploy-formation-row");
     if (!back
       || route?.firstElementChild !== back
-      || footer?.hidden
-      || !footer?.textContent?.includes("Move or embark formations")
+      || selectionActions?.hidden
+      || !selectionActions?.textContent?.includes("Move or embark formations")
       || selectedMode?.dataset.mode !== "fighter"
       || checkedFormations.length !== 1
       || checkedFormations[0]?.disabled
