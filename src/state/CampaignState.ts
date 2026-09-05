@@ -27,6 +27,7 @@ import {
   evaluateCampaignNavalSupport, migrateCampaignNavalSupport,
   type CampaignNavalSupportOptions, type CampaignNavalSupportView
 } from "../game/campaign/logistics/CampaignNavalSupportService";
+import { assertCampaignRuntimeState } from "../game/campaign/runtime/CampaignInvariantValidator";
 import {
   INTEL_OPERATION_RULES,
   buildCampaignMapView,
@@ -1819,9 +1820,11 @@ export class CampaignState {
     const validation = validateCampaignSaveEnvelope(envelope);
     if (!validation.ok) throw validation.error;
     const content = migrateCampaignRuntimeContent(validation.envelope.payload.runtime, this.scenarioDefinition);
-    this.runtime = migrateCampaignNavalSupport(content.runtime);
-    reconcileCampaignInfrastructure(this.runtime, this.scenarioDefinition!.map.tilePalette);
-    reconcileCampaignObjectiveRuntime(this.runtime, this.scenarioDefinition!);
+    const candidate = migrateCampaignNavalSupport(content.runtime);
+    assertCampaignRuntimeState(candidate, this.scenarioDefinition);
+    reconcileCampaignInfrastructure(candidate, this.scenarioDefinition.map.tilePalette);
+    reconcileCampaignObjectiveRuntime(candidate, this.scenarioDefinition);
+    this.runtime = candidate;
     this.activeBattleSave = validation.envelope.payload.activeBattle
       ? assertCompleteActiveCampaignBattleSave(validation.envelope.payload.activeBattle, {
           campaignId: this.runtime.campaignId,

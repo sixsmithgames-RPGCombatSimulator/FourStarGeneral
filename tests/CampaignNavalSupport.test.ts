@@ -9,12 +9,16 @@ import { computeCampaignContentHash } from "../src/game/campaign/runtime/Campaig
 import { projectLegacyCampaignState, splitLegacyCampaignScenario } from "../src/game/campaign/runtime/CampaignScenarioAdapter";
 import { buildCampaignTacticalSupportAssets } from "../src/game/campaign/CampaignTacticalSupportAdapter";
 import { assertCampaignBattleResultPackage, computeCampaignBattleResultIntegrity, extractCampaignBattleResultPackage } from "../src/game/campaign/results/CampaignBattleResultExtractor";
-import { assertCampaignBattlePackage, computeCampaignBattlePackageIntegrity, commitCampaignEngagement } from "../src/game/campaign/engagements/CampaignEngagementLedgerService";
+import { assertCampaignBattlePackage, computeCampaignBattlePackageIntegrity, commitCampaignEngagement, recordCampaignEngagementResolution } from "../src/game/campaign/engagements/CampaignEngagementLedgerService";
 import { tacticalStateFixture } from "./CampaignBattleResultExtraction.test.js";
-import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
+import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope, computeCampaignSaveChecksum } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
 import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
 import { assertCampaignAfterActionReport } from "../src/game/campaign/aar/CampaignAfterActionReportService";
 import type { CampaignRuntimeState } from "../src/game/campaign/runtime/campaignRuntimeTypes";
+import { validateCampaignRuntimeState } from "../src/game/campaign/runtime/CampaignInvariantValidator";
+import { refreshCampaignInfrastructureState } from "../src/game/campaign/infrastructure/CampaignInfrastructureRules";
+import { runCampaignRuntimeTransaction } from "../src/game/campaign/runtime/CampaignRuntimeTransaction";
+import { assertCampaignBattleConsequenceReport, computeCampaignBattleConsequenceIntegrity } from "../src/game/campaign/consequences/CampaignBattleConsequenceResolver";
 
 function navalScenario(): CampaignScenarioData {
   return {
@@ -47,6 +51,13 @@ function expectRejected(action: () => unknown, message: string): void {
   let rejected = false;
   try { action(); } catch { rejected = true; }
   expect(rejected, message);
+}
+
+function expectNavalEligibilityRejection(action: () => unknown): void {
+  let caught: unknown;
+  try { action(); } catch (error) { caught = error; }
+  expect(caught instanceof Error && caught.message.includes("Naval support requests 1 assignments but only 0 sources"),
+    `Expected naval eligibility rejection, received ${String(caught)}.`);
 }
 
 function prepareNaval(scenario = navalScenario(), quantity = 1) {
@@ -174,10 +185,31 @@ registerTest("FSG_CAM_054_EXACT_RESERVATION_NO_DOUBLE_COMMIT_AND_STALE_RECHECK",
   const stale = prepareNaval();
   const draft = stale.campaign.getRuntimeSnapshot()!;
   draft.tiles["0,1"].infrastructure!.integrity = 0;
-  draft.tiles["0,1"].infrastructure!.effectiveness = 0;
-  draft.tiles["0,1"].infrastructure!.disabled = true;
-  expectRejected(() => commitCampaignEngagement(draft, stale.request, splitLegacyCampaignScenario(stale.scenario)), "Commit trusted stale readiness from a queued context.");
-  expect(!draft.engagementLedger.naval.package, "Failed commitment retained a partial naval reservation.");
+  refreshCampaignInfrastructureState(draft.tiles["0,1"].infrastructure!, draft.currentSegment);
+  expect(validateCampaignRuntimeState(draft).length === 0, "Stale readiness fixture violates an unrelated invariant.");
+  const beforeRejectedCommit = computeCampaignContentHash(draft);
+  expectNavalEligibilityRejection(() => commitCampaignEngagement(draft, stale.request, splitLegacyCampaignScenario(stale.scenario)));
+  expect(computeCampaignContentHash(draft) === beforeRejectedCommit, "Rejected stale commitment mutated campaign truth.");
+});
+
+registerTest("FSG_CAM_054_ACTUAL_COMPETING_COMMIT_CANNOT_SPEND_RESERVED_FLEET", () => {
+  const setup = committedNaval();
+  const candidate = structuredClone(setup.runtime);
+  const first = candidate.engagementLedger.naval;
+  const secondId = "competing-naval";
+  const context = { ...structuredClone(setup.pkg.context), engagementId: secondId };
+  candidate.engagementOrder.push(secondId);
+  candidate.engagements[secondId] = { id: secondId, status: "planned", engagement: { ...structuredClone(setup.pkg.engagement), id: secondId, context } };
+  candidate.engagementLedgerOrder.push(secondId);
+  candidate.engagementLedger[secondId] = { ...structuredClone(first), id: secondId, engagementId: secondId, status: "planned",
+    plannedRevision: candidate.revision, committedRevision: null, launchedRevision: null, terminalRevision: null, package: null };
+  // Exercise the domain guard even if an upstream caller has switched active plans with an existing hold.
+  candidate.activeEngagementId = secondId;
+  candidate.status = "planning";
+  expect(validateCampaignRuntimeState(candidate).length === 0, "Competing precombat fixture is not a valid runtime.");
+  const before = computeCampaignContentHash(candidate);
+  expectNavalEligibilityRejection(() => commitCampaignEngagement(candidate, { ...setup.request, engagementId: secondId, expectedRevision: candidate.revision }, splitLegacyCampaignScenario(setup.scenario)));
+  expect(computeCampaignContentHash(candidate) === before, "Competing commitment altered the first reservation or runtime.");
 });
 
 registerTest("FSG_CAM_053_OFFSET_COORDINATE_REPLAY", () => {
@@ -201,23 +233,55 @@ registerTest("FSG_CAM_053_OFFSET_COORDINATE_REPLAY", () => {
 });
 
 registerTest("FSG_CAM_055_TACTICAL_SOURCE_CHARGES_AND_AAR_ARE_EXACT", () => {
-  const scenario = navalScenario();
-  scenario.tiles.push({ tile: "fleet", hex: { q: 0, r: 2 } });
-  const setup = committedNaval(scenario, 2);
-  const result = navalResult(setup, [1, 0]);
-  const sources = result.supportDeltas[0].navalSourceDeltas;
-  expect(sources?.length === 2 && new Set(sources.map((source) => source.tacticalAssetId)).size === 2, "Tactical source attribution is not one-to-one.");
-  expect(sources[0].chargesUsed === 1 && sources[1].chargesUsed === 0, "Charge spending moved between fleets.");
-  assertCampaignBattleResultPackage(result, setup.pkg);
-  const applied = setup.campaign.applyCampaignBattleResult(result);
-  expect(applied.applied, "Source-bearing result failed campaign application.");
-  const aar = setup.campaign.getCampaignAfterActionReport("naval");
-  expect(aar?.navalSupport?.length === 2, "AAR omitted exact naval sources.");
-  assertCampaignAfterActionReport(aar, result);
-  expect(aar.navalSupport[0].status === "expended" && aar.navalSupport[1].status === "restored", "AAR confused spent and unused sources.");
-  const available = setup.campaign.getPlayerNavalSupport();
-  expect(available.availableSupportAssignments === 1 && available.availableFireMissions === available.fireMissionsPerAssignment,
-    "Unused source did not restore one assignment and its exact fire missions independently of the spent source.");
+  for (const used of [[1, 0], [2, 0], [0, 2], [1, 1], [2, 2], [0, 0]]) {
+    const scenario = navalScenario();
+    scenario.tiles.push({ tile: "fleet", hex: { q: 0, r: 2 } });
+    const setup = committedNaval(scenario, 2);
+    const result = navalResult(setup, used);
+    const sources = result.supportDeltas[0].navalSourceDeltas;
+    expect(sources?.length === 2 && new Set(sources.map((source) => source.tacticalAssetId)).size === 2, "Tactical source attribution is not one-to-one.");
+    expect(sources.every((source, index) => source.chargesUsed === used[index]), "Charge spending moved between fleets.");
+    assertCampaignBattleResultPackage(result, setup.pkg);
+    const applied = setup.campaign.applyCampaignBattleResult(result);
+    expect(applied.applied, "Source-bearing result failed campaign application.");
+    const accounting = setup.campaign.getRuntimeSnapshot()!.engagementLedger.naval.consequenceReport!;
+    const support = accounting.supportConsequences.find((entry) => entry.allocationKey === "shoreFireControlParty")!;
+    const expectedConsumed = used.filter((charges) => charges > 0).length * 70;
+    expect(support.consumedRequisitionPoints === expectedConsumed && support.refundedRequisitionPoints === 140 - expectedConsumed,
+      `Usage [${used}] charged ${support.consumedRequisitionPoints} RP and refunded ${support.refundedRequisitionPoints}; expected ${expectedConsumed} RP consumed.`);
+    expect(accounting.consequenceVersion === 2 && support.navalSourceRequisition?.length === sources.length,
+      "New naval accounting lacks its versioned per-source audit.");
+    support.navalSourceRequisition.forEach((entry, index) => {
+      expect(entry.sourceId === sources[index].sourceId && entry.reservedRequisitionPoints === 70
+        && entry.consumedRequisitionPoints === (used[index] > 0 ? 70 : 0)
+        && entry.refundedRequisitionPoints === (used[index] > 0 ? 0 : 70)
+        && entry.consumedRequisitionPoints + entry.refundedRequisitionPoints === entry.reservedRequisitionPoints,
+      `Usage [${used}] did not conserve source ${sources[index].sourceId}'s own reservation.`);
+    });
+    expect(support.consumedRequisitionPoints + support.refundedRequisitionPoints === support.reservedRequisitionPoints,
+      "Naval consumption and refund do not conserve the reservation.");
+    const economy = accounting.economyConsequences.Player;
+    expect(economy.supportRequisitionPointsConsumed === expectedConsumed && economy.supportRequisitionPointsRefunded === 140 - expectedConsumed
+      && economy.supportRequisitionPointsReserved === 140, "Fleet and economy assignment accounting disagree.");
+    expect(economy.before.supplies - economy.after.supplies === expectedConsumed + economy.tacticalConsumption.rations + economy.tacticalConsumption.parts,
+      "Actual campaign supplies did not match exact fleet consumption plus tactical payload use.");
+    assertCampaignBattleConsequenceReport(accounting, result);
+    const wrongSources = { ...accounting, supportConsequences: accounting.supportConsequences.map((entry) => ({ ...entry,
+      navalSourceRequisition: entry.navalSourceRequisition?.map((source, index) => ({ ...source, sourceId: sources[1 - index].sourceId })) })) };
+    expectRejected(() => assertCampaignBattleConsequenceReport({ ...wrongSources, integrityHash: computeCampaignBattleConsequenceIntegrity(wrongSources) }, result),
+      "A rehashed consequence moved consumption/refunds onto another fleet.");
+    const legacyAccounting = { ...accounting, consequenceVersion: 1 as const,
+      supportConsequences: accounting.supportConsequences.map(({ navalSourceRequisition: _sourceAudit, ...entry }) => entry) };
+    assertCampaignBattleConsequenceReport({ ...legacyAccounting, integrityHash: computeCampaignBattleConsequenceIntegrity(legacyAccounting) }, result);
+    const aar = setup.campaign.getCampaignAfterActionReport("naval");
+    expect(aar?.navalSupport?.length === 2, "AAR omitted exact naval sources.");
+    assertCampaignAfterActionReport(aar, result);
+    expect(aar.navalSupport.every((entry, index) => entry.status === (used[index] > 0 ? "expended" : "restored")), "AAR confused spent and unused sources.");
+    const available = setup.campaign.getPlayerNavalSupport();
+    expect(available.availableSupportAssignments === used.filter((charges) => charges === 0).length
+      && available.availableFireMissions === available.availableSupportAssignments * available.fireMissionsPerAssignment,
+      "Unused source did not restore one assignment and its exact fire missions independently of the spent source.");
+  }
 });
 
 registerTest("FSG_CAM_055_TACTICAL_LABEL_USES_FROZEN_FLEET_IDENTITY", () => {
@@ -291,6 +355,72 @@ registerTest("FSG_CAM_058_SOURCE_AND_RECEIPT_TAMPERING_FAIL_CLOSED", () => {
   expectRejected(() => extractCampaignBattleResultPackage({ battlePackage: setup.pkg, tacticalState: tactical, missionStatus: null, result: "attackerVictory" }), "Impossible tactical charges were accepted.");
 });
 
+registerTest("FSG_CAM_058_REHASHED_GROUND_SOURCE_SAVE_CANNOT_HYDRATE", () => {
+  for (const substitution of ["ground", "forgedInfrastructure", "zeroCapacity"] as const) {
+    const scenario = navalScenario();
+    scenario.tilePalette.emptyFleet = { role: "taskForce", factionControl: "Player", navalCapacity: 0 };
+    scenario.tiles.push({ tile: "emptyFleet", hex: { q: 0, r: 2 } });
+    const setup = committedNaval(scenario);
+    const clean = navalEnvelope(setup.runtime);
+    expect(validateCampaignSaveEnvelope(clean).ok, "Source substitution baseline save is invalid.");
+    const malicious = structuredClone(clean);
+    const sourceHexKey = substitution === "zeroCapacity" ? "0,2" : "0,0";
+    if (substitution === "forgedInfrastructure") {
+      malicious.payload.runtime.tiles["0,0"].infrastructure = structuredClone(malicious.payload.runtime.tiles["0,1"].infrastructure);
+    }
+    const original = malicious.payload.runtime.engagementLedger.naval.package!;
+    const forged = { ...original, supportCommitments: original.supportCommitments.map((entry) => entry.navalSources
+      ? { ...entry, navalSources: [{ sourceId: campaignNavalSourceId(original.scenarioKey, sourceHexKey), sourceHexKey, label: "Forged fleet" }] } : entry) };
+    malicious.payload.runtime.engagementLedger.naval.package = { ...forged, integrityHash: computeCampaignBattlePackageIntegrity(forged) };
+    assertCampaignBattlePackage(malicious.payload.runtime.engagementLedger.naval.package!);
+    const { checksum: _checksum, ...unsigned } = malicious;
+    const resigned = { ...unsigned, checksum: computeCampaignSaveChecksum(unsigned) };
+    const recipient = new CampaignState({ legacyStorage: null });
+    recipient.setScenario(setup.scenario);
+    const before = computeCampaignContentHash(recipient.getRuntimeSnapshot());
+    expectRejected(() => recipient.restoreCampaignRecovery({ failedSaveId: "corrupt-later-save", envelope: resigned }),
+      `A checksum-recomputed ${substitution} source substitution hydrated successfully.`);
+    expect(computeCampaignContentHash(recipient.getRuntimeSnapshot()) === before, "Rejected source substitution replaced live campaign truth.");
+  }
+});
+
+registerTest("FSG_CAM_059_EXPIRED_AMBIGUOUS_LEGACY_HISTORY_PRESERVES_PROGRESS", () => {
+  const scenario = navalScenario();
+  scenario.tiles.push({ tile: "fleet", hex: { q: 0, r: 2 } });
+  const setup = committedNaval(scenario, 1);
+  const legacy = structuredClone(setup.runtime);
+  delete legacy.navalSupportRulesVersion;
+  const oldPackage = { ...setup.pkg, packageVersion: 2 as const,
+    supportCommitments: setup.pkg.supportCommitments.map(({ navalSources: _sources, ...entry }) => entry) };
+  legacy.engagementLedger.naval.package = { ...oldPackage, integrityHash: computeCampaignBattlePackageIntegrity(oldPackage) };
+  expect(validateCampaignRuntimeState(legacy).length === 0, "Historical fixture is not a valid legacy runtime.");
+  expectRejected(() => migrateCampaignNavalSupport(legacy), "Ambiguous active legacy reservation was accepted.");
+  const resolved = runCampaignRuntimeTransaction(legacy, "legacy:resolve", (draft) => {
+    recordCampaignEngagementResolution(draft, "naval", "legacy-resolution", { result: "attackerVictory" });
+    draft.activeEngagementId = null;
+    draft.status = "planning";
+    return [];
+  });
+  expect(resolved.ok, resolved.ok ? "" : resolved.error.message);
+  delete resolved.state.engagementLedger.naval.navalSupportResolvedSegment;
+  expectRejected(() => migrateCampaignNavalSupport(resolved.state), "Unexpired ambiguous legacy receipt was accepted.");
+  const advanced = runCampaignRuntimeTransaction(resolved.state, "legacy:advance", (draft) => { draft.currentSegment += 1; return []; });
+  expect(advanced.ok, advanced.ok ? "" : advanced.error.message);
+  expect(validateCampaignRuntimeState(advanced.state).length === 0, "Progressed legacy fixture violates runtime invariants.");
+  const historicalHash = computeCampaignContentHash(advanced.state.engagementLedger);
+  const migrated = migrateCampaignNavalSupport(advanced.state);
+  expect(computeCampaignContentHash(migrated.engagementLedger) === historicalHash, "Migration invented attribution or rewrote expired history.");
+  expect(computeCampaignContentHash(migrated) === computeCampaignContentHash(migrateCampaignNavalSupport(migrated)), "Expired-history migration is not idempotent.");
+  const recipient = new CampaignState({ legacyStorage: null });
+  recipient.setScenario(scenario);
+  recipient.restoreCampaignRecovery({ failedSaveId: "later-save", envelope: navalEnvelope(advanced.state) });
+  const loaded = recipient.getRuntimeSnapshot()!;
+  expect(loaded.currentSegment === advanced.state.currentSegment && loaded.revision === advanced.state.revision,
+    "Loading historical naval support changed campaign progress.");
+  expect(computeCampaignContentHash(loaded.engagementLedger) === historicalHash, "Hydration changed historical naval receipt bytes.");
+  expect(recipient.getPlayerNavalSupport().availableSupportAssignments === 2, "Expired unattributed history created an active reservation.");
+});
+
 registerTest("FSG_CAM_059_LEGACY_RULES_MIGRATION_IS_IDEMPOTENT_AND_PRESERVES_HASHES", () => {
   const setup = committedNaval();
   const legacy = structuredClone(setup.runtime);
@@ -307,6 +437,30 @@ registerTest("FSG_CAM_059_LEGACY_RULES_MIGRATION_IS_IDEMPOTENT_AND_PRESERVES_HAS
   const pkg = ambiguous.engagementLedger.naval.package!;
   ambiguous.engagementLedger.naval.package = { ...pkg, context: { ...pkg.context, availableForces: pkg.context.availableForces.filter((entry) => entry.unitType !== "Battleship") } };
   expectRejected(() => migrateCampaignNavalSupport(ambiguous), "Migration fabricated an unrecorded historical source.");
+});
+
+registerTest("FSG_CAM_059_LEGACY_REPLENISHMENT_USES_RESOLUTION_CLOCK", () => {
+  const setup = committedNaval();
+  const legacy = structuredClone(setup.runtime);
+  delete legacy.navalSupportRulesVersion;
+  const oldPackage = { ...setup.pkg, packageVersion: 2 as const,
+    supportCommitments: setup.pkg.supportCommitments.map(({ navalSources: _sources, ...entry }) => entry) };
+  legacy.engagementLedger.naval.package = { ...oldPackage, integrityHash: computeCampaignBattlePackageIntegrity(oldPackage) };
+  const elapsed = runCampaignRuntimeTransaction(legacy, "legacy:elapsed", (draft) => { draft.currentSegment += 2; return []; });
+  expect(elapsed.ok, elapsed.ok ? "" : elapsed.error.message);
+  const resolved = runCampaignRuntimeTransaction(elapsed.state, "legacy:resolve", (draft) => {
+    recordCampaignEngagementResolution(draft, "naval", "legacy-late-resolution", { result: "attackerVictory" });
+    draft.activeEngagementId = null;
+    draft.status = "planning";
+    return [];
+  });
+  expect(resolved.ok, resolved.ok ? "" : resolved.error.message);
+  delete resolved.state.engagementLedger.naval.navalSupportResolvedSegment;
+  expect(validateCampaignRuntimeState(resolved.state).length === 0, "Delayed historical resolution fixture is invalid.");
+  const migrated = migrateCampaignNavalSupport(resolved.state);
+  const source = evaluateCampaignNavalSupport(setup.scenario, {}, migrated).sources[0];
+  expect(source.status === "expended" && source.nextAvailableSegment === migrated.currentSegment + 1,
+    "Legacy support replenished from its older commitment clock before its actual resolution segment ended.");
 });
 
 registerTest("FSG_CAM_059_LEGACY_MISSING_COUNT_AND_NO_NAVAL_PACKAGES_LOAD", () => {

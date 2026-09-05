@@ -16,7 +16,15 @@ import type {
 } from "../results/CampaignBattleResultTypes";
 import type { CampaignFormationCommitmentRole } from "../engagements/CampaignEngagementLedgerTypes";
 
-export const CAMPAIGN_BATTLE_CONSEQUENCE_VERSION = 1 as const;
+export const CAMPAIGN_BATTLE_CONSEQUENCE_VERSION = 2 as const;
+
+/** One fleet assignment's spend/refund audit; firing twice never spends a second fleet's reservation. */
+export interface CampaignNavalSourceRequisitionConsequence {
+  readonly sourceId: string;
+  readonly reservedRequisitionPoints: number;
+  readonly consumedRequisitionPoints: number;
+  readonly refundedRequisitionPoints: number;
+}
 
 /** Persistent condition and lifecycle accounting for one committed formation. */
 export interface CampaignFormationBattleConsequence {
@@ -47,6 +55,8 @@ export interface CampaignFormationBattleConsequence {
 
 /** Final spend/refund decision for one non-formation tactical commitment. */
 export interface CampaignSupportBattleConsequence {
+  /** Exact source accounting for version-2 naval consequences with source-bearing tactical receipts. */
+  readonly navalSourceRequisition?: readonly CampaignNavalSourceRequisitionConsequence[];
   readonly allocationKey: string;
   readonly category: string;
   readonly trackingMode: CampaignSupportTrackingMode;
@@ -109,7 +119,7 @@ export interface CampaignDeferredBattleConsequences {
 
 /** Immutable, integrity-bound audit of one atomic C20-023 consequence transaction. */
 export interface CampaignBattleConsequenceReport {
-  readonly consequenceVersion: typeof CAMPAIGN_BATTLE_CONSEQUENCE_VERSION;
+  readonly consequenceVersion: 1 | typeof CAMPAIGN_BATTLE_CONSEQUENCE_VERSION;
   readonly campaignId: string;
   readonly scenarioKey: string;
   readonly engagementId: string;

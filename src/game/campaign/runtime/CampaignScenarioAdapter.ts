@@ -636,7 +636,7 @@ export function projectLegacyCampaignState(
   definition: CampaignScenarioDefinition,
   runtime: CampaignRuntimeState
 ): CampaignLegacyProjection {
-  assertCampaignRuntimeState(runtime);
+  assertCampaignRuntimeState(runtime, definition);
   const expectedHash = computeCampaignContentHash(definition);
   if (runtime.scenarioKey !== definition.key || runtime.scenarioContentHash !== expectedHash) {
     throw new CampaignRuntimeError(

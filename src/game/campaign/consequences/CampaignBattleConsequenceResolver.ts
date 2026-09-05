@@ -7,6 +7,7 @@
 import type { CampaignFactionEconomy } from "../../../core/campaignTypes";
 import type { CampaignDomainEventDraft, CampaignRuntimeState } from "../runtime/campaignRuntimeTypes";
 import { computeCampaignContentHash } from "../runtime/CampaignCanonical";
+import { CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY } from "../logistics/CampaignNavalSupportService";
 import {
   appendCampaignFormationBattleHistory,
   retireCampaignFormation,
@@ -39,6 +40,7 @@ import {
   type CampaignBattleEconomySnapshot,
   type CampaignFactionBattleEconomyConsequence,
   type CampaignFormationBattleConsequence,
+  type CampaignNavalSourceRequisitionConsequence,
   type CampaignSupportBattleConsequence
 } from "./CampaignBattleConsequenceTypes";
 
@@ -248,8 +250,12 @@ function reconcileSupport(
     const utilization = delta.trackingMode === "resourcePool"
       ? Math.max(payloadUseRatio, chargeUseRatio)
       : delta.trackingMode === "supportAsset" ? chargeUseRatio : 1;
-    const consumedRp = Math.min(delta.reservedRp, Math.ceil(delta.reservedRp * utilization));
+    const navalSourceRequisition = reconcileNavalSourceRequisition(delta);
+    const consumedRp = navalSourceRequisition
+      ? navalSourceRequisition.reduce((sum, source) => sum + source.consumedRequisitionPoints, 0)
+      : Math.min(delta.reservedRp, Math.ceil(delta.reservedRp * utilization));
     return {
+      ...(navalSourceRequisition ? { navalSourceRequisition } : {}),
       allocationKey: delta.allocationKey,
       category: delta.category,
       trackingMode: delta.trackingMode,
@@ -263,6 +269,25 @@ function reconcileSupport(
       resourcePayloadCommitted: structuredClone(delta.resourcePayloadCommitted),
       resourcePayloadConsumed: payloadConsumed
     };
+  });
+}
+
+function reconcileNavalSourceRequisition(delta: CampaignSupportDelta): readonly CampaignNavalSourceRequisitionConsequence[] | undefined {
+  if (delta.allocationKey !== CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY || !delta.navalSourceDeltas) return undefined;
+  const sources = delta.navalSourceDeltas;
+  if (sources.length !== delta.committedQuantity || sources.length === 0
+    || new Set(sources.map((source) => source.sourceId)).size !== sources.length) {
+    throw new Error("Naval requisition accounting requires exactly one receipt per reserved fleet.");
+  }
+  const perSourceRp = delta.reservedRp / sources.length;
+  let reservedSoFar = 0;
+  return sources.map((source, index) => {
+    // Keep any floating-point remainder on the last reservation so the frozen total is conserved.
+    const reservedRequisitionPoints = index === sources.length - 1 ? delta.reservedRp - reservedSoFar : perSourceRp;
+    reservedSoFar += reservedRequisitionPoints;
+    const consumedRequisitionPoints = source.chargesUsed > 0 ? reservedRequisitionPoints : 0;
+    return { sourceId: source.sourceId, reservedRequisitionPoints, consumedRequisitionPoints,
+      refundedRequisitionPoints: reservedRequisitionPoints - consumedRequisitionPoints };
   });
 }
 
@@ -371,7 +396,7 @@ function applyEconomyConsequences(
 }
 
 function consequenceIntegrity(unsigned: Omit<CampaignBattleConsequenceReport, "integrityHash">): string {
-  return `fsg-battle-consequence-v1-${computeCampaignContentHash(unsigned)}`;
+  return `fsg-battle-consequence-v${unsigned.consequenceVersion}-${computeCampaignContentHash(unsigned)}`;
 }
 
 export function computeCampaignBattleConsequenceIntegrity(report: CampaignBattleConsequenceReport): string {
@@ -388,7 +413,7 @@ export function assertCampaignBattleConsequenceReport(
   report: CampaignBattleConsequenceReport,
   result: CampaignBattleResultPackage
 ): CampaignBattleConsequenceReport {
-  if (report.consequenceVersion !== CAMPAIGN_BATTLE_CONSEQUENCE_VERSION
+  if ((report.consequenceVersion !== CAMPAIGN_BATTLE_CONSEQUENCE_VERSION && report.consequenceVersion !== 1)
     || report.campaignId !== result.campaignId
     || report.scenarioKey !== result.scenarioKey
     || report.engagementId !== result.engagementId
@@ -463,6 +488,14 @@ export function assertCampaignBattleConsequenceReport(
       || !Object.values(entry.resourcePayloadCommitted).every(isNonNegativeFinite)
       || !Object.values(entry.resourcePayloadConsumed).every(isNonNegativeFinite)) {
       throw new Error(`Support consequence ${entry.allocationKey} has invalid conservation accounting.`);
+    }
+    if (report.consequenceVersion >= 2) {
+      const expectedSources = reconcileNavalSourceRequisition(delta);
+      if (expectedSources && (computeCampaignContentHash(entry.navalSourceRequisition ?? []) !== computeCampaignContentHash(expectedSources)
+        || entry.consumedRequisitionPoints !== expectedSources.reduce((sum, source) => sum + source.consumedRequisitionPoints, 0)
+        || entry.refundedRequisitionPoints !== expectedSources.reduce((sum, source) => sum + source.refundedRequisitionPoints, 0))) {
+        throw new Error("Naval consequence does not conserve each fleet's exact reservation, consumption and refund.");
+      }
     }
   });
   const economyFactions = Object.keys(report.economyConsequences);

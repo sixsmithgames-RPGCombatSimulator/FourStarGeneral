@@ -8,7 +8,7 @@ import type { CampaignFactionKey, CampaignScenarioData } from "../../../core/cam
 import { hexDistance, neighbors } from "../../../core/Hex";
 import { axialToOffsetKey, offsetKeyToAxial } from "../../../state/CampaignIntelligence";
 import type { CampaignRuntimeState } from "../runtime/campaignRuntimeTypes";
-import type { CampaignBattlePackage } from "../engagements/CampaignEngagementLedgerTypes";
+import type { CampaignBattlePackage, CampaignEngagementLedgerRecord } from "../engagements/CampaignEngagementLedgerTypes";
 import { createStableCampaignRecordId } from "../runtime/CampaignCanonical";
 import { createOffMapSupportAsset } from "../../support/SupportAssetFactory";
 
@@ -97,6 +97,37 @@ export function campaignPackageNavalSources(pkg: CampaignBattlePackage): readonl
   }));
 }
 
+/** Historical resolution events/reports prove replenishment timing; the commitment date does not. */
+function navalResolutionSegment(runtime: CampaignRuntimeState, ledger: CampaignEngagementLedgerRecord): number | null {
+  const receiptSegments = [ledger.navalSupportResolvedSegment, ledger.consequenceReport?.appliedSegment,
+    ledger.afterActionReport?.segment, runtime.eventLog.find((event) => event.revision === ledger.terminalRevision)?.segment]
+    .filter((segment): segment is number => segment !== undefined);
+  if (receiptSegments.some((segment) => !Number.isInteger(segment) || segment < ledger.package!.committedSegment || segment > runtime.currentSegment)) {
+    throw new Error("Naval receipt has an invalid replenishment clock. Reload a valid campaign save.");
+  }
+  return receiptSegments.length > 0 ? Math.max(...receiptSegments) : null;
+}
+
+/** Resolves only source claims that can still affect availability; expired legacy history remains untouched. */
+export function campaignLedgerNavalSources(
+  runtime: CampaignRuntimeState,
+  ledger: CampaignEngagementLedgerRecord
+): readonly CampaignNavalSourceCommitment[] {
+  const pkg = ledger.package;
+  if (!pkg) return [];
+  const naval = pkg.supportCommitments.find((entry) => entry.allocationKey === CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY);
+  if (!naval) return [];
+  if (pkg.packageVersion === 2 && !naval.navalSources) {
+    if (ledger.status === "cancelled") return [];
+    if (ledger.status === "resolved" || ledger.status === "abandoned") {
+      const resolvedSegment = navalResolutionSegment(runtime, ledger);
+      // No inference or invented fleet association is needed once every credible receipt clock has expired.
+      if (resolvedSegment !== null && runtime.currentSegment > resolvedSegment) return [];
+    }
+  }
+  return campaignPackageNavalSources(pkg);
+}
+
 /** One pure evaluator for both rules and presentation; runtime overrides any stale scenario projection. */
 export function evaluateCampaignNavalSupport(
   scenario: CampaignScenarioData | null,
@@ -150,7 +181,7 @@ export function evaluateCampaignNavalSupport(
       const ledger = runtime!.engagementLedger[id];
       const pkg = ledger?.package;
       if (!pkg || pkg.context.attacker !== faction) continue;
-      if (!campaignPackageNavalSources(pkg).some((source) => source.sourceId === sourceId)) continue;
+      if (!campaignLedgerNavalSources(runtime!, ledger).some((source) => source.sourceId === sourceId)) continue;
       if (ledger.status === "committed" || ledger.status === "inBattle") { held = true; continue; }
       if (ledger.status === "cancelled") { restored = true; continue; }
       if (ledger.status !== "resolved" && ledger.status !== "abandoned") continue;
@@ -158,8 +189,12 @@ export function evaluateCampaignNavalSupport(
       const exact = delta?.navalSourceDeltas?.find((entry) => entry.sourceId === sourceId);
       // Old or abandoned receipts cannot prove unused charges, so keep their entitlement spent for this segment.
       const spent = exact ? exact.chargesUsed > 0 : !delta || delta.chargesUsed > 0;
-      if (spent && currentSegment < (ledger.navalSupportResolvedSegment ?? pkg.committedSegment) + 1) {
-        nextAvailableSegment = Math.max(nextAvailableSegment ?? 0, (ledger.navalSupportResolvedSegment ?? pkg.committedSegment) + 1);
+      const resolvedSegment = navalResolutionSegment(runtime!, ledger);
+      if (spent && resolvedSegment === null) {
+        throw new Error("Naval receipt lacks its resolution clock. Resume a save before this engagement and commit support again.");
+      }
+      if (spent && resolvedSegment !== null && currentSegment < resolvedSegment + 1) {
+        nextAvailableSegment = Math.max(nextAvailableSegment ?? 0, resolvedSegment + 1);
       } else { restored = true; }
     }
     const damaged = condition?.disabled || readiness < 1 || !(definition.navalCapacity && definition.navalCapacity > 0);
@@ -189,15 +224,15 @@ export function evaluateCampaignNavalSupport(
     readySourceIds: sources.filter((source) => source.availableSupportAssignments > 0).map((source) => source.sourceId) };
 }
 
-/** Idempotent compatibility migration: retain integrity-bound v2 history and prove its source attribution. */
+/** Idempotent migration preserves v2 history and proves attribution only for claims that can affect availability. */
 export function migrateCampaignNavalSupport(runtime: CampaignRuntimeState): CampaignRuntimeState {
   const migrated = structuredClone(runtime);
   if (migrated.navalSupportRulesVersion !== undefined && migrated.navalSupportRulesVersion !== CAMPAIGN_NAVAL_SUPPORT_RULES_VERSION) {
     throw new Error("Campaign naval-support rules are newer than this build. Open the save with a compatible build.");
   }
   for (const id of migrated.engagementLedgerOrder) {
-    const pkg = migrated.engagementLedger[id]?.package;
-    if (pkg) campaignPackageNavalSources(pkg);
+    const ledger = migrated.engagementLedger[id];
+    if (ledger) campaignLedgerNavalSources(migrated, ledger);
   }
   migrated.navalSupportRulesVersion = CAMPAIGN_NAVAL_SUPPORT_RULES_VERSION;
   return migrated;

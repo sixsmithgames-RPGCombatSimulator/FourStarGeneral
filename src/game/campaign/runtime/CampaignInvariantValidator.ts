@@ -12,7 +12,8 @@ import {
   CAMPAIGN_RUNTIME_VERSION,
   CampaignRuntimeError,
   type CampaignInvariantIssue,
-  type CampaignRuntimeState
+  type CampaignRuntimeState,
+  type CampaignScenarioDefinition
 } from "./campaignRuntimeTypes";
 import {
   assertCampaignBattlePackage
@@ -782,9 +783,10 @@ function validateAdvanceLog(runtime: CampaignRuntimeState, issues: CampaignInvar
  * WHY: Save hydration and transactions need a non-throwing diagnostic pass before deciding whether a candidate can become truth.
  *
  * @param runtime - Candidate runtime state.
+ * @param definition - Authored scenario authority, required at hydration/projection to prove naval source membership and capacity.
  * @returns Every detected structured invariant issue; an empty array means the state is valid.
  */
-export function validateCampaignRuntimeState(runtime: CampaignRuntimeState): CampaignInvariantIssue[] {
+export function validateCampaignRuntimeState(runtime: CampaignRuntimeState, definition?: CampaignScenarioDefinition): CampaignInvariantIssue[] {
   const issues: CampaignInvariantIssue[] = [];
 
   if (runtime.runtimeVersion !== CAMPAIGN_RUNTIME_VERSION) {
@@ -1014,8 +1016,17 @@ export function validateCampaignRuntimeState(runtime: CampaignRuntimeState): Cam
         campaignPackageNavalSources(pkg).forEach((source) => {
           const axial = offsetKeyToAxial(source.sourceHexKey);
           const tile = axial ? runtime.tiles[`${axial.q},${axial.r}`] : null;
-          if (!tile || tile.controller !== pkg.context.attacker || activelyCommittedNavalSourceIds.has(source.sourceId)) {
-            throw new Error("Naval source is absent, no longer friendly, or committed to multiple engagements.");
+          if (!tile || tile.controller !== pkg.context.attacker || tile.infrastructure?.role !== "taskForce"
+            || activelyCommittedNavalSourceIds.has(source.sourceId)) {
+            throw new Error("Naval source is absent, not a friendly task force, or committed to multiple engagements. Reload a valid campaign save.");
+          }
+          if (definition) {
+            const authoredTile = definition.initialState.tiles.find((entry) => entry.hex.q === tile.hex.q && entry.hex.r === tile.hex.r);
+            const authoredSource = authoredTile ? definition.map.tilePalette[authoredTile.tile] : undefined;
+            if (!authoredTile || authoredTile.tile !== tile.tileKey || authoredSource?.role !== "taskForce"
+              || typeof authoredSource.navalCapacity !== "number" || !Number.isFinite(authoredSource.navalCapacity) || authoredSource.navalCapacity <= 0) {
+              throw new Error("Naval source is not an authored task force with positive support capacity. Reload a valid campaign save.");
+            }
           }
           activelyCommittedNavalSourceIds.add(source.sourceId);
         });
@@ -1541,10 +1552,11 @@ export function validateCampaignRuntimeState(runtime: CampaignRuntimeState): Cam
  * WHY: Creation and post-transaction commit paths must never return invalid authoritative truth.
  *
  * @param runtime - Candidate authoritative state.
+ * @param definition - Authored scenario authority used when validating a hydrated or projected state.
  * @throws CampaignRuntimeError containing the first issue and total issue count.
  */
-export function assertCampaignRuntimeState(runtime: CampaignRuntimeState): void {
-  const issues = validateCampaignRuntimeState(runtime);
+export function assertCampaignRuntimeState(runtime: CampaignRuntimeState, definition?: CampaignScenarioDefinition): void {
+  const issues = validateCampaignRuntimeState(runtime, definition);
   if (issues.length === 0) {
     return;
   }
