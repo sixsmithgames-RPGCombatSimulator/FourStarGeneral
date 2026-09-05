@@ -198,8 +198,13 @@ function initializeApplication(): void {
   tutorialOverlay.initialize();
   console.log("Tutorial system initialized");
 
-  // Show landing screen initially
-  if (landingScreenElement) {
+  // Preserve the public entry's campaign intent after all normal command and
+  // entitlement controls initialize. CampaignScreen retains its access gate.
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  if (searchParams?.get("mode") === "campaign" && campaignScreenElement) {
+    uiState.selectedMission = "campaign";
+    screenManager.showScreenById("campaign");
+  } else if (landingScreenElement) {
     screenManager.showScreen(landingScreenElement);
   }
 
@@ -223,7 +228,6 @@ function initializeApplication(): void {
     bootStatus.remove();
   }
 
-  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const codexTest = searchParams?.get("codex-test");
   if (codexTest === "airshow" || codexTest === "airshow-large" || codexTest === "airshow-replay" || codexTest === "airshow-tutorial") {
     void import("./testing/airshowE2eHarness")
