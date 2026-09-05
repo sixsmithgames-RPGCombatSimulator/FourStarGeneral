@@ -15,6 +15,8 @@ import type { CampaignCommandSelection, CampaignCommandUIStateSnapshot, Campaign
 
 import type { CampaignLocationPresentation } from "./CampaignLocationPresentation";
 
+import { projectCampaignForcesWorkspace, type CampaignForceFilter, type CampaignForceGroup } from "./CampaignWorkspaceProjection";
+
 export type { CampaignWorkspaceId } from "./CampaignCommandUIState";
 
 /** Compact projected resource displayed in the command bar. */
@@ -106,6 +108,9 @@ export interface CampaignCommandKnownRegionView {
 
 /** Player-safe persistent formation projection for list and inspector surfaces. */
 export interface CampaignCommandFormationView {
+  /** Explicit operational association includes arrivals and formations away from their assigned front. */
+  readonly operationalFrontKey?: string;
+  readonly objectiveKey?: string;
   readonly location?: CampaignLocationPresentation;
   readonly id: string;
   readonly name: string;
@@ -459,6 +464,8 @@ export class CampaignCommandShell {
   private activeSelection: CampaignCommandSelection = null;
   private readonly sheetInvokers = new Map<"workspace" | "inspector" | "timeline" | "orders", HTMLElement>();
   private readonly automaticallyPresentedReportIds = new Set<string>();
+  private forcesQuery = "";
+  private forcesFilter: CampaignForceFilter = "all";
 
   /**
    * Creates a command-shell controller for one campaign screen root.
@@ -536,7 +543,7 @@ export class CampaignCommandShell {
     this.renderAfterActionReports(view.afterActionReports ?? []);
     this.renderSituation(view);
     this.renderOutcome(view.outcome ?? null);
-    this.renderForces(view.forces, view.objectives, view.fronts ?? []);
+    this.renderForces(view);
     this.renderOrders(view.orders, view.orderCommit);
     this.renderAdvance(view.advance);
     this.renderInspectorRoute();
@@ -734,6 +741,7 @@ export class CampaignCommandShell {
   }
 
   private bindShellEvents(): void {
+    this.bindWorkspaceDiscovery();
     const rail = this.root.querySelector<HTMLElement>(".campaign-workspace-rail");
     rail?.addEventListener("click", (event) => {
       const button = (event.target as Element).closest<HTMLButtonElement>("[data-campaign-workspace-tab]");
@@ -976,7 +984,8 @@ export class CampaignCommandShell {
       archive.replaceChildren(createTextElement("p", "campaign-aar-empty", "No completed campaign battles are on file."));
       detail.replaceChildren(createTextElement("p", "campaign-aar-empty", "Complete a campaign engagement to create an after-action report."));
       this.selectedAfterActionReportId = null;
-      this.setAfterActionExpanded(false);
+      // Projection refresh must preserve discovery focus.
+      if (this.afterActionExpanded) this.setAfterActionExpanded(false);
       return;
     }
 
@@ -1430,58 +1439,89 @@ export class CampaignCommandShell {
     panel.hidden = this.dismissedOutcomeKey === outcome.key;
   }
 
-  private renderForces(
-    forces: readonly CampaignCommandForceView[],
-    objectives: readonly CampaignCommandObjectiveView[],
-    fronts: readonly CampaignCommandFrontView[]
-  ): void {
+  /** Keeps discovery local to its workspace; filtering never changes map layers or read state. */
+  private bindWorkspaceDiscovery(): void {
+    const search = this.root.querySelector<HTMLInputElement>("#campaignForcesSearch");
+    search?.addEventListener("input", () => {
+      this.forcesQuery = search.value;
+      if (this.currentView) this.renderForces(this.currentView);
+    });
+    const forceFilters: readonly CampaignForceFilter[] = ["all", "ready", "committed", "inTransit", "arriving", "recovering"];
+    this.root.querySelectorAll<HTMLButtonElement>("[data-force-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter = forceFilters.find((entry) => entry === button.dataset.forceFilter);
+        if (!filter) return;
+        this.forcesFilter = filter;
+        if (this.currentView) this.renderForces(this.currentView);
+      });
+    });
+  }
+
+  private renderForces(view: CampaignCommandShellView): void {
+    const projection = projectCampaignForcesWorkspace(view, { query: this.forcesQuery, filter: this.forcesFilter });
+    this.root.querySelectorAll<HTMLButtonElement>("[data-force-filter]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.forceFilter === this.forcesFilter));
+    });
+    this.setText("#campaignForcesScopeTitle", projection.searchingTheater ? "Entire theater matches" : "Active operations");
+    this.setText("#campaignForcesResultCount", projection.searchingTheater
+      ? `${projection.matchingCount} of ${projection.totalCount} formation records match across the theater.`
+      : `${projection.activeCount} formation records in active operations · ${projection.totalCount} across the theater.`);
+    this.setText("#campaignForcesTheaterCount", `(${projection.matchingCount})`);
     const container = this.root.querySelector<HTMLElement>("#campaignForcesWorkspaceList");
-    if (!container) return;
-    if (forces.length === 0) {
-      container.replaceChildren(createTextElement("p", "campaign-workspace-empty", "No player formations are visible in the current projection."));
-      return;
+    const theater = this.root.querySelector<HTMLElement>("#campaignForcesTheaterList");
+    const empty = projection.totalCount === 0
+      ? "No friendly formation records are available. Return to Situation to review campaign status."
+      : projection.searchingTheater
+        ? "No formations match. Clear the search or choose All to review the theater."
+        : "No formations are assigned to active fronts or objectives. Open Entire theater to inspect reserves and arrivals.";
+    container?.replaceChildren(...(projection.groups.length > 0
+      ? projection.groups.map((group) => this.createForceGroup(group))
+      : [createTextElement("p", "campaign-workspace-empty", empty)]));
+    theater?.replaceChildren(...(projection.theaterGroups.length > 0
+      ? projection.theaterGroups.map((group) => this.createForceGroup(group))
+      : [createTextElement("p", "campaign-workspace-empty", empty)]));
+  }
+
+  private createForceGroup(group: CampaignForceGroup): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "campaign-forces-group";
+    section.dataset.forceGroup = group.key;
+    section.setAttribute("aria-label", group.label);
+    const header = document.createElement("header");
+    header.className = "campaign-forces-group__header";
+    header.append(
+      createTextElement("h4", "", group.label),
+      createTextElement("p", "", `${group.commandCount} command${group.commandCount === 1 ? "" : "s"} · ${group.formationCount} formation record${group.formationCount === 1 ? "" : "s"} · ${group.readyCount} ready`),
+      createTextElement("p", "", group.statusSummary)
+    );
+    section.append(header);
+    for (const command of group.commands) {
+      const commandSection = document.createElement("div");
+      commandSection.className = "campaign-forces-command";
+      commandSection.append(createTextElement("h5", "", command.label));
+      for (const formation of command.rows) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "campaign-workspace-list-row campaign-forces-formation";
+        row.dataset.forceId = formation.id;
+        row.dataset.forceStatus = formation.category;
+        row.setAttribute("aria-label", `Inspect ${formation.name} at ${formation.locationLabel}, ${formation.statusLabel}`);
+        row.append(
+          createTextElement("strong", "", formation.name),
+          createTextElement("span", "campaign-forces-formation__location", formation.locationLabel),
+          createTextElement("small", "campaign-location-grid", formation.gridReference),
+          createTextElement("span", "", `${formation.statusLabel} · Readiness ${formation.readiness}`),
+          createTextElement("span", "", formation.strength),
+          createTextElement("small", "", formation.equipment)
+        );
+        if (formation.availability) row.append(createTextElement("small", "", `Available ${formation.availability}`));
+        if (formation.blockingReason) row.append(createTextElement("small", "", formation.blockingReason));
+        row.addEventListener("click", () => this.requestSelection({ kind: formation.selectionKind, id: formation.id }, true));
+        commandSection.append(row);
+      }
+      section.append(commandSection);
     }
-    const groups = new Map<string, CampaignCommandForceView[]>();
-    forces.forEach((force) => groups.set(force.hexKey, [...(groups.get(force.hexKey) ?? []), force]));
-    const createGroupRow = ([hexKey, entries]: [string, CampaignCommandForceView[]]): HTMLButtonElement => {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "campaign-workspace-list-row";
-      row.dataset.forceHex = hexKey;
-      const totalStrength = entries.reduce((sum, force) => sum + force.count, 0);
-      const commandLabels = Array.from(new Set(entries.map((entry) => entry.label)));
-      const groupLabel = commandLabels.length <= 1
-        ? commandLabels[0]!
-        : `${commandLabels[0]} + ${commandLabels.length - 1} command${commandLabels.length === 2 ? "" : "s"}`;
-      row.append(
-        createTextElement("strong", "", groupLabel),
-        createTextElement("span", "", `${commandLabels.length} command${commandLabels.length === 1 ? "" : "s"} · strength ${totalStrength.toLocaleString()} · Hex ${hexKey}`)
-      );
-      row.addEventListener("click", () => this.requestSelection({ kind: "hex", id: hexKey }, true));
-      return row;
-    };
-    const operationalHexes = new Set([
-      ...fronts.flatMap((front) => front.hexKeys),
-      ...objectives.filter((objective) => objective.status === "In progress" && objective.hexKey).map((objective) => objective.hexKey!)
-    ]);
-    const allGroups = Array.from(groups.entries());
-    const relevantGroups = allGroups.filter(([hexKey]) => operationalHexes.has(hexKey));
-    const primaryGroups = relevantGroups.length > 0 ? relevantGroups : allGroups.slice(0, 4);
-    const primaryHexes = new Set(primaryGroups.map(([hexKey]) => hexKey));
-    const remainingGroups = allGroups.filter(([hexKey]) => !primaryHexes.has(hexKey));
-    const content: HTMLElement[] = primaryGroups.map(createGroupRow);
-    if (remainingGroups.length > 0) {
-      const disclosure = document.createElement("details");
-      disclosure.className = "campaign-forces-disclosure";
-      const summary = document.createElement("summary");
-      summary.textContent = `All theater forces (${remainingGroups.length} more location${remainingGroups.length === 1 ? "" : "s"})`;
-      const list = document.createElement("div");
-      list.className = "campaign-forces-disclosure__list";
-      list.append(...remainingGroups.map(createGroupRow));
-      disclosure.append(summary, list);
-      content.push(disclosure);
-    }
-    container.replaceChildren(...content);
+    return section;
   }
 
   private renderOrders(

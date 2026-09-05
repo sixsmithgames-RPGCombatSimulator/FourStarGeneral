@@ -52,6 +52,35 @@ function createSituationWorkspace(): HTMLElement {
   return section;
 }
 
+/** Builds stable discovery controls so projection updates do not steal keyboard focus. */
+function createForcesWorkspace(): HTMLElement {
+  const section = createWorkspaceOverview("forces", "Forces", "Commands on active fronts and objectives. Search or filter across the entire theater.", "campaignForcesWorkspace");
+  const body = section.querySelector<HTMLElement>("#campaignForcesWorkspace");
+  if (!body) return section;
+  body.innerHTML = `
+    <div class="campaign-workspace-controls">
+      <label for="campaignForcesSearch">Find command, formation, or location</label>
+      <input id="campaignForcesSearch" type="search" placeholder="Search the entire theater" autocomplete="off" aria-controls="campaignForcesWorkspaceList campaignForcesTheaterList">
+      <div class="campaign-workspace-filters" role="group" aria-label="Force status">
+        <button type="button" data-force-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-force-filter="ready" aria-pressed="false">Ready</button>
+        <button type="button" data-force-filter="committed" aria-pressed="false">Committed</button>
+        <button type="button" data-force-filter="inTransit" aria-pressed="false">In transit</button>
+        <button type="button" data-force-filter="arriving" aria-pressed="false">Arriving</button>
+        <button type="button" data-force-filter="recovering" aria-pressed="false">Recovering</button>
+      </div>
+    </div>
+    <h3 id="campaignForcesScopeTitle">Active operations</h3>
+    <p id="campaignForcesResultCount" role="status" aria-live="polite"></p>
+    <div id="campaignForcesWorkspaceList" aria-labelledby="campaignForcesScopeTitle"></div>
+    <details class="campaign-forces-disclosure" id="campaignForcesTheater">
+      <summary>Entire theater <span id="campaignForcesTheaterCount"></span></summary>
+      <div id="campaignForcesTheaterList" class="campaign-forces-disclosure__list"></div>
+    </details>
+  `;
+  return section;
+}
+
 export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
   panel.id = "campaignWorkspacePanel";
   panel.classList.add("campaign-workspace-panel");
@@ -72,7 +101,7 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
   panel.prepend(
     compactHeader,
     createSituationWorkspace(),
-    createWorkspaceOverview("forces", "Forces by location", "Select a group to inspect every formation at that location.", "campaignForcesWorkspaceList"),
+    createForcesWorkspace(),
     createWorkspaceOverview("logistics", "Allied support", "Allocate the next theater delivery from rear-area staging hubs.", "campaignLogisticsWorkspaceIntro"),
     createWorkspaceOverview("intelligence", "Intelligence", "Review contacts or plan a collection operation.", "campaignIntelligenceWorkspaceIntro")
   );
