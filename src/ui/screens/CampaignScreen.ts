@@ -4693,6 +4693,7 @@ export class CampaignScreen {
               action: "Review the restored time and situation, then Save to create a new current checkpoint.",
               tone: "warning"
             });
+            this.resumeRestoredCampaignBattle();
             return;
           }
         }
@@ -4710,19 +4711,7 @@ export class CampaignScreen {
       }
       this.renderTimeDisplay();
       this.commandSaveStatus = "Saved";
-      const activeBattle = this.campaignState.getActiveBattleSave();
-      if (activeBattle) {
-        this.setCampaignStatusMessage({
-          title: "Tactical battle restored.",
-          detail: "The campaign and its active engagement passed integrity and revision checks.",
-          action: "Returning directly to the saved tactical decision point.",
-          tone: "success"
-        });
-        document.dispatchEvent(new CustomEvent("campaign:battle:resume", {
-          detail: { save: activeBattle }
-        }));
-        return;
-      }
+      if (this.resumeRestoredCampaignBattle()) return;
       this.setCampaignStatusMessage({
         title: result.source === "legacyMigration" ? "Campaign migrated and restored." : "Campaign restored.",
         detail: result.warning
@@ -4742,6 +4731,22 @@ export class CampaignScreen {
     } finally {
       this.setCampaignPersistenceBusy(false);
     }
+  }
+
+  /** Primary and recovered checkpoints share the same exact tactical resume handoff. */
+  private resumeRestoredCampaignBattle(): boolean {
+    const activeBattle = this.campaignState.getActiveBattleSave();
+    if (!activeBattle) return false;
+    this.setCampaignStatusMessage({
+      title: "Tactical battle restored.",
+      detail: "The campaign and its active engagement passed integrity and revision checks.",
+      action: "Returning directly to the saved tactical decision point.",
+      tone: "success"
+    });
+    document.dispatchEvent(new CustomEvent("campaign:battle:resume", {
+      detail: { save: activeBattle }
+    }));
+    return true;
   }
 
   private loadCampaignFromFile(): void {

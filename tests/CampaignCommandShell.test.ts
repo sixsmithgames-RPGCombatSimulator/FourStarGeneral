@@ -14,8 +14,10 @@ import campaignScenarioData from "../src/data/campaign01.json";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { computeCampaignContentHash } from "../src/game/campaign/runtime/CampaignCanonical";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
-import { CampaignState, ensureCampaignState, type CampaignStatePersistenceRequest } from "../src/state/CampaignState";
+import { CAMPAIGN_LEGACY_SAVE_KEY, CAMPAIGN_PRIMARY_SAVE_SLOT_ID, CampaignState, ensureCampaignState, type CampaignStatePersistenceRequest } from "../src/state/CampaignState";
 import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
+import { buildCampaignSaveCanonicalScenario, buildLegacyCampaignSaveV2Raw } from "./fixtures/CampaignSaveLegacy.fixtures.js";
+import { buildCompleteActiveBattleSave } from "./TacticalSaveCompleteness.test.js";
 import { CampaignCommandShell } from "../src/ui/campaign/CampaignCommandShell";
 import {
   CampaignScreen,
@@ -81,6 +83,24 @@ function appendCampaignPopupFixture(): HTMLElement {
     </div>
   `);
   return document.getElementById("battlePopupLayer")!;
+}
+
+/** Waits for an observable UI boundary, with a bounded failure instead of timing-dependent sleeps. */
+function waitForCampaignDom(predicate: () => boolean): Promise<void> {
+  if (predicate()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const observer = new window.MutationObserver(() => {
+      if (!predicate()) return;
+      observer.disconnect();
+      clearTimeout(timeout);
+      resolve();
+    });
+    const timeout = setTimeout(() => {
+      observer.disconnect();
+      reject(new Error("Campaign control did not reach its expected DOM boundary."));
+    }, 5000);
+    observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+  });
 }
 
 registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({ Given, When, Then }) => {
@@ -1368,6 +1388,199 @@ registerTest("FSG_CAM_079_CAMPAIGN_CONFIRMATION_DIALOG_OWNS_FOCUS_AND_FAILS_CLOS
     assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), beforeMissing);
     assert.match(root.textContent ?? "", /confirmation panel is unavailable.*Reload the game/s);
   });
+});
+
+registerTest("FSG_CAM_079_QUEUE_CALLER_REQUIRES_DANGER_BRIEFING_CONSENT", async ({ Given, When, Then }) => {
+  for (const danger of [{ count: 8, band: "heavy" }, { count: 12, band: "overwhelming" }] as const) {
+    const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+    const { root, screen } = mountIsolatedCampaignScreen(state);
+    const scenario = buildCampaignSaveCanonicalScenario();
+    // Author opposing forces in direct contact; real knowledge fusion, not a briefing stub, assesses their strength.
+    scenario.tilePalette.playerHub.role = "fortificationLight";
+    scenario.tilePalette.botFort.forces![0].count = danger.count;
+    for (const tile of scenario.tiles) tile.forces = structuredClone(scenario.tilePalette[tile.tile].forces);
+    screen.renderScenario(scenario);
+    const layer = appendCampaignPopupFixture();
+    const handoffs: Array<{ activeId: string | null; engagements: ReturnType<CampaignState["getPendingEngagements"]> }> = [];
+    screen.setQueueEngagementHandler(() => {
+      handoffs.push({ activeId: state.getActiveEngagementId(), engagements: state.getPendingEngagements() });
+    });
+    let queue: HTMLButtonElement;
+    let runtimeBefore: string;
+    let formationsBefore: ReturnType<CampaignState["getCampaignFormationRoster"]>;
+    const briefing = state.buildCampaignEngagementContext({ engagementId: "danger-fixture", battleHexKey: "1,0", attacker: "Player", frontKey: null })?.intelligenceBriefing;
+
+    await Given(`a ready Forces row beside a real ${danger.band} enemy assessment`, () => {
+      assert.ok(briefing);
+      assert.equal(briefing.resistanceBand, danger.band);
+      assert.ok(briefing.contacts.length > 0 && briefing.contacts.every((contact) => contact.strengthBand), "Danger must come from assessed faction contacts.");
+      root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='forces']")!.click();
+      const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.locationHexKey === "0,0" && entry.status === "ready");
+      assert.ok(formation);
+      const row = Array.from(root.querySelectorAll<HTMLButtonElement>("#campaignForcesWorkspaceList [data-force-id]"))
+        .find((entry) => entry.dataset.forceId === formation.id);
+      assert.ok(row, "The actual Forces row must select the exact persistent formation.");
+      row.click();
+      queue = root.querySelector<HTMLButtonElement>("#campaignQueueEngagement")!;
+      assert.ok(queue && !queue.disabled && !queue.closest("[hidden]"));
+      runtimeBefore = computeCampaignContentHash(state.getRuntimeSnapshot());
+      formationsBefore = state.getCampaignFormationRoster("Player");
+      queue.focus();
+      queue.click();
+      assert.equal(layer.classList.contains("hidden"), false, "Actual Queue must await the campaign dialog for a dangerous assessment.");
+      assert.match(layer.querySelector("[data-popup-body]")?.textContent ?? "", new RegExp(briefing.summary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      assert.equal(handoffs.length, 0);
+      assert.deepEqual(state.getPendingEngagements(), []);
+      assert.equal(state.getActiveEngagementId(), null);
+      assert.equal(state.getActiveCampaignBattlePackage(), null);
+      assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), runtimeBefore, "Displaying consent must not commit forces or create pending runtime state.");
+    });
+
+    await When("the commander cancels the actual Queue caller's confirmation", async () => {
+      const cancel = Array.from(layer.querySelectorAll<HTMLButtonElement>("[data-popup-body] button"))
+        .find((button) => button.textContent === "Return to campaign");
+      assert.ok(cancel);
+      cancel.click();
+      await Promise.resolve();
+      assert.equal(layer.classList.contains("hidden"), true);
+      assert.equal(root.inert, false);
+      assert.equal(document.activeElement, queue);
+      assert.equal(handoffs.length, 0);
+      assert.deepEqual(state.getPendingEngagements(), []);
+      assert.equal(state.getActiveEngagementId(), null);
+      assert.equal(state.getActiveCampaignBattlePackage(), null);
+      assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), runtimeBefore, "Cancelling must leave campaign state exactly unchanged.");
+    });
+
+    await Then("accepting a fresh Queue request installs one engagement and hands it to tactical planning exactly once", async () => {
+      queue.click();
+      assert.equal(layer.classList.contains("hidden"), false);
+      assert.equal(handoffs.length, 0);
+      assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), runtimeBefore);
+      const accept = layer.querySelector<HTMLButtonElement>("[data-confirm-campaign-action]");
+      assert.ok(accept);
+      accept.click();
+      accept.click();
+      await Promise.resolve();
+      assert.equal(handoffs.length, 1, "One accepted decision must cause exactly one caller handoff, even for a repeated accept gesture.");
+      const handoff = handoffs[0];
+      assert.equal(handoff.engagements.length, 1);
+      const engagement = handoff.engagements[0];
+      assert.equal(handoff.activeId, engagement.id);
+      assert.deepEqual(engagement.hexKeys, ["0,0"], "The selected formation's order origin must survive the proximity route.");
+      assert.equal(engagement.context?.battleHexKey, "1,0", "The actual caller must resolve the adjacent opposing target.");
+      assert.equal(engagement.context?.intelligenceBriefing?.resistanceBand, danger.band);
+      assert.deepEqual(engagement.context?.intelligenceBriefing, briefing);
+      assert.deepEqual(state.getPendingEngagements(), handoff.engagements);
+      assert.equal(state.getActiveCampaignBattlePackage(), null, "Consent enters tactical planning; allocation commitment still belongs to precombat.");
+      assert.deepEqual(state.getCampaignFormationRoster("Player"), formationsBefore);
+      assert.equal(root.inert, false);
+      assert.equal(layer.classList.contains("hidden"), true);
+    });
+  }
+});
+
+registerTest("FSG_CAM_079_LOAD_RECOVERY_CANCEL_PRESERVES_STATE_ACCEPT_RESUMES_EXACT_BATTLE_ONCE", async ({ Given, When, Then }) => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const legacyValues = new Map([[CAMPAIGN_LEGACY_SAVE_KEY, buildLegacyCampaignSaveV2Raw()]]);
+  const source = new CampaignState({ saveBackend: backend, legacyStorage: {
+    getItem: (key) => legacyValues.get(key) ?? null,
+    setItem: (key, value) => { legacyValues.set(key, value); }
+  } });
+  const request: CampaignStatePersistenceRequest = {
+    timestamp: "2026-09-05T16:00:00.000Z", label: "Tactical recovery boundary", playTimeSeconds: 1800,
+    difficulty: "Normal", commanderRosterLink: null,
+    uiResumeContext: { workspace: "operations", selectedEntityId: null, mapCenter: null, mapZoom: null }
+  };
+  let state: CampaignState;
+  let root: HTMLElement;
+  let layer: HTMLElement;
+  let load: HTMLButtonElement;
+  let expectedBattle: NonNullable<ReturnType<CampaignState["getActiveBattleSave"]>>;
+  let expectedRuntime: string;
+  let beforeLoad: string;
+  const resumes: unknown[] = [];
+  const onResume = (event: Event): void => { resumes.push((event as CustomEvent<{ save: unknown }>).detail.save); };
+  document.addEventListener("campaign:battle:resume", onResume);
+
+  try {
+    await Given("a corrupt primary save backed by a verified earlier complete tactical checkpoint", async () => {
+      source.setScenario(buildCampaignSaveCanonicalScenario());
+      const migrated = await source.loadPrimaryCampaign(request);
+      assert.ok(migrated.ok, migrated.ok ? "" : migrated.error.message);
+      const runtime = source.getRuntimeSnapshot();
+      assert.ok(runtime?.activeEngagementId);
+      const binding = { campaignId: runtime.campaignId, campaignRevision: runtime.revision, scenarioKey: runtime.scenarioKey, engagementId: runtime.activeEngagementId };
+      source.setActiveBattleSave(buildCompleteActiveBattleSave({ ...binding, focusedElementId: "battleLoadButton" }));
+      expectedBattle = source.getActiveBattleSave()!;
+      expectedRuntime = computeCampaignContentHash(source.getRuntimeSnapshot());
+      await source.savePrimaryCampaign({ ...request, timestamp: "2026-09-05T16:01:00.000Z" });
+      source.setActiveBattleSave(buildCompleteActiveBattleSave({ ...binding, focusedElementId: "endTurn" }));
+      await source.savePrimaryCampaign({ ...request, timestamp: "2026-09-05T16:02:00.000Z" });
+      const exported = backend.exportState();
+      const currentId = exported.slots[CAMPAIGN_PRIMARY_SAVE_SLOT_ID].currentSaveId;
+      const saves = structuredClone(exported.saves) as Record<string, unknown>;
+      const corrupt = structuredClone(saves[currentId]) as Record<string, unknown>;
+      corrupt.checksum = "fsg-save-v1-fnv1a32-deadbeef";
+      saves[currentId] = corrupt;
+      state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend({ ...exported, saves }), legacyStorage: null });
+      const fixture = mountIsolatedCampaignScreen(state);
+      root = fixture.root;
+      fixture.screen.renderScenario(buildCampaignSaveCanonicalScenario());
+      layer = appendCampaignPopupFixture();
+      load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+      assert.ok(load && !load.disabled);
+      beforeLoad = computeCampaignContentHash(state.getRuntimeSnapshot());
+      assert.equal(state.getActiveBattleSave(), null);
+      load.focus();
+      load.click();
+      assert.equal(load.disabled, true);
+      await waitForCampaignDom(() => !layer.classList.contains("hidden") || !load.disabled);
+      assert.equal(layer.classList.contains("hidden"), false, "The actual Load control must present recovery before applying the older record.");
+      assert.equal(layer.querySelector("[data-popup-title]")?.textContent, "Recover earlier campaign");
+      assert.equal(resumes.length, 0);
+      assert.equal(state.getActiveBattleSave(), null);
+      assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), beforeLoad);
+    });
+
+    await When("Escape cancels recovery from the actual Load control", async () => {
+      const accept = layer.querySelector<HTMLButtonElement>("[data-confirm-campaign-action]")!;
+      accept.focus();
+      assert.equal(document.activeElement, accept);
+      accept.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      await waitForCampaignDom(() => !load.disabled);
+      assert.equal(layer.classList.contains("hidden"), true);
+      assert.equal(root.inert, false);
+      assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), beforeLoad, "Cancelling recovery must preserve the current campaign exactly.");
+      assert.equal(state.getActiveBattleSave(), null);
+      assert.equal(state.getActiveEngagementId(), null);
+      assert.equal(resumes.length, 0);
+    });
+
+    await Then("accepting recovery on a fresh Load request restores and dispatches the exact earlier active battle once", async () => {
+      load.click();
+      await waitForCampaignDom(() => !layer.classList.contains("hidden") || !load.disabled);
+      assert.equal(layer.classList.contains("hidden"), false);
+      assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), beforeLoad);
+      assert.equal(resumes.length, 0);
+      const accept = layer.querySelector<HTMLButtonElement>("[data-confirm-campaign-action]");
+      assert.equal(accept?.textContent, "Recover earlier save");
+      accept!.click();
+      accept!.click();
+      await waitForCampaignDom(() => !load.disabled);
+      assert.equal(resumes.length, 1, "Accepted recovery must reach the shared tactical resume path exactly once.");
+      assert.deepEqual(resumes[0], expectedBattle, "Resume must dispatch the whole verified earlier battle, not the damaged newest checkpoint or a reconstructed replacement.");
+      assert.deepEqual(state.getActiveBattleSave(), expectedBattle);
+      assert.equal(state.getActiveBattleSave()?.tacticalUI.focusedElementId, "battleLoadButton");
+      assert.equal(state.getActiveEngagementId(), expectedBattle.engagementPackage.engagementId);
+      assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), expectedRuntime);
+      assert.equal(root.inert, false);
+      assert.equal(layer.classList.contains("hidden"), true);
+      assert.match(root.textContent ?? "", /Tactical battle restored/);
+    });
+  } finally {
+    document.removeEventListener("campaign:battle:resume", onResume);
+  }
 });
 
 registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", async ({ Given, When, Then }) => {
