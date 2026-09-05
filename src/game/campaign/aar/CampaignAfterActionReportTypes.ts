@@ -5,9 +5,15 @@ import type { CampaignObjectiveRuntimeStatus } from "../runtime/campaignRuntimeT
 import type { CampaignBattleEconomySnapshot, CampaignBattleEconomyCharge } from "../consequences/CampaignBattleConsequenceTypes";
 import type { CampaignFormationStatus } from "../formations/campaignFormationTypes";
 import type { CampaignFormationControlDispositionKind, CampaignOccupationOutcome } from "../control/CampaignBattleControlTypes";
-import type { CampaignBattleResultOutcome, CampaignTacticalObjectiveResult } from "../results/CampaignBattleResultTypes";
+import type { CampaignBattleResultOutcome, CampaignTacticalObjectiveResult, CampaignNavalSourceDelta } from "../results/CampaignBattleResultTypes";
 
-export const CAMPAIGN_AFTER_ACTION_REPORT_VERSION = 1 as const;
+export const CAMPAIGN_AFTER_ACTION_REPORT_VERSION = 2 as const;
+
+/** Exact friendly source receipt with the replenishment consequence frozen at resolution. */
+export interface CampaignAfterActionNavalSupportResult extends CampaignNavalSourceDelta {
+  readonly status: "expended" | "restored";
+  readonly nextAvailableSegment: number;
+}
 
 export type CampaignAfterActionStrategicResult = "victory" | "defeat" | "stalemate" | "withdrawal";
 export type CampaignAfterActionDecisionSeverity = "attention" | "critical";
@@ -69,7 +75,7 @@ export interface CampaignAfterActionDecisionRequired {
 
 /** Player-safe, integrity-bound report retained beside the authoritative tactical and campaign audits. */
 export interface CampaignAfterActionReport {
-  readonly reportVersion: typeof CAMPAIGN_AFTER_ACTION_REPORT_VERSION;
+  readonly reportVersion: 1 | typeof CAMPAIGN_AFTER_ACTION_REPORT_VERSION;
   readonly reportId: string;
   readonly campaignId: string;
   readonly scenarioKey: string;
@@ -97,6 +103,8 @@ export interface CampaignAfterActionReport {
   readonly frontsBefore: number;
   readonly frontsAfter: number;
   readonly friendlyFormations: readonly CampaignAfterActionFormationResult[];
+  /** Required in v2 reports; absent from preserved v1 historical reports. */
+  readonly navalSupport?: readonly CampaignAfterActionNavalSupportResult[];
   readonly opponent: CampaignAfterActionOpponentSummary;
   readonly economyBefore: CampaignBattleEconomySnapshot;
   readonly economyAfter: CampaignBattleEconomySnapshot;

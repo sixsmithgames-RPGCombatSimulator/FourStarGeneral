@@ -9,13 +9,16 @@ import {
   createStableCampaignRecordId,
   computeCampaignContentHash
 } from "../runtime/CampaignCanonical";
-import type { CampaignRuntimeState } from "../runtime/campaignRuntimeTypes";
+import type { CampaignRuntimeState, CampaignScenarioDefinition } from "../runtime/campaignRuntimeTypes";
+import { projectLegacyCampaignState } from "../runtime/CampaignScenarioAdapter";
+import { campaignNavalSourceId, campaignPackageNavalSources, evaluateCampaignNavalSupport, CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY } from "../logistics/CampaignNavalSupportService";
 import {
   isCampaignFormationBattleEligible
 } from "../formations/CampaignFormationBattleAdapter";
 import { transitionCampaignFormationStatus } from "../formations/FormationLifecycleService";
 import type { CampaignFormationRecord } from "../formations/campaignFormationTypes";
 import type { CampaignBattleResultPackage } from "../results/CampaignBattleResultTypes";
+import { assertCampaignBattleResultPackage } from "../results/CampaignBattleResultExtractor";
 import {
   CAMPAIGN_BATTLE_PACKAGE_VERSION,
   CAMPAIGN_ENGAGEMENT_LEDGER_VERSION,
@@ -116,7 +119,7 @@ export function reconcileCampaignEngagementLedger(runtime: CampaignRuntimeState)
       const { integrityHash: _oldIntegrity, ...legacyUnsigned } = legacyPackage;
       const unsigned = {
         ...legacyUnsigned,
-        packageVersion: CAMPAIGN_BATTLE_PACKAGE_VERSION,
+        packageVersion: 2,
         formationCommitments: commitments
       } as unknown as Omit<CampaignBattlePackage, "integrityHash">;
       ledger.package = { ...unsigned, integrityHash: computeBattlePackageIntegrity(unsigned) };
@@ -273,7 +276,7 @@ function selectDefenderCommitments(runtime: CampaignRuntimeState, engagementId: 
 }
 
 function computeBattlePackageIntegrity(pkg: Omit<CampaignBattlePackage, "integrityHash">): string {
-  return `fsg-battle-package-v2-${computeCampaignContentHash(pkg)}`;
+  return `fsg-battle-package-v${pkg.packageVersion}-${computeCampaignContentHash(pkg)}`;
 }
 
 /** Recomputes the package integrity value without trusting its stored hash. */
@@ -287,7 +290,7 @@ export function assertCampaignBattlePackage(
   pkg: CampaignBattlePackage,
   expected?: { campaignId: string; scenarioKey: string; engagementId: string; packageId?: string }
 ): CampaignBattlePackage {
-  if (pkg.packageVersion !== CAMPAIGN_BATTLE_PACKAGE_VERSION
+  if ((pkg.packageVersion !== CAMPAIGN_BATTLE_PACKAGE_VERSION && pkg.packageVersion !== 2)
     || !pkg.packageId || !pkg.campaignId || !pkg.scenarioKey || !pkg.engagementId
     || !Number.isInteger(pkg.sourceRevision) || !Number.isInteger(pkg.committedRevision)
     || pkg.sourceRevision < 0
@@ -336,13 +339,24 @@ export function assertCampaignBattlePackage(
     || pkg.resourceCommitments.some((entry) => !Number.isFinite(entry.reservedAmount) || entry.reservedAmount < 0)) {
     throw new Error("Campaign battle package contains malformed allocation or resource commitments.");
   }
+  const naval = pkg.supportCommitments.filter((entry) => entry.allocationKey === CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY);
+  if (naval.length > 1) throw new Error("Campaign battle package duplicates its naval support allocation.");
+  if (pkg.packageVersion >= 3 && naval.length > 0) {
+    const sources = campaignPackageNavalSources(pkg);
+    if (sources.length !== naval[0].quantity || new Set(sources.map((entry) => entry.sourceId)).size !== sources.length
+      || sources.some((source) => !source.sourceHexKey || !source.label
+        || source.sourceId !== campaignNavalSourceId(pkg.scenarioKey, source.sourceHexKey))) {
+      throw new Error("Campaign battle package has missing, duplicated, or invalid naval source reservations.");
+    }
+  }
   return structuredClone(pkg);
 }
 
 /** Locks one exact tactical package. Repeating the same request is a no-op; changing it is rejected. */
 export function commitCampaignEngagement(
   runtime: CampaignRuntimeState,
-  request: CampaignEngagementCommitmentRequest
+  request: CampaignEngagementCommitmentRequest,
+  definition?: CampaignScenarioDefinition | null
 ): CampaignEngagementCommitmentResult {
   reconcileCampaignEngagementLedger(runtime);
   const engagementRuntime = runtime.engagements[request.engagementId];
@@ -392,6 +406,21 @@ export function commitCampaignEngagement(
       quantity: entry.quantity,
       reservedRp: entry.totalRpCost
     }));
+  const navalIndex = supportCommitments.findIndex((entry) => entry.allocationKey === CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY);
+  if (navalIndex >= 0) {
+    if (!definition) throw new Error("Naval support commitment needs current campaign geography. Reload the campaign before committing.");
+    const scenario = projectLegacyCampaignState(definition, runtime).scenario;
+    const eligibility = evaluateCampaignNavalSupport(scenario, {
+      battleHexKey: context.battleHexKey, frontKey: context.frontKey, engagementId: request.engagementId
+    }, runtime, context.attacker);
+    const selection = supportCommitments[navalIndex];
+    if (selection.quantity > eligibility.availableSupportAssignments) {
+      throw new Error(`Naval support requests ${selection.quantity} assignments but only ${eligibility.availableSupportAssignments} sources are ready, in range and uncommitted. Refresh the engagement and reduce support or restore task-force availability.`);
+    }
+    supportCommitments[navalIndex] = { ...selection, navalSources: eligibility.sources
+      .filter((source) => source.availableSupportAssignments > 0).slice(0, selection.quantity)
+      .map(({ sourceId, sourceHexKey, label }) => ({ sourceId, sourceHexKey, label })) };
+  }
   const supportRp = supportCommitments.reduce((sum, entry) => sum + entry.reservedRp, 0);
   if (supportRp > context.rpReserve) {
     throw new Error(`Support commitment requires ${supportRp} RP, above the ${context.rpReserve} RP reserve.`);
@@ -521,11 +550,14 @@ export function recordCampaignEngagementResolution(
       || resultPackage.battlePackageIntegrityHash !== ledger.package.integrityHash) {
       throw new Error("The tactical result identity does not match the engagement receipt.");
     }
-    ledger.resultPackage = structuredClone(resultPackage);
+    ledger.resultPackage = assertCampaignBattleResultPackage(resultPackage, ledger.package);
   }
   ledger.appliedResolutionIds.push(resolutionId);
   ledger.resolutionSummaryHash = computeCampaignContentHash(resultPackage ?? summary);
   ledger.status = "resolved";
+  if (ledger.package?.supportCommitments.some((entry) => entry.allocationKey === CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY)) {
+    ledger.navalSupportResolvedSegment = runtime.currentSegment;
+  }
   ledger.terminalRevision = runtime.revision + 1;
   const engagement = runtime.engagements[engagementId];
   if (engagement) engagement.status = "resolved";

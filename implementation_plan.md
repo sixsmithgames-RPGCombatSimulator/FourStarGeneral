@@ -1,3 +1,34 @@
+## 2026-09-05 — FSG-CAM-004 authoritative naval support: coordinate and persistence impact
+
+### Intended behavior and scope
+- One pure campaign-domain evaluator supplies task-force eligibility, engagement caps, exact commitment, tactical source identity, charge receipts, AAR and save/resume. `economy.navalPower` remains a separate economic value.
+- Public `sourceHexKey` and `battleHexKey` use offset `col,row`. Runtime tile keys and authored `tile.hex` use axial `q,r`. The range remains six campaign hexes, inclusive; the conversion convention is the existing odd-column convention, not a new geometry rule.
+- Each task force grants one indivisible engagement entitlement with the existing two-charge tactical asset. Readiness must be exactly 1: reduced structural integrity, effectiveness or a disabled condition blocks this single entitlement. Unused entitlements release on resolution; any use expends that source until the following campaign segment. Replenishment never bypasses current readiness, target authorization or range.
+- Public totals and source rows distinguish `availableSupportAssignments` (eligible engagement reservations) from `availableFireMissions` (actual tactical charges). `fireMissionsPerAssignment` comes from the same `createOffMapSupportAsset` profile used by tactical initialization, currently two. Builder caps and ledger quantities use assignments exclusively. This projection correction does not change persisted package quantities, tactical charges, rules fingerprints or historical hashes.
+- V3 tactical support snapshots expose the frozen fleet label as `<fleet label> naval gunfire` through their existing `label` property (the actual engine/display contract). Earlier v2 assets retain their historical generic label. No new engine property or tactical engine edit is required.
+
+### Current behavior and expected change
+- Previously the builder counted task-force capacity without current damage, reservation or expenditure checks and could count a naval force twice. Logistics and fleet inspection used independent values. A manually supplied cap could create support with no source.
+- Source reservations now freeze into battle-package v3, per-source charge accounting into result v2, and friendly source receipts into AAR v2. Scoped runtime `navalSupportRulesVersion` identifies this rule change. Earlier package/result/report versions retain their historical hashes and tactical IDs.
+- An older package with no naval commitment needs no naval attribution. A legacy naval commitment is recoverable when its frozen source identities prove one unique assignment, including an omitted legacy force count. Missing or ambiguous source identity must produce explicit pre-engagement-save recovery guidance instead of inventing a historical fleet.
+
+### High-risk impact analysis, recorded before further coordinate edits
+- Consumers: domain engagement builder and AI engagement builder; `CampaignState.getPlayerNavalSupport`; parent-owned Logistics/fleet/precombat views; engagement invariant validation; tactical support adapter; result extraction; AAR; campaign persistence.
+- Events: existing campaign scenario load, engagement commitment, result application and segment resolution refresh state projections. No new event, DOM selector, renderer dependency or tactical-engine callback is introduced.
+- Visual risk: confusing offset source keys with axial runtime keys can attach availability to the wrong fleet or suppress the correct inspector row. The public contract and tests must make odd/even-column differences explicit. Map centers, pan, zoom, sprites and tactical coordinates are unchanged.
+- Rule risk: a coordinate mismatch could incorrectly authorize a target at the range boundary or reassign a persisted source. Reuse core `hexDistance`/neighbors and the existing pure `axialToOffsetKey`/`offsetKeyToAxial` functions exported by `CampaignIntelligence`, already used by campaign-domain control resolution. Core currently exposes no offset conversion helper. Keep strict key validation in the naval boundary, remove copied conversion arithmetic, and do not import rendering `CoordinateSystem` or broaden shared core scope.
+- Persistence risk: do not rehash existing active tactical packages to add guessed source identities. Migration must be pure and idempotent; reservations and used/unused source identity must survive serialized round trips.
+
+### Verification and replay checklist
+- [x] Baseline RED: destroyed fleet still authorized support (`FSG_CAM_051`); a fabricated cap committed without a fleet (`FSG_CAM_052`).
+- [x] Initial isolated TypeScript emission under `dist-tsc-check/naval`: exit 0; no shared `dist-tsc` deletion.
+- [x] Initial `FSG_CAM_051..059`: 9 passed; ledger/save/result/AAR regression selection: 27 passed; owned lint: zero warnings.
+- [x] Extended coordinate checks cover explicit odd/even offset source/target keys and negative coordinates, inclusive six-hex range and no off-map target acceptance (`FSG_CAM_053_OFFSET_COORDINATE_REPLAY`).
+- [x] Extended migration checks cover uniquely attributable missing-count naval records and no-naval records, with repeated migration and complete hash/source-ID comparison (`FSG_CAM_059_LEGACY_MISSING_COUNT_AND_NO_NAVAL_PACKAGES_LOAD`). The 11 naval cases and changed-file lint pass after targeted emission only.
+- [ ] Parent completes final single integration typecheck, test registration and live Logistics/fleet/engagement/AAR visual verification. No further parallel full build/compile, no engine/BattleScreen edit, commit, push or deployment is authorized in this domain task.
+
+---
+
 ## 2026-08-29 — Campaign professionalization corrective tranche: map ownership and command continuity
 
 ### Intended behavior

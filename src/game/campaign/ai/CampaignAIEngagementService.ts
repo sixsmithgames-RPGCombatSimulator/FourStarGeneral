@@ -251,7 +251,7 @@ export function initiateCampaignAIOffensive(
     frontKey,
     objectiveKey,
     intelligenceBriefing
-  });
+  }, runtime);
   if (!rawContext || rawContext.defender !== "Player") return null;
 
   const identifiedContext = attachCampaignFormationProvenanceToContext(rawContext, runtime);

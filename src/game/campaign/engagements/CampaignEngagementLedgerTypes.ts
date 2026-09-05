@@ -19,9 +19,10 @@ import type { CampaignBattleConsequenceReport } from "../consequences/CampaignBa
 import type { CampaignBattleControlReport } from "../control/CampaignBattleControlTypes";
 import type { CampaignBattleInfrastructureReport } from "../infrastructure/CampaignBattleInfrastructureTypes";
 import type { CampaignAfterActionReport } from "../aar/CampaignAfterActionReportTypes";
+import type { CampaignNavalSourceCommitment } from "../logistics/CampaignNavalSupportService";
 
 export const CAMPAIGN_ENGAGEMENT_LEDGER_VERSION = 1 as const;
-export const CAMPAIGN_BATTLE_PACKAGE_VERSION = 2 as const;
+export const CAMPAIGN_BATTLE_PACKAGE_VERSION = 3 as const;
 
 export type CampaignEngagementLedgerStatus =
   | "opportunity"
@@ -73,6 +74,8 @@ export interface CampaignSupportCommitment {
   readonly category: string;
   readonly quantity: number;
   readonly reservedRp: number;
+  /** Exact sources; required for v3 naval commitments, absent from pre-authority v2 packages. */
+  readonly navalSources?: readonly CampaignNavalSourceCommitment[];
 }
 
 /** Shared campaign pool claim. Consumption/refund is reconciled by the later consequence milestone. */
@@ -84,7 +87,7 @@ export interface CampaignEngagementResourceCommitment {
 
 /** Immutable package used by tactical generation, saves, result extraction, and consequence application. */
 export interface CampaignBattlePackage {
-  readonly packageVersion: typeof CAMPAIGN_BATTLE_PACKAGE_VERSION;
+  readonly packageVersion: 2 | typeof CAMPAIGN_BATTLE_PACKAGE_VERSION;
   readonly packageId: string;
   readonly campaignId: string;
   readonly scenarioKey: string;
@@ -130,6 +133,8 @@ export interface CampaignEngagementLedgerRecord {
   legacyUnfrozen: boolean;
   readonly appliedResolutionIds: string[];
   resolutionSummaryHash: string | null;
+  /** Resolution clock for naval replenishment, independent of when the tactical package was committed. */
+  navalSupportResolvedSegment?: number;
 }
 
 /** Normalized precombat allocation accepted by the commitment service. */

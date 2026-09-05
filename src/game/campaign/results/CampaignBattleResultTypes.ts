@@ -18,7 +18,7 @@ import type {
 } from "../formations/campaignFormationTypes";
 import type { CampaignFormationCommitmentRole } from "../engagements/CampaignEngagementLedgerTypes";
 
-export const CAMPAIGN_BATTLE_RESULT_PACKAGE_VERSION = 1 as const;
+export const CAMPAIGN_BATTLE_RESULT_PACKAGE_VERSION = 2 as const;
 
 export type CampaignBattleResultOutcome =
   | "attackerVictory"
@@ -85,6 +85,8 @@ export type CampaignSupportTrackingMode = "tacticalElements" | "resourcePool" | 
 
 /** Tactical evidence for a non-persistent support or consumable commitment. */
 export interface CampaignSupportDelta {
+  /** Per-source tactical accounting; absent only from pre-FSG-CAM-004 receipts. */
+  readonly navalSourceDeltas?: readonly CampaignNavalSourceDelta[];
   readonly allocationKey: string;
   readonly category: string;
   readonly committedQuantity: number;
@@ -95,6 +97,17 @@ export interface CampaignSupportDelta {
   readonly lostElements: number;
   readonly chargesUsed: number;
   readonly resourcePayloadCommitted: CampaignFormationSupply;
+}
+
+/** Exact fire-support source to tactical-asset reconciliation retained through AAR and persistence. */
+export interface CampaignNavalSourceDelta {
+  readonly sourceId: string;
+  /** OFFSET `col,row` used by campaign UI; not the axial runtime tile key. */
+  readonly sourceHexKey: string;
+  readonly label: string;
+  readonly tacticalAssetId: string;
+  readonly chargesUsed: number;
+  readonly chargesRemaining: number;
 }
 
 /** Exact tactical consumption. Strategic charging/refund policy remains C20-023. */
@@ -143,7 +156,7 @@ export interface CampaignHonorRecommendation {
 
 /** Immutable output of C20-022 and sole tactical input accepted by the C20-023 consequence resolver. */
 export interface CampaignBattleResultPackage {
-  readonly packageVersion: typeof CAMPAIGN_BATTLE_RESULT_PACKAGE_VERSION;
+  readonly packageVersion: 1 | typeof CAMPAIGN_BATTLE_RESULT_PACKAGE_VERSION;
   readonly battlePackageId: string;
   readonly battlePackageIntegrityHash: string;
   readonly campaignId: string;

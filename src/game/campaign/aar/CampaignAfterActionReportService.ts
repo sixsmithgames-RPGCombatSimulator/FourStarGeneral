@@ -296,6 +296,11 @@ export function buildCampaignAfterActionReport(
     frontsBefore: control.frontsBefore.length,
     frontsAfter: control.frontsAfter.length,
     friendlyFormations,
+    navalSupport: battlePackage.context.attacker === viewerFaction
+      ? result.supportDeltas.flatMap((delta) => (delta.navalSourceDeltas ?? []).map((source) => ({
+        ...structuredClone(source), status: source.chargesUsed > 0 ? "expended" as const : "restored" as const,
+        nextAvailableSegment: after.currentSegment + (source.chargesUsed > 0 ? 1 : 0)
+      }))) : [],
     opponent: {
       formationsEngaged: enemyDeltas.length,
       personnelLosses: enemyDeltas.reduce((total, entry) => total + Math.max(0, entry.personnelBefore - entry.personnelAfter), 0),
@@ -338,7 +343,7 @@ export function assertCampaignAfterActionReport(
     acknowledged: _presentationAcknowledgement,
     ...unsigned
   } = report as CampaignAfterActionReport & { acknowledged?: boolean };
-  if (report.reportVersion !== CAMPAIGN_AFTER_ACTION_REPORT_VERSION
+  if ((report.reportVersion !== CAMPAIGN_AFTER_ACTION_REPORT_VERSION && report.reportVersion !== 1)
     || !report.reportId.trim()
     || !report.campaignId.trim()
     || !report.engagementId.trim()
@@ -351,6 +356,14 @@ export function assertCampaignAfterActionReport(
     || report.friendlyFormations.some((entry) => entry.personnelBefore < entry.personnelAfter || entry.personnelLost !== entry.personnelBefore - entry.personnelAfter)
     || report.campaignObjectiveChanges.some((entry) => entry.progressBefore < 0 || entry.progressBefore > 1 || entry.progressAfter < 0 || entry.progressAfter > 1)) {
     throw new Error("Campaign after-action report failed integrity or structural validation.");
+  }
+  if (report.reportVersion >= 2 && (!Array.isArray(report.navalSupport)
+    || new Set(report.navalSupport.map((source) => source.sourceId)).size !== report.navalSupport.length
+    || report.navalSupport.some((source) => !source.sourceId || !source.sourceHexKey || !source.tacticalAssetId
+      || source.chargesUsed < 0 || source.chargesRemaining < 0
+      || source.status !== (source.chargesUsed > 0 ? "expended" : "restored")
+      || source.nextAvailableSegment !== report.segment + (source.chargesUsed > 0 ? 1 : 0)))) {
+    throw new Error("Campaign after-action naval support has invalid source or replenishment accounting.");
   }
   if (result && (report.engagementId !== result.engagementId
     || report.resolutionId !== result.resolutionId

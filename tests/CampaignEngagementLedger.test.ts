@@ -47,9 +47,11 @@ function buildLedgerScenario(): CampaignScenarioData {
     background: { imageUrl: "about:blank", stretchMode: "contain" },
     tilePalette: {
       player: { role: "logisticsHub", factionControl: "Player", supplyValue: 4 },
+      fleet: { role: "taskForce", factionControl: "Player", navalCapacity: 14 },
       bot: { role: "fortificationLight", factionControl: "Bot", supplyValue: 2 }
     },
     tiles: [
+      { tile: "fleet", hex: { q: 0, r: 1 } },
       {
         tile: "player",
         factionControl: "Player",
@@ -63,7 +65,7 @@ function buildLedgerScenario(): CampaignScenarioData {
         forces: [{ unitType: "Panzer_IV", count: 1, label: "Axis armor" }]
       }
     ],
-    fronts: [{ key: "ledger-front", label: "Ledger Front", hexKeys: ["0,0", "1,0"], initiative: "Player" }],
+    fronts: [{ key: "ledger-front", label: "Ledger Front", hexKeys: ["0,0", "1,0"], initiative: "Player", modifiers: ["navalSupport"] }],
     objectives: [],
     economies: [
       { faction: "Player", manpower: 1000, supplies: 500, fuel: 400, ammo: 300, airPower: 0, navalPower: 0, intelCoverage: 0 },
@@ -284,7 +286,7 @@ registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_COMMITS_NAVAL_SUPPORT_WITHOUT_A_FAKE_FO
       ]
     };
     const result = runCampaignRuntimeTransaction(planned, "test:commit-naval-support", (draft) => {
-      frozen = commitCampaignEngagement(draft, request).package;
+      frozen = commitCampaignEngagement(draft, request, splitLegacyCampaignScenario(buildLedgerScenario())).package;
       return [];
     });
     if (!result.ok) throw result.error;
@@ -295,7 +297,7 @@ registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_COMMITS_NAVAL_SUPPORT_WITHOUT_A_FAKE_FO
 
   await Then("the fleet becomes an exact support commitment while only real formations enter the ground roster", () => {
     const naval = pkg.supportCommitments.find((entry) => entry.allocationKey === "shoreFireControlParty");
-    if (!naval || naval.quantity !== 1 || naval.reservedRp !== 70) {
+    if (!naval || naval.quantity !== 1 || naval.reservedRp !== 70 || !naval.navalSources?.[0]) {
       throw new Error("The in-range task force did not become a frozen naval support commitment.");
     }
     if (pkg.formationCommitments.some((entry) => entry.allocationKey === "shoreFireControlParty")) {
@@ -317,7 +319,7 @@ registerTest("CAMPAIGN_ENGAGEMENT_LEDGER_COMMITS_NAVAL_SUPPORT_WITHOUT_A_FAKE_FO
       || supportAssets.length !== 1
       || seeded.length !== 1
       || seeded[0]?.id !== supportAssets[0]?.id
-      || seeded[0]?.label !== "Naval Gunfire Support (NGFS)"
+      || seeded[0]?.label !== `${naval.navalSources[0].label} naval gunfire`
       || seeded[0]?.charges !== 2
       || seeded[0]?.strikeDamageCap !== 30) {
       throw new Error("The committed naval support package did not seed one real tactical NGFS asset.");

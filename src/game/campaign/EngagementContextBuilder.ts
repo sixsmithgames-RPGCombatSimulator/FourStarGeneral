@@ -25,12 +25,14 @@ import {
   CAMPAIGN_NAVAL_UNIT_TYPES
 } from "./campaignForceMapping";
 import { hasBattleTemplatesForCampaign, selectBattleTemplate } from "./battleTemplates";
+import { evaluateCampaignNavalSupport } from "./logistics/CampaignNavalSupportService";
+import type { CampaignRuntimeState } from "./runtime/campaignRuntimeTypes";
 
 /** Operational radius (in campaign hexes) from which air wings can support a battle. 1 hex = 10 km. */
 export const AIR_SORTIE_RANGE_HEXES = 15;
 
 /** Bounded task-force fire-support radius (about 60 km at the authored 10 km theater scale). */
-export const NAVAL_SUPPORT_RANGE_HEXES = 6;
+export { NAVAL_SUPPORT_RANGE_HEXES } from "./logistics/CampaignNavalSupportService";
 
 /** Discretionary consumables reserve bounds (RP). Tuned to sit below authored-mission budgets. */
 const RP_RESERVE_FLOOR = 150;
@@ -159,7 +161,8 @@ export function describeForceRatio(forceRatio: number): { band: "overwhelming" |
  */
 export function buildEngagementContext(
   scenario: CampaignScenarioData,
-  options: BuildEngagementContextOptions
+  options: BuildEngagementContextOptions,
+  runtime?: CampaignRuntimeState | null
 ): CampaignEngagementContext | null {
   const coords = parseOffsetKeyToAxial(options.battleHexKey);
   if (!coords) {
@@ -180,13 +183,6 @@ export function buildEngagementContext(
   }
 
   const coastal = isCoastal(scenario, coords.q, coords.r);
-  const front = options.frontKey
-    ? scenario.fronts.find((candidate) => candidate.key === options.frontKey)
-    : null;
-  // Authored naval-support fronts can extend one or more operational hexes inland from the
-  // shoreline. The task force still has to pass its calibrated range check below; this flag
-  // only preserves the front's explicit support contract when the battle hex itself is inland.
-  const navalSupportAuthorized = coastal || Boolean(front?.modifiers?.includes("navalSupport"));
   const battleInfrastructure = battleTile?.infrastructure;
 
   // Gather attacker forces: the battle hex (if attacker-held) plus adjacent attacker tiles.
@@ -203,8 +199,8 @@ export function buildEngagementContext(
     for (const group of tileForces(tile)) {
       // Air wings are gathered separately from in-range airbases; skip them here to avoid double counting.
       if (CAMPAIGN_AIR_UNIT_TYPES.includes(group.unitType)) continue;
-      // Naval units only participate when the battle hex is coastal.
-      if (CAMPAIGN_NAVAL_UNIT_TYPES.includes(group.unitType) && !coastal) continue;
+      // Naval sources are gathered only through the shared task-force authority below.
+      if (CAMPAIGN_NAVAL_UNIT_TYPES.includes(group.unitType)) continue;
       availableForces.push({ hexKey: key, unitType: group.unitType, count: group.count });
     }
   }
@@ -224,22 +220,10 @@ export function buildEngagementContext(
     }
   }
 
-  // Naval support: one operational entitlement per friendly task force in range of a coastal
-  // battle or an authored shoreline front whose tactical objective extends inland.
-  // Task-force tiles intentionally carry capacity instead of fake ground formations; translating that
-  // capacity here makes the visible fleet operational without placing warships in the ground roster.
-  if (navalSupportAuthorized) {
-    for (const tile of scenario.tiles) {
-      const def = scenario.tilePalette[tile.tile];
-      if (!def || def.role !== "taskForce" || (def.navalCapacity ?? 0) <= 0) continue;
-      if (tileOwner(scenario, tile) !== attacker || hexDistance(tile.hex, coords) > NAVAL_SUPPORT_RANGE_HEXES) continue;
-      availableForces.push({
-        hexKey: axialToOffsetKey(tile.hex.q, tile.hex.r),
-        unitType: "Battleship",
-        count: 1
-      });
-    }
-  }
+  const navalSupport = evaluateCampaignNavalSupport(scenario, options, runtime, attacker);
+  navalSupport.sources.filter((source) => source.availableSupportAssignments > 0).forEach((source) => {
+    availableForces.push({ hexKey: source.sourceHexKey, unitType: "Battleship", count: source.availableSupportAssignments });
+  });
 
   // Enemy pool: defender forces on the battle hex and its adjacent defender-held tiles.
   const enemyForces: Array<{ hexKey: string; unitType: string; count: number }> = [];

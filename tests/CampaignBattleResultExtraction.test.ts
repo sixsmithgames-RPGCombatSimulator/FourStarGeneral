@@ -109,7 +109,11 @@ export function commitFixture(saveBackend?: CampaignSaveStorageBackend): { campa
 
 export function commitNavalFixture(): ReturnType<typeof commitFixture> {
   const campaign = new CampaignState({ legacyStorage: null });
-  campaign.setScenario(scenarioFixture());
+  const scenario = scenarioFixture();
+  scenario.tilePalette.fleet = { role: "taskForce", factionControl: "Player", mapLabel: "Supporting task force", navalCapacity: 1 };
+  scenario.tiles.push({ tile: "fleet", factionControl: "Player", hex: { q: 0, r: 1 }, forces: [{ unitType: "Battleship", count: 1 }] });
+  scenario.fronts[0].modifiers = ["navalSupport"];
+  campaign.setScenario(scenario);
   const context = contextFixture();
   context.coastal = true;
   context.allocationCaps.shoreFireControlParty = 1;

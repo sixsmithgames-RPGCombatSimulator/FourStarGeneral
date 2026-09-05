@@ -565,6 +565,7 @@ export function createCampaignRuntime(
 
   const runtime: CampaignRuntimeState = {
     runtimeVersion: CAMPAIGN_RUNTIME_VERSION,
+    navalSupportRulesVersion: 1,
     campaignId: options.campaignId,
     scenarioKey: definition.key,
     scenarioContentHash,

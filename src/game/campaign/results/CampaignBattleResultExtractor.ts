@@ -11,6 +11,7 @@ import { getAllocationOption } from "../../../data/unitAllocation";
 import { calculateFormationReadiness } from "../../../data/unitSystem/status";
 import type { SerializedBattleState, TurnFaction } from "../../GameEngine";
 import type { MissionStatus } from "../../../state/missionRules";
+import { campaignPackageNavalSources, CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY } from "../logistics/CampaignNavalSupportService";
 import {
   assertCampaignBattlePackage
 } from "../engagements/CampaignEngagementLedgerService";
@@ -193,6 +194,7 @@ function extractSupportDeltas(
   const expectedCampaignAssets = buildCampaignTacticalSupportAssets(pkg);
   const expectedCampaignAssetById = new Map(expectedCampaignAssets.map((asset) => [asset.id, asset]));
   const serializedAssets = new Map((state.supportAssets ?? []).map((asset) => [asset.id, asset]));
+  if (serializedAssets.size !== (state.supportAssets ?? []).length) throw new Error("Tactical support state contains duplicate asset identities.");
   return pkg.supportCommitments.map((commitment) => {
     const option = getAllocationOption(commitment.allocationKey);
     const resourcePayloadCommitted = {
@@ -212,7 +214,8 @@ function extractSupportDeltas(
     ).filter((asset): asset is NonNullable<typeof asset> => Boolean(asset));
     const campaignAssets = expectedAssets.map((expected) => {
       const actual = serializedAssets.get(expected.id);
-      if (!actual || actual.maxCharges !== expected.maxCharges || actual.strikeDamageCap !== expected.strikeDamageCap) {
+      if (!actual || actual.maxCharges !== expected.maxCharges || actual.strikeDamageCap !== expected.strikeDamageCap
+        || !Number.isInteger(actual.charges) || actual.charges < 0 || actual.charges > actual.maxCharges) {
         throw new Error(`Campaign support ${commitment.allocationKey} is missing or does not match its frozen tactical profile.`);
       }
       return actual;
@@ -225,6 +228,13 @@ function extractSupportDeltas(
       0
     );
     return {
+      ...(commitment.allocationKey === CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY ? {
+        navalSourceDeltas: campaignPackageNavalSources(pkg).map((source, ordinal) => {
+          const asset = campaignAssets[ordinal];
+          if (!asset) throw new Error("Naval source has no matching tactical charge receipt.");
+          return { ...source, tacticalAssetId: asset.id, chargesUsed: asset.maxCharges - asset.charges, chargesRemaining: asset.charges };
+        })
+      } : {}),
       allocationKey: commitment.allocationKey,
       category: commitment.category,
       committedQuantity: commitment.quantity,
@@ -377,7 +387,7 @@ function extractEvidence(
 }
 
 function computeResultIntegrity(unsigned: Omit<CampaignBattleResultPackage, "integrityHash">): string {
-  return `fsg-battle-result-v1-${computeCampaignContentHash(unsigned)}`;
+  return `fsg-battle-result-v${unsigned.packageVersion}-${computeCampaignContentHash(unsigned)}`;
 }
 
 export function computeCampaignBattleResultIntegrity(pkg: CampaignBattleResultPackage): string {
@@ -450,7 +460,7 @@ export function assertCampaignBattleResultPackage(
   battlePackage: CampaignBattlePackage
 ): CampaignBattleResultPackage {
   const pkg = assertCampaignBattlePackage(battlePackage);
-  if (result.packageVersion !== CAMPAIGN_BATTLE_RESULT_PACKAGE_VERSION
+  if ((result.packageVersion !== CAMPAIGN_BATTLE_RESULT_PACKAGE_VERSION && result.packageVersion !== 1)
     || result.battlePackageId !== pkg.packageId
     || result.battlePackageIntegrityHash !== pkg.integrityHash
     || result.campaignId !== pkg.campaignId
@@ -507,6 +517,33 @@ export function assertCampaignBattleResultPackage(
       throw new Error(`Support delta ${delta.allocationKey || "<missing>"} is malformed.`);
     }
   });
+  if (pkg.packageVersion >= 3) {
+    const expectedNaval = campaignPackageNavalSources(pkg);
+    const navalDeltas: readonly CampaignSupportDelta[] = result.supportDeltas.filter((entry) => entry.allocationKey === CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY);
+    if (navalDeltas.length !== (expectedNaval.length > 0 ? 1 : 0)) throw new Error("Naval result omits or duplicates the committed source receipt.");
+    if (expectedNaval.length > 0) {
+      const navalDelta = navalDeltas[0];
+      const deltas = navalDelta.navalSourceDeltas;
+      const assets = buildCampaignTacticalSupportAssets(pkg);
+      if (!deltas || deltas.length !== expectedNaval.length || navalDelta.committedQuantity !== expectedNaval.length
+        || new Set(deltas.map((entry) => entry.sourceId)).size !== deltas.length
+        || deltas.some((delta, ordinal) => {
+          const source = expectedNaval[ordinal];
+          const assetId = campaignSupportAssetId(pkg, CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY, ordinal);
+          const expected = assets.find((asset) => asset.id === assetId);
+          return delta.sourceId !== source.sourceId || delta.sourceHexKey !== source.sourceHexKey || delta.label !== source.label
+            || delta.tacticalAssetId !== assetId || !expected
+            || !Number.isInteger(delta.chargesUsed) || delta.chargesUsed < 0
+            || !Number.isInteger(delta.chargesRemaining) || delta.chargesRemaining < 0
+            || delta.chargesUsed + delta.chargesRemaining !== expected.maxCharges;
+        }) || navalDelta.chargesUsed !== deltas.reduce((sum, entry) => sum + entry.chargesUsed, 0)
+        || navalDelta.trackingMode !== "supportAsset"
+        || navalDelta.tacticalElementIds.length !== deltas.length
+        || navalDelta.tacticalElementIds.some((id, index) => id !== deltas[index].tacticalAssetId)) {
+        throw new Error("Naval result does not reconcile each reserved source and tactical charge exactly once.");
+      }
+    }
+  }
   Object.entries(result.resourcesConsumed).forEach(([faction, delta]) => {
     if (String(delta.faction) !== faction
       || ![delta.ammo, delta.fuel, delta.rations, delta.parts, delta.battleRequisitionPointsSpent,

@@ -342,6 +342,8 @@ export interface CampaignAdvanceStepRecord {
 /** Authoritative mutable Campaign 2.0 truth. */
 export interface CampaignRuntimeState {
   readonly runtimeVersion: typeof CAMPAIGN_RUNTIME_VERSION;
+  /** Scoped FSG-CAM-004 rules fingerprint; absent only in pre-authority saves. */
+  navalSupportRulesVersion?: 1;
   readonly campaignId: string;
   readonly scenarioKey: string;
   readonly scenarioContentHash: string;

@@ -14,6 +14,7 @@ import type { CampaignRuntimeState, CampaignTileRuntime } from "../runtime/campa
 const INFRASTRUCTURE_ROLES = new Set<CampaignTileRole>([
   "airbase",
   "navalBase",
+  "taskForce",
   "logisticsHub",
   "supplyRoute",
   "intelNode",

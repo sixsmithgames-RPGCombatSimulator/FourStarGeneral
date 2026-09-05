@@ -18,6 +18,8 @@ import {
   assertCampaignBattlePackage
 } from "../engagements/CampaignEngagementLedgerService";
 import { CAMPAIGN_ENGAGEMENT_LEDGER_VERSION } from "../engagements/CampaignEngagementLedgerTypes";
+import { campaignPackageNavalSources } from "../logistics/CampaignNavalSupportService";
+import { offsetKeyToAxial } from "../../../state/CampaignIntelligence";
 import { assertCampaignBattleResultPackage } from "../results/CampaignBattleResultExtractor";
 import { assertCampaignBattleConsequenceReport } from "../consequences/CampaignBattleConsequenceResolver";
 import {
@@ -942,6 +944,7 @@ export function validateCampaignRuntimeState(runtime: CampaignRuntimeState): Cam
     });
   }
   const activelyCommittedFormationIds = new Set<string>();
+  const activelyCommittedNavalSourceIds = new Set<string>();
   runtime.engagementLedgerOrder.forEach((id) => {
     const ledger = runtime.engagementLedger[id];
     if (!ledger) return;
@@ -1002,6 +1005,20 @@ export function validateCampaignRuntimeState(runtime: CampaignRuntimeState): Cam
         || ledger.launchedRevision === null
         || ledger.legacyUnfrozen) {
         throw new Error("Package revision or legacy state is inconsistent with the ledger.");
+      }
+      if (ledger.navalSupportResolvedSegment !== undefined && (!Number.isInteger(ledger.navalSupportResolvedSegment)
+        || ledger.navalSupportResolvedSegment < pkg.committedSegment || ledger.navalSupportResolvedSegment > runtime.currentSegment)) {
+        throw new Error("Naval support receipt has an invalid replenishment clock.");
+      }
+      if (pkg.packageVersion >= 3 && (ledger.status === "committed" || ledger.status === "inBattle")) {
+        campaignPackageNavalSources(pkg).forEach((source) => {
+          const axial = offsetKeyToAxial(source.sourceHexKey);
+          const tile = axial ? runtime.tiles[`${axial.q},${axial.r}`] : null;
+          if (!tile || tile.controller !== pkg.context.attacker || activelyCommittedNavalSourceIds.has(source.sourceId)) {
+            throw new Error("Naval source is absent, no longer friendly, or committed to multiple engagements.");
+          }
+          activelyCommittedNavalSourceIds.add(source.sourceId);
+        });
       }
       pkg.formationCommitments.forEach((commitment) => {
         const formation = runtime.formations[commitment.formationId];

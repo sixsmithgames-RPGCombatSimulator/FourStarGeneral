@@ -24,6 +24,10 @@ import {
   type BuildEngagementContextOptions
 } from "../game/campaign/EngagementContextBuilder";
 import {
+  evaluateCampaignNavalSupport, migrateCampaignNavalSupport,
+  type CampaignNavalSupportOptions, type CampaignNavalSupportView
+} from "../game/campaign/logistics/CampaignNavalSupportService";
+import {
   INTEL_OPERATION_RULES,
   buildCampaignMapView,
   buildIntelligenceBriefing,
@@ -1815,7 +1819,7 @@ export class CampaignState {
     const validation = validateCampaignSaveEnvelope(envelope);
     if (!validation.ok) throw validation.error;
     const content = migrateCampaignRuntimeContent(validation.envelope.payload.runtime, this.scenarioDefinition);
-    this.runtime = content.runtime;
+    this.runtime = migrateCampaignNavalSupport(content.runtime);
     reconcileCampaignInfrastructure(this.runtime, this.scenarioDefinition!.map.tilePalette);
     reconcileCampaignObjectiveRuntime(this.runtime, this.scenarioDefinition!);
     this.activeBattleSave = validation.envelope.payload.activeBattle
@@ -2178,6 +2182,11 @@ export class CampaignState {
     return this.scenario ? structuredClone(this.scenario) : null;
   }
 
+  /** Returns the same Player-owned naval eligibility used to authorize exact engagement reservations. */
+  getPlayerNavalSupport(options: CampaignNavalSupportOptions = {}): CampaignNavalSupportView {
+    return evaluateCampaignNavalSupport(this.scenario, options, this.runtime);
+  }
+
   /** Returns the sanitized campaign projection for one observing faction. */
   getCampaignMapView(faction: CampaignFactionKey = "Player"): CampaignMapViewModel | null {
     if (!this.scenario) return null;
@@ -2326,7 +2335,7 @@ export class CampaignState {
       options.battleHexKey,
       this.currentSegment
     );
-    const context = buildEngagementContext(this.scenario, { ...options, intelligenceBriefing });
+    const context = buildEngagementContext(this.scenario, { ...options, intelligenceBriefing }, this.runtime);
     return context && this.runtime
       ? attachCampaignFormationProvenanceToContext(context, this.runtime)
       : context;
@@ -2590,7 +2599,7 @@ export class CampaignState {
     const existing = this.runtime.engagementLedger[request.engagementId]?.package;
     if (existing) {
       try {
-        const replay = commitCampaignEngagementPackage(structuredClone(this.runtime), request);
+        const replay = commitCampaignEngagementPackage(structuredClone(this.runtime), request, this.scenarioDefinition);
         return { ok: true, package: replay.package, alreadyCommitted: true };
       } catch (error) {
         return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -2602,7 +2611,7 @@ export class CampaignState {
       `engagement:commit:${request.engagementId}`,
       `Formation package committed for engagement ${request.engagementId}.`,
       (draft) => {
-        committed = commitCampaignEngagementPackage(draft, request).package;
+        committed = commitCampaignEngagementPackage(draft, request, this.scenarioDefinition).package;
       },
       { engagementId: request.engagementId, expectedRevision: request.expectedRevision }
     );
