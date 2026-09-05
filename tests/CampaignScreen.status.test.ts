@@ -367,8 +367,10 @@ registerTest("CAMPAIGNSCREEN_MULTI_EDGE_FRONT_REQUIRES_ONE_EXPLICIT_TARGET", asy
     (screen as any).campaignState = {
       getCampaignMapView: () => ({
         scenario: {
+          title: "Split operational sector", tiles: [], tilePalette: {}, objectives: [],
           fronts: [{
             key: "split-front",
+            label: "Split front", hexKeys: ["4,4", "4,5"],
             initiative: "Player",
             edges: [
               { friendlyHexKey: "4,4", opposingHexKey: "5,5" },
@@ -435,8 +437,10 @@ registerTest("CAMPAIGNSCREEN_MULTI_EDGE_TARGETS_ARE_VISIBLE_DIRECT_ACTIONS", asy
     (screen as any).campaignState = {
       getCampaignMapView: () => ({
         scenario: {
+          title: "Split operational sector", tiles: [], tilePalette: {}, objectives: [],
           fronts: [{
             key: "split-front",
+            label: "Split front", hexKeys: ["4,4", "4,5"],
             initiative: "Player",
             edges: [
               { friendlyHexKey: "4,4", opposingHexKey: "5,5" },

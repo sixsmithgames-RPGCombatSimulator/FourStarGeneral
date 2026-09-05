@@ -111,7 +111,7 @@ registerTest("CAMPAIGN_COMMAND_UI_STATE_IS_EPHEMERAL_AND_SHEET_EXCLUSIVE", async
       throw new Error("Campaign compact sheets are not mutually exclusive.");
     }
     const serialized = JSON.stringify(snapshot);
-    if (/economy|readiness|campaignTime|enemy|runtime/i.test(serialized) || emitted < 4) {
+    if (/economy|readiness|campaignTime|enemy|runtime/i.test(serialized) || emitted !== 3) {
       throw new Error("Ephemeral UI state contains campaign truth or did not emit typed changes.");
     }
   });
@@ -204,6 +204,8 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
       ownershipLabel: "Core",
       locationHexKey: "4,5",
       statusLabel,
+      canReceiveOrders: statusLabel === "Ready" && currentOrderId === null,
+      blockingReason: statusLabel === "Unavailable" ? "This formation has not arrived." : currentOrderId ? "This formation is committed to an order." : null,
       ...(availabilityLabel ? { availabilityLabel } : {}),
       readiness: "88%",
       cohesion: "91%",
@@ -298,8 +300,9 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
       || routeCopy.includes("Cohesion")
       || nameOccurrences !== 1
       || route?.querySelectorAll("[data-campaign-formation-id]").length !== 3
-      || footer?.hidden
-      || !footer?.querySelector("[data-plan-campaign-redeploy]")
+      || !footer?.hidden
+      || body?.querySelector<HTMLElement>(".selection-section")?.hidden
+      || !body?.querySelector("[data-plan-campaign-redeploy]")
       || !root.querySelector<HTMLElement>(".action-section")?.hidden
       || root.querySelector("#campaignInspectorStatus")?.textContent !== "Selected First Army Depot.") {
       throw new Error(`Friendly-base hierarchy remained duplicated, ambiguous, or action-cluttered: '${inspector?.textContent ?? ""}'.`);
@@ -315,7 +318,8 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_INSPECTOR_IS_HIERARCHICAL_EXACT_AND_ACTIONA
       || !formationCopy.includes("D+1 · 7 June 1944")
       || back?.textContent !== "Back to First Army Depot"
       || footer?.hidden
-      || !footer?.querySelector("[data-plan-campaign-redeploy]")) {
+      || !footer?.textContent?.includes("has not arrived")
+      || !body.querySelector<HTMLElement>(".selection-section")?.hidden) {
       throw new Error(`Formation drill-in lost detail, base return, or scroll reset: '${formationCopy}'.`);
     }
     body.scrollTop = 180;
@@ -613,7 +617,7 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     screen.revealInspector({ kind: "hex", id: "4,5" });
     if (!root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("80/100 integrity")
       || !root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("Tilbury")
-      || root.querySelector<HTMLElement>(".campaign-context-inspector__action-footer")?.hidden
+      || !root.querySelector<HTMLElement>(".campaign-context-inspector__action-footer")?.hidden
       || root.querySelector<HTMLElement>(".selection-section")?.hidden
       || !root.querySelector<HTMLElement>(".action-section")?.hidden
       || !root.querySelector("[data-plan-campaign-redeploy]")) {
@@ -788,7 +792,7 @@ registerTest("CAMPAIGN_AAR_COORDINATES_PROJECT_TO_OPERATIONAL_MAP_IDENTITY", asy
   });
   await Then("player-facing coordinates use the matching offset hex without changing non-coordinate identities", () => {
     if (locationHexKey !== "29,23"
-      || fallbackTitle !== `After action: ${locationHexKey}`
+      || fallbackTitle !== "After action: Operational sector"
       || objectiveTitle !== "After action: Secure the bridge"
       || infrastructureTarget !== locationHexKey
       || formationTarget !== "formation-1") {
@@ -1007,7 +1011,7 @@ registerTest("CAMPAIGN_COMMAND_SCREEN_MOUNTS_MANAGED_COMPATIBILITY_BOUNDARY", as
       throw new Error("Objective list selection did not reach the typed inspector.");
     }
     screen.showWorkspace("forces", false);
-    root.querySelector<HTMLButtonElement>("[data-force-hex='4,5']")?.click();
+    root.querySelector<HTMLButtonElement>("[data-force-id='4,5']")?.click();
     if (screen.getUIState().getSnapshot().selection?.kind !== "hex") {
       throw new Error("Force-location selection did not reach shared UI state.");
     }

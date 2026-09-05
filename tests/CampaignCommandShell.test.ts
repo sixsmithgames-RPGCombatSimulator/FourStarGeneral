@@ -8,12 +8,14 @@
  */
 
 import "./domEnvironment.js";
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import campaignScenarioData from "../src/data/campaign01.json";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { computeCampaignContentHash } from "../src/game/campaign/runtime/CampaignCanonical";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
-import { ensureCampaignState } from "../src/state/CampaignState";
+import { CampaignState, ensureCampaignState, type CampaignStatePersistenceRequest } from "../src/state/CampaignState";
+import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
 import { CampaignCommandShell } from "../src/ui/campaign/CampaignCommandShell";
 import {
   CampaignScreen,
@@ -50,6 +52,35 @@ function mountCommandShellFixture(includeDeveloperTemplates = false): HTMLElemen
   const root = document.getElementById("campaignScreen");
   if (!root) throw new Error("Campaign command shell fixture did not mount.");
   return root;
+}
+
+/** Mounts the real Screen producer with isolated state before it captures subscriptions and callbacks. */
+function mountIsolatedCampaignScreen(state: CampaignState): { root: HTMLElement; screen: CampaignScreen } {
+  const root = mountCommandShellFixture();
+  const renderer = {
+    render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {}, setIntelContactsVisible() {},
+    getViewportRoot() { return null; }, getHexCenter() { return { cx: 0, cy: 0 }; },
+    onHexClick() {}, clearAllHighlights() {}, highlightHex() {}
+  };
+  // Screen currently constructs its singleton privately; replace only this instance before initialize wires it.
+  const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
+  Object.defineProperty(screen, "campaignState", { value: state });
+  screen.initialize();
+  return { root, screen };
+}
+
+/** Uses the shipped popup structure, outside the campaign root that becomes inert while it is open. */
+function appendCampaignPopupFixture(): HTMLElement {
+  document.body.insertAdjacentHTML("beforeend", `
+    <div id="battlePopupLayer" class="popup-layer hidden" aria-hidden="true">
+      <div class="battle-popup" role="dialog" aria-labelledby="battle-popup-title">
+        <div class="popup-header"><h2 id="battle-popup-title" data-popup-title></h2>
+          <button id="battlePopupClose" type="button" aria-label="Close popup"><span aria-hidden="true">×</span></button>
+        </div><div data-popup-body></div>
+      </div>
+    </div>
+  `);
+  return document.getElementById("battlePopupLayer")!;
 }
 
 registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({ Given, When, Then }) => {
@@ -101,6 +132,7 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
       forces: [{ hexKey: "2,3", label: "1st <Division>", count: 3 }],
       airPower: 8,
       navalPower: 4,
+      navalSupport: { availableSupportAssignments: 0, availableFireMissions: 0, fireMissionsPerAssignment: 2, readySourceIds: [], sources: [] },
       intelligenceCapacity: "2/3 available",
       orders: [{
         id: "order-1",
@@ -191,7 +223,7 @@ registerTest("CAMPAIGN_COMMAND_SHELL_COMPOSES_SAFE_KEYBOARD_WORKSPACE", async ({
     }
     if (openedIntelligence !== 1) throw new Error(`Expected one intelligence callback, received ${openedIntelligence}.`);
     if (root.querySelector("#campaignAirPowerValue")?.textContent !== "8"
-      || root.querySelector("#campaignNavalPowerValue")?.textContent !== "4") {
+      || root.querySelector("#campaignNavalPowerValue")?.textContent !== "0") {
       throw new Error("Removing the redundant Air & Naval workspace also removed support readiness from Logistics.");
     }
     if (savedFromCommandBar !== 1
@@ -923,12 +955,21 @@ registerTest("CAMPAIGN_MULTI_TARGET_FRONT_ACCEPTS_VISIBLE_MAP_AND_CONTACT_SELECT
       || computeCampaignContentHash(scenario) !== beforeHash) {
       throw new Error("Map target selection lost front identity, launch readiness, or selection-only safety.");
     }
-    const targetCopy = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-campaign-front-target-choice]"))
-      .map((button) => button.textContent?.replace(/\s+/g, " ").trim() ?? "");
-    if (!targetCopy.some((copy) => copy.includes("Omaha approach") && copy.includes("Fortified Assault"))
-      || !targetCopy.some((copy) => copy.includes("Gold approach") && copy.includes("Meeting Engagement"))
-      || targetCopy.some((copy) => /\b(?:24|26),24\b/.test(copy))) {
-      throw new Error(`Target choices did not use meaningful beach approaches: ${JSON.stringify(targetCopy)}.`);
+    for (const expected of [
+      { hexKey: "24,24", approach: "Omaha Beach approach", mission: "Fortified Assault" },
+      { hexKey: "26,24", approach: "Gold Beach approach", mission: "Meeting Engagement" }
+    ]) {
+      const target = document.querySelector<HTMLButtonElement>(`[data-campaign-front-target-choice="${expected.hexKey}"]`);
+      assert.ok(target, `Missing target choice for ${expected.approach}.`);
+      const primary = target.querySelector("strong");
+      const grid = target.querySelector("small");
+      assert.equal(primary?.textContent, expected.approach, "An authored approach must be the primary target label.");
+      assert.equal(target.querySelector("span")?.textContent, expected.mission);
+      assert.equal(grid?.textContent, `Grid ${expected.hexKey}`, "Precise coordinates belong in subordinate grid detail.");
+      assert.equal(target.firstElementChild, primary);
+      assert.ok(primary && grid && (primary.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING));
+      assert.doesNotMatch(primary?.textContent ?? "", /(?:Grid|Hex)\s*\d|\b\d+,\d+\b/i);
+      assert.match(target.getAttribute("aria-label") ?? "", new RegExp(`^${expected.approach}, ${expected.mission}, .+Grid ${expected.hexKey}$`));
     }
     campaignState.reset();
   });
@@ -1099,12 +1140,233 @@ registerTest("FSG_CAM_045_CANONICAL_FORCE_COPY_REACHES_INSPECTOR_AND_FORCES_WORK
       || /daily (?:Allied support|production) capacity|next delivery|recruit/i.test(routeCopy)
       || !forcesCopy.includes("16th Infantry Regiment")
       || !forcesCopy.includes("82d Airborne Division")
-      || !/\+ [1-9]\d* commands?/.test(forcesCopy)
+      || !/\d+ commands?/.test(forcesCopy)
       || /U\.S\. 1st Infantry Division battalions|supply columns|group group|groups group/i.test(forcesCopy)
       || /\b\d+ formations? · strength/i.test(forcesCopy)) {
       throw new Error(`Canonical force copy diverged between Omaha and the Forces workspace: ${JSON.stringify({ routeCopy, forcesCopy })}`);
     }
     campaignState.reset();
+  });
+});
+
+registerTest("FSG_CAM_075_REAL_SCREEN_INTELLIGENCE_READ_PERSISTS_ACROSS_FRESH_STATE_LOAD", async ({ Given, When, Then }) => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const source = new CampaignState({ saveBackend: backend, legacyStorage: null });
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const request: CampaignStatePersistenceRequest = {
+    timestamp: "2026-09-05T14:00:00.000Z", label: "Reviewed intelligence", playTimeSeconds: 0,
+    difficulty: "standard", commanderRosterLink: null,
+    uiResumeContext: { workspace: "intelligence", selectedEntityId: null, mapCenter: null, mapZoom: null }
+  };
+  let root: HTMLElement;
+  let beforeRead: ReturnType<CampaignState["getIntelBriefEvents"]>;
+  let reviewed: ReturnType<CampaignState["getIntelBriefEvents"]>;
+  let reviewedRuntimeHash: string;
+
+  await Given("the shipped campaign reaches the real Intelligence workspace with unread reports", () => {
+    const fixture = mountIsolatedCampaignScreen(source);
+    root = fixture.root;
+    fixture.screen.renderScenario(scenario);
+    const scout = source.getEligibleIntelAssets("airRecon", "Player")[0];
+    assert.ok(scout, "The shipped aerial reconnaissance asset is required to generate a real briefing report.");
+    const scheduled = source.scheduleIntelOperation({ type: "airRecon", targetHexKey: scout.hexKey, assignedAssetKey: scout.assetKey, faction: "Player" });
+    assert.ok(scheduled.ok, scheduled.ok ? "" : scheduled.reason);
+    source.advanceSegment();
+    beforeRead = source.getIntelBriefEvents("Player");
+    assert.ok(beforeRead.some((event) => !event.read && event.operationId === scheduled.operation.id), "Resolving the scheduled reconnaissance operation must produce a real unread report.");
+    const beforeOpening = computeCampaignContentHash(source.getRuntimeSnapshot());
+    root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='intelligence']")!.click();
+    root.querySelector<HTMLButtonElement>("[data-open-campaign-intelligence]")!.click();
+    assert.equal(root.querySelector("#campaignIntelDrawer")?.classList.contains("hidden"), false);
+    assert.deepEqual(source.getIntelBriefEvents("Player"), beforeRead, "Opening the workspace or collection composer must never mark reports read.");
+    assert.equal(computeCampaignContentHash(source.getRuntimeSnapshot()), beforeOpening);
+    root.querySelector<HTMLButtonElement>("#campaignIntelToggle")!.click();
+    assert.equal(root.querySelector("#campaignIntelDrawer")?.classList.contains("hidden"), true);
+  });
+
+  await When("the commander explicitly marks the briefing read and saves its authoritative runtime into a named slot", async () => {
+    const markRead = root.querySelector<HTMLButtonElement>("#campaignIntelligenceMarkRead");
+    assert.ok(markRead && !markRead.hidden && !markRead.disabled);
+    markRead.click();
+    reviewed = source.getIntelBriefEvents("Player");
+    assert.deepEqual(reviewed, beforeRead.map((event) => ({ ...event, read: true })), "The Screen callback must reach real CampaignState read state without changing report content.");
+    const persistedReports = source.getRuntimeSnapshot()?.knowledgeByFaction.Player.briefEvents;
+    assert.ok(persistedReports);
+    assert.deepEqual(persistedReports.slice().sort((left, right) => left.id.localeCompare(right.id)), reviewed.slice().sort((left, right) => left.id.localeCompare(right.id)), "Read flags must reach persisted runtime, not just the rendered view.");
+    assert.equal(source.getCampaignMapView("Player")?.unreadReportCount, 0);
+    assert.ok(markRead.hidden && markRead.disabled);
+    reviewedRuntimeHash = computeCampaignContentHash(source.getRuntimeSnapshot());
+    await source.saveCampaignSlot({ ...request, slotId: "slot-intel-explicit-read", slotType: "manual" });
+  });
+
+  await Then("a fresh CampaignState and Screen restore the exact read records and calm collapsed history", async () => {
+    const restored = new CampaignState({ saveBackend: backend, legacyStorage: null });
+    restored.setScenario(structuredClone(scenario));
+    const loaded = await restored.loadCampaignSlot("slot-intel-explicit-read", { ...request, timestamp: "2026-09-05T14:01:00.000Z" });
+    assert.ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+    assert.equal(computeCampaignContentHash(restored.getRuntimeSnapshot()), reviewedRuntimeHash);
+    assert.deepEqual(restored.getIntelBriefEvents("Player"), reviewed);
+    const resumed = mountIsolatedCampaignScreen(restored);
+    resumed.root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='intelligence']")!.click();
+    const markRead = resumed.root.querySelector<HTMLButtonElement>("#campaignIntelligenceMarkRead");
+    assert.ok(markRead?.hidden && markRead.disabled);
+    assert.match(resumed.root.querySelector("#campaignIntelligenceBriefingStatus")?.textContent ?? "", /No new intelligence to review/);
+    assert.equal(resumed.root.querySelectorAll("#campaignIntelligenceBriefingList [data-intelligence-report]").length, 0);
+    assert.equal(resumed.root.querySelector<HTMLDetailsElement>("#campaignIntelligenceHistory")?.open, false);
+    assert.deepEqual(Array.from(resumed.root.querySelectorAll<HTMLElement>("#campaignIntelligenceHistoryList [data-intelligence-report]"), (row) => row.dataset.intelligenceReport).sort(), reviewed.map((event) => event.id).sort());
+    assert.deepEqual(restored.getIntelBriefEvents("Player"), reviewed, "Opening resumed Intelligence must preserve read flags and report content.");
+    assert.equal(computeCampaignContentHash(restored.getRuntimeSnapshot()), reviewedRuntimeHash);
+  });
+});
+
+registerTest("FSG_CAM_045_FIELD_FORMATION_SELECTION_PRESERVES_ORDERS_AND_BLOCKS_COMMITTED_ASSET", async ({ Given, When, Then }) => {
+  const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+  let root: HTMLElement;
+  let screen: CampaignScreen;
+  let formationId: string;
+  const origin = "24,23";
+  let beforeSelectionHash: string;
+  // Narrow inspection verifies the public row gesture's retained order origin and exact formation identity.
+  const selectedContext = (): { readonly selectedHexKey: string | null; readonly selectedFormationId: string | null; readonly moveOriginHexKey: string | null } => screen as unknown as {
+    readonly selectedHexKey: string | null; readonly selectedFormationId: string | null; readonly moveOriginHexKey: string | null;
+  };
+
+  await Given("the shipped Omaha field formation is selected through its Forces row", () => {
+    const fixture = mountIsolatedCampaignScreen(state);
+    root = fixture.root;
+    screen = fixture.screen;
+    screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+    const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.locationHexKey === "24,11"
+      && entry.campaignUnitType === "Infantry_42" && entry.status === "ready" && entry.currentOrderId === null);
+    assert.ok(formation, "The shipped Omaha field infantry is required for this integration fixture.");
+    formationId = formation.id;
+    beforeSelectionHash = computeCampaignContentHash(state.getRuntimeSnapshot());
+    root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='forces']")!.click();
+    const row = Array.from(root.querySelectorAll<HTMLButtonElement>("#campaignForcesWorkspaceList [data-force-id]"))
+      .find((entry) => entry.dataset.forceId === formationId);
+    assert.ok(row, "The active Forces workspace must expose the exact persistent field formation.");
+    row.click();
+  });
+
+  await When("the formation inspector offers movement and engagement without losing its map location", () => {
+    const inspector = root.querySelector<HTMLElement>("#campaignContextInspector")!;
+    assert.equal(inspector.dataset.routeIdentity, `formation:${formationId}`);
+    assert.equal(inspector.dataset.routeMode, "projectedWithActions");
+    assert.equal(selectedContext().selectedFormationId, formationId);
+    assert.equal(selectedContext().selectedHexKey, origin);
+    const parentLocation = inspector.querySelector<HTMLButtonElement>(".campaign-context-inspector__parent-route");
+    assert.equal(parentLocation?.dataset.campaignMapHexTarget, origin);
+    assert.match(parentLocation?.textContent ?? "", /Omaha/);
+    const movement = inspector.querySelector<HTMLButtonElement>("[data-plan-campaign-redeploy]");
+    const engagement = inspector.querySelector<HTMLButtonElement>("#campaignQueueEngagement");
+    assert.ok(movement && !movement.disabled && !movement.closest("[hidden]"), "A ready field formation must retain its movement action.");
+    assert.ok(engagement && !engagement.disabled && !engagement.closest("[hidden]"), "A ready field formation must retain its enabled engagement action footer.");
+    movement.click();
+    assert.equal(selectedContext().moveOriginHexKey, origin);
+    assert.equal(selectedContext().selectedFormationId, formationId);
+    const cancel = root.querySelector<HTMLButtonElement>("[data-cancel-campaign-redeploy]");
+    assert.ok(cancel && !cancel.closest("[hidden]"));
+    cancel.click();
+    assert.equal(selectedContext().moveOriginHexKey, null);
+    assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), beforeSelectionHash, "Inspection and reversible route planning must not mutate campaign truth.");
+  });
+
+  await Then("committing that same field formation to an engagement removes new-order affordances without losing its real location", () => {
+    const context = state.buildCampaignEngagementContext({ engagementId: "formation-inspector-commitment", battleHexKey: "24,24", attacker: "Player", frontKey: "omaha_gold" });
+    assert.ok(context, "The shipped adjacent Omaha engagement must provide a real commitment context.");
+    state.setPendingEngagements([{
+      id: context.engagementId, frontKey: context.frontKey, objectiveKey: context.objectiveKey,
+      attacker: context.attacker, defender: context.defender, hexKeys: [context.battleHexKey], tags: [], context
+    }]);
+    state.setActiveEngagementId(context.engagementId);
+    const committed = state.commitCampaignEngagement({
+      engagementId: context.engagementId, expectedRevision: state.getRuntimeSnapshot()!.revision,
+      selections: [{ allocationKey: "infantry", category: "units", quantity: 1, unitRpCost: 50 }]
+    });
+    assert.ok(committed.ok, committed.ok ? "" : committed.reason);
+    assert.ok(committed.package.formationCommitments.some((entry) => entry.formationId === formationId), "The real commitment must include the exact formation previously selected in Forces.");
+    root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='forces']")!.click();
+    const row = Array.from(root.querySelectorAll<HTMLButtonElement>("#campaignForcesWorkspaceList [data-force-id]"))
+      .find((entry) => entry.dataset.forceId === formationId);
+    assert.ok(row, "Committed field formations must remain discoverable.");
+    row.click();
+    const inspector = root.querySelector<HTMLElement>("#campaignContextInspector")!;
+    assert.equal(inspector.dataset.routeIdentity, `formation:${formationId}`);
+    assert.equal(state.getCampaignFormationSnapshot(formationId)?.status, "committed");
+    assert.equal(state.getCampaignFormationSnapshot(formationId)?.locationHexKey, "24,11");
+    assert.equal(selectedContext().selectedHexKey, origin);
+    assert.equal(inspector.querySelector<HTMLButtonElement>(".campaign-context-inspector__parent-route")?.dataset.campaignMapHexTarget, origin);
+    assert.equal(inspector.querySelector<HTMLElement>(".selection-section")?.hidden, true);
+    assert.equal(inspector.querySelector<HTMLElement>(".action-section")?.hidden, true);
+    assert.equal(inspector.querySelector("[data-plan-campaign-redeploy]"), null, "Blocked formation must not inherit a movable sibling's order action at the same location.");
+    assert.match(inspector.querySelector(".campaign-context-inspector__action-summary")?.textContent ?? "", /committed/i);
+    assert.equal(state.getCampaignRedeployAvailableFormations(origin).some((formation) => formation.id === formationId), false);
+  });
+});
+
+registerTest("FSG_CAM_079_CAMPAIGN_CONFIRMATION_DIALOG_OWNS_FOCUS_AND_FAILS_CLOSED", async ({ Given, When, Then }) => {
+  const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  screen.renderScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+  const layer = appendCampaignPopupFixture();
+  // This interaction has no independent public entry in the unit fixture; exercise the actual dialog, not a stubbed callback.
+  const confirmation = screen as unknown as { confirmCampaignAction(title: string, detail: string, acceptLabel: string): Promise<boolean> };
+  const invoker = root.querySelector<HTMLButtonElement>("#campaignSave")!;
+  let pending: Promise<boolean>;
+
+  await Given("the real campaign confirmation is invoked from a focused campaign control", () => {
+    invoker.focus();
+    pending = confirmation.confirmCampaignAction("Review <assessment>", "Reported uncertainty requires a decision.", "Continue to tactical planning");
+    assert.equal(layer.classList.contains("hidden"), false);
+    assert.equal(layer.getAttribute("aria-hidden"), "false");
+    assert.equal(root.inert, true);
+    assert.equal(layer.querySelector("[role='dialog']")?.getAttribute("aria-modal"), "true");
+    assert.equal(layer.querySelector("[data-popup-title]")?.textContent, "Review <assessment>");
+    assert.equal(layer.querySelector("assessment"), null);
+    assert.equal(document.activeElement?.textContent, "Return to campaign");
+  });
+
+  await When("Tab and Shift+Tab wrap inside the dialog, then Escape cancels from the focused descendant", async () => {
+    const accept = layer.querySelector<HTMLButtonElement>("[data-confirm-campaign-action]")!;
+    const close = layer.querySelector<HTMLButtonElement>("#battlePopupClose")!;
+    accept.focus();
+    const forward = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    accept.dispatchEvent(forward);
+    assert.equal(forward.defaultPrevented, true);
+    assert.equal(document.activeElement, close);
+    const reverse = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    close.dispatchEvent(reverse);
+    assert.equal(reverse.defaultPrevented, true);
+    assert.equal(document.activeElement, accept);
+    const escape = new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    accept.dispatchEvent(escape);
+    assert.equal(escape.defaultPrevented, true);
+    assert.equal(await pending, false);
+    assert.equal(root.inert, false);
+    assert.equal(layer.getAttribute("aria-hidden"), "true");
+    assert.equal(document.activeElement, invoker);
+  });
+
+  await Then("confirmation resolves true once, releases focus, and missing popup infrastructure cannot authorize an action", async () => {
+    let acceptedContinuations = 0;
+    const accepted = confirmation.confirmCampaignAction("Confirm operation", "Proceed after reviewing the briefing.", "Confirm").then((result) => {
+      if (result) acceptedContinuations += 1;
+      return result;
+    });
+    const accept = layer.querySelector<HTMLButtonElement>("[data-confirm-campaign-action]")!;
+    accept.click();
+    accept.click();
+    assert.equal(await accepted, true);
+    assert.equal(acceptedContinuations, 1);
+    assert.equal(root.inert, false);
+    assert.equal(layer.classList.contains("hidden"), true);
+    assert.equal(document.activeElement, invoker);
+    const beforeMissing = computeCampaignContentHash(state.getRuntimeSnapshot());
+    layer.remove();
+    assert.equal(await confirmation.confirmCampaignAction("Unavailable confirmation", "No panel exists.", "Continue"), false);
+    assert.notEqual(root.inert, true);
+    assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), beforeMissing);
+    assert.match(root.textContent ?? "", /confirmation panel is unavailable.*Reload the game/s);
   });
 });
 
@@ -1206,7 +1468,7 @@ registerTest("CAMPAIGN_CAMERA_SWITCHES_BETWEEN_THEATER_OVERVIEW_AND_ACTIVE_FRONT
   });
 });
 
-registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_ACTION_CLUTTER", async ({ Given, When, Then }) => {
+registerTest("FSG_CAM_059_TASK_FORCE_AND_LOGISTICS_RENDER_THE_SAME_CAMPAIGN_AUTHORITY", async ({ Given, When, Then }) => {
   const campaignState = ensureCampaignState();
   let onHexClick: ((hexKey: string) => void) | null = null;
   let root: HTMLElement;
@@ -1240,6 +1502,13 @@ registerTest("CAMPAIGN_TASK_FORCE_SELECTION_EXPLAINS_THE_FLEET_WITHOUT_GROUND_AC
     const compatibilitySelection = root.querySelector<HTMLElement>(".selection-section");
     const compatibilityActions = root.querySelector<HTMLElement>(".action-section");
     const hiddenSelectionCopy = root.querySelector<HTMLElement>("#campaignSelectionInfo")?.textContent ?? "";
+    const naval = campaignState.getPlayerNavalSupport();
+    const fleet = naval.sources.find((source) => source.sourceHexKey === "22,20");
+    if (!fleet || !route?.textContent?.includes(fleet.reason)
+      || !route.textContent.includes(`${fleet.availableFireMissions} ready fire mission`)
+      || root.querySelector("#campaignNavalPowerValue")?.textContent !== naval.availableFireMissions.toLocaleString()) {
+      throw new Error("Campaign producer failed to join the exact fleet's authority into both naval UI surfaces.");
+    }
     if (inspector?.dataset.routeMode !== "projected"
       || inspector.querySelector("h2")?.textContent !== "Western Naval Force"
       || !route?.textContent?.includes("English Channel")
@@ -1418,11 +1687,11 @@ registerTest("CAMPAIGN_COMMAND_SHELL_PRIORITIZES_FORCES_AND_COMPACTS_TRUE_IDLE_S
   });
 
   await When("the concise force and order surfaces render, then a completed commit reports success", () => {
-    const directForces = root.querySelectorAll("#campaignForcesWorkspaceList > button");
+    const directForces = root.querySelectorAll("#campaignForcesWorkspaceList [data-force-id]");
     const reserveDisclosure = root.querySelector<HTMLDetailsElement>(".campaign-forces-disclosure");
     if (directForces.length !== 2
       || reserveDisclosure?.open
-      || reserveDisclosure?.querySelectorAll("button").length !== 1
+      || reserveDisclosure?.querySelectorAll("[data-force-id]").length !== 3
       || root.querySelector<HTMLElement>(".campaign-command-shell")?.dataset.ordersEmpty !== "true") {
       throw new Error("Operational force groups did not lead the collapsed theater roster.");
     }

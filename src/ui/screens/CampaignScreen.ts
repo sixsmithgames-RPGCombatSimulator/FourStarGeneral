@@ -7,7 +7,7 @@ import type {
   CampaignReservation
 } from "../../game/campaign/orders/CampaignOrderTypes";
 import type { CampaignAdvanceAlert, CampaignAdvanceStopReason } from "../../game/campaign/runtime/campaignRuntimeTypes";
-import { MISSION_TYPE_LABELS, NAVAL_SUPPORT_RANGE_HEXES } from "../../game/campaign/EngagementContextBuilder";
+import { MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
 import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
@@ -28,6 +28,11 @@ import {
 } from "../campaign/CampaignCommandShell";
 import { CampaignCommandScreen as CampaignCommandInterface } from "../campaign/CampaignCommandScreen";
 import {
+  resolveCampaignMapLocationPresentation,
+  type CampaignLocationPresentation,
+  type CampaignLocationUncertaintyInput
+} from "../campaign/CampaignLocationPresentation";
+import {
   projectCampaignAfterActionDecisionTargetId,
   projectCampaignAfterActionInfrastructureEffect,
   projectCampaignAfterActionTitle,
@@ -42,6 +47,7 @@ import {
   explainCampaignOrderValidationIssue,
   getCampaignIntelOperationType,
   getCampaignIntelligenceActionId,
+  projectCampaignOrderLocationSummary,
   type CampaignActionContext,
   type CampaignActionId
 } from "../campaign/CampaignOrderExperience";
@@ -381,7 +387,7 @@ export class CampaignScreen {
     this.renderer.setTerrainOverlayVisible(this.editMode);
     this.renderer.setIntelCoverageVisible(this.intelCoverageVisible);
     (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
-      .setIntelContactsVisible?.(this.commandInterface?.getActiveWorkspace() === "intelligence");
+      .setIntelContactsVisible?.(this.commandInterface?.getUIState().getSnapshot().overlay === "intelligence");
     this.syncViewportAfterRender();
     this.restoreCampaignMapPresentationState(previewState);
   }
@@ -947,12 +953,17 @@ export class CampaignScreen {
 
     this.mountCampaignDeveloperTools();
     this.commandInterface = new CampaignCommandInterface(this.element, {
-      onWorkspaceChanged: (workspace) => (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
-        .setIntelContactsVisible?.(workspace === "intelligence"),
+      onMapLayerChanged: (overlay) => (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
+        .setIntelContactsVisible?.(overlay === "intelligence"),
       onOpenIntelligence: () => {
-        this.intelTab = "situation";
+        this.intelTab = "operations";
         this.resetIntelComposer();
         document.dispatchEvent(new CustomEvent("campaign:intelligence:open"));
+      },
+      onMarkIntelligenceRead: () => {
+        this.campaignState.markIntelBriefsRead("Player");
+        this.renderCampaignIntel();
+        this.renderCommandShell();
       },
       onAcknowledgeAfterActionReport: (reportId) => {
         this.campaignState.acknowledgeCampaignAfterActionReport(reportId);
@@ -1136,7 +1147,7 @@ export class CampaignScreen {
 
     if (this.queueEngagementButton) {
       // Clicking the button queues a pending engagement for the currently selected front
-      this.queueEngagementButton.addEventListener("click", () => {
+      this.queueEngagementButton.addEventListener("click", async () => {
         if (this.engagementTransitionBusy) {
           const transitionStatus = document.getElementById("screenTransitionStatus");
           const transitionActive = transitionStatus ? !transitionStatus.classList.contains("hidden") : false;
@@ -1233,8 +1244,10 @@ export class CampaignScreen {
           const briefing = context.intelligenceBriefing;
           const assessedDanger = briefing?.resistanceBand === "heavy" || briefing?.resistanceBand === "overwhelming";
           if (assessedDanger) {
-            const proceed = window.confirm(
-              `${MISSION_TYPE_LABELS[context.missionType]} at ${battleHexKey}.\n\n${briefing.summary}\nConfidence: ${briefing.confidenceBand}.\n\nLaunch anyway — we understand the intelligence risk?`
+            const proceed = await this.confirmCampaignAction(
+              `${MISSION_TYPE_LABELS[context.missionType]} at ${this.getCampaignLocationDisplayLabel(context.battleHexKey)}`,
+              `${briefing.summary} Confidence: ${briefing.confidenceBand}. Review this assessment before taking the operation to tactical planning.`,
+              "Continue to tactical planning"
             );
             if (!proceed) {
               return;
@@ -1684,15 +1697,17 @@ export class CampaignScreen {
     if (!layer || !dialog || !title || !body || !close || !status || action.availability === "hidden") return;
     title.textContent = "Plan Reconstruction";
     const infrastructureLabel = status.infrastructure.role.replace(/([A-Z])/g, " $1").trim();
+    const location = this.getCampaignLocationPresentation(targetOffsetHexKey);
     body.innerHTML = `
       <form id="campaignInfrastructureRepairForm" class="campaign-infrastructure-composer">
         <section class="campaign-order-preview-hero">
           <span>Facility and intent</span>
-          <strong>${this.escapeHtml(infrastructureLabel)} at ${this.escapeHtml(targetOffsetHexKey)}</strong>
+          <strong>${this.escapeHtml(infrastructureLabel)} at ${this.escapeHtml(location.primaryLabel)}</strong>
+          <small class="campaign-location-grid">${this.escapeHtml(location.secondaryGridReference)}</small>
           <p>Restore ${status.infrastructure.integrity}/${status.infrastructure.maxIntegrity} integrity to full operational capacity.</p>
         </section>
         <dl class="campaign-order-preview-contract">
-          <div><dt>Target / area</dt><dd>${this.escapeHtml(targetOffsetHexKey)} · friendly-controlled ${this.escapeHtml(infrastructureLabel)}</dd></div>
+          <div><dt>Target / area</dt><dd>${this.escapeHtml(location.primaryLabel)} · friendly-controlled ${this.escapeHtml(infrastructureLabel)}<small class="campaign-location-grid">${this.escapeHtml(location.secondaryGridReference)}</small></dd></div>
           <div><dt>Participant</dt><dd>${this.escapeHtml(status.engineerFormationName ?? "No supervising formation available")}</dd></div>
           <div><dt>Timing</dt><dd>Starts next segment · ${status.durationSegments * 3} hours · completes ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(status.completeSegment))}</dd></div>
           <div><dt>Cost now</dt><dd>${status.suppliesCost.toLocaleString()} supply · ${status.manpowerCost.toLocaleString()} personnel</dd></div>
@@ -1713,7 +1728,7 @@ export class CampaignScreen {
     const cancel = body.querySelector<HTMLButtonElement>("#campaignInfrastructureRepairCancel");
     const issues = body.querySelector<HTMLElement>("#campaignInfrastructureRepairIssues");
     if (!form || !confirm || !cancel || !issues) return;
-    decorateCampaignOrderComposer(form, "infrastructureRepair", `Restore ${infrastructureLabel} at ${targetOffsetHexKey}`);
+    decorateCampaignOrderComposer(form, "infrastructureRepair", projectCampaignOrderLocationSummary(this.getCampaignLocationPresentation(targetOffsetHexKey)));
     confirm.disabled = action.availability !== "available";
     issues.innerHTML = action.availability === "available"
       ? `<div class="campaign-order-preview-clear">No conflicts in the current command picture.</div>`
@@ -1765,11 +1780,10 @@ export class CampaignScreen {
     const destinations = view.scenario.tiles.map((tile) => {
       const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
       const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
-      const palette = view.scenario.tilePalette[tile.tile];
       const preview = this.campaignState.getCampaignRedeployDestinationPreview(this.moveOriginHexKey!, hexKey);
       return {
         hexKey,
-        label: `${palette?.mapLabel?.trim() || this.formatCampaignLabel(palette?.role ?? "Operational hex")} · ${hexKey}`,
+        label: `${this.getCampaignLocationDisplayLabel(hexKey)} · Grid ${hexKey}`,
         available: preview.availability === "available",
         reason: preview.reason
       };
@@ -1789,6 +1803,12 @@ export class CampaignScreen {
         this.selectedFrontTargetHexKey = frontTarget.dataset.campaignFrontTargetChoice || null;
         this.renderSelection();
         this.renderCommandShell();
+        const replacement = Array.from(this.selectionContainer?.querySelectorAll<HTMLButtonElement>("[data-campaign-front-target-choice]") ?? [])
+          .find((button) => button.dataset.campaignFrontTargetChoice === this.selectedFrontTargetHexKey);
+        replacement?.focus({ preventScroll: true });
+        // Replacing selection markup can change its height; retain the player's
+        // selected target inside the single information scroll owner.
+        replacement?.scrollIntoView({ block: "nearest", inline: "nearest" });
         return;
       }
       if (target.closest("[data-plan-campaign-redeploy]")) {
@@ -1860,6 +1880,11 @@ export class CampaignScreen {
       this.selectionContainer.removeAttribute("data-status");
     }
     const view = this.campaignState.getCampaignMapView("Player");
+    const selectedFormation = this.selectedFormationId
+      ? this.campaignState.getCampaignFormationSnapshot(this.selectedFormationId)
+      : null;
+    const selectedFormationCanReceiveOrders = !this.selectedFormationId
+      || Boolean(selectedFormation && projectCampaignFormationPosture(selectedFormation).canReceiveOrders);
     let selectedIsFriendlyOccupied = false;
     let selectedCanRedeploy = false;
     let selectedRole: string | null = null;
@@ -1875,6 +1900,7 @@ export class CampaignScreen {
       selectedIsFriendlyOccupied = owner === "Player" && Boolean(tile?.forces?.some((force) => force.count > 0));
       selectedRole = palette?.role ?? null;
       selectedCanRedeploy = owner === "Player"
+        && selectedFormationCanReceiveOrders
         && this.campaignState.getCampaignRedeployActionPreview(this.selectedHexKey, "Player").availability === "available";
       if (selectedInfrastructure && (
         selectedInfrastructure.repairPoints > 0
@@ -1928,14 +1954,14 @@ export class CampaignScreen {
     if (this.selectedFrontKey) {
       const assessment = this.getPlayerFrontAssessment(this.selectedFrontKey);
       const targetOptions = assessment.targets.length > 1
-        ? `<fieldset class="campaign-front-target-choice"><legend>Choose engagement target</legend><div class="campaign-front-target-choice__options">${assessment.targets.map((target) => `<button type="button" data-campaign-front-target-choice="${this.escapeHtml(target.targetHexKey)}" aria-label="${this.escapeHtml(`${target.approachLabel}, ${target.missionLabel}, opposing hex ${target.targetHexKey}`)}" title="Opposing hex ${this.escapeHtml(target.targetHexKey)}" aria-pressed="${target.targetHexKey === this.selectedFrontTargetHexKey ? "true" : "false"}"><strong>${this.escapeHtml(target.approachLabel)}</strong><span>${this.escapeHtml(target.missionLabel)}</span></button>`).join("")}</div></fieldset>`
+        ? `<fieldset class="campaign-front-target-choice"><legend>Choose engagement target</legend><div class="campaign-front-target-choice__options">${assessment.targets.map((target) => `<button type="button" data-campaign-front-target-choice="${this.escapeHtml(target.targetHexKey)}" aria-label="${this.escapeHtml(`${target.approachLabel}, ${target.missionLabel}, ${this.getCampaignLocationDisplayLabel(target.targetHexKey)}, Grid ${target.targetHexKey}`)}" aria-pressed="${target.targetHexKey === this.selectedFrontTargetHexKey ? "true" : "false"}"><strong>${this.escapeHtml(target.approachLabel)}</strong><span>${this.escapeHtml(target.missionLabel)}</span><small>Grid ${this.escapeHtml(target.targetHexKey)}</small></button>`).join("")}</div></fieldset>`
         : "";
       const target = assessment.target;
       items.push(`
         <div class="campaign-front-assessment">
           <strong>Front assessment</strong>
           <p>${this.escapeHtml(assessment.pressureLabel)}</p>
-          ${target ? `<p><strong>${this.escapeHtml(target.missionLabel)} — Hex ${this.escapeHtml(target.targetHexKey)}</strong><br>${this.escapeHtml(target.roleLabel)}</p>` : ""}
+          ${target ? `<p><strong>${this.escapeHtml(target.missionLabel)} — ${this.escapeHtml(this.getCampaignLocationDisplayLabel(target.targetHexKey))}</strong><br>${this.escapeHtml(target.roleLabel)} · Grid ${this.escapeHtml(target.targetHexKey)}</p>` : ""}
           ${target?.explicitUnknowns.length ? `<p>Unknowns: ${this.escapeHtml(target.explicitUnknowns.join(" · "))}</p>` : ""}
           ${targetOptions}
         </div>
@@ -1986,7 +2012,12 @@ export class CampaignScreen {
       const canPlayerLaunchFront = selectedFront
         ? this.getPlayerFrontAssessment(selectedFront.key, this.selectedFrontTargetHexKey).canLaunch
         : false;
-      const canEngage = Boolean(activePackage) || Boolean(selectedFront && canPlayerLaunchFront);
+      // The existing proximity launch path must be reachable from a ready field
+      // formation as well as from the aggregate location. Posture remains domain-owned.
+      const canLaunchProximity = !selectedFront && selectedIsFriendlyOccupied
+        && selectedRole !== "taskForce" && selectedFormationCanReceiveOrders
+        && Boolean(this.selectedHexKey && this.campaignState.findAdjacentEnemyHexKey(this.selectedHexKey));
+      const canEngage = Boolean(activePackage) || Boolean(selectedFront && canPlayerLaunchFront) || canLaunchProximity;
       this.queueEngagementButton.disabled = !canEngage;
       this.queueEngagementButton.textContent = activePackage?.context.defender === "Player"
         ? "Respond to Enemy Offensive"
@@ -2006,7 +2037,6 @@ export class CampaignScreen {
       if (!this.intelDrawer) return;
       this.intelDrawer.classList.remove("hidden");
       toggle?.setAttribute("aria-expanded", "true");
-      this.campaignState.markIntelBriefsRead("Player");
       this.renderCampaignIntel();
     };
     toggle?.addEventListener("click", () => {
@@ -2037,6 +2067,12 @@ export class CampaignScreen {
         return;
       }
       const tab = target.closest<HTMLButtonElement>("[data-intel-tab]")?.dataset.intelTab;
+      if ((tab === "situation" || tab === "contacts") && this.commandInterface) {
+        this.intelDrawer?.classList.add("hidden");
+        toggle?.setAttribute("aria-expanded", "false");
+        this.commandInterface.showWorkspace("intelligence", true);
+        return;
+      }
       if (tab === "situation" || tab === "contacts" || tab === "operations") {
         this.intelTab = tab;
         this.renderCampaignIntel();
@@ -2065,7 +2101,7 @@ export class CampaignScreen {
           this.editingIntelAssetKey = null;
           this.intelTargetContactId = contact.id;
           this.selectedHexKey = contact.locationHexKey;
-          this.intelFeedback = `Verification target set: ${contact.label} near ${contact.locationHexKey}.`;
+          this.intelFeedback = `Verification target set: ${contact.label} near ${this.getCampaignLocationDisplayLabel(contact.locationHexKey)} (Grid ${contact.locationHexKey}).`;
           this.renderCampaignIntel();
         }
         return;
@@ -2201,7 +2237,7 @@ export class CampaignScreen {
   }
 
   private composeIntelSituationMarkup(view: CampaignMapViewModel): string {
-    const events = this.campaignState.getIntelBriefEvents("Player").slice(0, 16);
+    const events = this.campaignState.getIntelBriefEvents("Player").filter((event) => !event.read);
     const eventMarkup = events.length === 0
       ? `<div class="campaign-intel-empty">No new intelligence has reached headquarters.</div>`
       : events.map((event) => `
@@ -2221,7 +2257,7 @@ export class CampaignScreen {
         <article><span>Collection capacity</span><strong>${draftAwareCapacity}/${view.capacity.total}</strong><small>${view.capacity.committed} committed · ${heldCapacity} held</small></article>
         <article><span>Unread reports</span><strong>${view.unreadReportCount}</strong><small>since last briefing</small></article>
       </div>
-      <div class="campaign-intel-section-heading"><h4>Briefing changes</h4><button type="button" data-intel-mark-read>Mark read</button></div>
+      <div class="campaign-intel-section-heading"><h4>Briefing changes</h4>${view.unreadReportCount > 0 ? '<button type="button" data-intel-mark-read>Mark read</button>' : ''}</div>
       <div class="campaign-intel-report-list">${eventMarkup}</div>
     `;
   }
@@ -2264,7 +2300,7 @@ export class CampaignScreen {
       .map((operation) => `
         <article class="campaign-intel-active-op">
           <strong>${this.escapeHtml(rules[operation.type].label)}</strong>
-          <span>${this.escapeHtml(operation.targetHexKey)} · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(operation.resolveSegment))}</span>
+          <span>${this.escapeHtml(this.getCampaignLocationDisplayLabel(operation.targetHexKey))} · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(operation.resolveSegment))}</span><small class="campaign-location-grid">Grid ${this.escapeHtml(operation.targetHexKey)}</small>
         </article>
       `).join("");
     const recentlyComplete = operations
@@ -2324,7 +2360,7 @@ export class CampaignScreen {
         <div class="campaign-intel-costs">
           <span>${rule.capacityCost} of ${selectedPreview.capacityAvailable} free capacity</span><span>${rule.durationSegments * 3} hours</span><span>${rule.suppliesCost} of ${selectedPreview.suppliesAvailable} supply</span><span>${rule.fuelCost} of ${selectedPreview.fuelAvailable} fuel</span>${requiresAsset && rule.assetRangeHex !== undefined ? `<span>${rule.assetRangeHex} hex range</span>` : ""}
         </div>
-        <label>Target <strong>${this.escapeHtml(this.selectedHexKey ?? "Select a map hex")}</strong></label>
+        <div>Target <strong>${this.escapeHtml(this.selectedHexKey ? this.getCampaignLocationDisplayLabel(this.selectedHexKey) : "Select a location on the map")}</strong>${this.selectedHexKey ? `<small class="campaign-location-grid">Grid ${this.escapeHtml(this.selectedHexKey)}</small>` : ""}</div>
         ${requiresAsset && hasTarget ? `
           <label for="campaignIntelAsset">Assigned asset</label>
           <select id="campaignIntelAsset" ${assets.length === 0 ? "disabled" : ""}>
@@ -2673,9 +2709,9 @@ export class CampaignScreen {
       objectiveEffect = "Indirect only; delivered resources support later force, logistics, and objective conditions.";
     } else if (order.kind === "infrastructureRepair") {
       label = `Repair ${order.payload.role.replace(/([A-Z])/g, " $1").trim()}`;
-      detail = `${order.payload.targetOffsetHexKey} · ${order.payload.sourceIntegrity} → ${order.payload.targetIntegrity} integrity · ${order.payload.suppliesCost} supply · ${order.payload.manpowerCost} personnel`;
+      detail = `${this.getCampaignLocationDisplayLabel(order.payload.targetOffsetHexKey)} · ${order.payload.sourceIntegrity} → ${order.payload.targetIntegrity} integrity · ${order.payload.suppliesCost} supply · ${order.payload.manpowerCost} personnel`;
       etaSegment = order.payload.completeSegment;
-      routeSummary = `Facility at ${order.payload.targetOffsetHexKey}`;
+      routeSummary = `${this.getCampaignLocationDisplayLabel(order.payload.targetOffsetHexKey)} · Grid ${order.payload.targetOffsetHexKey}`;
       costSummary = `${order.payload.suppliesCost.toLocaleString()} supply · ${order.payload.manpowerCost.toLocaleString()} personnel`;
       riskSummary = "Supervising formation stays committed on site; control loss or interruption can block completion.";
       objectiveEffect = "Restored capacity can satisfy later infrastructure, supply, or control conditions; no score changes at commit.";
@@ -2685,9 +2721,9 @@ export class CampaignScreen {
       const assetLabel = order.payload.assignedAssetKey
         ? this.campaignState.getIntelAssetDisplayLabel(order.payload.operationType, order.payload.assignedAssetKey, "Player")
         : null;
-      detail = `Hex ${order.payload.targetHexKey}${assetLabel ? ` · ${assetLabel}` : ""}`;
+      detail = `${this.getCampaignLocationDisplayLabel(order.payload.targetHexKey)}${assetLabel ? ` · ${assetLabel}` : ""}`;
       etaSegment = order.payload.resolveSegment;
-      routeSummary = `${order.payload.targetHexKey} · radius ${rule.targetRadius} hex`;
+      routeSummary = `${this.getCampaignLocationDisplayLabel(order.payload.targetHexKey)} · Grid ${order.payload.targetHexKey} · radius ${rule.targetRadius} hex`;
       costSummary = `${order.payload.suppliesCost.toLocaleString()} supply · ${order.payload.fuelCost.toLocaleString()} fuel · ${order.payload.capacityCost} intelligence capacity`;
       riskSummary = "Result remains limited by source access, uncertainty, and operation outcome; no hidden enemy truth is guaranteed.";
       objectiveEffect = "Changes the operational picture or its protection; no direct score change at commit.";
@@ -2815,6 +2851,7 @@ export class CampaignScreen {
           : this.campaignState.segmentToTimeDisplay(objective.deadlineSegment),
         score: `${objective.scoreAwarded}/${objective.score} pts`,
         hexKey: offset ? CoordinateSystem.makeHexKey(offset.col, offset.row) : undefined,
+        ...(offset ? { location: this.getCampaignLocationPresentation(CoordinateSystem.makeHexKey(offset.col, offset.row), view) } : {}),
         dependencies: dependencies.length > 0 ? `Requires ${dependencies.join(", ")}` : null,
         failureEffect: defeatKeys.includes(objective.key) ? "Failure ends the campaign" : null
       };
@@ -2833,6 +2870,7 @@ export class CampaignScreen {
         .filter((force) => force.count > 0 && projectLegacyForceGroupAsSupportCapacity(force) === null)
         .map((force) => ({
           hexKey,
+          location: this.getCampaignLocationPresentation(hexKey, view),
           label: resolveCampaignForceGroupCommandLabel(force.label, force.unitType),
           count: force.count
         }));
@@ -2870,6 +2908,12 @@ export class CampaignScreen {
         typeLabel: formationPresentation.typeLabel,
         ownershipLabel: formation.ownership.charAt(0).toUpperCase() + formation.ownership.slice(1),
         locationHexKey,
+        ...(locationHexKey ? {
+          location: this.getCampaignLocationPresentation(locationHexKey, view),
+          operationalFrontKey: scenario.fronts.find((front) => front.hexKeys.includes(locationHexKey)
+            || front.edges?.some((edge) => edge.opposingHexKey === locationHexKey))?.key,
+          objectiveKey: objectives.find((objective) => objective.hexKey === locationHexKey && objective.status === "In progress")?.key
+        } : {}),
         statusLabel: posture.label,
         postureKey: posture.posture === "scheduledArrival"
           ? "scheduledArrival" as const
@@ -2902,6 +2946,7 @@ export class CampaignScreen {
       id: site.id,
       label: site.label,
       locationHexKey: site.locationHexKey,
+      location: this.getCampaignLocationPresentation(site.locationHexKey, view),
       roleLabel: this.formatCampaignLabel(site.role),
       summary: site.summary,
       sourceLabel: site.sourceLabel,
@@ -2941,6 +2986,7 @@ export class CampaignScreen {
           this.campaignState.getCurrentSegment() + productionReport.segmentsUntilNextTick
         )
       : null;
+    const navalSupport = this.campaignState.getPlayerNavalSupport();
     const hexes: CampaignCommandHexView[] = scenario.tiles.map((tile) => {
       const palette = scenario.tilePalette[tile.tile];
       const offset = CoordinateSystem.axialToOffset(tile.hex.q, tile.hex.r);
@@ -3006,11 +3052,8 @@ export class CampaignScreen {
         ...((palette?.airSortieCapacity ?? 0) > 0
           ? ["Air-wing staging and fighter/bomber rebase point"]
           : []),
-        ...((palette?.navalCapacity ?? 0) > 0
-          ? [palette?.role === "taskForce"
-            ? `Naval fire support available for coastal engagements within ${NAVAL_SUPPORT_RANGE_HEXES * (scenario.hexScaleKm ?? 10)} km`
-            : null]
-          : [])
+        ...navalSupport.sources.filter((source) => source.sourceHexKey === hexKey)
+          .map((source) => `${source.label}: ${source.availableFireMissions} ready fire mission${source.availableFireMissions === 1 ? "" : "s"} · ${source.effectiveRangeHexes * (scenario.hexScaleKm ?? 10)} km range · ${source.reason}${source.nextAvailableSegment === null ? "" : ` · next available ${this.campaignState.segmentToTimeDisplay(source.nextAvailableSegment)}`}`)
       ].filter((entry): entry is string => Boolean(entry));
       const friendlyBaseRoleLabel = palette?.role === "airbase"
         ? "Air base"
@@ -3029,6 +3072,7 @@ export class CampaignScreen {
       );
       return {
         hexKey,
+        location: this.getCampaignLocationPresentation(hexKey, view),
         roleLabel: isAlliedAssaultFleet ? "Naval task force" : isFriendlyBase ? friendlyBaseRoleLabel : roleLabel,
         controlLabel,
         ...(isFriendlyBase ? {
@@ -3036,7 +3080,9 @@ export class CampaignScreen {
           showSelectionActions: showBaseSelectionActions,
           showEngagementAction: false,
           actionSummary: baseActionSummary
-        } : {}),
+        } : {
+          showEngagementAction: controller === "Player" && hasPresentForces && !isAlliedAssaultFleet && this.campaignState.isAdjacentToEnemy(hexKey)
+        }),
         ...(associatedLocations.length ? { historicalNetwork: associatedLocations } : {}),
         strategicGeography,
         ...(authoredMapLabel || isAlliedAssaultFleet ? {
@@ -3069,6 +3115,7 @@ export class CampaignScreen {
       if (projectedHexKeys.has(site.locationHexKey)) return;
       hexes.push({
         hexKey: site.locationHexKey,
+        location: site.location,
         roleLabel: site.roleLabel,
         controlLabel: site.categoryLabel === "Allied supporting site"
           ? "Friendly support network"
@@ -3097,6 +3144,7 @@ export class CampaignScreen {
       const infrastructureAudit = this.campaignState.getCampaignBattleInfrastructureReport(report.engagementId);
       const infrastructureAfter = infrastructureAudit?.infrastructureAfter ?? null;
       const locationHexKey = projectRuntimeHexKeyToCampaignOffset(report.battleHexKey) ?? report.battleHexKey;
+      const locationPresentation = this.getCampaignLocationPresentation(locationHexKey, view);
       const charged = [
         [report.economyCharged.supplies, "supply"],
         [report.economyCharged.fuel, "fuel"],
@@ -3134,17 +3182,19 @@ export class CampaignScreen {
         infrastructureEffect,
         report.campaignPhaseBefore !== report.campaignPhaseAfter
           ? `Campaign phase: ${report.campaignPhaseBefore} → ${report.campaignPhaseAfter}`
-          : null
+          : null,
+        ...(report.navalSupport ?? []).map((source) => `${source.label}: ${source.chargesUsed} fire mission${source.chargesUsed === 1 ? "" : "s"} fired · ${source.chargesRemaining} tactical charge${source.chargesRemaining === 1 ? "" : "s"} unused · ${source.status === "expended" ? `replenishes ${this.campaignState.segmentToTimeDisplay(source.nextAvailableSegment)}` : "unused support restored"}`)
       ].filter((entry): entry is string => entry !== null);
       return {
         id: report.reportId,
-        title: projectCampaignAfterActionTitle(report.title, report.objectiveLabel, report.battleHexKey),
+        title: projectCampaignAfterActionTitle(report.title, report.objectiveLabel, report.battleHexKey, locationPresentation),
         timeLabel: this.campaignState.segmentToTimeDisplay(report.segment),
         result: report.strategicResult,
         resultLabel,
         acknowledged: report.acknowledged,
         summary: report.summary,
-        location: `Operational hex ${locationHexKey}`,
+        location: locationPresentation.primaryLabel,
+        locationPresentation,
         locationHexKey,
         checkpointStatus: postBattleAutosaveStatus?.reportId === report.reportId
           ? postBattleAutosaveStatus.message
@@ -3367,12 +3417,15 @@ export class CampaignScreen {
       return {
         key: front.key,
         label: front.label,
+        ...(engagementTarget?.targetHexKey || front.hexKeys[0] ? {
+          location: this.getCampaignLocationPresentation(engagementTarget?.targetHexKey ?? front.hexKeys[0], view)
+        } : {}),
         hexKeys: front.hexKeys.slice(),
         initiativeLabel: front.initiative === "Player" ? "Friendly initiative" : "Opposing initiative",
         pressureLabel: playerAssessment?.pressureLabel ?? (assessedContacts.length === 0
           ? "No assessed hostile contact in this mapped sector."
           : `${assessedContacts.length} assessed contact${assessedContacts.length === 1 ? "" : "s"}${uncertainContacts > 0 ? ` · ${uncertainContacts} stale or disputed` : ""}.`),
-        engagementLabel: engagementTarget ? `${engagementTarget.missionLabel} — Hex ${engagementTarget.targetHexKey}` : undefined,
+        engagementLabel: engagementTarget ? `${engagementTarget.missionLabel} — ${this.getCampaignLocationDisplayLabel(engagementTarget.targetHexKey)}` : undefined,
         targetHexKey: engagementTarget?.targetHexKey,
         roleLabel: engagementTarget?.roleLabel,
         intelligenceUnknowns: engagementTarget?.explicitUnknowns,
@@ -3487,6 +3540,17 @@ export class CampaignScreen {
           id: contact.id,
           label: contact.label,
           locationHexKey: contact.locationHexKey,
+          location: this.getCampaignLocationPresentation(contact.locationHexKey, view, {
+            status: contact.state,
+            confidenceBand: contact.confidenceBand,
+            radiusHexes: contact.uncertaintyRadius
+          }),
+          sectorLabel: scenario.fronts.find((front) => front.hexKeys.includes(contact.locationHexKey)
+            || front.edges?.some((edge) => edge.opposingHexKey === contact.locationHexKey))?.label
+            ?? this.getCampaignLocationDisplayLabel(contact.locationHexKey),
+          priority: contact.state === "disputed" ? "critical" as const
+            : contact.state === "stale" || contact.confidenceBand === "low" ? "notable" as const : "routine" as const,
+          threatLabel: contact.classificationBand ?? `${this.formatCampaignLabel(contact.domain)} activity`,
           ...(knownLocation ? {
             locationLabel: knownLocation.label,
             locationRoleLabel: knownLocation.roleLabel
@@ -3503,6 +3567,23 @@ export class CampaignScreen {
       hexes,
       airPower: playerEconomy?.airPower ?? 0,
       navalPower: playerEconomy?.navalPower ?? 0,
+      navalSupport,
+      intelligenceUnreadReports: view.unreadReportCount,
+      intelligenceBriefs: this.campaignState.getIntelBriefEvents("Player").map((event) => {
+        const contact = view.enemyContacts.find((entry) => entry.id === event.contactId);
+        const location = contact ? this.getCampaignLocationPresentation(contact.locationHexKey, view) : null;
+        return {
+          ...event,
+          title: location ? `${location.primaryLabel}: ${event.kind === "new" ? "New contact" : `${this.formatCampaignLabel(event.kind)} assessment`}` : event.title,
+          detail: event.detail,
+          timeLabel: this.campaignState.segmentToTimeDisplay(event.segment),
+          sectorLabel: contact ? scenario.fronts.find((front) => front.hexKeys.includes(contact.locationHexKey)
+            || front.edges?.some((edge) => edge.opposingHexKey === contact.locationHexKey))?.label ?? location?.primaryLabel : scenario.title,
+          priority: event.kind === "disputed" ? "critical" as const
+            : event.kind === "stale" || event.kind === "downgraded" ? "notable" as const : "routine" as const,
+          materiallyChanged: true
+        };
+      }),
       intelligenceCapacity: draftReservations.intelligenceCapacity > 0
         ? `${Math.max(0, view.capacity.available - draftReservations.intelligenceCapacity)}/${view.capacity.total} · ${draftReservations.intelligenceCapacity} held`
         : `${view.capacity.available}/${view.capacity.total}`,
@@ -4364,12 +4445,75 @@ export class CampaignScreen {
   }
 
   private getCampaignLocationDisplayLabel(offsetHexKey: string): string {
-    const view = this.campaignState.getCampaignMapView("Player");
-    const parsed = CoordinateSystem.parseHexKey(offsetHexKey);
-    const axial = parsed ? CoordinateSystem.offsetToAxial(parsed.col, parsed.row) : null;
-    const tile = axial ? view?.scenario.tiles?.find((entry) => entry.hex.q === axial.q && entry.hex.r === axial.r) : null;
-    const palette = tile && view ? view.scenario.tilePalette[tile.tile] : null;
-    return palette?.mapLabel?.trim() || this.formatCampaignLabel(palette?.role ?? "Operational hex");
+    return this.getCampaignLocationPresentation(offsetHexKey).primaryLabel;
+  }
+
+  /** Uses the game's existing dialog surface, with one focus owner and explicit acceptance. */
+  private confirmCampaignAction(titleText: string, detail: string, acceptLabel: string): Promise<boolean> {
+    const layer = document.getElementById("battlePopupLayer");
+    const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
+    const title = dialog?.querySelector<HTMLElement>("[data-popup-title]");
+    const body = dialog?.querySelector<HTMLElement>("[data-popup-body]");
+    const close = dialog?.querySelector<HTMLButtonElement>("#battlePopupClose");
+    if (!layer || !dialog || !title || !body || !close) {
+      this.reportBattleLaunchFailure("The campaign confirmation panel is unavailable. Reload the game before continuing this action.");
+      return Promise.resolve(false);
+    }
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : this.queueEngagementButton;
+    title.textContent = titleText;
+    dialog.dataset.popupKey = "campaign-confirmation";
+    dialog.setAttribute("aria-modal", "true");
+    const summary = document.createElement("p");
+    summary.textContent = detail;
+    const controls = document.createElement("div");
+    controls.className = "campaign-workspace-controls";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Return to campaign";
+    const accept = document.createElement("button");
+    accept.type = "button";
+    accept.dataset.confirmCampaignAction = "true";
+    accept.className = "campaign-workspace-primary";
+    accept.textContent = acceptLabel;
+    controls.append(cancel, accept);
+    body.replaceChildren(summary, controls);
+    return new Promise<boolean>((resolve) => {
+      const finish = (accepted: boolean): void => {
+        layer.classList.add("hidden");
+        layer.setAttribute("aria-hidden", "true");
+        layer.removeEventListener("keydown", onKey);
+        close.onclick = null;
+        this.element.inert = false;
+        invoker?.focus({ preventScroll: true });
+        resolve(accepted);
+      };
+      const onKey = (event: KeyboardEvent): void => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish(false); }
+        if (event.key === "Tab") {
+          const targets = [close, cancel, accept];
+          const index = targets.indexOf(document.activeElement as HTMLButtonElement);
+          event.preventDefault();
+          targets[(index + (event.shiftKey ? targets.length - 1 : 1)) % targets.length].focus();
+        }
+      };
+      cancel.onclick = () => finish(false);
+      accept.onclick = () => finish(true);
+      close.onclick = () => finish(false);
+      layer.addEventListener("keydown", onKey);
+      layer.classList.remove("hidden");
+      layer.setAttribute("aria-hidden", "false");
+      this.element.inert = true;
+      cancel.focus({ preventScroll: true });
+    });
+  }
+
+  /** Resolves only the player's authored geography; never queries live opposing positions. */
+  private getCampaignLocationPresentation(
+    offsetHexKey: string,
+    view: CampaignMapViewModel | null = this.campaignState.getCampaignMapView("Player"),
+    uncertainty?: CampaignLocationUncertaintyInput
+  ): CampaignLocationPresentation {
+    return resolveCampaignMapLocationPresentation(view, offsetHexKey, uncertainty);
   }
 
   private formatCampaignUnitLabel(value: string): string {
@@ -4534,8 +4678,10 @@ export class CampaignScreen {
       );
       if (!result.ok) {
         if (result.recoveryCandidate) {
-          const accepted = window.confirm(
-            "The newest campaign save is damaged. A verified earlier save is available. Recover it now?"
+          const accepted = await this.confirmCampaignAction(
+            "Recover earlier campaign",
+            "The newest campaign save is damaged. A verified earlier save is available. Recover that earlier campaign to continue; the damaged record will remain quarantined.",
+            "Recover earlier save"
           );
           if (accepted) {
             this.campaignState.restorePrimaryCampaignRecovery(result.recoveryCandidate);

@@ -145,7 +145,8 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
   if (logisticsIntro) {
     logisticsIntro.innerHTML = `
       <div class="campaign-workspace-metric"><span>Available air support</span><strong id="campaignAirPowerValue">0</strong></div>
-      <div class="campaign-workspace-metric"><span>Available naval support</span><strong id="campaignNavalPowerValue">0</strong></div>
+      <div class="campaign-workspace-metric"><span>Ready naval fire missions</span><strong id="campaignNavalPowerValue">—</strong></div>
+      <div id="campaignNavalSupportSources" aria-label="Naval task force availability"></div>
     `;
   }
 

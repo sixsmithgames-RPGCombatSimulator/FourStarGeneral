@@ -13,6 +13,7 @@ import { CAMPAIGN_WORKSPACES, createCampaignWorkspaceRail } from "./components/C
 import { configureCampaignWorkspacePanel } from "./components/CampaignWorkspacePanel";
 import type { CampaignCommandSelection, CampaignCommandUIStateSnapshot, CampaignWorkspaceId, CampaignOverlayId } from "./CampaignCommandUIState";
 import type { CampaignLocationPresentation } from "./CampaignLocationPresentation";
+import type { CampaignNavalSupportView } from "../../game/campaign/logistics/CampaignNavalSupportService";
 import {
   projectCampaignForcesWorkspace,
   projectCampaignIntelligenceWorkspace,
@@ -410,6 +411,7 @@ export interface CampaignCommandShellView {
   readonly hexes?: readonly CampaignCommandHexView[];
   readonly airPower: number;
   readonly navalPower: number;
+  readonly navalSupport?: CampaignNavalSupportView;
   readonly intelligenceCapacity: string;
   readonly orders: readonly CampaignCommandOrderView[];
   readonly orderCommit?: CampaignCommandOrderCommitView;
@@ -554,7 +556,7 @@ export class CampaignCommandShell {
     this.setText("#campaignCommandUnread", String(view.unreadReports));
     this.setText("#campaignIntelligenceCapacity", view.intelligenceCapacity);
     this.setText("#campaignAirPowerValue", view.airPower.toLocaleString());
-    this.setText("#campaignNavalPowerValue", view.navalPower.toLocaleString());
+    this.renderNavalSupport(view.navalSupport);
 
     const alert = this.root.querySelector<HTMLButtonElement>("#campaignCommandReports");
     if (alert) {
@@ -1650,6 +1652,36 @@ export class CampaignCommandShell {
       section.append(row);
     }
     return section;
+  }
+
+  private renderNavalSupport(support: CampaignNavalSupportView | undefined): void {
+    this.setText("#campaignNavalPowerValue", support ? support.availableFireMissions.toLocaleString() : "Not reported");
+    const container = this.root.querySelector<HTMLElement>("#campaignNavalSupportSources");
+    if (!container) return;
+    if (!support) {
+      container.replaceChildren(createTextElement("p", "campaign-workspace-empty", "Naval availability has not been reported. Refresh the campaign view before planning naval support."));
+      return;
+    }
+    if (support.sources.length === 0) {
+      container.replaceChildren(createTextElement("p", "campaign-workspace-empty", "No friendly naval task force is available in this theater."));
+      return;
+    }
+    const statusLabels: Record<CampaignNavalSupportView["sources"][number]["status"], string> = {
+      ready: "Ready", restored: "Restored", damaged: "Damaged", outOfRange: "Out of range",
+      unsupportedTarget: "Target unsupported", committed: "Committed", expended: "Expended"
+    };
+    container.replaceChildren(...support.sources.map((source) => {
+      const article = document.createElement("article");
+      article.className = "campaign-naval-support-source";
+      article.dataset.navalSource = source.sourceId;
+      article.append(
+        createTextElement("strong", "", source.label),
+        createTextElement("span", "", `${statusLabels[source.status]} · ${source.availableSupportAssignments} support assignment${source.availableSupportAssignments === 1 ? "" : "s"} · ${source.availableFireMissions} ready fire mission${source.availableFireMissions === 1 ? "" : "s"}`),
+        createTextElement("small", "", `Effective range ${source.effectiveRangeHexes} hexes${source.distanceHexes === null ? "" : ` · target ${source.distanceHexes} hexes away`}`),
+        createTextElement("p", "", source.reason)
+      );
+      return article;
+    }));
   }
 
   private renderOrders(

@@ -28,6 +28,7 @@ import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenari
 import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { ensureCampaignState } from "../../state/CampaignState";
+import { resolveCampaignMapLocationPresentation } from "../campaign/CampaignLocationPresentation";
 import { clearCampaignScenarioCache, resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
 import type { CampaignEngagementContext } from "../../core/campaignTypes";
 import type { CampaignBattlePackage } from "../../game/campaign/engagements/CampaignEngagementLedgerTypes";
@@ -1873,6 +1874,11 @@ export class PrecombatScreen {
         ? ` · ${unavailableGroundGroups} recovering or otherwise unavailable for this battle`
         : "");
     const navalSupport = allocationCaps.shoreFireControlParty ?? 0;
+    const navalAvailability = ensureCampaignState().getPlayerNavalSupport({
+      battleHexKey: context.battleHexKey,
+      frontKey: context.frontKey,
+      engagementId: context.engagementId
+    });
     const intelligenceLine = briefing
       ? `${briefing.resistanceBand.charAt(0).toUpperCase()}${briefing.resistanceBand.slice(1)} resistance · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
       : legacyRatio.label;
@@ -1886,6 +1892,19 @@ export class PrecombatScreen {
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
       ${unknowns.length > 0 ? `<details><summary>${unknowns.length} intelligence unknowns</summary>${unknowns.join(" · ")}</details>` : ""}
     `;
+    if (navalAvailability.sources.length > 0) {
+      const navalBrief = document.createElement("details");
+      const heading = document.createElement("summary");
+      heading.textContent = "Naval task forces";
+      navalBrief.appendChild(heading);
+      navalAvailability.sources.forEach((source) => {
+        const line = document.createElement("p");
+        line.dataset.navalSourceId = source.sourceId;
+        line.textContent = `${source.label} · ${source.reason} · range ${source.effectiveRangeHexes} operational hexes`;
+        navalBrief.appendChild(line);
+      });
+      banner.appendChild(navalBrief);
+    }
     if (!existing) {
       const mount = this.element.querySelector<HTMLElement>("#engagementContextMount");
       mount?.appendChild(banner);
@@ -2088,13 +2107,16 @@ export class PrecombatScreen {
     const campaignContext = missionKey === "campaign" ? this.engagementContext : null;
     const campaignPlayerDefense = Boolean(campaignContext?.attacker === "Bot" && campaignContext.defender === "Player");
     const engagementLabel = campaignContext ? MISSION_TYPE_LABELS[campaignContext.missionType] : null;
+    const campaignLocation = campaignContext
+      ? resolveCampaignMapLocationPresentation(ensureCampaignState().getCampaignMapView("Player"), campaignContext.battleHexKey)
+      : null;
     const title = campaignContext
-      ? `${engagementLabel}${campaignPlayerDefense ? " Defense" : ""} — Hex ${campaignContext.battleHexKey}`
+      ? `${engagementLabel}${campaignPlayerDefense ? " Defense" : ""} — ${campaignLocation?.primaryLabel}`
       : getMissionTitle(missionKey);
     const briefing = campaignContext
       ? campaignPlayerDefense
-        ? `Opposing forces have opened a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Hold the marked tactical ground or break the attacking ground force; objective control or force collapse decides the engagement.`
-        : `Friendly forces are opening a ${engagementLabel?.toLowerCase()} at operational hex ${campaignContext.battleHexKey}. Secure the marked tactical ground or break the opposing ground force; objective control or force collapse decides the engagement.`
+        ? `Opposing forces have opened a ${engagementLabel?.toLowerCase()} at ${campaignLocation?.primaryLabel}. Hold the marked tactical ground or break the attacking ground force; objective control or force collapse decides the engagement.`
+        : `Friendly forces are opening a ${engagementLabel?.toLowerCase()} at ${campaignLocation?.primaryLabel}. Secure the marked tactical ground or break the opposing ground force; objective control or force collapse decides the engagement.`
       : getMissionBriefing(missionKey);
     const summary = getMissionSummaryPackage(missionKey, selectedDifficulty);
     const missionRules = createMissionRulesController(missionKey, this.miniMapScenario, selectedDifficulty);
@@ -2115,7 +2137,7 @@ export class PrecombatScreen {
         : "Concentrate the committed formations, secure the tactical objective network, and preserve a viable force for the campaign that follows."
       : summary.doctrine;
     const visibleBriefing = campaignContext
-      ? `${campaignPlayerDefense ? "Defend" : "Attack"} at Hex ${campaignContext.battleHexKey}. Complete either objective below to decide the engagement.`
+      ? `${campaignPlayerDefense ? "Defend" : "Attack"} at ${campaignLocation?.primaryLabel} (${campaignLocation?.secondaryGridReference}). Complete either objective below to decide the engagement.`
       : briefing;
 
     this.element.classList.toggle("campaign-engagement", Boolean(campaignContext));

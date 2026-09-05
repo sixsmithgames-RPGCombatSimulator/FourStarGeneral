@@ -520,12 +520,12 @@ function resolveInspectorRoute(
           { label: "Honors", value: rosterFormation.honors.join(", ") || "None" }
         ],
         mode: "projected",
-        ...(location?.presentation === "friendlyBase" && rosterFormation.locationHexKey ? {
+        ...(location && rosterFormation.locationHexKey ? {
           parentRoute: { hexKey: rosterFormation.locationHexKey, label: `Back to ${location.location?.primaryLabel ?? namedLocationLabel(location.displayLabel) ?? "base"}` },
           mode: "projectedWithActions" as const,
-          showSelectionActions: location.showSelectionActions ?? location.hasContextActions === true,
-          showEngagementAction: location.showEngagementAction === true,
-          actionSummary: location.actionSummary
+          showSelectionActions: rosterFormation.canReceiveOrders !== false && (location.showSelectionActions ?? location.hasContextActions === true),
+          showEngagementAction: rosterFormation.canReceiveOrders !== false && location.showEngagementAction === true,
+          actionSummary: rosterFormation.blockingReason ?? location.actionSummary
         } : {})
       };
     }

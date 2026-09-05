@@ -184,3 +184,21 @@ registerTest("FSG_CAM_075_INTELLIGENCE_FILTER_SELECTION_AND_EXPLICIT_READ_PRESER
     assert.equal(operationActions, 1);
   });
 });
+
+registerTest("FSG_CAM_059_LOGISTICS_CONSUMER_RENDERS_NAVAL_AUTHORITY_WITHOUT_ECONOMY_INFERENCE", async ({ Given, When, Then }) => {
+  const root = mount();
+  const shell = new CampaignCommandShell(root);
+  await Given("the supplied naval view disagrees with the unrelated economy scalar", () => {
+    shell.initialize();
+    shell.render(view({ navalSupport: { availableSupportAssignments: 0, availableFireMissions: 0, fireMissionsPerAssignment: 2, readySourceIds: [], sources: [{ sourceId: "fleet", sourceHexKey: "5,5", label: "Western task force", readiness: 1, effectiveRangeHexes: 6, distanceHexes: 8, availableSupportAssignments: 0, availableFireMissions: 0, fireMissionsPerAssignment: 2, status: "outOfRange", reason: "Target beyond fire control range.", nextAvailableSegment: null }] } }));
+  });
+  await When("Logistics renders the source's availability and range", () => {
+    assert.equal(root.querySelector("#campaignNavalPowerValue")?.textContent, "0");
+    assert.match(root.querySelector("#campaignNavalSupportSources")?.textContent ?? "", /Western task force.*Out of range.*Effective range 6 hexes.*target 8 hexes away/s);
+  });
+  await Then("missing authority is reported as unknown, never reconstructed from economy navalPower", () => {
+    shell.render(view());
+    assert.equal(root.querySelector("#campaignNavalPowerValue")?.textContent, "Not reported");
+    assert.match(root.querySelector("#campaignNavalSupportSources")?.textContent ?? "", /has not been reported/);
+  });
+});
