@@ -35,6 +35,13 @@ export type CampaignCommandSelection =
 
 export type CampaignCommandSheetId = "workspace" | "inspector" | "timeline" | "afterAction" | "orderComposer" | null;
 
+/** One default per headquarters workspace; a later layer change remains independent. */
+export function getCampaignWorkspaceDefaultOverlay(workspace: CampaignWorkspaceId): CampaignOverlayId {
+  if (workspace === "forces") return "forces";
+  if (workspace === "intelligence") return "intelligence";
+  return "operational";
+}
+
 export interface CampaignCommandUIStateSnapshot {
   readonly workspace: CampaignWorkspaceId;
   readonly overlay: CampaignOverlayId;
@@ -93,9 +100,13 @@ export class CampaignCommandUIState {
   public setWorkspace(workspace: CampaignWorkspaceId, reason = "workspace-selected"): void {
     this.update({
       workspace,
+      overlay: getCampaignWorkspaceDefaultOverlay(workspace),
       openSheet: "workspace",
       workspaceExpanded: true,
-      inspectorExpanded: false
+      inspectorExpanded: false,
+      timelineExpanded: false,
+      afterActionExpanded: false,
+      orderComposerExpanded: false
     }, reason);
   }
 

@@ -142,7 +142,7 @@ export class CampaignMapOverlayController {
 
     const selectLabel = document.createElement("label");
     selectLabel.className = "campaign-map-overlay-select";
-    selectLabel.append(createText("span", "", "Layer"));
+    selectLabel.append(createText("span", "", "Map layer"));
     this.modeSelect = document.createElement("select");
     this.modeSelect.setAttribute("aria-label", "Map layer");
     selectLabel.appendChild(this.modeSelect);
@@ -154,7 +154,7 @@ export class CampaignMapOverlayController {
     if (existingCoverage) filters.appendChild(existingCoverage);
     this.coverageFilter = existingCoverage;
 
-    modeGroup.replaceChildren(this.modeButtons, selectLabel, filters);
+    modeGroup.replaceChildren(createText("span", "campaign-map-layer-label", "Map layer"), this.modeButtons, selectLabel, filters);
     this.listToggle = document.createElement("button");
     this.listToggle.type = "button";
     this.listToggle.className = "campaign-map-list-toggle";
@@ -229,7 +229,6 @@ export class CampaignMapOverlayController {
       button.title = definition.description;
       button.setAttribute("aria-label", `${definition.label} map layer. ${definition.description}`);
       button.append(
-        createText("span", "campaign-map-overlay-button__short", definition.shortLabel),
         createText("span", "campaign-map-overlay-button__label", definition.label)
       );
       return button;
@@ -512,7 +511,7 @@ export class CampaignMapOverlayController {
       key: objective.key,
       marker: objective.status === "Completed" ? "OK" : objective.status === "Failed" ? "!" : "OBJ",
       label: objective.label,
-      meta: `${objective.status}${objective.hexKey ? ` · ${objective.hexKey}` : ""}`,
+      meta: `${objective.status}${objective.location ? ` · ${objective.location.primaryLabel} · ${objective.location.secondaryGridReference}` : objective.hexKey ? ` · Grid ${objective.hexKey}` : ""}`,
       selection: { kind: "objective", id: objective.key }
     };
   }
@@ -522,7 +521,7 @@ export class CampaignMapOverlayController {
       key: `${force.hexKey}:${index}`,
       marker: "UNIT",
       label: force.label,
-      meta: `${force.count.toLocaleString()} · ${force.hexKey}`,
+      meta: `${force.count.toLocaleString()} · ${force.location?.primaryLabel ?? "Operational sector"} · ${force.location?.secondaryGridReference ?? `Grid ${force.hexKey}`}`,
       selection: { kind: "hex", id: force.hexKey }
     };
   }
@@ -532,7 +531,7 @@ export class CampaignMapOverlayController {
       key: formation.id,
       marker: "UNIT",
       label: formation.name,
-      meta: `${formation.statusLabel}${formation.availabilityLabel ? ` · available ${formation.availabilityLabel}` : ""} · ${formation.readiness}${formation.locationHexKey ? ` · ${formation.locationHexKey}` : " · Off map"}`,
+      meta: `${formation.statusLabel}${formation.availabilityLabel ? ` · available ${formation.availabilityLabel}` : ""} · ${formation.readiness}${formation.location ? ` · ${formation.location.primaryLabel} · ${formation.location.secondaryGridReference}` : formation.locationHexKey ? ` · Operational sector · Grid ${formation.locationHexKey}` : " · Off map"}`,
       selection: { kind: "formation", id: formation.id }
     };
   }
@@ -541,8 +540,8 @@ export class CampaignMapOverlayController {
     return {
       key: contact.id,
       marker: "INT",
-      label: contact.locationLabel ?? contact.label,
-      meta: `${contact.locationRoleLabel ? `${contact.locationRoleLabel} · ` : ""}${contact.locationLabel ? `${contact.label} · ` : ""}${contact.confidenceBand} confidence · ${contact.locationHexKey} · ${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"} old`,
+      label: contact.location?.primaryLabel ?? contact.locationLabel ?? contact.label,
+      meta: `${contact.locationRoleLabel ? `${contact.locationRoleLabel} · ` : ""}${contact.confidenceBand} confidence · ${contact.location?.secondaryGridReference ?? `Grid ${contact.locationHexKey}`} · ${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"} old`,
       selection: { kind: "contact", id: contact.id }
     };
   }
@@ -564,7 +563,7 @@ export class CampaignMapOverlayController {
       key: site.id,
       marker,
       label: site.label,
-      meta: `${site.roleLabel} · ${status}`,
+      meta: `${site.roleLabel} · ${status}${site.location ? ` · ${site.location.secondaryGridReference}` : ""}`,
       selection: { kind: "hex", id: site.locationHexKey }
     };
   }

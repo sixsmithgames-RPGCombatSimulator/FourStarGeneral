@@ -1,6 +1,7 @@
 /** Stable, presentation-only registry for campaign map modes and truthful feature gates. */
 
-import type { CampaignOverlayId, CampaignWorkspaceId } from "./CampaignCommandUIState";
+import type { CampaignOverlayId } from "./CampaignCommandUIState";
+export { getCampaignWorkspaceDefaultOverlay } from "./CampaignCommandUIState";
 import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
 
 export interface CampaignMapLegendEntry {
@@ -127,11 +128,4 @@ export function getCampaignMapOverlay(id: CampaignOverlayId): CampaignMapOverlay
 
 export function getAvailableCampaignMapOverlays(): readonly CampaignMapOverlayDefinition[] {
   return OVERLAYS.filter((overlay) => overlay.status === "available");
-}
-
-/** Returns a truthful workspace default; gated projections fall back to the operational picture. */
-export function getCampaignWorkspaceDefaultOverlay(workspace: CampaignWorkspaceId): CampaignOverlayId {
-  if (workspace === "forces") return "forces";
-  if (workspace === "intelligence") return "intelligence";
-  return "operational";
 }

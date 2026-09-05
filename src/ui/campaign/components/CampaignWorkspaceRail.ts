@@ -27,8 +27,9 @@ function createTextElement(tagName: keyof HTMLElementTagNameMap, className: stri
 export function createCampaignWorkspaceRail(): HTMLElement {
   const rail = document.createElement("nav");
   rail.className = "campaign-workspace-rail";
-  rail.setAttribute("aria-label", "Campaign workspaces");
+  rail.setAttribute("aria-label", "Headquarters workspaces");
   rail.setAttribute("role", "tablist");
+  rail.appendChild(createTextElement("span", "campaign-workspace-rail__heading", "Headquarters"));
   CAMPAIGN_WORKSPACES.forEach((workspace, index) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -42,7 +43,6 @@ export function createCampaignWorkspaceRail(): HTMLElement {
     button.tabIndex = index === 0 ? 0 : -1;
     button.title = `${workspace.label} — ${workspace.description} · Shortcut ${workspace.shortcut}`;
     button.append(
-      createTextElement("span", "campaign-workspace-tab__mark", workspace.shortLabel),
       createTextElement("span", "campaign-workspace-tab__label", workspace.label)
     );
     rail.appendChild(button);

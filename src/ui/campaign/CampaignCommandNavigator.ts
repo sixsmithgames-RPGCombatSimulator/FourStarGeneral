@@ -59,9 +59,9 @@ export class CampaignCommandNavigator {
         // internal operation/event key. CampaignScreen promotes only validated contact IDs.
         return { workspace: "intelligence", overlay: "intelligence", selection: null };
       case "logistics":
-        return { workspace: "logistics", overlay: "supply", selection: null };
+        return { workspace: "logistics", overlay: "operational", selection: null };
       case "infrastructure":
-        return { workspace: "logistics", overlay: "supply", selection: id ? { kind: "hex", id } : null };
+        return { workspace: "logistics", overlay: "operational", selection: id ? { kind: "hex", id } : null };
       case "engagement":
         return { workspace: "situation", overlay: "operational", selection: id ? { kind: "report", id } : null };
       case "campaign":

@@ -11,7 +11,7 @@ import { createCampaignCommandBar } from "./components/CampaignCommandBar";
 import { createCampaignContextInspector, renderCampaignContextInspector } from "./components/CampaignContextInspector";
 import { CAMPAIGN_WORKSPACES, createCampaignWorkspaceRail } from "./components/CampaignWorkspaceRail";
 import { configureCampaignWorkspacePanel } from "./components/CampaignWorkspacePanel";
-import type { CampaignCommandSelection, CampaignCommandUIStateSnapshot, CampaignWorkspaceId } from "./CampaignCommandUIState";
+import type { CampaignCommandSelection, CampaignCommandUIStateSnapshot, CampaignWorkspaceId, CampaignOverlayId } from "./CampaignCommandUIState";
 
 import type { CampaignLocationPresentation } from "./CampaignLocationPresentation";
 
@@ -402,6 +402,7 @@ export interface CampaignCommandShellView {
 
 /** Integration callbacks keep shell gestures separate from campaign state mutation. */
 export interface CampaignCommandShellCallbacks {
+  readonly onMapLayerChanged?: (overlay: CampaignOverlayId) => void;
   readonly onWorkspaceChanged?: (workspace: CampaignWorkspaceId) => void;
   readonly onOpenIntelligence?: () => void;
   readonly onAcknowledgeAfterActionReport?: (reportId: string) => void;
@@ -859,6 +860,7 @@ export class CampaignCommandShell {
   }
 
   private handleRootKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       const orders = this.root.querySelector<HTMLElement>("#campaignOrdersDrawer");
       if (orders && !orders.hidden) {

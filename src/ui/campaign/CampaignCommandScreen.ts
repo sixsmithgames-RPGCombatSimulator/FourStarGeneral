@@ -23,7 +23,6 @@ import {
   type CampaignWorkspaceId
 } from "./CampaignCommandUIState";
 import { CampaignCommandViewAssembler } from "./CampaignCommandViewAssembler";
-import { getCampaignWorkspaceDefaultOverlay } from "./CampaignMapOverlayRegistry";
 import { CampaignCompactSheetManager } from "./components/CampaignCompactSheetManager";
 import {
   CampaignMapOverlayController,
@@ -54,7 +53,7 @@ export class CampaignCommandScreen {
 
   public constructor(
     private readonly root: HTMLElement,
-    callbacks: CampaignCommandShellCallbacks = {},
+    private readonly callbacks: CampaignCommandShellCallbacks = {},
     options: CampaignCommandScreenOptions = {}
   ) {
     this.uiState = options.uiState ?? new CampaignCommandUIState();
@@ -77,8 +76,11 @@ export class CampaignCommandScreen {
     this.shell = new CampaignCommandShell(root, {
       ...callbacks,
       onWorkspaceChanged: (workspace) => {
-        this.uiState.setWorkspace(workspace, "shell-workspace-selected");
-        this.uiState.setOverlay(getCampaignWorkspaceDefaultOverlay(workspace), "shell-workspace-overlay-default");
+        // Shell synchronization also invokes this callback. Never re-enter navigation or
+        // replace a manually selected layer while applying the same stored workspace.
+        if (this.uiState.getSnapshot().workspace !== workspace) {
+          this.uiState.setWorkspace(workspace, "shell-workspace-selected");
+        }
         callbacks.onWorkspaceChanged?.(workspace);
       },
       onAlertSelected: (targetKind, targetId) => {
@@ -131,6 +133,7 @@ export class CampaignCommandScreen {
         this.shell.syncUIState(current);
         this.sheetManager.sync(current);
         this.overlayController.setOverlay(current.overlay);
+        if (current.overlay !== previous.overlay) this.callbacks.onMapLayerChanged?.(current.overlay);
         if (current.inspectorExpanded && !previous.inspectorExpanded) {
           this.focusInspectorEntry();
         }
@@ -143,6 +146,7 @@ export class CampaignCommandScreen {
     const initial = this.uiState.getSnapshot();
     if (this.v2Enabled) this.sheetManager.start(initial);
     if (this.v2Enabled) this.overlayController.setOverlay(initial.overlay);
+    if (this.v2Enabled) this.callbacks.onMapLayerChanged?.(initial.overlay);
     this.root.dataset.campaignWorkspace = initial.workspace;
     this.root.dataset.campaignOverlay = initial.overlay;
     this.root.dataset.campaignSelection = "none";
@@ -167,7 +171,6 @@ export class CampaignCommandScreen {
 
   public showWorkspace(workspace: CampaignWorkspaceId, focus = false): void {
     this.uiState.setWorkspace(workspace, "screen-workspace-selected");
-    this.uiState.setOverlay(getCampaignWorkspaceDefaultOverlay(workspace), "screen-workspace-overlay-default");
     this.shell.showWorkspace(workspace, focus);
   }
 
