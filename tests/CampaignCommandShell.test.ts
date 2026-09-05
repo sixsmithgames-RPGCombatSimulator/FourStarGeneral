@@ -15,6 +15,7 @@ import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import { computeCampaignContentHash } from "../src/game/campaign/runtime/CampaignCanonical";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import { CAMPAIGN_LEGACY_SAVE_KEY, CAMPAIGN_PRIMARY_SAVE_SLOT_ID, CampaignState, ensureCampaignState, type CampaignStatePersistenceRequest } from "../src/state/CampaignState";
+import { UnlockState } from "../src/state/UnlockState";
 import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
 import { buildCampaignSaveCanonicalScenario, buildLegacyCampaignSaveV2Raw } from "./fixtures/CampaignSaveLegacy.fixtures.js";
 import { buildCompleteActiveBattleSave } from "./TacticalSaveCompleteness.test.js";
@@ -67,7 +68,14 @@ function mountIsolatedCampaignScreen(state: CampaignState): { root: HTMLElement;
   // Screen currently constructs its singleton privately; replace only this instance before initialize wires it.
   const screen = new CampaignScreen({ showScreenById() {} } as never, renderer as never);
   Object.defineProperty(screen, "campaignState", { value: state });
+  // Gameplay-dialog tests need an entitled commander. Keep this authority local
+  // to the fixture; access denial and hydration are covered by CampaignAccessGate.
+  const unlock = new UnlockState();
+  unlock.hydrate({ resolved: true, isAuthenticated: true, email: null, subscriptionStatus: null,
+    planIds: [], isPrivileged: true, isGuest: false });
+  Object.defineProperty(screen, "unlockState", { value: unlock });
   screen.initialize();
+  assert.equal(document.getElementById("campaignLockOverlay"), null);
   return { root, screen };
 }
 
