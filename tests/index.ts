@@ -50,6 +50,7 @@ import "./CampaignBattleGenerator.test.js";
 import "./CampaignAirborneHandoff.test.js";
 import "./CampaignScreen.status.test.js";
 import "./CampaignCommandShell.test.js";
+import "./campaign-audit-contracts.js";
 import "./CampaignCommandFoundation.test.js";
 import "./CampaignOrders.typed.test.js";
 import "./CampaignSegmentResolver.test.js";
