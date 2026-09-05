@@ -81,6 +81,41 @@ function createForcesWorkspace(): HTMLElement {
   return section;
 }
 
+/** Provides a briefing-first workspace with stable filters and a secondary read archive. */
+function createIntelligenceWorkspace(): HTMLElement {
+  const section = createWorkspaceOverview("intelligence", "Intelligence briefing", "New information first. Review reported contacts and uncertainty before planning collection.", "campaignIntelligenceWorkspaceIntro");
+  const body = section.querySelector<HTMLElement>("#campaignIntelligenceWorkspaceIntro");
+  if (!body) return section;
+  body.innerHTML = `
+    <div class="campaign-workspace-metric"><span>Available collection capacity</span><strong id="campaignIntelligenceCapacity">—</strong></div>
+    <div class="campaign-workspace-controls">
+      <label for="campaignIntelligencePriority">Priority</label>
+      <select id="campaignIntelligencePriority"><option value="all">All priorities</option><option value="critical">Critical</option><option value="notable">Notable</option><option value="routine">Routine</option></select>
+      <label for="campaignIntelligenceCurrency">Report currency</label>
+      <select id="campaignIntelligenceCurrency"><option value="all">All reports</option><option value="current">Current</option><option value="stale">Stale</option><option value="disputed">Disputed</option><option value="lost">Lost</option></select>
+      <label for="campaignIntelligenceUncertainty">Uncertainty</label>
+      <select id="campaignIntelligenceUncertainty"><option value="all">All confidence levels</option><option value="uncertain">Needs verification</option><option value="precise">Current, high confidence position</option></select>
+    </div>
+    <section class="campaign-intelligence-briefing" aria-labelledby="campaignIntelligenceBriefingTitle">
+      <header><h3 id="campaignIntelligenceBriefingTitle">New and changed information</h3><button id="campaignIntelligenceMarkRead" type="button" hidden disabled>Mark briefing read</button></header>
+      <p id="campaignIntelligenceBriefingStatus" role="status" aria-live="polite"></p>
+      <div id="campaignIntelligenceBriefingList"></div>
+    </section>
+    <section aria-labelledby="campaignIntelligenceContactsTitle">
+      <h3 id="campaignIntelligenceContactsTitle">Reported contacts</h3>
+      <p id="campaignIntelligenceContactCount" role="status" aria-live="polite"></p>
+      <div id="campaignIntelligenceContactsList"></div>
+    </section>
+    <details class="campaign-intelligence-history" id="campaignIntelligenceHistory">
+      <summary>Read history <span id="campaignIntelligenceHistoryCount"></span></summary>
+      <div id="campaignIntelligenceHistoryList"></div>
+    </details>
+    <button type="button" class="campaign-workspace-primary" data-open-campaign-intelligence>Plan collection operation</button>
+  `;
+  return section;
+}
+
+/** Composes headquarters workspaces while retaining the shipped operation controls. */
 export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
   panel.id = "campaignWorkspacePanel";
   panel.classList.add("campaign-workspace-panel");
@@ -103,7 +138,7 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
     createSituationWorkspace(),
     createForcesWorkspace(),
     createWorkspaceOverview("logistics", "Allied support", "Allocate the next theater delivery from rear-area staging hubs.", "campaignLogisticsWorkspaceIntro"),
-    createWorkspaceOverview("intelligence", "Intelligence", "Review contacts or plan a collection operation.", "campaignIntelligenceWorkspaceIntro")
+    createIntelligenceWorkspace()
   );
 
   const logisticsIntro = panel.querySelector<HTMLElement>("#campaignLogisticsWorkspaceIntro");
@@ -114,11 +149,4 @@ export function configureCampaignWorkspacePanel(panel: HTMLElement): void {
     `;
   }
 
-  const intelIntro = panel.querySelector<HTMLElement>("#campaignIntelligenceWorkspaceIntro");
-  if (intelIntro) {
-    intelIntro.innerHTML = `
-      <div class="campaign-workspace-metric"><span>Available collection capacity</span><strong id="campaignIntelligenceCapacity">—</strong></div>
-      <button type="button" class="campaign-workspace-primary" data-open-campaign-intelligence>Open intelligence</button>
-    `;
-  }
 }

@@ -33,7 +33,7 @@ function view(changes: Partial<CampaignCommandShellView> = {}): CampaignCommandS
     theaterTitle: "Operation Overlord", campaignPhase: "Opening phase", timeLabel: "Day 2, dawn", commandStatus: "Planning", saveStatus: "Saved",
     unreadReports: 0, resources: [], objectives: [], forces: [], fronts: [{ key: "carentan", label: "Carentan front", hexKeys: ["1,1"], initiativeLabel: "Friendly" }],
     formations: [formation("front"), formation("reserve", { name: "Dorset Infantry", commandLabel: "Southern Command", locationHexKey: "9,9", location: { primaryLabel: "Portsmouth", secondaryGridReference: "Grid 9,9" } })],
-    contacts: [],
+    contacts: [], intelligenceBriefs: [], intelligenceUnreadReports: 0,
     airPower: 0, navalPower: 999, intelligenceCapacity: "3/3", orders: [],
     advance: { mode: "segment", enabled: true, pauseAfterEveryResolution: false, summary: "Planning", alerts: [], timeline: [] }, ...changes
   };
@@ -103,5 +103,84 @@ registerTest("FSG_CAM_071_EMPTY_SEARCH_HAS_RECOVERY_AND_SAFE_TEXT", async ({ Giv
   await Then("the player gets a clear recovery instruction instead of a missing roster", () => {
     assert.match(root.querySelector("#campaignForcesWorkspaceList")?.textContent ?? "", /Clear the search or choose All/);
     assert.match(root.querySelector("#campaignForcesResultCount")?.textContent ?? "", /0 of 1/);
+  });
+});
+
+registerTest("FSG_CAM_075_INTELLIGENCE_ZERO_UNREAD_IS_CALM_WITHOUT_ACTIVE_READ_ACTION", async ({ Given, When, Then }) => {
+  const root = mount();
+  let readActions = 0;
+  const shell = new CampaignCommandShell(root, { onMarkIntelligenceRead: () => { readActions += 1; } });
+  await Given("command reports exist but the intelligence briefing has zero unread", () => {
+    shell.initialize();
+    shell.render(view({ unreadReports: 5, intelligenceUnreadReports: 0, intelligenceBriefs: [{ id: "history", title: "Previous assessment", detail: "Archived information", timeLabel: "Yesterday", segment: 1, read: true, kind: "operation" }] }));
+  });
+  await When("the Intelligence workspace is opened and its read button is addressed", () => {
+    shell.showWorkspace("intelligence", true);
+    const mark = root.querySelector<HTMLButtonElement>("#campaignIntelligenceMarkRead");
+    assert.ok(mark, "Intelligence needs an explicit read-state control.");
+    assert.equal(mark.hidden, true);
+    assert.equal(mark.disabled, true);
+    mark.click();
+  });
+  await Then("opening never acknowledges reports, zero unread stays calm, and history is collapsed", () => {
+    assert.equal(readActions, 0);
+    assert.match(root.querySelector("#campaignIntelligenceBriefingStatus")?.textContent ?? "", /No new intelligence to review/);
+    assert.equal(root.querySelector<HTMLDetailsElement>("#campaignIntelligenceHistory")?.open, false);
+    assert.equal(root.querySelectorAll("#campaignIntelligenceBriefingList article").length, 0);
+    assert.equal(root.querySelectorAll("#campaignIntelligenceHistoryList article").length, 1);
+  });
+});
+
+registerTest("FSG_CAM_075_INTELLIGENCE_FILTER_SELECTION_AND_EXPLICIT_READ_PRESERVE_FOCUS", async ({ Given, When, Then }) => {
+  const root = mount();
+  let readActions = 0;
+  let operationActions = 0;
+  let selected: CampaignCommandSelection = null;
+  const safeView = view({
+    unreadReports: 1, intelligenceUnreadReports: 1,
+    contacts: [{ id: "reported-armor", label: "Reported <armor>", locationHexKey: "4,4", location: { primaryLabel: "Caen approaches", secondaryGridReference: "Grid 4,4" }, sectorLabel: "Caen sector", priority: "critical", threatLabel: "Armor", state: "stale", confidenceBand: "medium", ageSegments: 3, uncertaintyRadius: 2, sourceLabels: ["Reconnaissance"] }],
+    intelligenceBriefs: [{ id: "changed", contactId: "reported-armor", title: "Armor assessment changed", detail: "<script>hiddenTruth()</script>", timeLabel: "Day 2, dawn", segment: 9, read: false, kind: "stale", materiallyChanged: true }]
+  });
+  const shell = new CampaignCommandShell(root, {
+    onSelectionRequested: (selection) => { selected = selection; }, onOpenIntelligence: () => { operationActions += 1; },
+    onMarkIntelligenceRead: () => {
+      readActions += 1;
+      shell.render({ ...safeView, intelligenceUnreadReports: 0, unreadReports: 0, intelligenceBriefs: safeView.intelligenceBriefs!.map((report) => ({ ...report, read: true })) });
+    }
+  });
+  await Given("an unread material change and a stale uncertain contact", () => {
+    shell.initialize();
+    shell.render(safeView);
+    shell.showWorkspace("intelligence", true);
+    assert.equal(readActions, 0);
+    assert.equal(root.querySelector("#campaignIntelligenceBriefingList script"), null);
+    assert.match(root.querySelector("#campaignIntelligenceBriefingList")?.textContent ?? "", /Caen sector.*Material change/s);
+  });
+  await When("the commander filters stale contacts, inspects the exact report, then explicitly marks the briefing read", () => {
+    const currency = root.querySelector<HTMLSelectElement>("#campaignIntelligenceCurrency")!;
+    currency.focus();
+    currency.value = "stale";
+    currency.dispatchEvent(new Event("change", { bubbles: true }));
+    assert.equal(document.activeElement, currency);
+    assert.equal(root.querySelectorAll("#campaignIntelligenceContactsList [data-intelligence-contact]").length, 1);
+    root.querySelector<HTMLButtonElement>("[data-intelligence-contact='reported-armor']")!.click();
+    assert.deepEqual(selected, { kind: "contact", id: "reported-armor" });
+    shell.showWorkspace("intelligence", true);
+    const mark = root.querySelector<HTMLButtonElement>("#campaignIntelligenceMarkRead")!;
+    assert.equal(mark.hidden, false);
+    assert.equal(mark.disabled, false);
+    mark.focus();
+    mark.click();
+  });
+  await Then("read state comes back through the producer, focus remains usable, and the composer remains a deliberate action", () => {
+    assert.equal(readActions, 1);
+    assert.equal(root.querySelector<HTMLButtonElement>("#campaignIntelligenceMarkRead")?.disabled, true);
+    assert.equal(document.activeElement, root.querySelector("#campaignIntelligenceBriefingStatus"));
+    assert.equal(root.querySelector<HTMLSelectElement>("#campaignIntelligenceCurrency")?.value, "stale");
+    assert.equal(root.querySelectorAll("#campaignIntelligenceHistoryList article").length, 1);
+    assert.equal(safeView.intelligenceBriefs![0].read, false);
+    assert.equal(operationActions, 0);
+    root.querySelector<HTMLButtonElement>("[data-open-campaign-intelligence]")!.click();
+    assert.equal(operationActions, 1);
   });
 });

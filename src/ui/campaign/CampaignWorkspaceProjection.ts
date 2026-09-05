@@ -3,7 +3,9 @@
  * command shell's already sanitized view; this module never consults campaign truth.
  */
 import type {
+  CampaignCommandContactView,
   CampaignCommandFormationView,
+  CampaignCommandIntelBriefView,
   CampaignCommandShellView
 } from "./CampaignCommandShell";
 
@@ -191,5 +193,154 @@ export function projectCampaignForcesWorkspace(
     matchingCount: matching.length,
     activeCount: entries.filter((entry) => entry.active).length,
     searchingTheater
+  };
+}
+
+/** Independent filters preserve stale/disputed knowledge rather than treating it as current truth. */
+export interface CampaignIntelligenceFilters {
+  readonly priority: "all" | "critical" | "notable" | "routine";
+  readonly currency: "all" | "current" | "stale" | "disputed" | "lost";
+  readonly uncertainty: "all" | "uncertain" | "precise";
+}
+
+/** Safe contact facts for briefing and contact selection, without exposing unobserved records. */
+export interface CampaignIntelligenceContact {
+  readonly id: string;
+  readonly label: string;
+  readonly locationLabel: string;
+  readonly gridReference: string;
+  readonly sectorLabel: string;
+  readonly priority: "routine" | "notable" | "critical";
+  readonly threatLabel: string;
+  readonly state: CampaignCommandContactView["state"];
+  readonly ageLabel: string;
+  readonly uncertaintyLabel: string;
+  readonly uncertain: boolean;
+  readonly sourceLabel: string;
+  readonly strengthLabel: string;
+}
+
+/** A briefing event enriched only from a currently authorized contact. */
+export interface CampaignIntelligenceReport {
+  readonly id: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly timeLabel: string;
+  readonly segment: number;
+  readonly read: boolean;
+  readonly kind: CampaignCommandIntelBriefView["kind"];
+  readonly contactId: string | null;
+  readonly sectorLabel: string;
+  readonly priority: "routine" | "notable" | "critical";
+  readonly threatLabel: string;
+  readonly changeLabel: string;
+}
+
+/** Reports and contacts share sector, threat, and priority grouping without repeating coordinate cards. */
+export interface CampaignIntelligenceGroup {
+  readonly key: string;
+  readonly sectorLabel: string;
+  readonly priority: "routine" | "notable" | "critical";
+  readonly threatLabel: string;
+  readonly reports: readonly CampaignIntelligenceReport[];
+  readonly contacts: readonly CampaignIntelligenceContact[];
+}
+
+/** New information leads; persisted read history remains secondary and does not count as unread. */
+export interface CampaignIntelligenceProjection {
+  readonly briefing: readonly CampaignIntelligenceGroup[];
+  readonly contacts: readonly CampaignIntelligenceGroup[];
+  readonly history: readonly CampaignIntelligenceReport[];
+  readonly unreadCount: number;
+  readonly canMarkRead: boolean;
+  readonly totalContactCount: number;
+  readonly matchingContactCount: number;
+  readonly unmatchedUnreadCount: number;
+}
+
+const PRIORITY_ORDER = { critical: 0, notable: 1, routine: 2 } as const;
+
+/** Builds a briefing from persisted safe events, never from hidden truth or render-time diffs. */
+export function projectCampaignIntelligenceWorkspace(
+  view: Pick<CampaignCommandShellView, "contacts" | "fronts" | "intelligenceBriefs" | "intelligenceUnreadReports" | "situation">,
+  filters: CampaignIntelligenceFilters = { priority: "all", currency: "all", uncertainty: "all" }
+): CampaignIntelligenceProjection {
+  const contacts = new Map<string, CampaignIntelligenceContact>();
+  for (const contact of view.contacts ?? []) {
+    if (contacts.has(contact.id)) continue;
+    const front = view.fronts?.find((entry) => entry.hexKeys.includes(contact.locationHexKey));
+    contacts.set(contact.id, {
+      id: contact.id,
+      label: contact.label,
+      locationLabel: contact.location?.primaryLabel ?? contact.locationLabel ?? front?.label ?? "Location not reported",
+      gridReference: contact.location?.secondaryGridReference ?? `Grid ${contact.locationHexKey}`,
+      sectorLabel: contact.sectorLabel ?? front?.label ?? contact.location?.primaryLabel ?? contact.locationLabel ?? "Sector not reported",
+      priority: contact.priority ?? "routine",
+      threatLabel: contact.threatLabel ?? "Unclassified contact",
+      state: contact.state,
+      ageLabel: contact.ageSegments === 0 ? "Observed this segment" : `${contact.ageSegments * 3}h since observation`,
+      uncertaintyLabel: `${contact.confidenceBand} confidence · ${contact.uncertaintyRadius > 0 ? `location within ${contact.uncertaintyRadius} hex${contact.uncertaintyRadius === 1 ? "" : "es"}` : "reported position"}`,
+      uncertain: contact.uncertaintyRadius > 0 || contact.confidenceBand !== "high" || contact.state !== "current",
+      sourceLabel: contact.sourceLabels.length > 0 ? contact.sourceLabels.join(", ") : "Source not reported",
+      strengthLabel: contact.strengthBand ? `${contact.strengthBand} reported strength` : "Strength unknown"
+    });
+  }
+  const matchesContact = (contact: CampaignIntelligenceContact): boolean => (filters.priority === "all" || contact.priority === filters.priority)
+    && (filters.currency === "all" || contact.state === filters.currency)
+    && (filters.uncertainty === "all" || (filters.uncertainty === "uncertain" ? contact.uncertain : !contact.uncertain));
+  const events = new Map<string, CampaignCommandIntelBriefView>();
+  for (const event of view.intelligenceBriefs ?? []) if (!events.has(event.id)) events.set(event.id, event);
+  const reports = Array.from(events.values(), (event): CampaignIntelligenceReport => {
+    const contact = event.contactId ? contacts.get(event.contactId) : undefined;
+    return {
+      id: event.id,
+      title: event.title,
+      detail: event.detail,
+      timeLabel: event.timeLabel,
+      segment: event.segment,
+      read: event.read,
+      kind: event.kind,
+      contactId: contact?.id ?? null,
+      sectorLabel: event.sectorLabel ?? contact?.sectorLabel ?? "Theater intelligence",
+      priority: event.priority ?? contact?.priority ?? "routine",
+      threatLabel: contact?.threatLabel ?? (event.kind === "operation" ? "Collection operations" : "Contact assessment"),
+      changeLabel: event.kind === "new" ? "New contact" : event.materiallyChanged === true ? "Material change" : {
+        upgraded: "Assessment upgraded", downgraded: "Assessment downgraded", stale: "Report became stale",
+        disputed: "Conflicting reports", operation: "Collection result"
+      }[event.kind]
+    };
+  }).sort((a, b) => b.segment - a.segment || a.id.localeCompare(b.id));
+  const unreadCount = view.intelligenceUnreadReports ?? view.situation?.intelligenceUnread ?? reports.filter((event) => !event.read).length;
+  const unread = reports.filter((event) => !event.read);
+  const matchesReport = (report: CampaignIntelligenceReport): boolean => {
+    if (filters.priority !== "all" && report.priority !== filters.priority) return false;
+    const contact = report.contactId ? contacts.get(report.contactId) : undefined;
+    if (!contact) return filters.currency === "all" && filters.uncertainty === "all";
+    return (filters.currency === "all" || contact.state === filters.currency)
+      && (filters.uncertainty === "all" || (filters.uncertainty === "uncertain" ? contact.uncertain : !contact.uncertain));
+  };
+  const group = (groupReports: readonly CampaignIntelligenceReport[], groupContacts: readonly CampaignIntelligenceContact[]): CampaignIntelligenceGroup[] => {
+    const groups = new Map<string, { key: string; sectorLabel: string; priority: CampaignIntelligenceContact["priority"]; threatLabel: string; reports: CampaignIntelligenceReport[]; contacts: CampaignIntelligenceContact[] }>();
+    for (const item of [...groupReports, ...groupContacts]) {
+      const key = JSON.stringify([item.sectorLabel, item.priority, item.threatLabel]);
+      const entry = groups.get(key) ?? { key, sectorLabel: item.sectorLabel, priority: item.priority, threatLabel: item.threatLabel, reports: [], contacts: [] };
+      if ("read" in item) entry.reports.push(item);
+      else entry.contacts.push(item);
+      groups.set(key, entry);
+    }
+    return Array.from(groups.values()).sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+      || a.sectorLabel.localeCompare(b.sectorLabel) || a.threatLabel.localeCompare(b.threatLabel));
+  };
+  const matchingContacts = Array.from(contacts.values()).filter(matchesContact)
+    .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+  return {
+    briefing: group(unreadCount > 0 ? unread.filter(matchesReport) : [], []),
+    contacts: group([], matchingContacts),
+    history: reports.filter((event) => event.read),
+    unreadCount,
+    canMarkRead: unreadCount > 0 && unread.length > 0,
+    totalContactCount: contacts.size,
+    matchingContactCount: matchingContacts.length,
+    unmatchedUnreadCount: Math.max(0, unreadCount - unread.length)
   };
 }

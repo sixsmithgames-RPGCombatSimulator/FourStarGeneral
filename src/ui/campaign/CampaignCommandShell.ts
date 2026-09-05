@@ -12,10 +12,15 @@ import { createCampaignContextInspector, renderCampaignContextInspector } from "
 import { CAMPAIGN_WORKSPACES, createCampaignWorkspaceRail } from "./components/CampaignWorkspaceRail";
 import { configureCampaignWorkspacePanel } from "./components/CampaignWorkspacePanel";
 import type { CampaignCommandSelection, CampaignCommandUIStateSnapshot, CampaignWorkspaceId, CampaignOverlayId } from "./CampaignCommandUIState";
-
 import type { CampaignLocationPresentation } from "./CampaignLocationPresentation";
-
-import { projectCampaignForcesWorkspace, type CampaignForceFilter, type CampaignForceGroup } from "./CampaignWorkspaceProjection";
+import {
+  projectCampaignForcesWorkspace,
+  projectCampaignIntelligenceWorkspace,
+  type CampaignForceFilter,
+  type CampaignForceGroup,
+  type CampaignIntelligenceFilters,
+  type CampaignIntelligenceGroup
+} from "./CampaignWorkspaceProjection";
 
 export type { CampaignWorkspaceId } from "./CampaignCommandUIState";
 
@@ -56,6 +61,9 @@ export interface CampaignCommandFrontView {
 /** Faction-safe intelligence contact projection used by the map list and typed inspector. */
 export interface CampaignCommandContactView {
   readonly location?: CampaignLocationPresentation;
+  readonly sectorLabel?: string;
+  readonly priority?: "routine" | "notable" | "critical";
+  readonly threatLabel?: string;
   readonly id: string;
   readonly label: string;
   readonly locationHexKey: string;
@@ -108,10 +116,10 @@ export interface CampaignCommandKnownRegionView {
 
 /** Player-safe persistent formation projection for list and inspector surfaces. */
 export interface CampaignCommandFormationView {
+  readonly location?: CampaignLocationPresentation;
   /** Explicit operational association includes arrivals and formations away from their assigned front. */
   readonly operationalFrontKey?: string;
   readonly objectiveKey?: string;
-  readonly location?: CampaignLocationPresentation;
   readonly id: string;
   readonly name: string;
   /** Parent headquarters used to group subordinate records without flattening the order of battle. */
@@ -393,6 +401,9 @@ export interface CampaignCommandShellView {
   readonly forces: readonly CampaignCommandForceView[];
   readonly fronts?: readonly CampaignCommandFrontView[];
   readonly contacts?: readonly CampaignCommandContactView[];
+  readonly intelligenceBriefs?: readonly CampaignCommandIntelBriefView[];
+  /** Intelligence-only count; command alerts and battle reports are not briefing unread state. */
+  readonly intelligenceUnreadReports?: number;
   readonly knownSites?: readonly CampaignCommandKnownSiteView[];
   readonly knownRegions?: readonly CampaignCommandKnownRegionView[];
   readonly formations?: readonly CampaignCommandFormationView[];
@@ -403,6 +414,21 @@ export interface CampaignCommandShellView {
   readonly orders: readonly CampaignCommandOrderView[];
   readonly orderCommit?: CampaignCommandOrderCommitView;
   readonly advance: CampaignCommandAdvanceView;
+}
+
+/** Sanitized persisted briefing event; opening the workspace never changes its read state. */
+export interface CampaignCommandIntelBriefView {
+  readonly id: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly timeLabel: string;
+  readonly segment: number;
+  readonly read: boolean;
+  readonly kind: "new" | "upgraded" | "downgraded" | "stale" | "disputed" | "operation";
+  readonly contactId?: string | null;
+  readonly sectorLabel?: string;
+  readonly priority?: "routine" | "notable" | "critical";
+  readonly materiallyChanged?: boolean;
 }
 
 /** Integration callbacks keep shell gestures separate from campaign state mutation. */
@@ -466,6 +492,7 @@ export class CampaignCommandShell {
   private readonly automaticallyPresentedReportIds = new Set<string>();
   private forcesQuery = "";
   private forcesFilter: CampaignForceFilter = "all";
+  private intelligenceFilters: CampaignIntelligenceFilters = { priority: "all", currency: "all", uncertainty: "all" };
 
   /**
    * Creates a command-shell controller for one campaign screen root.
@@ -544,6 +571,7 @@ export class CampaignCommandShell {
     this.renderSituation(view);
     this.renderOutcome(view.outcome ?? null);
     this.renderForces(view);
+    this.renderIntelligence(view);
     this.renderOrders(view.orders, view.orderCommit);
     this.renderAdvance(view.advance);
     this.renderInspectorRoute();
@@ -984,7 +1012,7 @@ export class CampaignCommandShell {
       archive.replaceChildren(createTextElement("p", "campaign-aar-empty", "No completed campaign battles are on file."));
       detail.replaceChildren(createTextElement("p", "campaign-aar-empty", "Complete a campaign engagement to create an after-action report."));
       this.selectedAfterActionReportId = null;
-      // Projection refresh must preserve discovery focus.
+      // A routine projection refresh must not take focus from workspace discovery or read controls.
       if (this.afterActionExpanded) this.setAfterActionExpanded(false);
       return;
     }
@@ -1455,6 +1483,23 @@ export class CampaignCommandShell {
         if (this.currentView) this.renderForces(this.currentView);
       });
     });
+    const priorities: readonly CampaignIntelligenceFilters["priority"][] = ["all", "critical", "notable", "routine"];
+    const currencies: readonly CampaignIntelligenceFilters["currency"][] = ["all", "current", "stale", "disputed", "lost"];
+    const uncertainties: readonly CampaignIntelligenceFilters["uncertainty"][] = ["all", "uncertain", "precise"];
+    for (const selector of ["#campaignIntelligencePriority", "#campaignIntelligenceCurrency", "#campaignIntelligenceUncertainty"]) {
+      this.root.querySelector<HTMLSelectElement>(selector)?.addEventListener("change", () => {
+        const priority = priorities.find((value) => value === this.root.querySelector<HTMLSelectElement>("#campaignIntelligencePriority")?.value);
+        const currency = currencies.find((value) => value === this.root.querySelector<HTMLSelectElement>("#campaignIntelligenceCurrency")?.value);
+        const uncertainty = uncertainties.find((value) => value === this.root.querySelector<HTMLSelectElement>("#campaignIntelligenceUncertainty")?.value);
+        if (!priority || !currency || !uncertainty) return;
+        this.intelligenceFilters = { priority, currency, uncertainty };
+        if (this.currentView) this.renderIntelligence(this.currentView);
+      });
+    }
+    this.root.querySelector<HTMLButtonElement>("#campaignIntelligenceMarkRead")?.addEventListener("click", () => {
+      if (!this.currentView || !projectCampaignIntelligenceWorkspace(this.currentView).canMarkRead) return;
+      this.callbacks.onMarkIntelligenceRead?.();
+    });
   }
 
   private renderForces(view: CampaignCommandShellView): void {
@@ -1520,6 +1565,89 @@ export class CampaignCommandShell {
         commandSection.append(row);
       }
       section.append(commandSection);
+    }
+    return section;
+  }
+
+  private renderIntelligence(view: CampaignCommandShellView): void {
+    const projection = projectCampaignIntelligenceWorkspace(view, this.intelligenceFilters);
+    const markRead = this.root.querySelector<HTMLButtonElement>("#campaignIntelligenceMarkRead");
+    if (markRead) {
+      const wasFocused = document.activeElement === markRead;
+      markRead.hidden = !projection.canMarkRead;
+      markRead.disabled = !projection.canMarkRead || !this.callbacks.onMarkIntelligenceRead;
+      markRead.textContent = `Mark all ${projection.unreadCount} reports read`;
+      if (wasFocused && markRead.hidden) {
+        const status = this.root.querySelector<HTMLElement>("#campaignIntelligenceBriefingStatus");
+        status?.setAttribute("tabindex", "-1");
+        status?.focus({ preventScroll: true });
+      }
+    }
+    this.setText("#campaignIntelligenceBriefingStatus", projection.unreadCount === 0
+      ? "No new intelligence to review. The briefing is up to date; reported contacts and read history remain available below."
+      : `${projection.unreadCount} unread intelligence report${projection.unreadCount === 1 ? "" : "s"}.${projection.unmatchedUnreadCount > 0 ? " Some unread reports are not available in this briefing. Reopen Intelligence after the campaign view refreshes." : " Review changes before planning your next collection operation."}`);
+    this.setText("#campaignIntelligenceContactCount", `${projection.matchingContactCount} of ${projection.totalContactCount} reported contacts match. Absence of a report does not confirm an area is clear.`);
+    this.root.querySelector("#campaignIntelligenceBriefingList")?.replaceChildren(...(projection.briefing.length > 0
+      ? projection.briefing.map((group) => this.createIntelligenceGroup(group))
+      : projection.unreadCount > 0
+        ? [createTextElement("p", "campaign-workspace-empty", "No available unread reports match these filters. Choose All to review the briefing.")]
+        : []));
+    this.root.querySelector("#campaignIntelligenceContactsList")?.replaceChildren(...(projection.contacts.length > 0
+      ? projection.contacts.map((group) => this.createIntelligenceGroup(group))
+      : [createTextElement("p", "campaign-workspace-empty", projection.totalContactCount === 0
+        ? "No enemy contacts are currently reported. Plan collection on a front or suspected approach to improve the picture."
+        : "No contacts match. Widen the priority, currency, or uncertainty filters.")]));
+    this.setText("#campaignIntelligenceHistoryCount", `(${projection.history.length})`);
+    this.root.querySelector("#campaignIntelligenceHistoryList")?.replaceChildren(...(projection.history.length > 0
+      ? projection.history.map((report) => this.createIntelligenceReport(report))
+      : [createTextElement("p", "campaign-workspace-empty", "No read intelligence reports are on file.")]));
+  }
+
+  private createIntelligenceReport(report: CampaignIntelligenceGroup["reports"][number]): HTMLElement {
+    const article = document.createElement("article");
+    article.className = "campaign-intelligence-report";
+    article.dataset.intelligenceReport = report.id;
+    article.append(
+      createTextElement("small", "", `${report.changeLabel} · ${report.timeLabel}`),
+      createTextElement("strong", "", report.title),
+      createTextElement("p", "", report.detail)
+    );
+    if (report.contactId) {
+      const focus = document.createElement("button");
+      focus.type = "button";
+      focus.textContent = "Inspect reported contact";
+      focus.addEventListener("click", () => {
+        if (report.contactId) this.requestSelection({ kind: "contact", id: report.contactId }, true);
+      });
+      article.append(focus);
+    }
+    return article;
+  }
+
+  private createIntelligenceGroup(group: CampaignIntelligenceGroup): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "campaign-intelligence-group";
+    section.dataset.intelligencePriority = group.priority;
+    section.setAttribute("aria-label", `${group.sectorLabel}, ${group.priority} priority, ${group.threatLabel}`);
+    section.append(createTextElement("h4", "", group.sectorLabel), createTextElement("p", "", `${group.priority} priority · ${group.threatLabel}`));
+    section.append(...group.reports.map((report) => this.createIntelligenceReport(report)));
+    for (const contact of group.contacts) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "campaign-workspace-list-row campaign-intelligence-contact";
+      row.dataset.intelligenceContact = contact.id;
+      row.dataset.state = contact.state;
+      row.setAttribute("aria-label", `Inspect ${contact.label} near ${contact.locationLabel}, ${contact.state}`);
+      row.append(
+        createTextElement("strong", "", contact.label),
+        createTextElement("span", "", contact.locationLabel),
+        createTextElement("small", "campaign-location-grid", contact.gridReference),
+        createTextElement("span", "", `${contact.state} · ${contact.ageLabel}`),
+        createTextElement("span", "", contact.uncertaintyLabel),
+        createTextElement("small", "", `${contact.strengthLabel} · ${contact.sourceLabel}`)
+      );
+      row.addEventListener("click", () => this.requestSelection({ kind: "contact", id: contact.id }, true));
+      section.append(row);
     }
     return section;
   }

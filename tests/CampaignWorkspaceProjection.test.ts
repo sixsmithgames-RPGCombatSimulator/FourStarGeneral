@@ -1,8 +1,8 @@
 /** Pure safe-view decision contracts for FSG-CAM-003 and FSG-CAM-005. */
 import assert from "node:assert/strict";
 import { registerTest } from "./harness";
-import type { CampaignCommandFormationView } from "../src/ui/campaign/CampaignCommandShell";
-import { projectCampaignForcesWorkspace, type CampaignForceFilter } from "../src/ui/campaign/CampaignWorkspaceProjection";
+import type { CampaignCommandFormationView, CampaignCommandContactView, CampaignCommandIntelBriefView } from "../src/ui/campaign/CampaignCommandShell";
+import { projectCampaignForcesWorkspace, projectCampaignIntelligenceWorkspace, type CampaignForceFilter } from "../src/ui/campaign/CampaignWorkspaceProjection";
 
 function formation(id: string, changes: Partial<CampaignCommandFormationView> = {}): CampaignCommandFormationView {
   return {
@@ -12,6 +12,19 @@ function formation(id: string, changes: Partial<CampaignCommandFormationView> = 
     personnel: "650 fit / 700 present", equipment: "8 / 10 operational", supply: "Ammo 50", experience: "20 XP", honors: [], battles: 0,
     currentOrderId: null, latestHistory: null, ...changes
   };
+}
+
+function contact(id: string, changes: Partial<CampaignCommandContactView> = {}): CampaignCommandContactView {
+  return {
+    id, label: `Reported formation ${id}`, locationHexKey: "4,4",
+    location: { primaryLabel: "Caen approaches", secondaryGridReference: "Grid 4,4" },
+    sectorLabel: "Caen sector", priority: "notable", threatLabel: "Reported armor",
+    state: "current", confidenceBand: "high", ageSegments: 0, uncertaintyRadius: 0, sourceLabels: ["Air reconnaissance"], ...changes
+  };
+}
+
+function brief(id: string, changes: Partial<CampaignCommandIntelBriefView> = {}): CampaignCommandIntelBriefView {
+  return { id, title: "Assessment changed", detail: "Armor reported on the approach.", timeLabel: "Day 2, dawn", segment: 9, read: false, kind: "upgraded", contactId: "armor", ...changes };
 }
 
 registerTest("FSG_CAM_068_FORCES_ACTIVE_OPERATIONS_GROUP_COMMANDS_WITHOUT_ROSTER_LOSS", async ({ Given, When, Then }) => {
@@ -83,5 +96,70 @@ registerTest("FSG_CAM_070_FORCES_RESPECT_AUTHORITATIVE_ORDER_ELIGIBILITY_AND_SAF
     assert.equal(emptyRoster.totalCount, 0);
     const aggregate = projectCampaignForcesWorkspace({ forces: [{ hexKey: "1,1", label: "Old aggregate", count: 20 }], objectives: [] }, { filter: "ready" });
     assert.equal(aggregate.matchingCount, 0);
+  });
+});
+
+registerTest("FSG_CAM_072_INTELLIGENCE_BRIEFING_GROUPS_CHANGES_WITH_READ_HISTORY", async ({ Given, When, Then }) => {
+  const event = brief("material", { materiallyChanged: true, segment: 10 });
+  let result: ReturnType<typeof projectCampaignIntelligenceWorkspace>;
+  await Given("a new critical contact, material assessment change, duplicate event, and read history", () => {});
+  await When("headquarters receives the safe persisted briefing", () => {
+    result = projectCampaignIntelligenceWorkspace({
+      contacts: [contact("armor"), contact("urgent", { priority: "critical", sectorLabel: "Carentan sector", threatLabel: "Reported counterattack" })],
+      intelligenceBriefs: [brief("history", { read: true, segment: 1 }), event, event, brief("new", { contactId: "urgent", kind: "new", segment: 11 })],
+      intelligenceUnreadReports: 2
+    });
+  });
+  await Then("priority leads named sector/threat groups, only unread changes lead, and exact read history is retained", () => {
+    assert.equal(result.unreadCount, 2);
+    assert.equal(result.canMarkRead, true);
+    assert.deepEqual(result.briefing.map((group) => group.sectorLabel), ["Carentan sector", "Caen sector"]);
+    assert.equal(result.briefing[0].priority, "critical");
+    assert.equal(result.briefing[0].reports[0].changeLabel, "New contact");
+    assert.equal(result.briefing[1].reports[0].changeLabel, "Material change");
+    assert.equal(result.briefing.flatMap((group) => group.reports).length, 2);
+    assert.deepEqual(result.history.map((report) => report.id), ["history"]);
+  });
+});
+
+registerTest("FSG_CAM_073_INTELLIGENCE_CURRENCY_UNCERTAINTY_AND_PRIORITY_STAY_TRUTHFUL", async ({ Given, When, Then }) => {
+  const contacts = [contact("current"), contact("stale", { state: "stale", ageSegments: 5 }), contact("disputed", { state: "disputed", confidenceBand: "low", uncertaintyRadius: 3, priority: "critical" }), contact("lost", { state: "lost", ageSegments: 10 })];
+  const ids = (currency: "all" | "current" | "stale" | "disputed" | "lost", uncertainty: "all" | "uncertain" | "precise", priority: "all" | "critical" = "all"): string[] => projectCampaignIntelligenceWorkspace({ contacts }, { currency, uncertainty, priority }).contacts.flatMap((group) => group.contacts.map((entry) => entry.id)).sort();
+  await Given("reports distinguish current, stale, disputed, and lost contacts, including an old exact position", () => {});
+  await When("currency, confidence, and priority are filtered independently", () => {
+    assert.deepEqual(ids("current", "all"), ["current"]);
+    assert.deepEqual(ids("stale", "all"), ["stale"]);
+    assert.deepEqual(ids("lost", "all"), ["lost"]);
+    assert.deepEqual(ids("all", "uncertain", "critical"), ["disputed"]);
+    assert.deepEqual(ids("all", "precise"), ["current"]);
+  });
+  await Then("an exact old grid is still uncertain, and no rendering invents updated strength or position", () => {
+    const result = projectCampaignIntelligenceWorkspace({ contacts });
+    const stale = result.contacts.flatMap((group) => group.contacts).find((entry) => entry.id === "stale")!;
+    assert.equal(stale.uncertain, true);
+    assert.equal(stale.ageLabel, "15h since observation");
+    assert.equal(stale.gridReference, "Grid 4,4");
+    assert.equal(stale.strengthLabel, "Strength unknown");
+  });
+});
+
+registerTest("FSG_CAM_074_INTELLIGENCE_READ_STATE_NEVER_USES_UNRELATED_REPORTS_OR_HIDDEN_TRUTH", async ({ Given, When, Then }) => {
+  const authorized = Object.freeze({ ...contact("armor"), hiddenEnemyStrength: "SECRET" });
+  const event = Object.freeze(brief("unread", { contactId: "no-longer-authorized" }));
+  await Given("an unread event references a contact absent from the currently authorized projection", () => {});
+  await When("the briefing is projected without looking up hidden data", () => {
+    const result = projectCampaignIntelligenceWorkspace({ contacts: [authorized], intelligenceBriefs: [event], intelligenceUnreadReports: 1 });
+    assert.equal(result.briefing[0].reports[0].contactId, null);
+    assert.equal(JSON.stringify(result).includes("SECRET"), false);
+    assert.equal(event.read, false);
+  });
+  await Then("zero intelligence unread overrides retained event flags and archive content, with no active mark-read action", () => {
+    const calm = projectCampaignIntelligenceWorkspace({ contacts: [authorized], intelligenceBriefs: [event, brief("history", { read: true })], intelligenceUnreadReports: 0 });
+    assert.equal(calm.canMarkRead, false);
+    assert.equal(calm.briefing.length, 0);
+    assert.equal(calm.history.length, 1);
+    const incomplete = projectCampaignIntelligenceWorkspace({ contacts: [authorized], intelligenceBriefs: [], intelligenceUnreadReports: 2 });
+    assert.equal(incomplete.unmatchedUnreadCount, 2);
+    assert.equal(incomplete.canMarkRead, false);
   });
 });
