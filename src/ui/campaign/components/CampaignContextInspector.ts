@@ -2,10 +2,12 @@
 
 import type {
   CampaignCommandFormationView,
+  CampaignCommandHexView,
   CampaignCommandShellView,
   CampaignCommandStrategicGeographyView
 } from "../CampaignCommandShell";
 import type { CampaignCommandSelection } from "../CampaignCommandUIState";
+import { isCampaignGridReferenceLabel, type CampaignLocationPresentation } from "../CampaignLocationPresentation";
 
 interface InspectorFact {
   readonly label: string;
@@ -146,13 +148,40 @@ function createFacts(facts: readonly InspectorFact[]): HTMLDListElement {
   return list;
 }
 
+/** Keeps the grid subordinate and avoids repeating a place already used as the heading. */
+function createLocationFacts(
+  location: CampaignLocationPresentation | undefined,
+  selectedTitle?: string,
+  locationLabel = "Location"
+): InspectorFact[] {
+  if (!location) return [];
+  return [
+    ...(location.primaryLabel !== selectedTitle ? [{ label: locationLabel, value: location.primaryLabel }] : []),
+    { label: "Grid reference", value: location.secondaryGridReference },
+    ...(location.uncertainty ? [{ label: "Uncertainty", value: location.uncertainty.label }] : [])
+  ];
+}
+
+/** Uses only published geography for the exact key, never an adjacent place or a contact's position. */
+function findLocation(view: CampaignCommandShellView, hexKey: string | undefined): CampaignLocationPresentation | undefined {
+  if (!hexKey) return undefined;
+  return view.hexes?.find((hex) => hex.hexKey === hexKey)?.location
+    ?? view.knownSites?.find((site) => site.locationHexKey === hexKey)?.location;
+}
+
+/** Legacy authored labels remain usable, but raw grid copy is never a primary location. */
+function namedLocationLabel(label: string | undefined): string | undefined {
+  return label?.trim() && !isCampaignGridReferenceLabel(label) ? label : undefined;
+}
+
 function createStrategicGeographyFacts(
   geography: CampaignCommandStrategicGeographyView,
-  selectedTitle?: string
+  selectedTitle?: string,
+  locationLabel?: string
 ): InspectorFact[] {
   return [
     { label: "Ground", value: [geography.terrain, geography.landform].filter(Boolean).join(" · ") },
-    ...(geography.settlement && geography.settlement !== selectedTitle
+    ...(geography.settlement && geography.settlement !== selectedTitle && geography.settlement !== locationLabel
       ? [{ label: "Place", value: geography.settlement }]
       : []),
     ...(geography.roads?.length ? [{ label: "Roads", value: geography.roads.join(" · ") }] : []),
@@ -278,20 +307,42 @@ function resolveInspectorRoute(
     return { kind: "none", title: "Selection", summary: "Select a map hex or command record to inspect it.", facts: [], mode: "compatibility" };
   }
   if (selection.kind === "hex") {
-    const hex = view?.hexes?.find((entry) => entry.hexKey === selection.id);
+    const knownSite = view?.knownSites?.find((entry) => entry.locationHexKey === selection.id);
+    const hex: CampaignCommandHexView | undefined = view?.hexes?.find((entry) => entry.hexKey === selection.id)
+      ?? (knownSite ? {
+        hexKey: knownSite.locationHexKey,
+        location: knownSite.location,
+        displayLabel: knownSite.label,
+        roleLabel: knownSite.roleLabel,
+        controlLabel: knownSite.categoryLabel === "Allied supporting site"
+          ? "Friendly support network"
+          : knownSite.categoryLabel === "Strategic geography"
+            ? "Geographic reference"
+            : "Current control unconfirmed",
+        summary: knownSite.summary,
+        sourceLabel: knownSite.sourceLabel,
+        strategicGeography: knownSite.strategicGeography,
+        forces: [], infrastructure: null, objectives: [], fronts: [], hasContextActions: false
+      } : undefined);
     const locatedFormations = view?.formations?.filter((formation) => formation.locationHexKey === selection.id) ?? [];
     const isFriendlyBase = hex?.presentation === "friendlyBase";
     const showSelectionActions = hex?.showSelectionActions ?? hex?.hasContextActions === true;
     const showEngagementAction = hex?.showEngagementAction === true;
     const formationGroups = isFriendlyBase ? groupBaseFormations(locatedFormations) : undefined;
+    const displayLabel = namedLocationLabel(hex?.displayLabel);
+    // A fleet is a command at a place. Its authored command identity stays in the
+    // heading while its location uses the same geography facts as other records.
+    const title = (hex?.roleLabel === "Naval task force" ? displayLabel : hex?.location?.primaryLabel)
+      ?? displayLabel ?? view?.theaterTitle ?? "Operational sector";
     return {
       kind: "hex",
-      title: hex?.displayLabel ?? `Operational hex ${selection.id}`,
+      title,
       summary: hex
         ? hex.summary ?? `${hex.roleLabel} under ${hex.controlLabel.toLowerCase()}.`
         : "No projected installation or force record is present at this location.",
       facts: isFriendlyBase && hex ? [
-        ...(hex.strategicGeography ? createStrategicGeographyFacts(hex.strategicGeography, hex.displayLabel) : []),
+        ...createLocationFacts(hex.location, title),
+        ...(hex.strategicGeography ? createStrategicGeographyFacts(hex.strategicGeography, title, hex.location?.primaryLabel) : []),
         { label: "Status", value: `${hex.roleLabel} · ${hex.controlLabel}` },
         ...(hex.historicalNetwork?.length ? [{
           label: hex.roleLabel === "Air base"
@@ -307,8 +358,9 @@ function resolveInspectorRoute(
         ...(hex.objectives.length > 0 ? [{ label: "Supports", value: hex.objectives.join(", ") }] : []),
         ...(hex.fronts.length > 0 ? [{ label: "Front", value: hex.fronts.join(", ") }] : [])
       ] : [
-        ...(hex?.strategicGeography ? createStrategicGeographyFacts(hex.strategicGeography, hex.displayLabel) : []),
-        ...(!hex?.displayLabel ? [{ label: "Location", value: hex?.locationLabel ?? selection.id }] : []),
+        ...createLocationFacts(hex?.location, title),
+        ...(!hex?.location && !displayLabel ? [{ label: "Grid reference", value: `Grid ${selection.id}` }] : []),
+        ...(hex?.strategicGeography ? createStrategicGeographyFacts(hex.strategicGeography, title, hex.location?.primaryLabel) : []),
         ...(hex ? [
           { label: "Control", value: hex.controlLabel },
           { label: "Type", value: hex.roleLabel },
@@ -354,6 +406,7 @@ function resolveInspectorRoute(
       summary: objective.detail ?? "Objective status is projected from the committed campaign boundary.",
       facts: [
         { label: "Status", value: objective.status },
+        ...createLocationFacts(objective.location, objective.label),
         ...(progress ? [{ label: "Progress", value: progress }] : []),
         ...(requirements.length ? [{ label: "Requirements", value: requirements.join(" · ") }] : []),
         ...(objective.nextAction ? [{ label: "Next action", value: objective.nextAction }] : []),
@@ -364,13 +417,14 @@ function resolveInspectorRoute(
       ],
       mode: "projected",
       ...(objective.hexKey
-        ? { mapTarget: { hexKey: objective.hexKey, label: `Focus ${objective.hexKey} on the map` } }
+        ? { mapTarget: { hexKey: objective.hexKey, label: `Focus ${objective.location?.primaryLabel ?? objective.label} on the map` } }
         : {})
     };
   }
   if (selection.kind === "order") {
     const order = view.orders.find((entry) => entry.id === selection.id);
     if (!order) return emptyRoute("order", selection.id);
+    const routeLocations = order.mapHexKeys?.map((hexKey) => findLocation(view, hexKey));
     return {
       kind: "order",
       title: order.label,
@@ -378,7 +432,10 @@ function resolveInspectorRoute(
       facts: [
         { label: "Status", value: order.status },
         ...(order.mapHexKeys && order.mapHexKeys.length > 0
-          ? [{ label: "Map route", value: order.mapHexKeys.join(" → ") }]
+          ? [
+            { label: "Map route", value: order.routeSummary ?? routeLocations?.map((location) => location?.primaryLabel ?? "Location not reported").join(" → ") ?? "Location not reported" },
+            { label: "Grid references", value: order.mapHexKeys.map((hexKey, index) => routeLocations?.[index]?.secondaryGridReference ?? `Grid ${hexKey}`).join(" → ") }
+          ]
           : [{ label: "Map route", value: "Theater-wide" }]),
         ...(order.costSummary ? [{ label: "Cost", value: order.costSummary }] : []),
         ...(order.reservationSummaries?.length ? [{ label: "Reservations", value: order.reservationSummaries.join(" · ") }] : []),
@@ -400,6 +457,7 @@ function resolveInspectorRoute(
   if (selection.kind === "report") {
     const report = view.afterActionReports?.find((entry) => entry.id === selection.id);
     if (!report) return emptyRoute("report", selection.id);
+    const location = report.locationPresentation ?? findLocation(view, report.locationHexKey);
     return {
       kind: "report",
       title: report.title,
@@ -407,13 +465,16 @@ function resolveInspectorRoute(
       facts: [
         { label: "Result", value: report.resultLabel },
         { label: "Time", value: report.timeLabel },
-        { label: "Location", value: report.location },
+        ...(location ? createLocationFacts(location) : [
+          { label: "Location", value: namedLocationLabel(report.location) ?? "Location not reported" },
+          ...(report.locationHexKey ? [{ label: "Grid reference", value: `Grid ${report.locationHexKey}` }] : [])
+        ]),
         { label: "Friendly losses", value: report.personnelLosses },
         { label: "Assessed opposing losses", value: report.opponentLosses }
       ],
       mode: "projected",
       ...(report.locationHexKey
-        ? { mapTarget: { hexKey: report.locationHexKey, label: `Focus ${report.location}` } }
+        ? { mapTarget: { hexKey: report.locationHexKey, label: `Focus ${location?.primaryLabel ?? namedLocationLabel(report.location) ?? "battle location"}` } }
         : {})
     };
   }
@@ -423,6 +484,7 @@ function resolveInspectorRoute(
       const location = rosterFormation.locationHexKey
         ? view.hexes?.find((entry) => entry.hexKey === rosterFormation.locationHexKey)
         : null;
+      const locationPresentation = rosterFormation.location ?? location?.location;
       const currentOrder = rosterFormation.currentOrderId
         ? view.orders.find((entry) => entry.id === rosterFormation.currentOrderId)
         : null;
@@ -438,7 +500,13 @@ function resolveInspectorRoute(
           ...(rosterFormation.availabilityLabel
             ? [{ label: "Available", value: rosterFormation.availabilityLabel }]
             : []),
-          { label: "Location", value: location?.displayLabel ?? location?.locationLabel ?? rosterFormation.locationHexKey ?? "Off map" },
+          ...(locationPresentation ? createLocationFacts(locationPresentation) : [{
+            label: "Location",
+            value: rosterFormation.locationHexKey
+              ? (location?.roleLabel === "Naval task force" ? undefined : namedLocationLabel(location?.displayLabel))
+                ?? namedLocationLabel(location?.locationLabel) ?? "Location not reported"
+              : "Off map"
+          }]),
           { label: "Readiness", value: rosterFormation.readiness },
           { label: "Cohesion", value: rosterFormation.cohesion },
           { label: "Fatigue", value: rosterFormation.fatigue },
@@ -451,7 +519,7 @@ function resolveInspectorRoute(
         ],
         mode: "projected",
         ...(location?.presentation === "friendlyBase" && rosterFormation.locationHexKey ? {
-          parentRoute: { hexKey: rosterFormation.locationHexKey, label: `Back to ${location.displayLabel ?? "base"}` },
+          parentRoute: { hexKey: rosterFormation.locationHexKey, label: `Back to ${location.location?.primaryLabel ?? namedLocationLabel(location.displayLabel) ?? "base"}` },
           mode: "projectedWithActions" as const,
           showSelectionActions: location.showSelectionActions ?? location.hasContextActions === true,
           showEngagementAction: location.showEngagementAction === true,
@@ -477,17 +545,19 @@ function resolveInspectorRoute(
   if (selection.kind === "contact") {
     const contact = view.contacts?.find((entry) => entry.id === selection.id);
     if (!contact) return emptyRoute("contact", selection.id);
+    const locationLabel = contact.location?.primaryLabel ?? namedLocationLabel(contact.locationLabel);
     return {
       kind: "contact",
-      title: contact.locationLabel ? `${contact.locationLabel} — ${contact.label}` : contact.label,
+      title: locationLabel ? `${locationLabel} — ${contact.label}` : contact.label,
       summary: `${contact.confidenceBand} confidence assessment from ${contact.sourceLabels.join(", ") || "unattributed reporting"}.`,
       facts: [
         { label: "State", value: contact.state },
-        { label: "Assessed location", value: contact.locationLabel
-          ? `${contact.locationLabel} · ${contact.locationHexKey}`
-          : contact.locationHexKey },
+        ...(contact.location ? createLocationFacts(contact.location, undefined, "Assessed location") : [
+          { label: "Assessed location", value: locationLabel ?? "Location not reported" },
+          { label: "Grid reference", value: `Grid ${contact.locationHexKey}` },
+          { label: "Uncertainty", value: `${contact.uncertaintyRadius} hex radius` }
+        ]),
         ...(contact.locationRoleLabel ? [{ label: "Known site", value: contact.locationRoleLabel }] : []),
-        { label: "Uncertainty", value: `${contact.uncertaintyRadius} hex radius` },
         { label: "Age", value: `${contact.ageSegments} segment${contact.ageSegments === 1 ? "" : "s"}` },
         ...(contact.strengthBand ? [{ label: "Assessed strength", value: contact.strengthBand }] : [])
       ],
@@ -518,9 +588,10 @@ function resolveInspectorRoute(
       summary: front.pressureLabel ?? "Review this front before issuing the next command.",
       facts: [
         { label: "Initiative", value: front.initiativeLabel },
+        ...createLocationFacts(front.location, front.label, front.targetHexKey ? "Opposing target" : "Location"),
         ...(front.hexKeys.length > 1 ? [{ label: "Sectors", value: front.hexKeys.length.toLocaleString() }] : []),
         ...(front.engagementLabel ? [{ label: "Engagement", value: front.engagementLabel }] : []),
-        ...(!front.engagementLabel && front.targetHexKey ? [{ label: "Opposing target", value: front.targetHexKey }] : []),
+        ...(!front.location && front.targetHexKey ? [{ label: "Grid reference", value: `Grid ${front.targetHexKey}` }] : []),
         ...(front.roleLabel ? [{ label: "Roles", value: front.roleLabel }] : []),
         ...(front.intelligenceUnknowns?.length ? [{ label: "Intelligence unknowns", value: front.intelligenceUnknowns.join(" · ") }] : []),
         ...(front.targetChoiceLabel ? [{ label: "Target decision", value: front.targetChoiceLabel }] : []),

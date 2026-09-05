@@ -8,6 +8,7 @@
  */
 
 import type { CampaignIntelOperationType } from "../../core/campaignIntelTypes";
+import type { CampaignLocationPresentation } from "./CampaignLocationPresentation";
 import type {
   CampaignOrderActionPreview,
   CampaignOrderKind,
@@ -208,6 +209,29 @@ export function getCampaignOrderComposerSchema(kind: CampaignOrderKind): Campaig
   };
 }
 
+/** Authored order target or route, with precision and uncertainty kept out of its heading. */
+export interface CampaignOrderLocationSummary {
+  readonly primaryLabel: string;
+  readonly secondaryGridReference: string;
+  readonly uncertaintyLabel?: string;
+}
+
+/** Presents a target, or an origin-to-target route, without reading or changing order identities. */
+export function projectCampaignOrderLocationSummary(
+  target: CampaignLocationPresentation,
+  origin?: CampaignLocationPresentation
+): CampaignOrderLocationSummary {
+  const uncertaintyLabels = [...new Set([origin?.uncertainty?.label, target.uncertainty?.label]
+    .filter((label): label is string => Boolean(label)))];
+  return {
+    primaryLabel: origin ? `${origin.primaryLabel} → ${target.primaryLabel}` : target.primaryLabel,
+    secondaryGridReference: origin
+      ? `${origin.secondaryGridReference} → ${target.secondaryGridReference}`
+      : target.secondaryGridReference,
+    ...(uncertaintyLabels.length > 0 ? { uncertaintyLabel: uncertaintyLabels.join(" · ") } : {})
+  };
+}
+
 /**
  * Adds the shared semantic stage guide to an order-specific composer without taking ownership of its fields.
  * Calling it repeatedly is idempotent so live preview rerenders remain safe.
@@ -215,7 +239,7 @@ export function getCampaignOrderComposerSchema(kind: CampaignOrderKind): Campaig
 export function decorateCampaignOrderComposer(
   container: HTMLElement,
   kind: CampaignOrderKind,
-  summary: string,
+  summary: string | CampaignOrderLocationSummary,
   editing = false
 ): void {
   container.classList.add("campaign-order-composer");
@@ -230,8 +254,20 @@ export function decorateCampaignOrderComposer(
   const eyebrow = document.createElement("span");
   eyebrow.textContent = `${schema.eyebrow} · ${editing ? "Edit draft" : "New draft"}`;
   const title = document.createElement("strong");
-  title.textContent = summary;
+  title.textContent = typeof summary === "string" ? summary : summary.primaryLabel;
   heading.append(eyebrow, title);
+  if (typeof summary !== "string") {
+    const grid = document.createElement("small");
+    grid.className = "campaign-order-composer__grid";
+    grid.textContent = summary.secondaryGridReference;
+    heading.appendChild(grid);
+    if (summary.uncertaintyLabel) {
+      const uncertainty = document.createElement("small");
+      uncertainty.className = "campaign-order-composer__uncertainty";
+      uncertainty.textContent = summary.uncertaintyLabel;
+      heading.appendChild(uncertainty);
+    }
+  }
   const list = document.createElement("ol");
   list.className = "campaign-order-composer__stages";
   schema.stages.forEach((stage, index) => {

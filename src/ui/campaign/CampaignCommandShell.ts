@@ -13,6 +13,8 @@ import { CAMPAIGN_WORKSPACES, createCampaignWorkspaceRail } from "./components/C
 import { configureCampaignWorkspacePanel } from "./components/CampaignWorkspacePanel";
 import type { CampaignCommandSelection, CampaignCommandUIStateSnapshot, CampaignWorkspaceId } from "./CampaignCommandUIState";
 
+import type { CampaignLocationPresentation } from "./CampaignLocationPresentation";
+
 export type { CampaignWorkspaceId } from "./CampaignCommandUIState";
 
 /** Compact projected resource displayed in the command bar. */
@@ -24,6 +26,7 @@ export interface CampaignCommandResourceView {
 
 /** Player-owned force summary displayed as a non-map alternative. */
 export interface CampaignCommandForceView {
+  readonly location?: CampaignLocationPresentation;
   readonly hexKey: string;
   readonly label: string;
   readonly count: number;
@@ -31,6 +34,7 @@ export interface CampaignCommandForceView {
 
 /** Player-safe operational-front summary used by the map list and typed inspector. */
 export interface CampaignCommandFrontView {
+  readonly location?: CampaignLocationPresentation;
   readonly key: string;
   readonly label: string;
   readonly hexKeys: readonly string[];
@@ -49,6 +53,7 @@ export interface CampaignCommandFrontView {
 
 /** Faction-safe intelligence contact projection used by the map list and typed inspector. */
 export interface CampaignCommandContactView {
+  readonly location?: CampaignLocationPresentation;
   readonly id: string;
   readonly label: string;
   readonly locationHexKey: string;
@@ -64,6 +69,7 @@ export interface CampaignCommandContactView {
 
 /** Fixed strategic location from an authored command briefing, never live opposing truth. */
 export interface CampaignCommandKnownSiteView {
+  readonly location?: CampaignLocationPresentation;
   readonly id: string;
   readonly label: string;
   readonly locationHexKey: string;
@@ -100,6 +106,7 @@ export interface CampaignCommandKnownRegionView {
 
 /** Player-safe persistent formation projection for list and inspector surfaces. */
 export interface CampaignCommandFormationView {
+  readonly location?: CampaignLocationPresentation;
   readonly id: string;
   readonly name: string;
   /** Parent headquarters used to group subordinate records without flattening the order of battle. */
@@ -129,6 +136,7 @@ export interface CampaignCommandFormationView {
 
 /** Player-safe strategic hex projection; actions remain owned by the existing campaign services. */
 export interface CampaignCommandHexView {
+  readonly location?: CampaignLocationPresentation;
   readonly hexKey: string;
   readonly roleLabel: string;
   readonly controlLabel: string;
@@ -160,6 +168,7 @@ export interface CampaignCommandHexView {
 
 /** Authored objective summary safe for the Situation workspace. */
 export interface CampaignCommandObjectiveView {
+  readonly location?: CampaignLocationPresentation;
   readonly key: string;
   readonly label: string;
   readonly status: string;
@@ -338,6 +347,7 @@ export interface CampaignCommandAfterActionDecisionView {
 
 /** Sanitized archive entry rendered without access to enemy campaign truth. */
 export interface CampaignCommandAfterActionReportView {
+  readonly locationPresentation?: CampaignLocationPresentation;
   readonly id: string;
   readonly title: string;
   readonly timeLabel: string;

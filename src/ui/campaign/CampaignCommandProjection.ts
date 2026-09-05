@@ -2,6 +2,7 @@
 
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import type { CampaignAfterActionDecisionTarget } from "../../game/campaign/aar/CampaignAfterActionReportTypes";
+import { isCampaignGridReferenceLabel, type CampaignLocationPresentation } from "./CampaignLocationPresentation";
 
 export interface CampaignAfterActionInfrastructureAuditView {
   readonly integrity: number;
@@ -43,17 +44,26 @@ export function projectRuntimeHexKeyToCampaignOffset(runtimeHexKey: string | nul
 }
 
 /**
- * Keeps an immutable AAR's runtime identity out of player-facing fallback copy.
- * Objective-titled reports retain their authored title; coordinate-titled reports use the operational map key.
+ * Keeps immutable report identities out of headings. Authored report titles remain
+ * intact; legacy coordinate titles use supplied geography or a neutral sector label.
  */
 export function projectCampaignAfterActionTitle(
   storedTitle: string,
   objectiveLabel: string | null,
-  runtimeBattleHexKey: string
+  runtimeBattleHexKey: string,
+  location?: CampaignLocationPresentation
 ): string {
-  if (objectiveLabel) return storedTitle;
   const operationalHexKey = projectRuntimeHexKeyToCampaignOffset(runtimeBattleHexKey);
-  return operationalHexKey ? `After action: ${operationalHexKey}` : storedTitle;
+  if (location && location.secondaryGridReference !== `Grid ${operationalHexKey}`) {
+    throw new Error("Cannot present this after-action location: the supplied geography does not match the recorded battle grid. Resolve the report's campaign-map location before reopening it.");
+  }
+  const titleSubject = storedTitle.replace(/^After action:\s*/i, "").trim();
+  if (titleSubject && !isCampaignGridReferenceLabel(titleSubject)) return storedTitle;
+  const authoredObjective = objectiveLabel?.trim();
+  const primaryLabel = authoredObjective && !isCampaignGridReferenceLabel(authoredObjective)
+    ? authoredObjective
+    : location?.primaryLabel ?? "Operational sector";
+  return `After action: ${primaryLabel}`;
 }
 
 /** Infrastructure decisions navigate the operational offset map; all other decision IDs retain domain identity. */
