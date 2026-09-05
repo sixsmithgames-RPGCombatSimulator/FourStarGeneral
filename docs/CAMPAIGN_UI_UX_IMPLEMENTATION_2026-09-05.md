@@ -52,7 +52,7 @@ The implementation has passed focused local checks. The complete release-command
 
 Naval UI and authorization use `CampaignNavalSupportService`; `economy.navalPower` no longer masquerades as available support. A support assignment carries one exact fleet and two actual tactical fire missions. The service evaluates ownership, authored task-force capacity, operational condition, range, target authorization, current reservations and replenishment. Current package v3, result v2 and AAR v2 preserve source identity through tactical assets and returned charge deltas. Consequence v2 accounts for each fleet's reserved, consumed and refunded RP. Older package/report versions remain readable; expired historical claims are retained without creating active holds, while active ambiguous claims fail closed. Hydration validates authored membership before replacing live state.
 
-The player-safe location contract changes presentation only. Persistent formation IDs and offset navigation keys remain unchanged; coordinate conversion is used only for exact authored lookup. No `BattleScreen.ts`, `HexMapRenderer.ts`, coordinate-math implementation or `src/engine` changes were required.
+The player-safe location contract changes presentation only. Persistent formation IDs and offset navigation keys remain unchanged; coordinate conversion is used only for exact authored lookup. Campaign feature work leaves tactical and coordinate algorithms unchanged. The final lint gate includes mechanically verified `HexMapRenderer.ts` cleanup described below; `BattleScreen.ts` and `src/engine` remain unchanged.
 
 ### Reviewable local packages
 
@@ -73,6 +73,7 @@ The player-safe location contract changes presentation only. Persistent formatio
 | `41ddd9f` | Register audit owners in the full release suites |
 | `d159114` | Toolbar wrap and real native landing-route browser proof |
 | `d397136` | Exact recovered tactical resume and real danger/recovery caller regressions |
+| `87d0647` | Mechanical zero-warning lint gate, with emitted-code parity and renderer impact review |
 
 ## Risk controls
 
@@ -85,6 +86,10 @@ The player-safe location contract changes presentation only. Persistent formatio
 
 ## Verification record
 
+The first clean release run at `a8467b8` passed 92 professional-UI tests, 310 campaign tests, all 20 production-build browser tests, and the build. Lint exposed the nested baseline checkout plus 151 existing warnings in 40 actual source/test files. The baseline worktree now resides at `dist-tsc-check/campaign-audit-baseline`, preserving its audited commit and evidence while using an existing excluded output area. The initial results and warning report are retained as `release-results-first-run.json`, `lint-before-cleanup.log`, and `lint-current.json` in the release diagnostics directory.
+
+To meet the plan's zero-warning requirement, a separate mechanical package removes unused imports/types, marks unused bindings and their writes explicitly, changes never-reassigned locals to const, and removes obsolete lint-disable comments. It preserves every initializer, call, assertion, parameter position, and gameplay expression. No ESLint rule or ignore changes are used. The renderer impact analysis was recorded before editing in `implementation_plan.md`. `all-lint-parity.json` verifies all 40 emitted JavaScript ASTs match the prior candidate after normalizing only documented unused identifier renames and let/const declarations (plus comments/line endings); the renderer-specific report is `renderer-lint-parity.json`.
+
 Focused local verification is complete: 20 browser checks passed in `diagnostics/campaign-audit-geometry/local-final-report.json`, and 48 naval/domain and existing persistence/result/consequence/AAR checks passed during domain review. The campaign integration run passed 305 selected cases before the last three producer checks were added; those three also passed their isolated interaction run. These focused counts are not a substitute for the unfiltered release commands.
 
 The final six commands run sequentially from a clean worktree. Logs and the tested commit are retained in `diagnostics/campaign-audit-release/release-results.json`. The integration owner verifies the absolute `dist` and `dist-tsc` cleanup paths before invoking the existing scripts. Final results pending.
@@ -93,4 +98,4 @@ The final six commands run sequentially from a clean worktree. Logs and the test
 
 **Release verdict: FAIL / live certification OPEN.** No push or deployment has been performed. Section 7 explicitly separates implementation authorization from deployment authorization. The complete natural campaign journey, supported and unsupported engagement, actual 20+ turn tactical battle, natural AI defense, external-browser viewport evidence, live build fingerprint and console/request sweep remain required. Existing unit tests for no arbitrary campaign turn cap and AI response are not evidence of that full player journey.
 
-Independent reviewers have binary veto authority. McClintock returned explicit **local UI/UX PASS** after re-viewing the corrected 1280×720 toolbar, checking direct campaign entry, and verifying the saved 20/20 browser report with no failures, skips or flaky results. The final architecture verdict and complete release commands remain pending. No local screenshot, entitlement fixture, headless browser test or successful build is described as deployed certification.
+Independent reviewers have binary veto authority. McClintock returned explicit **local UI/UX PASS** after re-viewing the corrected 1280×720 toolbar, checking direct campaign entry, and verifying the saved 20/20 browser report with no failures, skips or flaky results. Wegener returned explicit **local test-architecture PASS**, closing the naval, recovery and actual danger-consent caller findings. A narrow review of the subsequent mechanical lint package and the complete release-command rerun remain pending. No local screenshot, entitlement fixture, headless browser test or successful build is described as deployed certification.
