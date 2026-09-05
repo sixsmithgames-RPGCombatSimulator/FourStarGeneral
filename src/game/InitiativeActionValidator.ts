@@ -264,7 +264,7 @@ export class InitiativeActionValidator {
   private validateActionForUnit(
     actionType: UnitActionType,
     unit: ScenarioUnit,
-    context: ActionValidationContext
+    _context: ActionValidationContext
   ): ActionValidationResult {
     // Check if unit has enough ammo for attack actions
     if (actionType === 'attack' && unit.ammo <= 0) {

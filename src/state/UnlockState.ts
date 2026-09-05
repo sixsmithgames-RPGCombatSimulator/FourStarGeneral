@@ -68,7 +68,6 @@ function normalizeAuthContext(value: unknown): UnlockAuthContext | null {
   const email = typeof record.email === "string" && record.email.length > 0 ? record.email : null;
   const planIds = normalizePlanIds(record.planIds);
   const isPrivileged = record.isPrivileged === true;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isGuest = isAuthenticated === false || (record as any).isGuest === true;
   return {
     resolved: true,

@@ -8,7 +8,7 @@
  */
 
 import type { Axial } from '../../core/Hex';
-import type { ScenarioUnit, UnitTypeDefinition, TerrainDefinition } from '../../core/types';
+import type { UnitTypeDefinition, TerrainDefinition } from '../../core/types';
 import type { BotPlannerInput, PlannerUnitSnapshot } from './BotPlanner';
 
 /**
@@ -537,7 +537,7 @@ export class TacticalAnalysisEngine {
     }
 
     // Check for smoke cover
-    const positionKey = `${position.q},${position.r}`;
+    const _positionKey = `${position.q},${position.r}`;
     // Note: smokePositions not available in BotPlannerInput
     if (false) {
       score += 20; // Smoke provides excellent concealment
@@ -814,7 +814,7 @@ export class TacticalAnalysisEngine {
     let positional = 0;
     let threat = 0;
     let defense = 0;
-    let objectives = 0;
+    const objectives = 0;
 
     // Evaluate bot units
     for (const unit of state.botUnits) {
@@ -871,12 +871,12 @@ export class TacticalAnalysisEngine {
     return hexes;
   }
 
-  private calculatePath(from: Axial, to: Axial, input: BotPlannerInput): Axial[] {
+  private calculatePath(from: Axial, to: Axial, _input: BotPlannerInput): Axial[] {
     // Simplified pathfinding
     return [from, to];
   }
 
-  private calculateMovementCost(path: Axial[], moveType: string, input: BotPlannerInput): number {
+  private calculateMovementCost(path: Axial[], _moveType: string, _input: BotPlannerInput): number {
     return path.length - 1;
   }
 
@@ -892,7 +892,7 @@ export class TacticalAnalysisEngine {
     return definition.moveType === 'air';
   }
 
-  private estimateDamage(attacker: PlannerUnitSnapshot, defender: PlannerUnitSnapshot, fromHex: Axial, toHex: Axial): number {
+  private estimateDamage(attacker: PlannerUnitSnapshot, _defender: PlannerUnitSnapshot, _fromHex: Axial, _toHex: Axial): number {
     // Simplified damage calculation
     return Math.floor(attacker.definition.hardAttack || attacker.definition.softAttack || 10);
   }
@@ -919,7 +919,7 @@ export class TacticalAnalysisEngine {
     attacker: PlannerUnitSnapshot,
     target: PlannerUnitSnapshot,
     distance: number,
-    input: BotPlannerInput
+    _input: BotPlannerInput
   ): number {
     // Simplified hit probability based on distance and unit type
     let baseProb = 0.7;
@@ -946,7 +946,7 @@ export class TacticalAnalysisEngine {
     return terrain;
   }
 
-  private calculateElevationAdvantage(position: Axial, surroundingTerrain: TerrainDefinition[]): number {
+  private calculateElevationAdvantage(_position: Axial, _surroundingTerrain: TerrainDefinition[]): number {
     // Simplified elevation calculation
     return Math.random() * 3 - 1.5; // Random between -1.5 and 1.5
   }

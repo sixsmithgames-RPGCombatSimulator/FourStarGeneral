@@ -16,11 +16,11 @@ import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirSh
 const HEX_RADIUS = 48;
 const HEX_WIDTH = Math.sqrt(3) * HEX_RADIUS; // ~83.14px
 const MINIMUM_INGRESS_DISTANCE_HEXES = 8;
-const MINIMUM_INGRESS_DISTANCE_PX = MINIMUM_INGRESS_DISTANCE_HEXES * HEX_WIDTH; // ~665px
+const _MINIMUM_INGRESS_DISTANCE_PX = MINIMUM_INGRESS_DISTANCE_HEXES * HEX_WIDTH; // ~665px
 
 // Timing requirements per North Star Spec
-const MINIMUM_FIGHTER_INGRESS_MS = 1250;
-const MINIMUM_BOMBER_INGRESS_MS = 3000;
+const _MINIMUM_FIGHTER_INGRESS_MS = 1250;
+const _MINIMUM_BOMBER_INGRESS_MS = 3000;
 
 registerTest("AIRCOMBATSCENEBUILDER_FLAGS_LINKED_ESCORTS_MISSING_FROM_RESOLVED_EVENT_AND_DOES_NOT_INJECT_THEM", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof buildResolvedAirCombatScene> | null = null;

@@ -8,7 +8,6 @@
  * @since Initiative System v2.0
  */
 
-import type { UnitActivation } from '../core/InitiativeQueue';
 import type { InitiativeGroup, GroupedInitiativeQueue } from '../core/GroupedInitiativeQueue';
 import type { ExtendedBattlePhase } from '../game/GameEngineInitiativeExtensions';
 

@@ -375,8 +375,8 @@ registerTest("AIR_SHOW_BIAS_OFFSET_DOES_NOT_GROW_ALONG_PATH", async ({ Given, Wh
   // This causes each waypoint to deviate more and more from the base path → jitter.
   // The fix: bias must be constant (applied only at waypoint index 0) or zero beyond index 0.
 
-  const biasX = 20;
-  const biasY = 15;
+  const _biasX = 20;
+  const _biasY = 15;
   const basePathLength = 6;
 
   await Given("a flight actor with non-zero biasX and biasY offsets", async () => {});

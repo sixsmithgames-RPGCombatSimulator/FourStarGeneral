@@ -5,8 +5,6 @@
  * type-safe access to effect configurations.
  */
 
-import type { PrimitiveConfig } from "./ProceduralPrimitives";
-
 /**
  * Animation phase definition within an effect timeline.
  */

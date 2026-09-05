@@ -1,10 +1,4 @@
-import { 
-  warRoomHotspotDefinitions, 
-  getHotspotsByFocusOrder, 
-  findHotspotById,
-  getAllHotspotIds
-} from '../src/data/warRoomHotspots';
-import type { WarRoomHotspotDefinition } from '../src/data/warRoomHotspots';
+import { warRoomHotspotDefinitions } from '../src/data/warRoomHotspots';
 
 describe('War Room Hotspot Definitions', () => {
   test('all hotspots have required properties', () => {

@@ -387,8 +387,8 @@ function createTownDefenseController(scenario: ScenarioData): MissionRulesContro
   const buildMarker = (
     outcome: MissionOutcome,
     townOccupant: TurnFaction | undefined,
-    enemyForceRatio: number,
-    friendlyForceRatio: number
+    _enemyForceRatio: number,
+    _friendlyForceRatio: number
   ): ObjectiveMarkerProgress => {
     const status = townOccupant === "Bot"
       ? "enemy"
@@ -546,7 +546,7 @@ function createPointeDuHocPhase(turnNumber: number, counterattackAnnounced: bool
   };
 }
 
-function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDifficulty): MissionRulesController {
+function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDifficulty): MissionRulesController {
   const HOLD_TARGET = 6;
 
   const gunPositions = (scenario.objectives ?? []).map((objective, index) => ({
@@ -1696,7 +1696,7 @@ function createHistoricalBattleController(scenario: ScenarioData, config: Histor
   } satisfies MissionRulesController;
 }
 
-function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDifficulty): MissionRulesController {
+function createCitadelRidgeController(scenario: ScenarioData, _difficulty: BotDifficulty): MissionRulesController {
   const strongpointKeys = [
     { key: makeKey({ q: 16, r: 4 - Math.floor(16 / 2) }), label: "North Battery", vp: 120 },
     { key: makeKey({ q: 16, r: 8 - Math.floor(16 / 2) }), label: "Central Citadel", vp: 180 },

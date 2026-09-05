@@ -1,6 +1,4 @@
-import { test, expect, Page } from '@playwright/test';
-import type { WarRoomHotspotDefinition } from '../../src/data/warRoomHotspots';
-import { warRoomHotspotDefinitions } from '../../src/data/warRoomHotspots';
+import { test, expect } from '@playwright/test';
 
 /**
  * War Room Hotspot Positioning Tests

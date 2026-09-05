@@ -8,8 +8,7 @@
 import {
   type PrimitiveRenderContext,
   type PrimitiveConfig,
-  PRIMITIVE_RENDERERS,
-  SeededRandom
+  PRIMITIVE_RENDERERS
 } from "./ProceduralPrimitives";
 import {
   type EffectSpecification,
@@ -140,7 +139,7 @@ class ProceduralEffectInstance {
     }
 
     const overallProgress = elapsedMs / this.spec.durationMs;
-    const currentPhase = getCurrentPhase(this.spec, elapsedMs);
+    const _currentPhase = getCurrentPhase(this.spec, elapsedMs);
 
     // Render all active primitives
     for (const primitiveInstance of this.spec.allPrimitives) {

@@ -13,7 +13,7 @@ const PROXIMITY_ENGAGE_RADIUS = 6;
  * Bonus applied to enemy-pressure moves when contact is established (nearby or visible). Ensures that
  * pressure beats a distant objective approach so the AI pivots into combat once engaged.
  */
-const CONTACT_ENGAGE_BONUS = 8;
+const _CONTACT_ENGAGE_BONUS = 8;
 
 // ==========================================
 // ADVANCED TACTICAL AI CONSTANTS
@@ -225,7 +225,7 @@ const OBJECTIVE_CONTROL_BONUS = 45;
 /**
  * Bonus per turn already held (encourages holding objectives).
  */
-const OBJECTIVE_HOLD_BONUS = 5;
+const _OBJECTIVE_HOLD_BONUS = 5;
 
 /**
  * Bonus for moving toward an objective (distance reduction).
@@ -1152,8 +1152,8 @@ export function computeReachableHexes(
     path: [origin]
   }];
 
-  let impassableCount = 0;
-  let highCostCount = 0;
+  let _impassableCount = 0;
+  let _highCostCount = 0;
 
   while (frontier.length > 0) {
     frontier.sort((a, b) => a.cost - b.cost);
@@ -1188,11 +1188,11 @@ export function computeReachableHexes(
       const neighborKey = axialKey(neighbor);
       const terrainCost = input.map.movementCost(neighbor, moveType);
       if (!Number.isFinite(terrainCost) || terrainCost >= 999) {
-        impassableCount++;
+        _impassableCount++;
         continue; // Treat very high cost as impassable for land units.
       }
       if (terrainCost > 1) {
-        highCostCount++;
+        _highCostCount++;
       }
 
       const occupant = input.occupancy.get(neighborKey);
@@ -2165,7 +2165,7 @@ function calculateApproachPositionScore(
     || isArmoredGroundUnit(snapshot.definition);
   const terrainCost = input.map.movementCost(destination, snapshot.definition.moveType);
   const threatEnvelope = calculateApproachThreatEnvelope(snapshot, destination, input, focusHex, inAttackBand);
-  const visibleThreats = threatEnvelope.visible;
+  const _visibleThreats = threatEnvelope.visible;
   const directImmediateThreats = threatEnvelope.directImmediate;
   const directNearThreats = threatEnvelope.directNear;
   const indirectImmediateThreats = threatEnvelope.indirectImmediate;
@@ -2631,7 +2631,7 @@ function scoreFireSetup(
         continue;
       }
 
-      let score = evaluation.score
+      const score = evaluation.score
         + rangeImprovement * 6
         + futureImprovement * 10
         + losImprovement * 8

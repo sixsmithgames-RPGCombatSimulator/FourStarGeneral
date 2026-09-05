@@ -157,7 +157,7 @@ function focusRendererForHarness(renderer: HexMapRenderer, hexKey: string): void
   );
 }
 
-function createRendererForScenario(renderScenario: ScenarioData): HexMapRenderer { // eslint-disable-line
+function createRendererForScenario(renderScenario: ScenarioData): HexMapRenderer {
   const svg = document.getElementById("battleHexMap") as SVGSVGElement | null;
   const canvas = document.getElementById("battleMapCanvas") as HTMLDivElement | null;
   if (!svg || !canvas) {
@@ -168,7 +168,7 @@ function createRendererForScenario(renderScenario: ScenarioData): HexMapRenderer
   return renderer;
 }
 
-function createSceneCaptureScreenForFixture(rendererLike: unknown, harnessFixture: AirshowHarnessFixture): BattleScreen { // eslint-disable-line
+function createSceneCaptureScreenForFixture(rendererLike: unknown, harnessFixture: AirshowHarnessFixture): BattleScreen {
   const fakeBattleState = {
     ensureGameEngine: () => ({ getScheduledAirMissions: () => [] }),
     tryGetGameEngine: () => ({ getScheduledAirMissions: () => [] }),
@@ -227,7 +227,7 @@ function buildReplayEngineFromCapture(capture: AirShowPlaybackCapture): {
   };
 }
 
-function createReplayScreenForCapture(rendererLike: unknown, capture: AirShowPlaybackCapture): BattleScreen { // eslint-disable-line
+function createReplayScreenForCapture(rendererLike: unknown, capture: AirShowPlaybackCapture): BattleScreen {
   const fakeEngine = buildReplayEngineFromCapture(capture);
   const fakeBattleState = {
     ensureGameEngine: () => fakeEngine,
@@ -403,8 +403,8 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
   let activeAnimation: Promise<void> | null = null;
   let activeAnimationError: unknown = null;
   let activePhaseLabel: string | null = null;
-  let activePhaseStartedAtMs = 0;
-  let activePhaseDurationMs = 0;
+  let _activePhaseStartedAtMs = 0;
+  let _activePhaseDurationMs = 0;
   let activeTimelineElapsedMs = 0;
   let activeTotalDurationMs = DEFAULT_PHASE_WAIT_TIMEOUT_MS;
   let restoreAnimateCapture: (() => void) | null = null;
@@ -492,8 +492,8 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
       if (clock.label) {
         activePhaseLabel = clock.label;
         const phase = phaseByLabel.get(clock.label);
-        activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
-        activePhaseStartedAtMs = performance.now()
+        _activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
+        _activePhaseStartedAtMs = performance.now()
           - Math.max(0, clock.elapsedMs - (phase?.startTimeMs ?? clock.elapsedMs));
       }
       activeTimelineElapsedMs = clock.elapsedMs;
@@ -509,8 +509,8 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
           : Number.POSITIVE_INFINITY;
         if (phasePause && !phasePause.engaged && clock.elapsedMs >= pauseAtMs) {
           activePhaseLabel = phasePause.label;
-          activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
-          activePhaseStartedAtMs = performance.now()
+          _activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
+          _activePhaseStartedAtMs = performance.now()
             - Math.max(0, clock.elapsedMs - (phase?.startTimeMs ?? clock.elapsedMs));
           phasePause.engaged = true;
           positionTimeline.push(sampleActorPositions());
@@ -596,15 +596,15 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
       await new Promise((resolve) => window.setTimeout(resolve, 25));
     }
     activePhaseLabel = label;
-    activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
-    activePhaseStartedAtMs = performance.now();
+    _activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
+    _activePhaseStartedAtMs = performance.now();
   }
 
   window.__FSG_AIRSHOW_E2E__ = {
     async startScenario(): Promise<AirshowStartResult> {
       activePhaseLabel = null;
-      activePhaseStartedAtMs = 0;
-      activePhaseDurationMs = 0;
+      _activePhaseStartedAtMs = 0;
+      _activePhaseDurationMs = 0;
       activeTimelineElapsedMs = 0;
       restoreAnimateCapture?.();
       restorePhaseProbe?.();

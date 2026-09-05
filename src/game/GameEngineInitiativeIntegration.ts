@@ -1133,7 +1133,7 @@ export class GameEngineInitiativeMethods {
    * @param actionType - Type of action executed
    * @param actionData - Data for the executed action
    */
-  private onActionExecuted(unitId: string, actionType: UnitActionType, actionData: any): void {
+  private onActionExecuted(unitId: string, actionType: UnitActionType, _actionData: any): void {
     console.log(`Action executed: ${unitId} -> ${actionType}`);
     
     // Update game state based on the action
@@ -1141,52 +1141,52 @@ export class GameEngineInitiativeMethods {
   }
 
   // Action execution methods (these would integrate with existing GameEngine methods)
-  private executeMoveAction(unitId: string, actionData: any): boolean {
+  private executeMoveAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing movement system
     return true; // Placeholder
   }
 
-  private executeAttackAction(unitId: string, actionData: any): boolean {
+  private executeAttackAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing combat system
     return true; // Placeholder
   }
 
-  private executeSupportAction(unitId: string, actionData: any): boolean {
+  private executeSupportAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing support system
     return true; // Placeholder
   }
 
-  private executeDeployAction(unitId: string, actionData: any): boolean {
+  private executeDeployAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing deployment system
     return true; // Placeholder
   }
 
-  private executeEntrenchAction(unitId: string, actionData: any): boolean {
+  private executeEntrenchAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing entrenchment system
     return true; // Placeholder
   }
 
-  private executeRepairAction(unitId: string, actionData: any): boolean {
+  private executeRepairAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing repair system
     return true; // Placeholder
   }
 
-  private executeResupplyAction(unitId: string, actionData: any): boolean {
+  private executeResupplyAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing supply system
     return true; // Placeholder
   }
 
-  private executeTowAction(unitId: string, actionData: any): boolean {
+  private executeTowAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing towing system
     return true; // Placeholder
   }
 
-  private executeSentryAction(unitId: string, actionData: any): boolean {
+  private executeSentryAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing sentry system
     return true; // Placeholder
   }
 
-  private executeFaceAction(unitId: string, actionData: any): boolean {
+  private executeFaceAction(_unitId: string, _actionData: any): boolean {
     // Integrate with existing facing system
     return true; // Placeholder
   }

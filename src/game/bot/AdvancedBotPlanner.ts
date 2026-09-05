@@ -248,7 +248,7 @@ export class AdvancedBotPlanner {
   /**
    * Calculate confidence in tactical decision
    */
-  private calculateConfidence(tacticalResult: LookaheadResult, baseAction: PlannedBotAction): number {
+  private calculateConfidence(tacticalResult: LookaheadResult, _baseAction: PlannedBotAction): number {
     let confidence = 50; // Base confidence
 
     // Higher confidence with deeper analysis

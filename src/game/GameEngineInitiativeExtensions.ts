@@ -8,7 +8,7 @@
  */
 
 import type { BattlePhase } from './GameEngine';
-import { initiativeQueueManager, type InitiativeQueue, type UnitActivation } from '../core/InitiativeQueue';
+import { type InitiativeQueue, type UnitActivation } from '../core/InitiativeQueue';
 import type { ScenarioUnit } from '../core/types';
 import {
   BattleStateInitiativeManager,

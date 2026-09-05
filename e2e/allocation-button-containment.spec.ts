@@ -230,7 +230,7 @@ test.describe("Allocation Button Containment", () => {
     for (const item of items.slice(0, 5)) { // Check first 5 items
       const quantityContainer = await item.locator(".allocation-quantity");
       const buttons = await item.locator(".allocation-btn").all();
-      const count = await item.locator(".allocation-count");
+      const _count = await item.locator(".allocation-count");
       
       if (buttons.length === 0) continue; // Skip locked/unavailable items
       

@@ -24,8 +24,6 @@ type KeyList = readonly string[];
 
 type IndexedRecord = Record<string, unknown>;
 
-type StringRecord = Record<string, string>;
-
 type NumberRecord = Record<string, number>;
 
 function toKeySet(keys: KeyList): Set<string> {

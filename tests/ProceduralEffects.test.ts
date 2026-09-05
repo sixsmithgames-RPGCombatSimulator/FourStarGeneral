@@ -150,8 +150,8 @@ registerTest("PROCEDURAL_EFFECTS_ANIMATOR_SUPPORTS_CONCURRENT_EFFECTS", async ({
 registerTest("PROCEDURAL_EFFECTS_ANIMATOR_CANCEL_ALL_STOPS_ACTIVE_EFFECTS", async ({ Given, When, Then }) => {
   let parentGroup: SVGGElement;
   let animator: ProceduralEffectsAnimator;
-  let effect1Promise: Promise<void>;
-  let effect2Promise: Promise<void>;
+  let _effect1Promise: Promise<void>;
+  let _effect2Promise: Promise<void>;
   let cancelledChildCount: number;
 
   await Given("a procedural effects animator with two active effects", async () => {
@@ -162,8 +162,8 @@ registerTest("PROCEDURAL_EFFECTS_ANIMATOR_CANCEL_ALL_STOPS_ACTIVE_EFFECTS", asyn
 
     animator = new ProceduralEffectsAnimator(parentGroup);
 
-    effect1Promise = animator.playAnimation("test_effect", 50, 50, 1);
-    effect2Promise = animator.playAnimation("test_effect", 150, 150, 1);
+    _effect1Promise = animator.playAnimation("test_effect", 50, 50, 1);
+    _effect2Promise = animator.playAnimation("test_effect", 150, 150, 1);
 
     // Wait for effects to start
     await new Promise(resolve => setTimeout(resolve, 50));

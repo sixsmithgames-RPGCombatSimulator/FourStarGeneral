@@ -5,7 +5,6 @@
 import { registerTest } from "./harness";
 import { calculateAccuracy } from "../src/core/Combat";
 import type { AttackRequest, AttackerContext, DefenderContext, UnitCombatState } from "../src/core/Combat";
-import { combat as balanceCombat } from "../src/core/balance";
 import type { TerrainDefinition, UnitTypeDefinition } from "../src/core/types";
 import { supplyTick } from "../src/core/Supply";
 import type { SupplyNetwork, SupplyUnitState } from "../src/core/Supply";

@@ -37,8 +37,8 @@ function createTestContext(overrides?: Partial<PrimitiveRenderContext>): Primiti
 registerTest("SEEDED_RANDOM_PRODUCES_DETERMINISTIC_SEQUENCE", async ({ Given, When, Then }) => {
   let rng1: SeededRandom;
   let rng2: SeededRandom;
-  let sequence1: number[] = [];
-  let sequence2: number[] = [];
+  const sequence1: number[] = [];
+  const sequence2: number[] = [];
 
   await Given("two SeededRandom instances with the same seed", async () => {
     rng1 = new SeededRandom(42);
@@ -117,7 +117,7 @@ registerTest("FLASH_CORE_RENDERS_RADIAL_GRADIENT_CIRCLE", async ({ Given, When, 
 });
 
 registerTest("SHOCK_RING_RESPECTS_NODE_COUNT_BUDGET", async ({ Given, When, Then }) => {
-  let ctx: PrimitiveRenderContext;
+  let _ctx: PrimitiveRenderContext;
   let farElements: SVGElement[];
   let midElements: SVGElement[];
   let nearElements: SVGElement[];

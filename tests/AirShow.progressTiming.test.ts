@@ -15,7 +15,7 @@ import { getAuthoritativeContestedPlan } from "./airShowTestSupport.js";
 import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
 
 // Progress anchor reference per North Star Spec
-const PROGRESS_ANCHORS = {
+const _PROGRESS_ANCHORS = {
   ingress: {
     start: 0.0,
     dogfightStart: 0.20,

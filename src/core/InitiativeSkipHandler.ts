@@ -9,7 +9,7 @@
  */
 
 import type { UnitActivation } from './InitiativeQueue';
-import type { InitiativeGroup, GroupedInitiativeQueue } from './GroupedInitiativeQueue';
+import type { GroupedInitiativeQueue } from './GroupedInitiativeQueue';
 import { globalInitiativeEventSystem } from '../events/InitiativeEventSystem';
 
 /**

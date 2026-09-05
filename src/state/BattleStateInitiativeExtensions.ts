@@ -10,7 +10,7 @@
 import type { InitiativeQueue, UnitActivation } from "../core/InitiativeQueue";
 import { initiativeQueueManager } from "../core/InitiativeQueue";
 import type { ScenarioUnit } from "../core/types";
-import { isInitiativeUnit, type InitiativeUnit, toInitiativeUnit, resetUnitActivation, activateUnit } from "../core/InitiativeTypes";
+import { isInitiativeUnit, toInitiativeUnit, resetUnitActivation, activateUnit } from "../core/InitiativeTypes";
 
 /**
  * Extension interface for BattleState when initiative system is active

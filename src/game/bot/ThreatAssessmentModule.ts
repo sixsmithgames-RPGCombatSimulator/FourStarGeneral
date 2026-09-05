@@ -8,7 +8,6 @@
  */
 
 import type { Axial } from '../../core/Hex';
-import type { ScenarioUnit, UnitTypeDefinition } from '../../core/types';
 import type { BotPlannerInput, PlannerUnitSnapshot } from './BotPlanner';
 
 /**

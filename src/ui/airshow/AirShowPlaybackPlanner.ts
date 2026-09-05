@@ -19,7 +19,6 @@ import type {
 } from "./AirShowPlanner";
 import type {
   AirShowInspectionFlakBurst,
-  AirShowInspectionPhase,
   AirShowInspectionSampledPosition,
   AirShowPoint,
   PlannedAirShowFlight,
@@ -115,9 +114,8 @@ type AirShowRuntimeActor = AirShowPlannerActor;
 type AirShowRuntimeFlightInternal = AirShowPlannerFlight;
 type AirShowPhaseAssignment = AirShowPlannerPhaseAssignment;
 type AirShowTracerBurst = AirShowPlannerTracerBurst;
-type AirShowContestedBomberPhaseLabel = AirShowPlannerContestedBomberPhaseLabel;
 
-function spreadBomberFormationAssignmentsForCorridor(
+function _spreadBomberFormationAssignmentsForCorridor(
   assignments: ReadonlyArray<AirShowPhaseAssignment>,
   corridor: AirShowPlannerCorridor
 ): AirShowPhaseAssignment[] {
@@ -497,7 +495,7 @@ export function planResolvedAirCombatShowScene(
   );
   const fighterIngressSeedDurationMs = host.clamp(Math.round(scene.fighterIngressDurationMs ?? 2520), 1250, 13250);
   const egressHeadingByFlightId = new Map<string, number>();
-  const corridorPoint = (alongPx: number, lateralPx = 0): AirShowPoint =>
+  const _corridorPoint = (alongPx: number, lateralPx = 0): AirShowPoint =>
     host.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
   const updateFlightAnchors = (flights: ReadonlyArray<AirShowPlannerFlight>): void => {
     flights.forEach((flight) => {
@@ -1083,7 +1081,7 @@ export function planResolvedAirCombatShowScene(
     const radians = ((headingDegrees - 90) * Math.PI) / 180;
     return normalizeVector(Math.cos(radians), Math.sin(radians), fallback.x, fallback.y);
   };
-  const resolveRouteHeadingDot = (
+  const _resolveRouteHeadingDot = (
     start: AirShowPoint,
     end: AirShowPoint,
     startHeadingDegrees: number | undefined
@@ -1112,7 +1110,7 @@ export function planResolvedAirCombatShowScene(
     );
     return (Math.acos(dot) * 180) / Math.PI;
   };
-  const resolveWaypointTurnDegrees = (
+  const _resolveWaypointTurnDegrees = (
     previous: AirShowPoint,
     current: AirShowPoint,
     next: AirShowPoint
@@ -1127,7 +1125,7 @@ export function planResolvedAirCombatShowScene(
         y: next.cy - current.cy
       }
     );
-  const reinforceCompactFighterTravel = (
+  const _reinforceCompactFighterTravel = (
     assignments: ReadonlyArray<AirShowPhaseAssignment>,
     durationMs: number,
     minimumSpeedPxPerMs: number,
@@ -1336,7 +1334,7 @@ export function planResolvedAirCombatShowScene(
       return !previous || Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
     });
   };
-  const tightenPathAroundFightSpace = (
+  const _tightenPathAroundFightSpace = (
     path: ReadonlyArray<AirShowPoint>,
     focusPoint: AirShowPoint,
     maxDistancePx: number
@@ -1372,7 +1370,7 @@ export function planResolvedAirCombatShowScene(
         const previous = points[index - 1];
         return !previous || Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
       });
-  const collectStableTailHeadingsByFlightId = (
+  const _collectStableTailHeadingsByFlightId = (
     assignments: ReadonlyArray<AirShowPhaseAssignment>,
     durationMs: number,
     sampleStartProgress = 0.72,
@@ -1415,7 +1413,7 @@ export function planResolvedAirCombatShowScene(
       })
     );
   };
-  const buildFighterPeelAssignments = (
+  const _buildFighterPeelAssignments = (
     fighterFlights: ReadonlyArray<AirShowPlannerFlight>,
     durationMs: number,
     tailHeadingByFlightId: ReadonlyMap<string, number>
@@ -1720,7 +1718,7 @@ export function planResolvedAirCombatShowScene(
         };
       });
     });
-  const buildFighterEgressAssignments = (
+  const _buildFighterEgressAssignments = (
     fighterFlights: ReadonlyArray<AirShowPlannerFlight>
   ): AirShowPhaseAssignment[] =>
     fighterFlights.flatMap((flight, index) => {
@@ -1817,7 +1815,7 @@ export function planResolvedAirCombatShowScene(
         fighterFlights.length
       );
     });
-  const buildSmoothHomeSideFighterEgressPath = (
+  const _buildSmoothHomeSideFighterEgressPath = (
     points: ReadonlyArray<AirShowPoint>,
     homeSideSign: number
   ): AirShowPoint[] => {
@@ -2140,7 +2138,7 @@ export function planResolvedAirCombatShowScene(
       rounded.push(points[points.length - 1]!);
       return dedupePath(rounded);
     };
-    const simplifyShortInteriorSegments = (
+    const _simplifyShortInteriorSegments = (
       points: ReadonlyArray<AirShowPoint>,
       minSegmentPx: number
     ): AirShowPoint[] => {
@@ -2164,7 +2162,7 @@ export function planResolvedAirCombatShowScene(
       }
       return dedupePath(simplified);
     };
-    const softenAirShowPathCorners = (
+    const _softenAirShowPathCorners = (
       points: ReadonlyArray<AirShowPoint>,
       iterations: number
     ): AirShowPoint[] => {
@@ -2438,7 +2436,7 @@ export function planResolvedAirCombatShowScene(
         end
       ]);
     };
-    const buildSpeedMatchedCorridorPath = (
+    const _buildSpeedMatchedCorridorPath = (
       start: AirShowPoint,
       preferredEnd: AirShowPoint,
       durationMs: number,
@@ -2493,7 +2491,7 @@ export function planResolvedAirCombatShowScene(
         }
       ]);
     };
-    const buildSpeedMatchedPassPath = (
+    const _buildSpeedMatchedPassPath = (
       start: AirShowPoint,
       passPoint: AirShowPoint,
       durationMs: number,
@@ -3127,7 +3125,7 @@ export function planResolvedAirCombatShowScene(
         corridor.axis.x * leadPx + corridor.normal.x * groupLane * 58,
         corridor.axis.y * leadPx + corridor.normal.y * groupLane * 58
       );
-    const blendAirShowPoints = (start: AirShowPoint, end: AirShowPoint, progress: number): AirShowPoint => {
+    const _blendAirShowPoints = (start: AirShowPoint, end: AirShowPoint, progress: number): AirShowPoint => {
       const clampedProgress = host.clamp(progress, 0, 1);
       return {
         cx: start.cx + (end.cx - start.cx) * clampedProgress,
@@ -3160,7 +3158,7 @@ export function planResolvedAirCombatShowScene(
       }
       return projectAirShowRailPoint(corridor, clampedAlongPx, clampedLateralPx);
     };
-    const clampFightPathToPocket = (
+    const _clampFightPathToPocket = (
       points: ReadonlyArray<AirShowPoint>,
       center: AirShowPoint,
       {
@@ -3438,7 +3436,7 @@ export function planResolvedAirCombatShowScene(
           const roleFlights = role === "interceptor" ? group.interceptorFlights : group.escortFlights;
           const localSlot = Math.max(0, roleFlights.findIndex((candidate) => candidate.spec.id === flight.spec.id));
           const localLane = roleFlights.length <= 1 ? 0 : localSlot - (roleFlights.length - 1) / 2;
-          const travelSign = role === "interceptor" ? -1 : 1;
+          const _travelSign = role === "interceptor" ? -1 : 1;
           const laneOffsetPx = resolveAirShowRailLaneOffsetPx(
             lane,
             role,
@@ -5298,7 +5296,7 @@ export function planResolvedAirCombatShowScene(
                 };
                 const primaryPoints = buildContactPath(targetRenderedLengthPx, sideSign);
                 const alternatePoints = buildContactPath(targetRenderedLengthPx, -sideSign);
-                let selectedSideSign =
+                const selectedSideSign =
                   entryTurnDegFor(alternatePoints) + 2 < entryTurnDegFor(primaryPoints)
                     ? -sideSign
                     : sideSign;

@@ -107,7 +107,7 @@ export function losClearAdvanced(ctx: LOSContext): boolean {
 /**
  * Check air LOS - mountains/hills block at distance, forest/city transparent
  */
-function checkAirLOS(path: Axial[], lister: Lister, isScout: boolean): boolean {
+function checkAirLOS(path: Axial[], lister: Lister, _isScout: boolean): boolean {
   const middle = path.slice(1, -1);
 
   for (const hex of middle) {

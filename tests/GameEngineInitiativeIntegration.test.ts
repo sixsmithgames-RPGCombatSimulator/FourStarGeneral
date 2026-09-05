@@ -8,7 +8,6 @@
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { GameEngineInitiativeMethods } from '../src/game/GameEngineInitiativeIntegration';
-import { GameEngineInitiativeIntegration } from '../src/game/GameEngineInitiativeExtensions';
 import { InitiativeActionValidator } from '../src/game/InitiativeActionValidator';
 import type { ScenarioUnit } from '../src/core/types';
 
@@ -186,7 +185,7 @@ describe('GameEngineInitiativeMethods', () => {
     });
 
     it('should throw error if unit is not currently active', () => {
-      const activation = initiativeMethods.processNextInitiativeActivation();
+      const _activation = initiativeMethods.processNextInitiativeActivation();
 
       expect(() => initiativeMethods.completeUnitActivation('wrong-unit')).toThrow();
     });
@@ -263,7 +262,7 @@ describe('GameEngineInitiativeMethods', () => {
     });
 
     it('should throw error for invalid action', () => {
-      const activation = initiativeMethods.processNextInitiativeActivation();
+      const _activation = initiativeMethods.processNextInitiativeActivation();
 
       expect(() => {
         initiativeMethods.executeUnitAction('wrong-unit', 'move', { targetHex: { q: 1, r: 0 } });
@@ -350,7 +349,7 @@ describe('GameEngineInitiativeMethods', () => {
 
       // Complete first activation and process second (bot unit)
       initiativeMethods.completeUnitActivation(firstActivation!.unitId);
-      const secondActivation = initiativeMethods.processNextInitiativeActivation();
+      const _secondActivation = initiativeMethods.processNextInitiativeActivation();
       expect(mockEngine._activeFaction).toBe('Bot');
     });
 

@@ -281,7 +281,7 @@ export class InitiativeUnitHighlighter {
    */
   private addPulseAnimation(element: HTMLElement): void {
     // Create a subtle pulse animation using CSS
-    const animationName = `initiative-pulse-${Date.now()}`;
+    const _animationName = `initiative-pulse-${Date.now()}`;
     
     // Inject keyframes if not already present
     if (!document.querySelector(`style[data-initiative-pulse]`)) {

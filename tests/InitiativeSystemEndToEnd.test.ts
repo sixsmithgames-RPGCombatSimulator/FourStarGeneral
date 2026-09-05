@@ -8,7 +8,7 @@
  * @since Initiative System v2.0
  */
 
-import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { GroupedInitiativeQueueManager } from '../src/core/GroupedInitiativeQueue';
 import { InitiativeUnitDestructionHandler } from '../src/core/InitiativeUnitDestructionHandler';
 import { InitiativeSkipHandler } from '../src/core/InitiativeSkipHandler';

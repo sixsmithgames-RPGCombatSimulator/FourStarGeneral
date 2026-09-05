@@ -12,10 +12,7 @@ import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
   calculateObservedSpeed,
   getAuthoritativeContestedPackagePhases,
-  getAuthoritativeContestedPlan,
-  type AssignmentLike,
-  type PhaseLike,
-  type PositionSample
+  getAuthoritativeContestedPlan
 } from "./airShowTestSupport.js";
 
 const PRE_TARGET_DISTANCE_TOLERANCE_PX = 12;

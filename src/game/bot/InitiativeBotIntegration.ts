@@ -8,12 +8,11 @@
  */
 
 import { planHeuristicBotTurn, type BotPlannerInput, type PlannedBotAction, type PlannerUnitSnapshot } from './BotPlanner';
-import { AdvancedBotPlanner, type AdvancedBotAction, planAdvancedBotTurn } from './AdvancedBotPlanner';
+import { AdvancedBotPlanner, type AdvancedBotAction } from './AdvancedBotPlanner';
 import { TacticalAnalysisEngine } from './TacticalAnalysisEngine';
 import { ThreatAssessmentModule } from './ThreatAssessmentModule';
 import { TerrainAnalysisModule } from './TerrainAnalysisModule';
 import type { UnitActivation } from '../../core/InitiativeQueue';
-import type { ScenarioUnit } from '../../core/types';
 import type { Axial } from '../../core/Hex';
 
 /**
@@ -195,7 +194,7 @@ export class InitiativeBotIntegration {
   /**
    * Create BotPlannerInput from current game state and activation
    */
-  private createPlannerInput(activation: UnitActivation): BotPlannerInput {
+  private createPlannerInput(_activation: UnitActivation): BotPlannerInput {
     // Get all bot units
     const botUnits = this.createPlannerUnitSnapshots('Bot');
     

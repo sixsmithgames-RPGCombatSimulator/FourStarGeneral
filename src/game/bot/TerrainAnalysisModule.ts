@@ -8,7 +8,7 @@
  */
 
 import type { Axial } from '../../core/Hex';
-import type { TerrainDefinition, TerrainFeature } from '../../core/types';
+import type { TerrainFeature } from '../../core/types';
 import type { BotPlannerInput, PlannerUnitSnapshot } from './BotPlanner';
 
 /**
@@ -277,7 +277,7 @@ export class TerrainAnalysisModule {
     // Simplified A* pathfinding with terrain considerations
     const openSet: Array<{ pos: Axial; g: number; h: number; f: number; path: Axial[] }> = [];
     const closedSet = new Set<string>();
-    const startKey = `${from.q},${from.r}`;
+    const _startKey = `${from.q},${from.r}`;
 
     openSet.push({
       pos: from,
@@ -532,7 +532,7 @@ export class TerrainAnalysisModule {
     let concealment = terrain.concealment;
 
     // Add smoke effects if present
-    const positionKey = `${position.q},${position.r}`;
+    const _positionKey = `${position.q},${position.r}`;
     // Note: smokePositions not available in BotPlannerInput
     if (false) {
       concealment = Math.max(concealment, 80);
@@ -719,7 +719,7 @@ export class TerrainAnalysisModule {
   /**
    * Calculate approach angle for flanking
    */
-  private calculateApproachAngle(from: Axial, to: Axial, input: BotPlannerInput): number {
+  private calculateApproachAngle(from: Axial, to: Axial, _input: BotPlannerInput): number {
     // Simplified angle calculation
     const dx = to.q - from.q;
     const dy = to.r - from.r;

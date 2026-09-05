@@ -1762,3 +1762,18 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - Batch into one push, wait for the one automatic production deployment, then replay the saved defense AAR and inspect exact names, command grouping, disclosure behavior, viewports, console, and broken images through external Chrome.
 
 ---
+# Campaign release lint gate — 2026-09-05
+
+The audit plan requires zero ESLint warnings. The final repository scan exposed existing unused bindings and const suggestions outside campaign files; the separate baseline checkout also entered the scan. The baseline worktree has been relocated into the existing ignored `dist-tsc-check` evidence area without modifying its audited source. Lint configuration and rule severity will not be weakened.
+
+## Impact analysis before editing
+
+This work removes unused imports/types, marks intentionally unused parameters/bindings explicitly, removes obsolete lint-disable comments, and uses const where no reassignment exists. It must preserve initializer evaluation, parameter order and arity, all gameplay branches, RNG calls, coordinate calculations, persistence, and render timing. The only high-risk file requiring a mechanical edit is `src/rendering/HexMapRenderer.ts`: unused imports/types/bindings, two unused callback parameters and one never-reassigned local declaration. No renderer algorithm, animation timing, or coordinate expression may change. `BattleScreen.ts` and `src/engine` remain outside the edit scope.
+
+## Replay and manual checklist
+
+- Inspect every renderer diff: initializer/call expressions, branch conditions, iteration order, and coordinate math must remain identical.
+- Compare emitted renderer JavaScript before/after after normalizing only renamed local identifiers and const/let declaration keywords; any other difference requires investigation.
+- Run the existing full repository replay/regression suite and all six mandatory release commands again from a clean worktree; run the six-viewport production browser matrix for actual map/inspector/action operation.
+- Confirm zero ESLint warnings without ignores or suppressions and preserve the original warning report for traceability.
+- During the separately authorized live run, inspect map rendering, battle handoff, long tactical play, animation, and console/request errors. Local replay and browser checks are not live certification.

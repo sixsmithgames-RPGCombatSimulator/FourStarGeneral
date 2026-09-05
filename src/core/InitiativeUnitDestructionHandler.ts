@@ -9,8 +9,7 @@
  */
 
 import type { UnitActivation } from './InitiativeQueue';
-import type { InitiativeGroup, GroupedInitiativeQueue } from './GroupedInitiativeQueue';
-import type { ScenarioUnit } from './types';
+import type { GroupedInitiativeQueue } from './GroupedInitiativeQueue';
 import { globalInitiativeEventSystem } from '../events/InitiativeEventSystem';
 
 /**
@@ -208,8 +207,8 @@ export class InitiativeUnitDestructionHandler {
     groupsEmptied: number;
   } {
     const destructionsByReason: Record<string, number> = {};
-    let activeUnitsDestroyed = 0;
-    let groupsEmptied = 0;
+    const activeUnitsDestroyed = 0;
+    const groupsEmptied = 0;
 
     this.destructionHistory.forEach(context => {
       destructionsByReason[context.reason] = (destructionsByReason[context.reason] || 0) + 1;

@@ -21,7 +21,6 @@ export function isGuestMode(authContext?: UnlockAuthContext | null): boolean {
   if (!authContext) {
     return true;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return authContext.isAuthenticated === false || (authContext as any).isGuest === true;
 }
 

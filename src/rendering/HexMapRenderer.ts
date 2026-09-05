@@ -18,11 +18,9 @@ import {
   AIR_SHOW_OFF_MAP_DISTANCE_PX,
   buildAirShowPhaseTimingAudit,
   buildAirShowMapBounds,
-  resolveAirShowFallbackOrigin,
   resolveAirShowBoundsRayIntersection,
   resolveAirShowHqAxis,
   type AirShowHqAxis,
-  type AirShowInspectionPhaseTimingRoleAudit,
   type AirShowMapBounds
 } from "../ui/airshow/AirShowPlanner";
 import { planAirShowTimeline } from "../ui/airshow/AirShowDirector";
@@ -34,7 +32,6 @@ import {
   type AirShowTimelineTrack
 } from "../ui/airshow/AirShowTimeline";
 import {
-  AIR_SHOW_FIGHTER_CLASH_START_PROGRESS,
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS
 } from "../ui/airshow/AirShowPlaybackPolicy";
@@ -44,15 +41,10 @@ import {
 } from "../ui/airshow/AirShowPlaybackPlanner";
 import { resolveResolvedAirShowBombers } from "../ui/airshow/AirShowPlaybackScene";
 import type {
-  AirShowInspectionAssignment,
   AirShowInspectionFlakBurst,
   AirShowInspectionFlight,
-  AirShowInspectionFlightActor,
-  AirShowInspectionPoint,
-  AirShowInspectionPhase,
   AirShowInspectionReport,
   AirShowInspectionSampledPosition,
-  AirShowInspectionTracer,
   AirShowPoint,
   PlannedAirShowFlight,
   PlannedAirShowPhase,
@@ -74,18 +66,12 @@ import {
 } from "../ui/airshow/AirShowRuntimeTrace";
 import {
   logAirShowPackageStart,
-  logAirShowBeatStart,
-  logAirShowActorTransition,
-  logAirShowEffect,
   logAirShowOwnershipAssert,
   logAirShowPackageEnd,
-  logAirShowReportLink,
   debugAirShowPhase,
   debugAirShowEffect,
   debugAirShowActor,
-  type AirShowRole,
-  type AirShowActorState,
-  type AirShowEffectType
+  type AirShowRole
 } from "../ui/airshow/AirShowLogger";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitSystem/derivedUnitTypes";
@@ -235,14 +221,6 @@ type AircraftSortieOptions = {
   onIngressProgress?: AircraftAnimationProgressCallback;
   onEgressProgress?: AircraftAnimationProgressCallback;
   onTargetPass?: (centerX: number, centerY: number) => void | Promise<void>;
-};
-type AircraftOrbitOptions = {
-  orbitRadiusPx?: number;
-  turns?: number;
-  startAngleRad?: number;
-  clockwise?: boolean;
-  verticalScale?: number;
-  onProgress?: AircraftAnimationProgressCallback;
 };
 type AirShowFlightSpec = {
   id: string;
@@ -1574,7 +1552,7 @@ export class HexMapRenderer implements IMapRenderer {
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
     const sceneActors = runtimeFlights.flatMap((flight) => flight.actors);
     const actorsById = new Map(sceneActors.map((actor) => [actor.id, actor] as const));
-    const tracksByActorId = new Map(timeline.tracks.map((track) => [track.actorId, track] as const));
+    const _tracksByActorId = new Map(timeline.tracks.map((track) => [track.actorId, track] as const));
     const destructionTimeByActorId = new Map(
       timeline.cues.flatMap((cue) => cue.kind === "destruction" ? [[cue.actorId, cue.timeMs] as const] : [])
     );
@@ -6580,7 +6558,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     // Create mutable copies
-    let positions = targetPositions.map(p => ({ ...p }));
+    const positions = targetPositions.map(p => ({ ...p }));
     const activeActorIndices = actors
       .map((actor, index) => (actor.active ? index : -1))
       .filter((index) => index >= 0);
@@ -6661,7 +6639,7 @@ export class HexMapRenderer implements IMapRenderer {
       const lane = laneByRole[flight.spec.role] ?? 0;
       const laneOffset = lane * HexMapRenderer.AIRCRAFT_ALTITUDE_LANE_OFFSET_PX;
 
-      for (const actor of activeActors) {
+      for (const _actor of activeActors) {
         const basePos = basePositions[positionIndex];
         // Apply lateral offset based on lane (simulated altitude via parallax)
         result.push({
@@ -7934,7 +7912,7 @@ export class HexMapRenderer implements IMapRenderer {
       430,
       300
     );
-    const leadPoint = this.buildAirShowHeadingLeadPoint(start, setupPoint, {
+    const _leadPoint = this.buildAirShowHeadingLeadPoint(start, setupPoint, {
       startHeadingDegrees: options.startHeadingDegrees,
       lateralSign,
       leadForwardPx: Math.min(Math.max(34, length * 0.16), Math.max(48, length * 0.22)),
@@ -9407,7 +9385,7 @@ export class HexMapRenderer implements IMapRenderer {
     return flights.flatMap((flight, index) => {
       const rand = randomForLabel(`band:${label}:${flight.spec.id}:${index}`);
       const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
-      const startHeadingDegrees = this.resolveAirShowFlightHeadingDegrees(flight);
+      const _startHeadingDegrees = this.resolveAirShowFlightHeadingDegrees(flight);
       const lane = flights.length <= 1 ? 0 : index - (flights.length - 1) / 2;
       const jitterAlongPx = (rand() - 0.5) * (options.jitterAlongPx ?? 28);
       const jitterLateralPx = (rand() - 0.5) * (options.jitterLateralPx ?? 24);
@@ -12722,7 +12700,7 @@ export class HexMapRenderer implements IMapRenderer {
           0.38 + (index / Math.max(1, timingCount - 1)) * 0.42
         );
     const perBurstSegments = Math.max(1, Math.round(options.burstCount ?? 1));
-    return timings.map((progress, volleyIndex) => ({
+    return timings.map((progress, _volleyIndex) => ({
       progress,
       source,
       target,
@@ -12784,7 +12762,7 @@ export class HexMapRenderer implements IMapRenderer {
     const timings =
       options.timings
       ?? Array.from({ length: emitter === "center" ? 4 : 5 }, (_, index) => 0.34 + index * 0.08);
-    return timings.flatMap<AirShowTracerBurst>((progress, volleyIndex) => {
+    return timings.flatMap<AirShowTracerBurst>((progress, _volleyIndex) => {
       const probeProgresses = [
         progress,
         progress - 0.03,

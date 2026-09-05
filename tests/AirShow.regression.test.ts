@@ -593,7 +593,7 @@ registerTest("AIR_SHOW_REGRESSION_NO_BOMBER_REAPPEAR_AFTER_DOGFIGHT", async ({ G
 
     // The same bombers should appear in both phases (continuity, not reappearance)
     const missingFromTarget = [...defenseBomberIds].filter(id => !targetRunBomberIds.has(id));
-    const newInTarget = [...targetRunBomberIds].filter(id => !defenseBomberIds.has(id));
+    const _newInTarget = [...targetRunBomberIds].filter(id => !defenseBomberIds.has(id));
 
     if (missingFromTarget.length > 0) {
       throw new Error(

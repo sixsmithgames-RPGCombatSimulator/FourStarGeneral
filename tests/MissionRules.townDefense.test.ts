@@ -57,7 +57,7 @@ function makeOccupancy(entries: Array<[string, TurnFaction]>): Map<string, TurnF
 
 registerTest("missionRules: town defense orders retreat when the attack collapses", async ({ When, Then }) => {
   const controller = createMissionRulesController("patrol", townDefenseScenario);
-  let status = controller.onTurnAdvanced({
+  const status = controller.onTurnAdvanced({
     turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 5 },
     scenario: townDefenseScenario,
     occupancy: makeOccupancy([["14,-5", "Player"]]),
@@ -96,7 +96,7 @@ registerTest("missionRules: town defense orders retreat when the attack collapse
 
 registerTest("missionRules: town defense does not retreat if the defenders are also spent", async ({ When, Then }) => {
   const controller = createMissionRulesController("patrol", townDefenseScenario);
-  let status = controller.onTurnAdvanced({
+  const status = controller.onTurnAdvanced({
     turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 5 },
     scenario: townDefenseScenario,
     occupancy: makeOccupancy([["14,-5", "Player"]]),

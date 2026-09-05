@@ -70,10 +70,10 @@ const createMockQueue = (activations: UnitActivation[]): InitiativeQueue => ({
 describe('InitiativeUnitHighlighter', () => {
   let highlighter: InitiativeUnitHighlighter;
   let mockRenderer: any;
-  let container: HTMLElement;
+  let _container: HTMLElement;
 
   beforeEach(() => {
-    container = createMockDOM();
+    _container = createMockDOM();
     mockRenderer = createMockHexMapRenderer();
     highlighter = new InitiativeUnitHighlighter(mockRenderer);
   });
@@ -168,7 +168,7 @@ describe('InitiativeUnitHighlighter', () => {
   describe('Statistics', () => {
     it('should provide accurate highlighting statistics', () => {
       const activation1 = createMockActivation('unit-1', 'player', 7);
-      const activation2 = createMockActivation('unit-2', 'bot', 6);
+      const _activation2 = createMockActivation('unit-2', 'bot', 6);
       
       const mockElement1 = document.createElement('div');
       const mockElement2 = document.createElement('div');
