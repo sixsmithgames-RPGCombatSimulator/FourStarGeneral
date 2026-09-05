@@ -3,434 +3,198 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Four Star General - Play Free Tactical Warfare</title>
-  <meta name="description" content="Four Star General - Play the tactical core free. No Steam or Epic install required. Command your forces in strategic World War II battles." />
-  <link rel="icon" type="image/png" href="/favicon.png" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <title>Four Star General | Operation Overlord Campaign</title>
+  <meta name="description" content="Command Allied forces in Operation Overlord, a persistent World War II campaign in Four Star General. Secure Normandy, manage supplies, and fight tactical battles in your browser." />
+  <meta property="og:title" content="Four Star General | Operation Overlord Campaign" />
+  <meta property="og:description" content="Command Allied forces in Operation Overlord, a persistent World War II campaign in Four Star General. Secure Normandy, manage supplies, and fight tactical battles in your browser." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Four Star General" />
+  <meta name="theme-color" content="#141e1c" />
+  <link rel="icon" type="image/svg+xml" href="/landing/assets/command-mark.svg" />
   <style>
     :root {
-      --color-bg: #0a0f14;
-      --color-bg-elevated: #111820;
-      --color-bg-card: #151e26;
-      --color-border: #1e2a35;
-      --color-border-hover: #2a3a47;
-      --color-text: #e8ecf1;
-      --color-text-muted: #8b9aab;
-      --color-accent: #c9a227;
-      --color-accent-hover: #d4b43a;
-      --color-accent-glow: rgba(201, 162, 39, 0.3);
-      --color-success: #4ade80;
-      --color-olive: #5a6b4a;
-      --color-olive-light: #7a8b6a;
-      --gradient-hero: linear-gradient(135deg, #0a0f14 0%, #111820 50%, #1a252f 100%);
-      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-      --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
-      --shadow-glow: 0 0 40px rgba(201, 162, 39, 0.15);
+      color-scheme: dark;
+      --background: #141e1c;
+      --surface: #1a2824;
+      --text: #f0ebdf;
+      --muted: #bac4b9;
+      --accent: #ead090;
+      --border: #405048;
     }
 
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--background); color: var(--text); font-family: "Segoe UI", Arial, sans-serif; line-height: 1.6; }
+    a { color: inherit; text-underline-offset: 0.25em; }
+    a:hover { color: var(--accent); }
+    a:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
+    h1, h2, h3, p, figure { margin: 0; }
+    img { display: block; max-width: 100%; height: auto; }
+    .wrap { width: min(100% - 5rem, 1320px); margin-inline: auto; }
+    .skip-link { position: absolute; top: 0.75rem; left: 1rem; z-index: 10; padding: 0.65rem 1rem; background: var(--accent); color: var(--background); transform: translateY(-180%); }
+    .skip-link:focus { transform: translateY(0); color: var(--background); }
+    .site-header { border-bottom: 1px solid var(--border); }
+    .header-content { min-height: 88px; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
+    .brand { display: inline-flex; align-items: center; gap: 0.85rem; min-height: 44px; text-decoration: none; font-size: 1.05rem; font-weight: 700; letter-spacing: 0.02em; }
+    .brand img { width: 42px; height: 42px; }
+    .nav-links { display: flex; flex-wrap: wrap; gap: 1.75rem; margin: 0; padding: 0; list-style: none; }
+    .nav-links a { display: inline-flex; align-items: center; min-height: 44px; font-size: 0.875rem; text-decoration: none; }
+    .nav-links a:hover { text-decoration: underline; }
+
+    .hero { display: grid; grid-template-columns: 1fr 1.1fr; align-items: center; gap: 3rem; padding-block: 64px 48px; }
+    .hero-copy { min-width: 0; }
+    .eyebrow { color: var(--accent); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+    h1 { margin-top: 1rem; font-family: Georgia, "Times New Roman", serif; font-size: clamp(3.4rem, 6.2vw, 6rem); font-weight: 400; line-height: 1.03; letter-spacing: -0.045em; }
+    h1 span { display: block; color: var(--accent); }
+    .hero-description { max-width: 34rem; margin-top: 1.5rem; color: var(--muted); font-size: 1.0625rem; line-height: 1.7; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
+    .button { display: inline-flex; align-items: center; justify-content: center; gap: 0.65rem; min-height: 52px; padding: 0.75rem 1.25rem; border: 1px solid var(--border); text-decoration: none; font-size: 0.9375rem; font-weight: 650; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--background); }
+    .btn-primary:hover { background: #f4dfae; border-color: #f4dfae; color: var(--background); }
+    .btn-secondary:hover { border-color: var(--accent); }
+    .button svg { flex: none; width: 18px; height: 18px; }
+    .hero-note { margin-top: 0.75rem; color: var(--muted); font-size: 0.8125rem; }
+
+    .theater { min-width: 0; position: relative; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+    .theater img { width: 100%; }
+    .theater figcaption { padding: 0.8rem 0.4rem 0.2rem; color: var(--muted); font-size: 0.75rem; }
+    .campaign-brief { border-top: 1px solid var(--border); padding-block: 2.5rem 3.5rem; }
+    .brief-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+    h2 { font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.75rem, 3vw, 2.25rem); font-weight: 400; line-height: 1.2; }
+    .brief-heading > p { color: var(--muted); font-size: 0.875rem; }
+    .brief-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; margin-top: 2rem; }
+    .brief-item { border-top: 1px solid var(--border); padding-top: 1.25rem; }
+    .brief-number { display: block; margin-bottom: 0.5rem; color: var(--accent); font-size: 0.75rem; letter-spacing: 0.12em; }
+    h3 { margin-bottom: 0.5rem; font-size: 1rem; font-weight: 650; }
+    .brief-item p { color: var(--muted); font-size: 0.9375rem; }
+    footer { border-top: 1px solid var(--border); }
+    .footer-content { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding-block: 1.5rem; }
+    .footer-credit { color: var(--muted); font-size: 0.8125rem; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+    .footer-links a { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); font-size: 0.8125rem; }
+    .footer-links a:hover { color: var(--accent); }
+
+    @media (max-width: 1050px) {
+      .wrap { width: min(100% - 3rem, 1320px); }
+      .hero { gap: 2rem; padding-block: 40px; }
+      .hero-actions { gap: 0.65rem; }
+      .button { padding-inline: 1rem; }
     }
 
-    html {
-      scroll-behavior: smooth;
+    @media (max-width: 760px) {
+      .wrap { width: calc(100% - 2.5rem); }
+      .header-content { min-height: 64px; gap: 1rem; }
+      .brand { gap: 0.5rem; font-size: 0.9375rem; }
+      .brand img { width: 32px; height: 32px; }
+      .nav-links { gap: 1rem; }
+      .hero { grid-template-columns: minmax(0, 1fr); gap: 2rem; padding-block: 28px; }
+      h1 { margin-top: 0.6rem; font-size: clamp(2.5rem, 7.5vw, 3.5rem); }
+      h1 span { display: inline; }
+      .hero-description { max-width: 40rem; margin-top: 1rem; font-size: 1rem; line-height: 1.5; }
+      .hero-actions { margin-top: 1.25rem; }
+      .brief-heading { display: block; }
+      .brief-heading > p { margin-top: 0.75rem; }
+      .brief-grid { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; margin-top: 1.5rem; }
+      .footer-content { align-items: flex-start; flex-direction: column; gap: 0.5rem; }
     }
 
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--color-bg);
-      color: var(--color-text);
-      line-height: 1.6;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
+    /* Short landscape screens keep the complete command invitation above the artwork. */
+    @media (max-width: 760px) and (max-height: 450px) {
+      .header-content { min-height: 52px; }
+      .hero { padding-top: 18px; }
+      h1 { font-size: 2.5rem; margin-top: 0.4rem; }
+      .hero-description { margin-top: 0.65rem; }
+      .hero-actions { margin-top: 0.85rem; }
+      .button { min-height: 44px; padding-block: 0.55rem; }
+      .hero-note { margin-top: 0.5rem; }
     }
 
-    /* Navigation */
-    nav {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 100;
-      background: rgba(10, 15, 20, 0.95);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--color-border);
-      padding: 0 2rem;
+    @media (max-width: 480px) {
+      .header-content { flex-wrap: wrap; gap: 0; padding-block: 0.4rem; }
+      .header-content nav { margin-left: auto; }
+      .nav-links { gap: 0.75rem; }
+      .nav-links a { font-size: 0.8125rem; }
+      .hero-actions { flex-direction: column; align-items: stretch; }
+      .hero-note { font-size: 0.75rem; }
+      .theater { padding: 6px; }
     }
 
-    .nav-content {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 64px;
-    }
-
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-weight: 700;
-      font-size: 1.25rem;
-      color: var(--color-text);
-      text-decoration: none;
-      letter-spacing: -0.02em;
-    }
-
-    .logo-icon {
-      width: 32px;
-      height: 32px;
-      background: linear-gradient(135deg, var(--color-olive) 0%, var(--color-olive-light) 100%);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1rem;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .nav-links {
-      display: flex;
-      gap: 2rem;
-      list-style: none;
-    }
-
-    .nav-links a {
-      color: var(--color-text-muted);
-      text-decoration: none;
-      font-size: 0.875rem;
-      font-weight: 500;
-      transition: color 0.2s ease;
-    }
-
-    .nav-links a:hover {
-      color: var(--color-text);
-    }
-
-    /* Hero Section */
-    .hero {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 8rem 2rem 4rem;
-      background: var(--gradient-hero);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .hero::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: 
-        radial-gradient(ellipse at 20% 50%, rgba(201, 162, 39, 0.08) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 30%, rgba(90, 107, 74, 0.1) 0%, transparent 40%);
-      pointer-events: none;
-    }
-
-    .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: rgba(201, 162, 39, 0.1);
-      border: 1px solid rgba(201, 162, 39, 0.3);
-      color: var(--color-accent);
-      padding: 0.5rem 1rem;
-      border-radius: 9999px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 1.5rem;
-    }
-
-    .hero-badge::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      background: var(--color-success);
-      border-radius: 50%;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-
-    .hero h1 {
-      font-size: clamp(2.5rem, 6vw, 4rem);
-      font-weight: 800;
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-      margin-bottom: 1.5rem;
-      max-width: 800px;
-    }
-
-    .hero h1 span {
-      background: linear-gradient(135deg, var(--color-text) 0%, var(--color-accent) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .hero-subtitle {
-      font-size: clamp(1.125rem, 2vw, 1.375rem);
-      color: var(--color-text-muted);
-      max-width: 600px;
-      margin-bottom: 2.5rem;
-      font-weight: 400;
-    }
-
-    .hero-cta {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    .btn-primary {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.75rem;
-      background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
-      color: var(--color-bg);
-      padding: 1rem 2rem;
-      border-radius: 12px;
-      font-size: 1rem;
-      font-weight: 700;
-      text-decoration: none;
-      box-shadow: var(--shadow-md), 0 0 30px var(--color-accent-glow);
-      transition: all 0.2s ease;
-      border: none;
-      cursor: pointer;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-md), 0 0 50px var(--color-accent-glow);
-    }
-
-    .btn-primary svg {
-      width: 20px;
-      height: 20px;
-    }
-
-    .hero-note {
-      font-size: 0.875rem;
-      color: var(--color-text-muted);
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .hero-note::before {
-      content: '✓';
-      color: var(--color-success);
-      font-weight: 700;
-    }
-
-    /* Features */
-    .features {
-      padding: 4rem 2rem;
-      background: var(--color-bg);
-    }
-
-    .features-grid {
-      max-width: 900px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 1.5rem;
-    }
-
-    .feature-card {
-      background: var(--color-bg-card);
-      border: 1px solid var(--color-border);
-      border-radius: 12px;
-      padding: 1.5rem;
-      transition: all 0.2s ease;
-    }
-
-    .feature-card:hover {
-      border-color: var(--color-border-hover);
-      transform: translateY(-2px);
-    }
-
-    .feature-icon {
-      width: 40px;
-      height: 40px;
-      background: rgba(201, 162, 39, 0.1);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 1rem;
-      font-size: 1.25rem;
-    }
-
-    .feature-card h3 {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-      color: var(--color-text);
-    }
-
-    .feature-card p {
-      font-size: 0.875rem;
-      color: var(--color-text-muted);
-      line-height: 1.5;
-    }
-
-    /* Footer */
-    footer {
-      background: var(--color-bg-elevated);
-      border-top: 1px solid var(--color-border);
-      padding: 3rem 2rem;
-    }
-
-    .footer-content {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1.5rem;
-    }
-
-    .footer-links {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 2rem;
-      list-style: none;
-    }
-
-    .footer-links a {
-      color: var(--color-text-muted);
-      text-decoration: none;
-      font-size: 0.875rem;
-      font-weight: 500;
-      transition: color 0.2s ease;
-    }
-
-    .footer-links a:hover {
-      color: var(--color-accent);
-    }
-
-    .footer-brand {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      color: var(--color-text-muted);
-      font-size: 0.875rem;
-    }
-
-    .footer-brand .logo-icon {
-      width: 24px;
-      height: 24px;
-      font-size: 0.75rem;
-    }
-
-    /* Mobile */
-    @media (max-width: 640px) {
-      .nav-links {
-        display: none;
-      }
-
-      .hero {
-        padding: 6rem 1.5rem 3rem;
-      }
-
-      .features {
-        padding: 3rem 1.5rem;
-      }
-
-      .features-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .footer-links {
-        gap: 1rem 1.5rem;
-      }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
     }
   </style>
 </head>
 <body>
-  <nav>
-    <div class="nav-content">
-      <a href="/" class="logo">
-        <div class="logo-icon">4</div>
+  <a class="skip-link" href="#main-content">Skip to campaign</a>
+  <header class="site-header">
+    <div class="wrap header-content">
+      <a href="/" class="brand">
+        <img src="/landing/assets/command-mark.svg" alt="" width="42" height="42" />
         <span>Four Star General</span>
       </a>
-      <ul class="nav-links">
-        <li><a href="https://sixsmithgames.com/product">Product</a></li>
-        <li><a href="https://sixsmithgames.com/facts">Facts</a></li>
-        <li><a href="https://sixsmithgames.com/help">Help</a></li>
-        <li><a href="https://sixsmithgames.com/pricing">Pricing</a></li>
-      </ul>
+      <nav aria-label="Main navigation">
+        <ul class="nav-links">
+          <li><a href="#campaign-brief">The campaign</a></li>
+          <li><a href="https://sixsmithgames.com/help">Help</a></li>
+        </ul>
+      </nav>
     </div>
-  </nav>
+  </header>
 
-  <main class="hero">
-    <div class="hero-badge">Now Playable</div>
-    <h1>Four Star General is <span>playable here</span>.</h1>
-    <p class="hero-subtitle">Play the tactical core free. No Steam or Epic install is required. Command your forces in strategic World War II battles directly in your browser.</p>
-    <div class="hero-cta">
-      <a href="/play" class="btn-primary">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        Play Now
-      </a>
-      <span class="hero-note">Free to play — no installation required</span>
-    </div>
+  <main id="main-content" tabindex="-1">
+    <section class="wrap hero" aria-labelledby="campaign-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Normandy / 7 June 1944 / D+1</p>
+        <h1 id="campaign-title">Operation <span>Overlord</span></h1>
+        <p class="hero-description">Command Allied forces in a persistent World War II campaign. Secure the Normandy beachheads, keep your formations supplied, and carry the operation inland.</p>
+        <div class="hero-actions">
+          <a href="/play?mode=campaign" class="button btn-primary">
+            Enter Campaign
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" focusable="false"><path d="M4 12h15M13 5l7 7-7 7" /></svg>
+          </a>
+          <a href="/play" class="button btn-secondary">Tactical Battles</a>
+        </div>
+        <p class="hero-note">Play in your browser. No installation required.</p>
+      </div>
+      <figure class="theater">
+        <img src="/landing/assets/overlord-theater.svg" alt="Illustrated Normandy theater: Allied routes cross the English Channel to the Utah, Omaha, Gold, Juno, and Sword beachheads, with inland approaches toward Carentan, Bayeux, and Caen." width="820" height="650" fetchpriority="high" />
+        <figcaption>Illustrated theater overview. Campaign conditions unfold in play.</figcaption>
+      </figure>
+    </section>
+
+    <section class="wrap campaign-brief" id="campaign-brief" aria-labelledby="brief-title">
+      <div class="brief-heading">
+        <h2 id="brief-title">A battle is only the beginning.</h2>
+        <p>Your command extends across the campaign.</p>
+      </div>
+      <div class="brief-grid">
+        <article class="brief-item">
+          <span class="brief-number" aria-hidden="true">01 / THE FRONT</span>
+          <h3>Build the foothold</h3>
+          <p>The Allied beachheads are ashore. Connect the lodgment, secure the Cotentin and Caen, and plan the breakout across Normandy.</p>
+        </article>
+        <article class="brief-item">
+          <span class="brief-number" aria-hidden="true">02 / HEADQUARTERS</span>
+          <h3>Keep the operation moving</h3>
+          <p>Read intelligence, review formation readiness, and manage supplies. Turn the operational picture into orders your forces can carry out.</p>
+        </article>
+        <article class="brief-item">
+          <span class="brief-number" aria-hidden="true">03 / THE CONSEQUENCES</span>
+          <h3>Carry each result forward</h3>
+          <p>Fight campaign engagements on tactical battlefields. Return to headquarters, assess the consequences, and continue your campaign. Save progress to resume later.</p>
+        </article>
+      </div>
+    </section>
   </main>
 
-  <section class="features">
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">⚔</div>
-        <h3>Tactical Warfare</h3>
-        <p>Command infantry, armor, and artillery across detailed hex-based battlefields with realistic combat mechanics.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>Instant Access</h3>
-        <p>Jump straight into the action. No downloads, no launchers, no waiting — just open your browser and play.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>Strategic Depth</h3>
-        <p>Plan your approach, manage supplies, and outmaneuver your opponent in challenging mission scenarios.</p>
-      </div>
-    </div>
-  </section>
-
   <footer>
-    <div class="footer-content">
-      <ul class="footer-links">
-        <li><a href="https://sixsmithgames.com/product">Official Product Page</a></li>
-        <li><a href="https://sixsmithgames.com/facts">Facts</a></li>
-        <li><a href="https://sixsmithgames.com/help">Help</a></li>
-        <li><a href="https://sixsmithgames.com/pricing">Pricing</a></li>
-      </ul>
-      <div class="footer-brand">
-        <div class="logo-icon">4</div>
-        <span>Made by Sixsmith Games</span>
-      </div>
+    <div class="wrap footer-content">
+      <p class="footer-credit">Four Star General / Made by Sixsmith Games</p>
+      <nav class="footer-links" aria-label="Product and support">
+        <a href="https://sixsmithgames.com/product">Product</a>
+        <a href="https://sixsmithgames.com/facts">Facts</a>
+        <a href="https://sixsmithgames.com/pricing">Pricing</a>
+        <a href="https://sixsmithgames.com/help">Help &amp; support</a>
+      </nav>
     </div>
   </footer>
 </body>
