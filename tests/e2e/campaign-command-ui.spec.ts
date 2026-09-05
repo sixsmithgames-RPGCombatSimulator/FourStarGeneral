@@ -73,6 +73,26 @@ async function openFront(page: Page, viewport: { width: number; height: number }
   await expect(page.locator('#campaignInspectorTitle')).toContainText('Utah');
 }
 
+test('FSG_CAM_081: public Enter Campaign link opens campaign while tactical entry keeps operation selection', async ({ page }, info) => {
+  await page.route('**/clerk.browser.js', (route) => route.fulfill({
+    contentType: 'application/javascript',
+    body: 'window.Clerk = { load: () => Promise.resolve(), user: null };'
+  }));
+  await page.goto('/play');
+  await expect(page.locator('#appBootStatus')).toHaveCount(0);
+  await expect(page.locator('#landingScreen')).toBeVisible();
+  await expect(page.locator('#campaignScreen')).toBeHidden();
+  await page.goto('/landing/index.html');
+  await page.getByRole('link', { name: 'Enter Campaign', exact: true }).click();
+  await expect(page).toHaveURL(/\/play\?mode=campaign$/);
+  await expect(page.locator('#appBootStatus')).toHaveCount(0);
+  await expect(page.locator('#campaignScreen')).toBeVisible();
+  await expect(page.locator('#landingScreen')).toBeHidden();
+  await expect(page.locator('.campaign-command-shell')).toBeVisible();
+  await expect(page.locator('#campaignCommandClock')).toContainText('7 June 1944');
+  await evidence(page, info, 'public-campaign-entry', { url: page.url(), campaignVisible: true });
+});
+
 for (const viewport of releaseViewports) {
   const size = `${viewport.width}x${viewport.height}`;
 
@@ -100,6 +120,41 @@ for (const viewport of releaseViewports) {
     contained(action, footer);
     contained(body, inspector);
     expect(body.height, 'Selected information must retain a positive body').toBeGreaterThan(0);
+
+    // A compact inspector intentionally covers the map until its explicit close action.
+    if (viewport.width <= 1120) await page.locator('[data-close-campaign-inspector]').click();
+    const toolbar = page.locator('.campaign-map-command-strip');
+    const toolbarBounds = await geometry(toolbar);
+    const layerParts = page.locator('.campaign-map-overlay-select:visible > span, .campaign-map-overlay-select:visible select, .campaign-map-overlay-buttons:visible button, .campaign-map-layer-label:visible');
+    const cameraButtons = page.locator('.campaign-map-viewport-controls button');
+    const layers = await Promise.all((await layerParts.all()).map(geometry));
+    const cameras = await Promise.all((await cameraButtons.all()).map(geometry));
+    await evidence(page, info, `map-toolbar-${size}`, { toolbar: toolbarBounds, layers, cameras });
+    expect(layers.length).toBeGreaterThan(0);
+    expect(cameras.length).toBeGreaterThan(0);
+    contained(toolbarBounds, viewportBounds);
+    for (const layer of layers) {
+      contained(layer, toolbarBounds);
+      for (const camera of cameras) {
+        expect(intersectionArea(layer, camera), 'Map layer must not overlap camera controls').toBe(0);
+      }
+    }
+    for (const camera of cameras) contained(camera, toolbarBounds);
+    for (const camera of await cameraButtons.all()) await camera.click({ trial: true });
+    const select = page.locator('.campaign-map-overlay-select select');
+    if (await select.isVisible()) {
+      await select.click({ trial: true });
+      await select.selectOption('objectives');
+      await expect(page.locator('#campaignHexMap')).toHaveAttribute('data-overlay-mode', 'objectives');
+      await select.selectOption('operational');
+    } else {
+      await page.locator('.campaign-map-overlay-buttons').getByRole('button', { name: 'Objectives', exact: true }).click();
+      await expect(page.locator('#campaignHexMap')).toHaveAttribute('data-overlay-mode', 'objectives');
+      await page.locator('.campaign-map-overlay-buttons').getByRole('button', { name: 'Operational', exact: true }).click();
+    }
+    await page.locator('.campaign-map-viewport-controls').getByRole('button', { name: 'Theater overview', exact: true }).click();
+    await page.locator('.campaign-map-viewport-controls').getByRole('button', { name: 'Active front', exact: true }).click();
+    await expect(page.locator('.campaign-map-viewport-controls').getByRole('button', { name: 'Active front', exact: true })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test(`FSG_CAM_078 ${size}: order drawer, timeline, advance and map return are reachable`, async ({ page }, info) => {
