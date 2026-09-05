@@ -1,15 +1,99 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
+import type { TestFn } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import type { AirEngagementEvent, AirMissionArrival, BotTurnSummary } from "../src/game/GameEngine";
 import type { AttackResult } from "../src/core/Combat";
 import type { Axial, ScenarioUnit } from "../src/core/types";
+import type { AirShowPlaybackCallbacks, HexMapRenderer, ResolvedAirShowScene } from "../src/rendering/HexMapRenderer";
+
+/** Fails healthy playback cases when BattleScreen catches a fixture error and continues. */
+function requireCleanPlayback(spec: TestFn): TestFn {
+  return async (context) => {
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const diagnostics: string[] = [];
+    console.warn = (...args: unknown[]): void => {
+      diagnostics.push(args.map(String).join(" "));
+      originalWarn(...args);
+    };
+    console.error = (...args: unknown[]): void => {
+      diagnostics.push(args.map(String).join(" "));
+      originalError(...args);
+    };
+    try {
+      await spec(context);
+      if (diagnostics.length > 0) {
+        throw new Error(`Expected playback without warnings, errors, or recovery: ${diagnostics.join("\n")}`);
+      }
+    } finally {
+      console.warn = originalWarn;
+      console.error = originalError;
+    }
+  };
+}
+
+/** The real renderer boundary, including optional impact authorization. */
+interface CapturedAirPlayback {
+  readonly scene: ResolvedAirShowScene;
+  readonly options: AirShowPlaybackCallbacks | undefined;
+}
+
+/** Records only actual renderer calls; legacy playback is always a fixture failure. */
+function createOwnedAirRenderer(
+  onPlayback: (call: CapturedAirPlayback) => Promise<void> = async () => {}
+): {
+  renderer: HexMapRenderer;
+  calls: CapturedAirPlayback[];
+  aftermath: string[];
+  assertNoLegacyPlayback: () => void;
+} {
+  const calls: CapturedAirPlayback[] = [];
+  const aftermath: string[] = [];
+  const legacyCalls: string[] = [];
+  const unexpected = (name: string) => async (): Promise<void> => {
+    legacyCalls.push(name);
+    throw new Error(`Expected resolved scene ownership, received ${name}.`);
+  };
+  const renderer = {
+    async animateResolvedAirCombatShow(scene: ResolvedAirShowScene, options?: AirShowPlaybackCallbacks): Promise<void> {
+      const call = { scene, options };
+      calls.push(call);
+      await onPlayback(call);
+    },
+    animateAircraftSortie: unexpected("animateAircraftSortie"),
+    animateAircraftFlyover: unexpected("animateAircraftFlyover"),
+    playFlakBurstAt: unexpected("playFlakBurstAt"),
+    playExplosion: unexpected("playExplosion"),
+    playDustCloud: unexpected("playDustCloud"),
+    playDogfight: unexpected("playDogfight"),
+    playAirDamageSmokeTrailAt: unexpected("playAirDamageSmokeTrailAt"),
+    markHexDamaged: (hexKey: string) => { aftermath.push(`damaged:${hexKey}`); },
+    markHexWrecked: (hexKey: string) => { aftermath.push(`wrecked:${hexKey}`); },
+    advanceAftermathTurn: () => {},
+    renderUnit: () => {},
+    clearUnit: () => {},
+    applyHexSelection: () => {},
+    syncQueuedTargetMarkers: () => {}
+  } satisfies Partial<HexMapRenderer>;
+  return {
+    // These tests exercise only the playback boundary, not a full SVG renderer.
+    renderer: renderer as unknown as HexMapRenderer,
+    calls,
+    aftermath,
+    assertNoLegacyPlayback: () => {
+      if (legacyCalls.length > 0) {
+        throw new Error(`Unexpected playback outside the owned scene: ${legacyCalls.join(", ")}.`);
+      }
+    }
+  };
+}
 
 /**
  * Verifies that player attack flow awaits HexMapRenderer.playAttackSequence before applying combat resolution.
  * Also validates that hard/soft target selection is derived from the defender's unit class.
  */
-registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", requireCleanPlayback(async ({ Given, When, Then }) => {
   const originalSetTimeout = window.setTimeout;
   window.setTimeout = ((cb: unknown) => {
     (cb as () => void)();
@@ -25,6 +109,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
   // Track the order of operations across stubs
   let animationCalled = false;
   let hardTargetFlag: boolean | null = null;
+  let battleUpdates = 0;
   const focusedHexes: string[] = [];
 
   // Fake engine exposing only the methods/fields used by executePendingAttack() and renderEngineUnits()
@@ -160,6 +245,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
       return fakeEngine as unknown as ReturnType<(typeof import("../src/state/BattleState"))['ensureBattleState']>["ensureGameEngine"];
     },
     emitBattleUpdate() {
+      battleUpdates += 1;
     },
     getCurrentTurnSummary() {
       return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
@@ -171,7 +257,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
 
   // Renderer stub capturing the animation call and returning a resolvable promise
   const fakeRenderer = {
-    async playAttackSequence(attKey: string, defKey: string, isHardTarget: boolean): Promise<void> {
+    async playAttackSequence(_attKey: string, _defKey: string, isHardTarget: boolean): Promise<void> {
       // Record the flag and mark as completed before resolving so subsequent code sees animation finished
       hardTargetFlag = isHardTarget;
       animationCalled = true;
@@ -182,6 +268,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
     advanceAftermathTurn: () => {},
     renderUnit: () => {},
     clearUnit: () => {},
+    clearTacticalHighlights: () => {},
     applyHexSelection: () => {}
   } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
 
@@ -220,11 +307,14 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
     if (hardTargetFlag !== false) {
       throw new Error(`Expected soft target (false), saw ${hardTargetFlag}`);
     }
+    if (battleUpdates !== 1) {
+      throw new Error(`Expected the successful attack to publish one battle update, saw ${battleUpdates}.`);
+    }
   });
   } finally {
     window.setTimeout = originalSetTimeout;
   }
-});
+}));
 
 /**
  * Verifies that bot attack animation uses hard-target explosion choice for tank-class defenders
@@ -464,6 +554,14 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
         <div class="attack-stance-selector">
           <label class="stance-label">Combat Stance:</label>
           <div class="stance-buttons">
+            <button type="button" id="stanceFireAtWill" class="stance-button" data-stance="fireAtWill">
+              <span class="stance-heading">
+                <span class="stance-name">Fire at will</span>
+                <span class="stance-state"></span>
+              </span>
+              <span class="stance-desc"></span>
+              <span class="stance-note"></span>
+            </button>
             <button type="button" id="stanceAssault" class="stance-button" data-stance="assault">
               <span class="stance-heading">
                 <span class="stance-name">Assault</span>
@@ -630,7 +728,10 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
 
   await When("the commander switches to assault stance", async () => {
     const assaultBtn = document.getElementById("stanceAssault") as HTMLButtonElement | null;
-    assaultBtn?.click();
+    if (!assaultBtn || assaultBtn.disabled || typeof assaultBtn.onclick !== "function") {
+      throw new Error("Expected an available, bound Assault control in the complete stance selector.");
+    }
+    assaultBtn.click();
   });
 
   await Then("the dialog keeps assault selected after the preview refresh", async () => {
@@ -648,7 +749,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
   });
 });
 
-registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", requireCleanPlayback(async ({ Given, When, Then }) => {
   const originalSetTimeout = window.setTimeout;
   window.setTimeout = ((cb: unknown) => {
     (cb as () => void)();
@@ -710,42 +811,15 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", async ({
       tryGetGameEngine: () => fakeEngine
     } as unknown as import("../src/state/BattleState").BattleState;
 
-    const fakeRenderer = {
-      async animateAircraftFlyover(
-        fromKey: string,
-        toKey: string,
-        _unitType: string,
-        _durationMs?: number,
-        onProgress?: (progress: number, centerX: number, centerY: number) => void,
-        endProgress: number = 1
-      ): Promise<void> {
-        callOrder.push(`flight:${fromKey}->${toKey}:${endProgress.toFixed(2)}`);
-        onProgress?.(0.72, 180, 120);
-        onProgress?.(0.9, 200, 140);
-      },
-      async playFlakBurstAt(_x: number, _y: number, count: number): Promise<void> {
-        callOrder.push(`flak:${count}`);
-      },
-      async playExplosion(hexKey: string): Promise<void> {
-        callOrder.push(`impact:${hexKey}`);
-      },
-      async playDustCloud(hexKey: string): Promise<void> {
-        callOrder.push(`dust:${hexKey}`);
-      },
-      async playDogfight(): Promise<void> {},
-      async playAirDamageSmokeTrailAt(): Promise<void> {
-        callOrder.push("trail");
-      },
-      markHexDamaged: () => {
-        callOrder.push("markDamaged");
-      },
-      markHexWrecked: () => {},
-      advanceAftermathTurn: () => {},
-      renderUnit: () => {},
-      clearUnit: () => {},
-      applyHexSelection: () => {},
-      syncQueuedTargetMarkers: () => {}
-    } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+    const playback = createOwnedAirRenderer(async ({ options }) => {
+      callOrder.push("scene-start");
+      if (playback.aftermath.length !== 0) {
+        throw new Error("Strike aftermath must wait for the scene's impact callback.");
+      }
+      await options?.onImpact?.();
+      callOrder.push("scene-end");
+    });
+    const fakeRenderer = playback.renderer;
 
     let screen: BattleScreen;
 
@@ -764,6 +838,7 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", async ({
       (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
         callOrder.push(`focus:${hexKey}`);
       };
+      (screen as any).waitForNextFrame = async (): Promise<void> => {};
       (screen as any).renderEngineUnits = () => {
         callOrder.push("render");
       };
@@ -805,34 +880,45 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", async ({
       await (screen as any).playAirOperations(arrivals, engagements);
     });
 
-    await Then("flak bursts occur during ingress before the strike impact and the bomber returns", async () => {
-      if (callOrder[0] !== "focus:0,0") {
-        throw new Error(`Expected focus on the target hex before air playback, saw ${callOrder[0] ?? "nothing"}.`);
+    await Then("one scene owns linked ingress flak, the authorized impact, and surviving bomber egress", async () => {
+      if (playback.calls.length !== 1) {
+        throw new Error(`Expected one owned strike scene, saw ${playback.calls.length}.`);
       }
-
-      const flakIndex = callOrder.findIndex((entry) => entry.startsWith("flak:"));
-      const impactIndex = callOrder.findIndex((entry) => entry.startsWith("impact:"));
-      const returnFlightIndex = callOrder.findIndex((entry) => entry === "flight:0,0->1,0:1.00");
-
-      if (flakIndex < 0) {
-        throw new Error(`Expected mission-linked flak bursts during ingress, saw ${JSON.stringify(callOrder)}.`);
+      const { scene, options } = playback.calls[0];
+      const bomber = scene.bombers?.[0];
+      if (scene.kind !== "airToAir" || scene.hexKey !== "0,0" || scene.bomberTargetHexKey !== "0,0"
+        || scene.bombers?.length !== 1 || scene.bomber !== bomber
+        || bomber?.id !== "u_bomber" || bomber.scenarioType !== "Bomber" || bomber.faction !== "Player"
+        || bomber.role !== "bomber" || bomber.combatRole !== "strike"
+        || bomber.originHexKey !== "1,0" || bomber.targetHexKey !== "0,0"
+        || bomber.strengthBefore !== 100 || bomber.strengthAfterEscortPhase !== 100 || bomber.finalStrength !== 76) {
+        throw new Error(`Expected the linked bomber's complete 100 -> 76 ingress/egress contract, saw ${JSON.stringify(scene)}.`);
       }
-      if (impactIndex < 0 || flakIndex > impactIndex) {
-        throw new Error(`Expected flak to occur before strike impact, saw ${JSON.stringify(callOrder)}.`);
+      const bursts = scene.flakBursts ?? [];
+      if (bursts.length !== 2 || bursts[0].batteryHexKey !== "0,1" || bursts[1].batteryHexKey !== "1,1"
+        || bursts.some((burst) => burst.bomberUnitKey !== "u_bomber" || burst.targetHexKey !== "0,0"
+          || burst.count !== 1 || burst.progress < 0.28 || burst.progress > 0.36)
+        || scene.interceptors.length !== 0 || scene.escorts.length !== 0) {
+        throw new Error(`Expected two linked ground-battery sources during ingress, saw ${JSON.stringify(scene)}.`);
       }
-      if (returnFlightIndex < 0) {
-        throw new Error(`Expected bomber egress flight after the strike, saw ${JSON.stringify(callOrder)}.`);
+      if (scene.strikeAborted !== false || options?.playImpactEffects !== true || typeof options.onImpact !== "function") {
+        throw new Error("Expected the surviving bomber scene to authorize its impact effects and callback.");
       }
-      if (!announcements.some((message) => message.includes("2 Flak batteries engaged incoming Bomber. AA damage: 24%. Bomber strength now 76."))) {
+      if (JSON.stringify(callOrder) !== JSON.stringify(["focus:0,0", "scene-start", "render", "scene-end"])
+        || JSON.stringify(playback.aftermath) !== JSON.stringify(["damaged:0,0"])) {
+        throw new Error(`Expected focus before the scene and one callback-owned impact update, saw ${JSON.stringify({ callOrder, aftermath: playback.aftermath })}.`);
+      }
+      playback.assertNoLegacyPlayback();
+      if (!announcements.includes("2 Flak batteries engaged Bomber on final approach. AA damage: 24%. Bomber strength now 76.")) {
         throw new Error(`Expected flak engagement announcement with damage totals, saw ${JSON.stringify(announcements)}.`);
       }
     });
   } finally {
     window.setTimeout = originalSetTimeout;
   }
-});
+}));
 
-registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", requireCleanPlayback(async ({ Given, When, Then }) => {
   const originalSetTimeout = window.setTimeout;
   window.setTimeout = ((cb: unknown) => {
     (cb as () => void)();
@@ -880,38 +966,8 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", 
       tryGetGameEngine: () => fakeEngine
     } as unknown as import("../src/state/BattleState").BattleState;
 
-    const fakeRenderer = {
-      async animateAircraftFlyover(
-        fromKey: string,
-        toKey: string,
-        _unitType: string,
-        _durationMs?: number,
-        onProgress?: (progress: number, centerX: number, centerY: number) => void,
-        endProgress: number = 1
-      ): Promise<void> {
-        callOrder.push(`flight:${fromKey}->${toKey}:${endProgress.toFixed(2)}`);
-        onProgress?.(0.74, 180, 120);
-      },
-      async playFlakBurstAt(): Promise<void> {
-        callOrder.push("flak");
-      },
-      async playExplosion(): Promise<void> {
-        callOrder.push("impact");
-      },
-      async playDustCloud(): Promise<void> {
-        callOrder.push("dust");
-      },
-      async playAirDamageSmokeTrailAt(): Promise<void> {
-        callOrder.push("trail");
-      },
-      markHexDamaged: () => {},
-      markHexWrecked: () => {},
-      advanceAftermathTurn: () => {},
-      renderUnit: () => {},
-      clearUnit: () => {},
-      applyHexSelection: () => {},
-      syncQueuedTargetMarkers: () => {}
-    } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+    const playback = createOwnedAirRenderer(async () => { callOrder.push("scene"); });
+    const fakeRenderer = playback.renderer;
 
     let screen: BattleScreen;
 
@@ -931,6 +987,7 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", 
         callOrder.push(`focus:${hexKey}`);
       };
       (screen as any).announceBattleUpdate = () => {};
+      (screen as any).waitForNextFrame = async (): Promise<void> => {};
     });
 
     const arrivals: AirMissionArrival[] = [
@@ -966,28 +1023,42 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", 
     });
 
     await Then("the bomber stops short of the target and no strike impact or return leg is played", async () => {
-      if (!callOrder.includes("flight:1,0->0,0:0.84")) {
-        throw new Error(`Expected destroyed bomber ingress to stop short of the target, saw ${JSON.stringify(callOrder)}.`);
+      if (playback.calls.length !== 1 || JSON.stringify(callOrder) !== JSON.stringify(["focus:0,0", "scene"])) {
+        throw new Error(`Expected focus and one aborted scene, saw ${JSON.stringify(callOrder)}.`);
       }
-      if (callOrder.some((entry) => entry === "impact" || entry === "dust")) {
-        throw new Error(`Did not expect a strike impact after bomber destruction, saw ${JSON.stringify(callOrder)}.`);
+      const { scene, options } = playback.calls[0];
+      const bomber = scene.bombers?.[0];
+      if (scene.bombers?.length !== 1 || scene.bomber !== bomber || bomber?.id !== "u_bomber"
+        || bomber.originHexKey !== "1,0" || bomber.targetHexKey !== "0,0"
+        || bomber.strengthBefore !== 100 || bomber.strengthAfterEscortPhase !== 100 || bomber.finalStrength !== 0
+        || scene.strikeAborted !== true || options?.onImpact !== undefined || options?.playImpactEffects !== true) {
+        throw new Error(`Expected an aborted 100 -> 0 bomber scene with no impact callback or surviving return strength, saw ${JSON.stringify(scene)}.`);
       }
-      if (callOrder.some((entry) => entry === "flight:0,0->1,0:1.00" || entry === "trail")) {
-        throw new Error(`Did not expect a return leg for a destroyed bomber, saw ${JSON.stringify(callOrder)}.`);
+      const bursts = scene.flakBursts ?? [];
+      if (bursts.length !== 1 || bursts[0].batteryHexKey !== "0,1" || bursts[0].bomberUnitKey !== "u_bomber"
+        || bursts[0].targetHexKey !== "0,0" || bursts[0].count !== 1
+        || bursts[0].progress < 0.28 || bursts[0].progress > 0.36) {
+        throw new Error(`Expected the lethal battery to remain linked to bomber ingress, saw ${JSON.stringify(bursts)}.`);
       }
+      if (playback.aftermath.length !== 0) {
+        throw new Error(`Did not expect target aftermath for a destroyed bomber, saw ${JSON.stringify(playback.aftermath)}.`);
+      }
+      playback.assertNoLegacyPlayback();
     });
   } finally {
     window.setTimeout = originalSetTimeout;
   }
-});
+}));
 
-registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", requireCleanPlayback(async ({ Given, When, Then }) => {
   const originalSetTimeout = window.setTimeout;
   window.setTimeout = ((cb: unknown) => {
     (cb as () => void)();
     return 0 as any;
   }) as any;
 
+  let releaseFlights!: () => void;
+  let playback: Promise<void> | null = null;
   try {
     const root = document.getElementById("battleScreen") ?? document.createElement("div");
     if (!root.parentElement) {
@@ -995,8 +1066,9 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", as
       document.body.appendChild(root);
     }
 
-    const startedFlights: string[] = [];
-    let releaseFlights: (() => void) | null = null;
+    let signalSceneStarted!: () => void;
+    const sceneStarted = new Promise<void>((resolve) => { signalSceneStarted = resolve; });
+    let playbackCompleted = false;
     const flightsReleased = new Promise<void>((resolve) => {
       releaseFlights = resolve;
     });
@@ -1020,20 +1092,11 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", as
       tryGetGameEngine: () => fakeEngine
     } as unknown as import("../src/state/BattleState").BattleState;
 
-    const fakeRenderer = {
-      async playFlakBurstAt(): Promise<void> {},
-      async playExplosion(): Promise<void> {},
-      async playDustCloud(): Promise<void> {},
-      async playDogfight(): Promise<void> {},
-      async playAirDamageSmokeTrailAt(): Promise<void> {},
-      markHexDamaged: () => {},
-      markHexWrecked: () => {},
-      advanceAftermathTurn: () => {},
-      renderUnit: () => {},
-      clearUnit: () => {},
-      applyHexSelection: () => {},
-      syncQueuedTargetMarkers: () => {}
-    } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+    const ownedRenderer = createOwnedAirRenderer(async () => {
+      signalSceneStarted();
+      await flightsReleased;
+    });
+    const fakeRenderer = ownedRenderer.renderer;
 
     let screen: BattleScreen;
 
@@ -1078,10 +1141,6 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", as
           laneOffsetPx: 9
         }
       ];
-      (screen as any).playMissionStrikeOperation = async (flight: { missionId: string }) => {
-        startedFlights.push(flight.missionId);
-        await flightsReleased;
-      };
     });
 
     const arrivals: AirMissionArrival[] = [];
@@ -1112,27 +1171,50 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", as
       }
     ];
 
-    let playback: Promise<void> | null = null;
-
     await When("the combined air-operations sequence begins", async () => {
-      playback = (screen as any).playAirOperations(arrivals, engagements);
-      await Promise.resolve();
-      await Promise.resolve();
+      playback = (screen as any).playAirOperations(arrivals, engagements) as Promise<void>;
+      playback = playback.then(() => { playbackCompleted = true; });
+      // Observe the renderer boundary or early completion, without guessing how many microtasks preparation takes.
+      await Promise.race([sceneStarted, playback]);
     });
 
     await Then("both strike packages should start before the first one finishes", async () => {
-      if (startedFlights.length < 2) {
-        throw new Error(`Expected both strike flights to begin in parallel, saw ${JSON.stringify(startedFlights)}.`);
+      if (ownedRenderer.calls.length !== 1 || playbackCompleted) {
+        throw new Error(`Expected one still-running coordinated scene, saw ${ownedRenderer.calls.length} calls; completed=${playbackCompleted}.`);
       }
-      releaseFlights?.();
+      const { scene, options } = ownedRenderer.calls[0];
+      const bombers = scene.bombers ?? [];
+      // The timing policy gives both bombers the same 360ms lead within this one scene.
+      if (bombers.length !== 2 || scene.bomber !== bombers[0] || scene.bomberArrivalDelayMs !== 360
+        || bombers[0].id !== "b1" || bombers[0].originHexKey !== "0,10" || bombers[0].targetHexKey !== "12,-6" || bombers[0].laneOffsetPx !== -9
+        || bombers[1].id !== "b2" || bombers[1].originHexKey !== "1,10" || bombers[1].targetHexKey !== "13,-6" || bombers[1].laneOffsetPx !== 9
+        || bombers.some((bomber) => bomber.faction !== "Bot" || bomber.role !== "bomber" || bomber.combatRole !== "strike"
+          || bomber.strengthBefore !== 100 || bomber.strengthAfterEscortPhase !== 100 || bomber.finalStrength !== 100)) {
+        throw new Error(`Expected both intact bomber packages, targets, and distinct lanes in the same running scene, saw ${JSON.stringify(scene)}.`);
+      }
+      const bursts = scene.flakBursts ?? [];
+      if (bursts.length !== 2
+        || bursts[0].bomberUnitKey !== "b1" || bursts[0].batteryHexKey !== "11,-5" || bursts[0].targetHexKey !== "12,-6"
+        || bursts[1].bomberUnitKey !== "b2" || bursts[1].batteryHexKey !== "12,-5" || bursts[1].targetHexKey !== "13,-6"
+        || bursts.some((burst) => burst.count !== 1 || burst.progress < 0.28 || burst.progress > 0.36)
+        || scene.interceptors.length !== 0 || scene.escorts.length !== 0 || options !== undefined) {
+        throw new Error(`Expected independently linked flak in a renderer-owned coordinated show, saw ${JSON.stringify(scene)}.`);
+      }
+      releaseFlights();
       await playback;
+      if (!playbackCompleted || ownedRenderer.calls.length !== 1 || ownedRenderer.aftermath.length !== 0) {
+        throw new Error("Expected releasing the one scene to finish both strikes without replaying separate operations or impacts.");
+      }
+      ownedRenderer.assertNoLegacyPlayback();
     });
   } finally {
+    releaseFlights?.();
+    await playback;
     window.setTimeout = originalSetTimeout;
   }
-});
+}));
 
-registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_IT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_IT", requireCleanPlayback(async ({ Given, When, Then }) => {
   const root = document.getElementById("battleScreen") ?? document.createElement("div");
   if (!root.parentElement) {
     root.id = "battleScreen";
@@ -1185,38 +1267,15 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
     tryGetGameEngine: () => fakeEngine
   } as unknown as import("../src/state/BattleState").BattleState;
 
-  const fakeRenderer = {
-    async animateAircraftSortie(
-      _fromKey: string,
-      _toKey: string,
-      _returnKey: string,
-      _unitType: string,
-      options?: { onTargetPass?: () => Promise<void> | void }
-    ): Promise<void> {
-      callOrder.push("sortie-start");
-      await options?.onTargetPass?.();
-      callOrder.push("sortie-end");
-    },
-    async animateAircraftFlyover(): Promise<void> {
-      throw new Error("Expected continuous sortie path instead of separate flyover legs.");
-    },
-    async playExplosion(): Promise<void> {
-      callOrder.push("impact");
-    },
-    async playDustCloud(): Promise<void> {
-      callOrder.push("dust");
-    },
-    async playAirDamageSmokeTrailAt(): Promise<void> {},
-    markHexDamaged: () => {
-      callOrder.push("markDamaged");
-    },
-    markHexWrecked: () => {},
-    advanceAftermathTurn: () => {},
-    renderUnit: () => {},
-    clearUnit: () => {},
-    applyHexSelection: () => {},
-    syncQueuedTargetMarkers: () => {}
-  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+  const playback = createOwnedAirRenderer(async ({ options }) => {
+    callOrder.push("scene-start");
+    if (playback.aftermath.length !== 0) {
+      throw new Error("Expected the scene to own the first strike impact.");
+    }
+    await options?.onImpact?.();
+    callOrder.push("scene-end");
+  });
+  const fakeRenderer = playback.renderer;
 
   let screen: BattleScreen;
 
@@ -1236,7 +1295,7 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
     (screen as any).waitForNextFrame = async (): Promise<void> => {};
     (screen as any).announceBattleUpdate = () => {};
     (screen as any).publishActivityEvent = () => {};
-    (screen as any).renderEngineUnits = () => {};
+    (screen as any).renderEngineUnits = () => { callOrder.push("render"); };
   });
 
   await When("a strike mission plays", async () => {
@@ -1260,19 +1319,30 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
     );
   });
 
-  await Then("impact resolves during the sortie rather than after a separate return animation", async () => {
-    const sortieStartIndex = callOrder.indexOf("sortie-start");
-    const impactIndex = callOrder.indexOf("impact");
-    const sortieEndIndex = callOrder.indexOf("sortie-end");
-
-    if (sortieStartIndex < 0 || impactIndex < 0 || sortieEndIndex < 0) {
-      throw new Error(`Expected sortie start, impact, and sortie end markers, saw ${JSON.stringify(callOrder)}.`);
+  await Then("one continuous scene owns ingress, the impact callback, and egress", async () => {
+    if (playback.calls.length !== 1) {
+      throw new Error(`Expected one continuous resolved scene, saw ${playback.calls.length}.`);
     }
-    if (!(sortieStartIndex < impactIndex && impactIndex < sortieEndIndex)) {
-      throw new Error(`Expected impact to occur during the continuous sortie, saw ${JSON.stringify(callOrder)}.`);
+    const { scene, options } = playback.calls[0];
+    const bomber = scene.bombers?.[0];
+    if (scene.kind !== "airToAir" || scene.hexKey !== "0,0" || scene.bomberTargetHexKey !== "0,0"
+      || scene.bombers?.length !== 1 || scene.bomber !== bomber
+      || bomber?.id !== "u_bomber" || bomber.scenarioType !== "Bomber" || bomber.faction !== "Player"
+      || bomber.role !== "bomber" || bomber.combatRole !== "strike" || bomber.laneOffsetPx !== 0
+      || bomber.originHexKey !== "1,0" || bomber.targetHexKey !== "0,0"
+      || bomber.strengthBefore !== 100 || bomber.strengthAfterEscortPhase !== 100 || bomber.finalStrength !== 100
+      || scene.strikeAborted !== false || scene.flakBursts?.length !== 0
+      || scene.interceptors.length !== 0 || scene.escorts.length !== 0) {
+      throw new Error(`Expected one intact bomber's complete continuous sortie contract, saw ${JSON.stringify(scene)}.`);
     }
+    if (options?.playImpactEffects !== true || typeof options.onImpact !== "function"
+      || JSON.stringify(callOrder) !== JSON.stringify(["scene-start", "render", "scene-end"])
+      || JSON.stringify(playback.aftermath) !== JSON.stringify(["damaged:0,0"])) {
+      throw new Error(`Expected exactly one impact update inside the owned scene and no duplicated visual effects, saw ${JSON.stringify({ callOrder, aftermath: playback.aftermath })}.`);
+    }
+    playback.assertNoLegacyPlayback();
   });
-});
+}));
 
 registerTest("BATTLESCREEN_INITIATIVE_BOT_RETALIATION_WAITS_FOR_FOCUS_PACING", async ({ Given, When, Then }) => {
   let screen: BattleScreen;

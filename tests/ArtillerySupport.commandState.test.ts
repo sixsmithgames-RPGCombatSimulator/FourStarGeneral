@@ -153,7 +153,8 @@ registerTest("PARTIALLY_MOVED_UNIT_ONLY_HIGHLIGHTS_DESTINATIONS_WITHIN_REMAINING
     unitId: "partial-mover"
   };
   const movementScenario = scenario();
-  movementScenario.tiles[0] = [
+  // Axial (2,0) is offset column 2, row 1 in the authored tile array.
+  movementScenario.tiles[1] = [
     { tile: "plains" },
     { tile: "plains" },
     { tile: "forest" },
@@ -197,7 +198,7 @@ registerTest("CAMPAIGN_NGFS_ASSET_IS_REAL_USABLE_AND_SAVE_COMPLETE", async ({ Th
   };
   const enemy: ScenarioUnit = {
     type: "Supply_Truck" as unknown as ScenarioUnit["type"],
-    hex: { q: 3, r: 0 },
+    hex: { q: 2, r: 0 },
     strength: 100,
     experience: 0,
     ammo: 0,
@@ -420,7 +421,7 @@ registerTest("QUEUED_ARTILLERY_SUPPORT_DAMAGE_USES_STATUS_POOLS", async ({ Then 
   };
   const enemy: ScenarioUnit = {
     type: "Supply_Truck" as unknown as ScenarioUnit["type"],
-    hex: { q: 3, r: 0 },
+    hex: { q: 2, r: 0 },
     strength: 100,
     experience: 0,
     ammo: 0,
@@ -438,7 +439,9 @@ registerTest("QUEUED_ARTILLERY_SUPPORT_DAMAGE_USES_STATUS_POOLS", async ({ Then 
     throw new Error("Expected observer to queue artillery support against the supply truck.");
   }
 
-  engine.endTurn();
+  if (engine.resolveQueuedSupportActionsForInitiative() !== 1) {
+    throw new Error("Expected exactly one queued support action to resolve in the artillery band.");
+  }
   const impact = engine.consumeSupportImpactEvents()[0];
   if (!impact || impact.damage <= 0 || impact.damage > (supportAsset.strikeDamageCap ?? 24)) {
     throw new Error(`Expected a capped nonzero support impact event, received ${JSON.stringify(impact)}.`);

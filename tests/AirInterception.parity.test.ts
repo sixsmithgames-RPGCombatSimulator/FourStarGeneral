@@ -2,6 +2,8 @@ import { registerTest } from "./harness.js";
 import type { ScenarioUnit, ScenarioSide, ScenarioData, TerrainDefinition, TerrainDictionary, UnitTypeDictionary, UnitTypeDefinition, Axial } from "../src/core/types";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
 import type { AirEngagementEvent, AttackResolution } from "../src/game/GameEngine";
+import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
+import { canonicalWeaponModel } from "./canonicalWeaponFixture.js";
 
 // Inline terrain and unit definitions to avoid JSON loader requirements
 const plains: TerrainDefinition = {
@@ -13,6 +15,7 @@ const plains: TerrainDefinition = {
 const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const fighterDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("fighter"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "large" },
   movement: 5,
@@ -39,6 +42,7 @@ const fighterDef: UnitTypeDefinition = {
 };
 
 const bomberDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("bomber"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "large" },
   movement: 1,
@@ -65,6 +69,7 @@ const bomberDef: UnitTypeDefinition = {
 };
 
 const flakDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("flakBattery"),
   class: "specialist",
   combat: { category: "specialist", weight: "light", role: "antiInfantry", signature: "small" },
   movement: 1,
@@ -274,7 +279,7 @@ registerTest("BOT_FLAK_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT_SP
   const originHex: Axial = { q: 0, r: 0 };
   const targetHex: Axial = { q: 1, r: 0 };
 
-  await Given("a bot flak battery firing on two stacked player fighters", async () => {
+  await Given("a bot flak battery firing on two stacked player fighters with no counterfire ammunition", async () => {
     const config: GameEngineConfig = {
       scenario: buildScenario(),
       unitTypes,
@@ -290,13 +295,20 @@ registerTest("BOT_FLAK_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT_SP
     engine.finalizeDeployment();
     engine.startPlayerTurnPhase();
 
-    const fighterAlpha = { ...makeUnit("Fighter", targetHex), unitId: "player-fighter-alpha" } as ScenarioUnit;
-    const fighterBravo = { ...makeUnit("Fighter", targetHex), unitId: "player-fighter-bravo" } as ScenarioUnit;
+    const fighterAlpha = { ...makeUnit("Fighter", targetHex), unitId: "player-fighter-alpha", ammo: 0 } as ScenarioUnit;
+    const fighterBravo = { ...makeUnit("Fighter", targetHex), unitId: "player-fighter-bravo", ammo: 0 } as ScenarioUnit;
     const flak = { ...makeUnit("Flak_88", originHex), unitId: "bot-flak-direct" } as ScenarioUnit;
 
     (engine as any).addUnitToFactionHex("Player", fighterAlpha);
     (engine as any).addUnitToFactionHex("Player", fighterBravo);
     (engine as any).addUnitToFactionHex("Bot", flak);
+    // Aircraft use a separate salvo ledger; scalar ammo alone does not disable retaliation.
+    for (const fighter of [fighterAlpha, fighterBravo]) {
+      (engine as any).getAircraftAmmoState("Player", fighter.unitId, fighterDef);
+      for (let salvo = 0; salvo < 4; salvo += 1) {
+        (engine as any).spendAircraftAmmo("Player", fighter.unitId, true);
+      }
+    }
   });
 
   await When("the bot flak battery attacks the stacked air defenders", async () => {
@@ -340,7 +352,7 @@ registerTest("BOT_FLAK_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT_SP
 
 registerTest("BOT_FIGHTER_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT_SPENDS_ONE_AIR_SALVO", async ({ Given, When, Then }) => {
   let engine: GameEngine;
-  let attack: { inflictedDamage?: number } | null = null;
+  let attack: { inflictedDamage?: number; defenderDestroyed: boolean } | null = null;
   const originHex: Axial = { q: 0, r: 0 };
   const targetHex: Axial = { q: 1, r: 0 };
 
@@ -367,6 +379,11 @@ registerTest("BOT_FIGHTER_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT
     (engine as any).addUnitToFactionHex("Player", fighterAlpha);
     (engine as any).addUnitToFactionHex("Player", fighterBravo);
     (engine as any).addUnitToFactionHex("Bot", botFighter);
+    const defenders = engine.getHexStackMembers(targetHex, "Player");
+    if (defenders.length !== 2
+      || !["player-air-alpha", "player-air-bravo"].every((id) => defenders.some((entry) => entry.unitId === id && entry.unit.strength === 100))) {
+      throw new Error("Expected two identifiable full-strength aircraft before the canonical dogfight salvo.");
+    }
   });
 
   await When("the bot fighter attacks the stacked air defenders", async () => {
@@ -377,22 +394,13 @@ registerTest("BOT_FIGHTER_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT
     attack = (engine as any).resolveBotAttack(botFighter, originHex, targetHex);
   });
 
-  await Then("both defenders should take dogfight damage and the attacker should spend one air salvo", async () => {
+  await Then("the canonical salvo destroys both defenders and spends one shared air salvo", async () => {
     if (!attack) {
       throw new Error("Expected the bot fighter attack to resolve.");
     }
     const defenders = engine.getHexStackMembers(targetHex, "Player");
-    if (defenders.length !== 2) {
-      throw new Error(`Expected both stacked fighters to remain after the dogfight, saw ${defenders.length}.`);
-    }
-
-    const alpha = defenders.find((entry) => entry.unitId === "player-air-alpha")?.unit ?? null;
-    const bravo = defenders.find((entry) => entry.unitId === "player-air-bravo")?.unit ?? null;
-    if (!alpha || !bravo) {
-      throw new Error(`Expected both stacked fighters to remain identifiable after the dogfight, saw ${JSON.stringify(defenders)}.`);
-    }
-    if (alpha.strength >= 100 || bravo.strength >= 100) {
-      throw new Error(`Expected both stacked fighters to take air-to-air damage, saw alpha=${alpha.strength}, bravo=${bravo.strength}.`);
+    if (defenders.length !== 0 || attack.inflictedDamage !== 200 || !attack.defenderDestroyed) {
+      throw new Error(`Expected the canonical salvo to remove both full-strength defenders with aggregate 200 damage, saw ${JSON.stringify({ defenders, attack })}.`);
     }
 
     const botFighterAfter = (engine as any).findUnitInFactionAtHex(originHex, "Bot", "bot-air-direct") as ScenarioUnit | null;
@@ -400,59 +408,125 @@ registerTest("BOT_FIGHTER_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT
       throw new Error("Expected the bot fighter to survive this deterministic dogfight.");
     }
     if (botFighterAfter.ammo !== 5) {
-      throw new Error(`Expected the bot fighter to spend exactly one ammo on the target-rich dogfight, saw ${botFighterAfter.ammo}.`);
+      throw new Error(`Expected the synchronized scalar ammo to decrement from 6 to 5, saw ${botFighterAfter.ammo}.`);
     }
-    if ((attack.inflictedDamage ?? 0) <= 0) {
-      throw new Error(`Expected aggregate dogfight damage in the bot attack summary, saw ${JSON.stringify(attack)}.`);
+    const ammo = engine.serialize().aircraftAmmo?.bot.find(([id]) => id === "bot-air-direct")?.[1];
+    if (ammo?.air !== 3 || ammo.ground !== 1 || ammo.needsRearm) {
+      throw new Error(`Expected exactly one of four air salvos spent and the ground load preserved, saw ${JSON.stringify(ammo)}.`);
     }
   });
 });
 
-registerTest("FLAK_REACTS_ONCE_OR_TWICE_IF_SENTRY_AGAINST_AIR_STRIKES", async ({ Then }) => {
+registerTest("FLAK_REACTS_ONCE_OR_TWICE_IF_SENTRY_AGAINST_AIR_STRIKES", async ({ Given, When, Then }) => {
+  const batteryId = "bot-reactive-flak";
+  const batteryHex: Axial = { q: 2, r: 0 };
+  const strikePlans = ["alpha", "bravo", "charlie"].map((label, row) => ({
+    bomberId: `player-bomber-${label}`,
+    bomberHex: { q: 0, r: row },
+    targetId: `bot-ground-target-${label}`,
+    targetHex: { q: 1, r: row }
+  }));
+  const infantryDef = unitTypesData.Infantry_42;
+  const makeInfantry = (unitId: string, hex: Axial): ScenarioUnit => ({
+    unitId,
+    type: "Infantry_42",
+    hex,
+    strength: 100,
+    experience: 0,
+    ammo: infantryDef.ammo,
+    fuel: infantryDef.fuel,
+    entrench: 0,
+    facing: "NW"
+  });
+  let normalEngine: GameEngine;
+  let sentryEngine: GameEngine;
+  let normalFlakEvents: number[] = [];
+  let sentryFlakEvents: number[] = [];
+
   const buildEngine = (flakOnSentry: boolean): GameEngine => {
+    const scenario = buildScenario();
+    scenario.sides.Bot.hq = batteryHex;
+    // Each bomber has a fresh adjacent target, so a canonical bomb kill cannot invalidate the next order.
+    // The targets have no intercept trait; the named battery alone covers all three target hexes.
+    scenario.sides.Bot.units = [
+      ...strikePlans.map((plan) => makeInfantry(plan.targetId, plan.targetHex)),
+      { ...makeUnit("Flak_88", batteryHex), unitId: batteryId, onSentry: flakOnSentry }
+    ];
+    scenario.sides.Player.units = [
+      ...strikePlans.map((plan) => ({ ...makeUnit("Bomber", plan.bomberHex), unitId: plan.bomberId, preDeployed: true })),
+      // Keep the ground observer on its own hex so reconnaissance sees it as an active ground placement.
+      { ...makeInfantry("player-ground-spotter", { q: 2, r: 1 }), preDeployed: true }
+    ];
     const config: GameEngineConfig = {
-      scenario: buildScenario(),
-      unitTypes,
+      scenario,
+      unitTypes: { ...unitTypes, Infantry_42: infantryDef, Supply_Truck: unitTypesData.Supply_Truck },
       terrain,
-      playerSide: baseSide(),
-      botSide: baseSide()
+      playerSide: scenario.sides.Player,
+      botSide: scenario.sides.Bot
     };
     const engine = new GameEngine(config);
     engine.beginDeployment();
-    engine.initializeFromAllocations([
-      { ...makeUnit("Bomber", { q: 0, r: 0 }), unitId: "player-bomber-alpha" } as ScenarioUnit,
-      { ...makeUnit("Bomber", { q: 0, r: 1 }), unitId: "player-bomber-bravo" } as ScenarioUnit,
-      { ...makeUnit("Bomber", { q: 0, r: 2 }), unitId: "player-bomber-charlie" } as ScenarioUnit
-    ]);
     engine.setBaseCamp({ q: 0, r: 0 });
     engine.finalizeDeployment();
     engine.startPlayerTurnPhase();
-
-    const target = { ...makeUnit("Flak_88", { q: 1, r: 1 }), unitId: "bot-ground-target" } as ScenarioUnit;
-    const flak = { ...makeUnit("Flak_88", { q: 1, r: 0 }), unitId: "bot-reactive-flak", onSentry: flakOnSentry } as ScenarioUnit;
-    (engine as any).addUnitToFactionHex("Bot", target);
-    (engine as any).addUnitToFactionHex("Bot", flak);
     return engine;
   };
 
   const runStrikes = (engine: GameEngine): number[] => {
-    const bomberHexes: Axial[] = [{ q: 0, r: 0 }, { q: 0, r: 1 }, { q: 0, r: 2 }];
-    return bomberHexes.map((hex) => {
-      engine.attackUnit(hex, { q: 1, r: 1 });
-      const flakEvents = engine.consumeAirEngagements().filter((event) => event.type === "flak");
-      return flakEvents.length;
+    let batteryShots = 0;
+    return strikePlans.map((plan) => {
+      const bomberBefore = engine.getHexStackMembers(plan.bomberHex, "Player").find((entry) => entry.unitId === plan.bomberId);
+      const targetBefore = engine.getHexStackMembers(plan.targetHex, "Bot").find((entry) => entry.unitId === plan.targetId);
+      // startPlayerTurnPhase initializes deployed aircraft ledgers by their occupied hex.
+      const aircraftAmmoKey = `${plan.bomberHex.q},${plan.bomberHex.r}`;
+      const ammoBefore = engine.serialize().aircraftAmmo?.player.find(([id]) => id === aircraftAmmoKey)?.[1];
+      const attackableTargets = engine.getAttackableTargets(plan.bomberHex, plan.bomberId);
+      if (engine.turnNumber !== 1 || !bomberBefore || bomberBefore.unit.strength !== 100
+        || !targetBefore || targetBefore.unit.strength !== 100 || ammoBefore?.ground !== 1
+        || !attackableTargets.some((hex) => hex.q === plan.targetHex.q && hex.r === plan.targetHex.r)) {
+        throw new Error(`Expected a fresh, deployed bomber with ordnance and a spotted in-range target for ${plan.bomberId}, saw ${JSON.stringify({ turn: engine.turnNumber, bomberBefore, targetBefore, ammoBefore, attackableTargets, aircraftAmmo: engine.serialize().aircraftAmmo })}.`);
+      }
+
+      const attack = engine.attackUnit(plan.bomberHex, plan.targetHex, undefined, plan.bomberId, plan.targetId);
+      const ammoAfter = engine.serialize().aircraftAmmo?.player.find(([id]) => id === aircraftAmmoKey)?.[1];
+      if (!attack || attack.defenderRemainingStrength >= targetBefore.unit.strength || ammoAfter?.ground !== 0) {
+        throw new Error(`Expected ${plan.bomberId} to release its bomb load and damage ${plan.targetId}, saw ${JSON.stringify({ attack, ammoAfter })}.`);
+      }
+      const events = engine.consumeAirEngagements();
+      const flakEvents = events.filter((event) => event.type === "flak");
+      const engagements = flakEvents.flatMap((event) => event.flakEngagements ?? []);
+      if (events.length !== flakEvents.length || flakEvents.length !== engagements.length
+        || engagements.some((entry) => entry.batteryUnitKey !== batteryId || entry.batteryFaction !== "Bot"
+          || entry.bomberUnitKey !== plan.bomberId || entry.bomberFaction !== "Player")
+        || flakEvents.some((event) => event.location.q !== plan.targetHex.q || event.location.r !== plan.targetHex.r)) {
+        throw new Error(`Expected only the named battery to engage ${plan.bomberId} over its target, saw ${JSON.stringify(events)}.`);
+      }
+      batteryShots += engagements.length;
+      const batteryAfter = engine.getHexStackMembers(batteryHex, "Bot").find((entry) => entry.unitId === batteryId)?.unit;
+      if (!batteryAfter || batteryAfter.strength !== 100 || batteryAfter.ammo !== flakDef.ammo - batteryShots
+        || batteryAfter.onSentry !== false) {
+        throw new Error(`Expected the surviving battery's real ammo and broken-sentry state to match ${batteryShots} reactions, saw ${JSON.stringify(batteryAfter)}.`);
+      }
+      return engagements.length;
     });
   };
 
-  const normalFlakEvents = runStrikes(buildEngine(false));
-  if (normalFlakEvents[0] !== 1 || normalFlakEvents[1] !== 0 || normalFlakEvents[2] !== 0) {
-    throw new Error(`Expected non-sentry flak to react once, saw ${JSON.stringify(normalFlakEvents)}.`);
-  }
+  await Given("normal and sentry batteries covering three deployed bombers' independent spotted targets", () => {
+    normalEngine = buildEngine(false);
+    sentryEngine = buildEngine(true);
+  });
 
-  const sentryFlakEvents = runStrikes(buildEngine(true));
-  if (sentryFlakEvents[0] !== 1 || sentryFlakEvents[1] !== 1 || sentryFlakEvents[2] !== 0) {
-    throw new Error(`Expected sentry flak to react twice, saw ${JSON.stringify(sentryFlakEvents)}.`);
-  }
+  await When("each engine accepts three ground strikes in the same player turn", () => {
+    normalFlakEvents = runStrikes(normalEngine);
+    sentryFlakEvents = runStrikes(sentryEngine);
+  });
 
-  await Then("flak follows the shared one-shot or two-shot sentry retaliation rule against air attacks", () => {});
+  await Then("the named battery reacts once normally or twice from sentry while all three strikes resolve", () => {
+    if (normalFlakEvents.join() !== "1,0,0") {
+      throw new Error(`Expected non-sentry flak to react once, saw ${JSON.stringify(normalFlakEvents)}.`);
+    }
+    if (sentryFlakEvents.join() !== "1,1,0") {
+      throw new Error(`Expected sentry flak to react twice, saw ${JSON.stringify(sentryFlakEvents)}.`);
+    }
+  });
 });

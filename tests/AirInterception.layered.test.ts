@@ -1,6 +1,7 @@
 import { registerTest } from "./harness.js";
 import type { ScenarioUnit, ScenarioSide, ScenarioData, TerrainDefinition, TerrainDictionary, UnitTypeDictionary, UnitTypeDefinition, Axial } from "../src/core/types";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { canonicalWeaponModel } from "./canonicalWeaponFixture";
 
 // Inline terrain and unit definitions to keep the test deterministic and self-contained
 const plains: TerrainDefinition = {
@@ -12,6 +13,7 @@ const plains: TerrainDefinition = {
 const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const fighterDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("fighter"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "large" },
   movement: 5,
@@ -33,6 +35,7 @@ const fighterDef: UnitTypeDefinition = {
 };
 
 const bomberDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("bomber"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "large" },
   movement: 1,
@@ -54,6 +57,7 @@ const bomberDef: UnitTypeDefinition = {
 };
 
 const infantryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("infantry"),
   class: "infantry",
   combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 1,
@@ -502,10 +506,12 @@ registerTest("AIR_INTERCEPTION_BOMBER_TURRETS_RETURN_FIRE_WITHOUT_REUSING_GROUND
   });
 });
 
-registerTest("AIR_INTERCEPTION_AIR_SUPERIORITY_CLASHES_CAP_AT_ROUGHLY_HALF_STRENGTH_WHILE_BOMBER_ATTACKS_STAY_LETHAL", async ({ Given, When, Then }) => {
+registerTest("AIR_INTERCEPTION_AIR_SUPERIORITY_DAMAGE_MATCHES_STATUS_POOL_PREVIEW_AND_APPLICATION", async ({ Given, When, Then }) => {
   let engine: GameEngine;
   let escortVsInterceptorDamage = 0;
   let interceptorVsBomberDamage = 0;
+  let appliedReadinessLoss = 0;
+  let appliedStrength = 100;
 
   await Given("an escort/interceptor matchup with extreme dogfight values plus a bomber target", async () => {
     const airSuperiorityDef: UnitTypeDefinition = {
@@ -610,11 +616,24 @@ registerTest("AIR_INTERCEPTION_AIR_SUPERIORITY_CLASHES_CAP_AT_ROUGHLY_HALF_STREN
       },
       "attack"
     );
+    const defender = make("Fighter", { q: 0, r: 1 });
+    defender.type = "Interceptor";
+    const applied = (engine as any).applyAirCombatDamageToUnit(
+      "Bot", make("Fighter", { q: 0, r: 0 }), defender, "attack"
+    );
+    if (!applied) throw new Error("Expected the actual air-combat status application to resolve.");
+    appliedReadinessLoss = applied.readinessLoss;
+    appliedStrength = defender.strength;
   });
 
   await Then("fighter-versus-fighter attrition should follow raw combat math instead of an arbitrary cap", async () => {
-    if (escortVsInterceptorDamage < 95) {
-      throw new Error(`Expected the escort-vs-interceptor exchange to stay effectively lethal with these authored stats, saw ${escortVsInterceptorDamage}.`);
+    // The status-pool model retains damaged platforms; the old scalar damage >=95
+    // expectation predates that model. Preserve an exact uncapped readiness result.
+    if (![escortVsInterceptorDamage, appliedReadinessLoss, appliedStrength, interceptorVsBomberDamage].every(Number.isFinite)
+      || Math.abs(escortVsInterceptorDamage - 75.15) > 0.001
+      || appliedReadinessLoss !== escortVsInterceptorDamage
+      || Math.abs(appliedStrength - (100 - escortVsInterceptorDamage)) > 0.001) {
+      throw new Error(`Expected canonical readiness loss 75.15 with identical preview and application, saw ${JSON.stringify({ escortVsInterceptorDamage, appliedReadinessLoss, appliedStrength })}.`);
     }
     if (interceptorVsBomberDamage <= 0) {
       throw new Error(`Expected the interceptor-vs-bomber attack to still resolve meaningful damage, saw ${interceptorVsBomberDamage}.`);

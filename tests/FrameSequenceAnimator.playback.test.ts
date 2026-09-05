@@ -81,10 +81,14 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
       throw new Error("Expected one active frame canvas immediately after playback starts.");
     }
 
-    initialX = initialSurface.style.left;
-    initialY = initialSurface.style.top;
-    initialWidth = initialSurface.style.width;
-    initialHeight = initialSurface.style.height;
+    initialX = initialSurface.getAttribute("x") ?? "";
+    initialY = initialSurface.getAttribute("y") ?? "";
+    initialWidth = initialSurface.getAttribute("width") ?? "";
+    initialHeight = initialSurface.getAttribute("height") ?? "";
+    if (![initialX, initialY, initialWidth, initialHeight].every((value) => value !== "" && Number.isFinite(Number(value)))
+      || Number(initialWidth) <= 0 || Number(initialHeight) <= 0) {
+      throw new Error("Expected finite SVG coordinates and positive dimensions before frame advancement.");
+    }
     if ((initialCanvas.dataset.frameSource ?? "") !== "frame-0") {
       throw new Error(`Expected initial canvas frame source frame-0, received ${initialCanvas.dataset.frameSource ?? "<missing>"}.`);
     }
@@ -118,10 +122,10 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
       if (!surface) {
         throw new Error("Expected active HTML frame surface during playback.");
       }
-      if (surface.style.left !== initialX || surface.style.top !== initialY) {
+      if (surface.getAttribute("x") !== initialX || surface.getAttribute("y") !== initialY) {
         throw new Error("Frame-sequence playback mutated surface position after configure().");
       }
-      if (surface.style.width !== initialWidth || surface.style.height !== initialHeight) {
+      if (surface.getAttribute("width") !== initialWidth || surface.getAttribute("height") !== initialHeight) {
         throw new Error("Frame-sequence playback mutated surface size after configure().");
       }
       if (resolved) {
@@ -198,7 +202,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     if (!surface) {
       throw new Error("Expected active frame surface before mutating layout.");
     }
-    surface.style.left = "999px";
+    surface.setAttribute("x", "999");
 
     const callback = rafCallbacks.shift();
     if (!callback) {
@@ -226,8 +230,8 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     if (!(caughtError instanceof Error)) {
       throw new Error("Expected frame-sequence guard to throw an Error when layout changes during playback.");
     }
-    if (!caughtError.message.includes("mutated layout field containerLeft")) {
-      throw new Error(`Expected invariant error to identify containerLeft mutation, received: ${caughtError.message}`);
+    if (!caughtError.message.includes("mutated layout field foreignObjectX")) {
+      throw new Error(`Expected invariant error to identify foreignObjectX mutation, received: ${caughtError.message}`);
     }
   });
 });

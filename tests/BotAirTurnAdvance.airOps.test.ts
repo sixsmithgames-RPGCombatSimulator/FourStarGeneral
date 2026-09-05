@@ -1,4 +1,5 @@
 import { registerTest } from "./harness.js";
+import assert from "node:assert/strict";
 import type {
   Axial,
   ScenarioData,
@@ -10,6 +11,7 @@ import type {
   UnitTypeDictionary
 } from "../src/core/types";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { canonicalWeaponModel } from "./canonicalWeaponFixture";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -23,6 +25,7 @@ const terrain: TerrainDictionary = {
 } as unknown as TerrainDictionary;
 
 const fighterDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("fighter"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "small" },
   movement: 8,
@@ -49,6 +52,7 @@ const fighterDef: UnitTypeDefinition = {
 };
 
 const groundAttackDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("groundAttackWing"),
   class: "air",
   combat: { category: "air", weight: "light", role: "antiVehicle", signature: "medium" },
   movement: 8,
@@ -147,17 +151,23 @@ registerTest("BOT_PHASE_END_TURN_SCHEDULES_HEURISTIC_AIR_OPS_BEFORE_ROUND_ADVANC
     engine.endTurn();
   });
 
-  await Then("the bot should still queue or launch at least one CAP mission", async () => {
+  await Then("the bot should queue or launch exactly one mission for its CAP squadron", async () => {
     const missions = engine.getScheduledAirMissions("Bot");
     const capMission = missions.find((mission) => mission.kind === "airCover");
     if (!capMission) {
       throw new Error(`Expected at least one bot CAP mission after bot-phase endTurn, saw ${missions.map((mission) => mission.kind).join(", ") || "none"}.`);
     }
+    assert.equal(missions.length, 1);
+    assert.equal(capMission.faction, "Bot");
+    assert.equal(capMission.unitKey, "bot-cap");
+    assert.equal(capMission.originHexKey, "0,0");
+    assert.deepEqual(capMission.targetHex, { q: 0, r: 0 });
   });
 });
 
 registerTest("BOT_PHASE_END_TURN_ADVANCES_PLAYER_AIR_MISSIONS_DURING_INITIATIVE_ROUND_WRAP", async ({ Given, When, Then }) => {
   let engine: GameEngine;
+  let scheduledMissionId: string;
   const playerFighterHex: Axial = { q: 3, r: 0 };
   const patrolHex: Axial = { q: 3, r: 0 };
 
@@ -188,6 +198,11 @@ registerTest("BOT_PHASE_END_TURN_ADVANCES_PLAYER_AIR_MISSIONS_DURING_INITIATIVE_
     if (!scheduled.ok) {
       throw new Error(`Expected player CAP mission to schedule successfully, received ${JSON.stringify(scheduled)}.`);
     }
+    scheduledMissionId = scheduled.missionId;
+    const queuedMissions = engine.getScheduledAirMissions("Player");
+    assert.equal(queuedMissions.length, 1);
+    assert.equal(queuedMissions[0].id, scheduledMissionId);
+    assert.equal(queuedMissions[0].status, "queued");
 
     (engine as any)._phase = "botTurn";
     (engine as any)._activeFaction = "Bot";
@@ -202,10 +217,20 @@ registerTest("BOT_PHASE_END_TURN_ADVANCES_PLAYER_AIR_MISSIONS_DURING_INITIATIVE_
     if (arrivals.length === 0) {
       throw new Error("Expected at least one player air mission arrival when ending turn through bot-phase wrap.");
     }
+    assert.equal(arrivals.length, 1);
+    assert.equal(arrivals[0].missionId, scheduledMissionId);
+    assert.equal(arrivals[0].unitKey, "player-cap");
+    assert.equal(arrivals[0].kind, "airCover");
+    assert.equal(arrivals[0].originHexKey, "3,0");
+    assert.deepEqual(arrivals[0].targetHex, patrolHex);
 
     const playerMissions = engine.getScheduledAirMissions("Player");
+    assert.equal(playerMissions.length, 1);
+    assert.equal(playerMissions[0].id, scheduledMissionId);
+    assert.equal(playerMissions[0].unitKey, "player-cap");
     if (!playerMissions.some((mission) => mission.status === "inFlight" || mission.status === "resolving" || mission.status === "completed")) {
       throw new Error(`Expected player mission lifecycle to advance beyond queued, saw ${playerMissions.map((mission) => mission.status).join(", ") || "none"}.`);
     }
+    assert.deepEqual(engine.consumeAirMissionArrivals(), [], "The same arrival must not be delivered twice.");
   });
 });

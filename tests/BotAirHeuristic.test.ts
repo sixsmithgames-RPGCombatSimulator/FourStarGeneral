@@ -1,4 +1,5 @@
 import { registerTest } from "./harness.js";
+import assert from "node:assert/strict";
 import type {
   Axial,
   ScenarioData,
@@ -10,6 +11,7 @@ import type {
   UnitTypeDictionary
 } from "../src/core/types";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { canonicalWeaponModel } from "./canonicalWeaponFixture";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -23,6 +25,7 @@ const terrain: TerrainDictionary = {
 } as unknown as TerrainDictionary;
 
 const fighterDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("fighter"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "small" },
   movement: 8,
@@ -49,6 +52,7 @@ const fighterDef: UnitTypeDefinition = {
 };
 
 const bomberDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("bomber"),
   class: "air",
   combat: { category: "air", weight: "medium", role: "antiInfantry", signature: "large" },
   movement: 6,
@@ -75,6 +79,7 @@ const bomberDef: UnitTypeDefinition = {
 };
 
 const infantryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("infantry"),
   class: "infantry",
   combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 2,
@@ -95,6 +100,7 @@ const infantryDef: UnitTypeDefinition = {
 };
 
 const artilleryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("howitzer"),
   class: "artillery",
   combat: { category: "artillery", weight: "medium", role: "support", signature: "large" },
   movement: 1,
@@ -115,6 +121,7 @@ const artilleryDef: UnitTypeDefinition = {
 };
 
 const tankDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("tank"),
   class: "tank",
   combat: { category: "tank", weight: "medium", role: "normal", signature: "large" },
   movement: 3,
@@ -135,6 +142,7 @@ const tankDef: UnitTypeDefinition = {
 };
 
 const flakDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("flakBattery"),
   class: "specialist",
   combat: { category: "specialist", weight: "medium", role: "antiTank", signature: "medium" },
   movement: 1,
@@ -155,6 +163,7 @@ const flakDef: UnitTypeDefinition = {
 };
 
 const reconDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("reconBike"),
   class: "recon",
   combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
   movement: 4,
@@ -175,6 +184,7 @@ const reconDef: UnitTypeDefinition = {
 };
 
 const groundAttackDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("groundAttackWing"),
   class: "air",
   combat: { category: "air", weight: "light", role: "antiVehicle", signature: "medium" },
   movement: 8,
@@ -221,16 +231,12 @@ function side(): ScenarioSide {
 
 function scenario(): ScenarioData {
   const tileKey = "plains";
-  const row = [
-    { tile: tileKey },
-    { tile: tileKey },
-    { tile: tileKey },
-    { tile: tileKey }
-  ];
+  // Preference/observer cases use q=4..6; their targets and support must be on-map.
+  const size = { cols: 8, rows: 8 };
 
   return {
     name: "Bot Air Heuristic",
-    size: { cols: 4, rows: 4 },
+    size,
     tilePalette: {
       [tileKey]: {
         terrain: "plains",
@@ -240,7 +246,7 @@ function scenario(): ScenarioData {
         recon: "intel"
       }
     },
-    tiles: [row, row, row, row],
+    tiles: Array.from({ length: size.rows }, () => Array.from({ length: size.cols }, () => ({ tile: tileKey }))),
     objectives: [{ hex: { q: 2, r: 1 }, owner: "Player", vp: 250 }],
     turnLimit: 5,
     sides: { Player: side(), Bot: side() }
@@ -357,8 +363,9 @@ registerTest("BOT_AIR_HEURISTIC_ESCORTS_BOMBERS_WHEN_PLAYER_FIELDS_INTERCEPTORS"
 
 registerTest("BOT_AIR_HEURISTIC_SKIPS_LONE_BOMBER_RUNS_INTO_HEAVY_FLAK", async ({ Given, When, Then }) => {
   let engine: GameEngine;
+  let undefendedEngine: GameEngine;
 
-  await Given("a single bot bomber facing an artillery target protected by overlapping player flak", async () => {
+  await Given("a single bot bomber facing artillery inside a mutually covering four-battery flak umbrella", async () => {
     engine = createBotTurnEngine();
 
     const botBomber = make("Bomber", { q: 0, r: 0 });
@@ -378,10 +385,44 @@ registerTest("BOT_AIR_HEURISTIC_SKIPS_LONE_BOMBER_RUNS_INTO_HEAVY_FLAK", async (
     secondFlak.onSentry = true;
     (secondFlak as any).unitId = "player-flak-b";
     (engine as any).playerPlacements.set("3,1", secondFlak);
+
+    // Each canonical battery fields four guns. Represent a heavy umbrella with
+    // actual covering batteries; the old 220 attack scalars do not author casualties.
+    const thirdFlak = make("Flak_88", { q: 1, r: 1 });
+    thirdFlak.onSentry = true;
+    thirdFlak.unitId = "player-flak-c";
+    engine["playerPlacements"].set("1,1", thirdFlak);
+
+    const fourthFlak = make("Flak_88", { q: 2, r: 2 });
+    fourthFlak.onSentry = true;
+    fourthFlak.unitId = "player-flak-d";
+    engine["playerPlacements"].set("2,2", fourthFlak);
+
+    // Inspect the real estimator to establish the fixture's tactical premise,
+    // without replacing any decision, casualty, or mission-resolution method.
+    const batteryIds = ["player-flak-a", "player-flak-b", "player-flak-c", "player-flak-d"];
+    for (const target of engine.playerUnits) {
+      assert.equal(engine["inBounds"](target.hex), true);
+      const coverage = engine["findAllActiveFlakUnitsForHex"]("Player", target.hex);
+      assert.deepEqual(coverage.map(({ unit }) => unit.unitId).sort(), batteryIds);
+      const attrition = engine["estimateBotStrikeAttrition"](botBomber, target.hex, null, new Set(), new Set());
+      assert.equal(attrition.bomberDestroyed, true, `The umbrella must be lethal over ${target.unitId}.`);
+      assert.equal(attrition.bomberStrengthAfter, 0);
+      assert.equal(attrition.expectedAttrition, botBomber.strength);
+      assert.deepEqual(attrition.engagedCapMissionIds, [], "Flak alone must establish the threat.");
+      assert.ok(attrition.engagedFlakIds.every((id) => batteryIds.includes(id)));
+    }
+
+    // The identical ready bomber and artillery remain a legal, worthwhile sortie
+    // when the umbrella is absent, so an unrelated scheduling failure cannot pass.
+    undefendedEngine = createBotTurnEngine();
+    undefendedEngine["botPlacements"].set("0,0", structuredClone(botBomber));
+    undefendedEngine["playerPlacements"].set("2,1", structuredClone(playerArtillery));
   });
 
   await When("the bot evaluates whether the strike is worth launching", async () => {
     (engine as any).maybeScheduleHeuristicAirOps();
+    undefendedEngine["maybeScheduleHeuristicAirOps"]();
   });
 
   await Then("it should decline the sortie instead of throwing away the bomber", async () => {
@@ -391,6 +432,15 @@ registerTest("BOT_AIR_HEURISTIC_SKIPS_LONE_BOMBER_RUNS_INTO_HEAVY_FLAK", async (
     if (strikeMissions.length !== 0) {
       throw new Error(`Expected heavy flak to deter a lone bomber strike, but queued ${strikeMissions.length} strike mission(s).`);
     }
+    assert.deepEqual(engine.getScheduledAirMissions("Bot"), []);
+    const controlMissions = undefendedEngine.getScheduledAirMissions("Bot");
+    assert.equal(controlMissions.length, 1);
+    assert.equal(controlMissions[0].kind, "strike");
+    assert.equal(controlMissions[0].status, "queued");
+    assert.equal(controlMissions[0].unitKey, "bot-bomber");
+    assert.equal(controlMissions[0].targetUnitKey, "player-artillery");
+    assert.deepEqual(controlMissions[0].targetHex, { q: 2, r: 1 });
+    assert.equal(engine.botUnits[0].strength, 100, "Assessing the umbrella must not apply forecast losses to the bomber.");
   });
 });
 

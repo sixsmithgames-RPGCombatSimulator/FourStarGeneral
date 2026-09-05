@@ -44,6 +44,12 @@ import {
 } from "../src/ui/airshow/AirShowPathMath.js";
 import { HEX_WIDTH } from "../src/core/balance.js";
 import { getFormation } from "../src/data/unitSystem/formations.js";
+import { resetDeploymentState } from "../src/state/DeploymentState.js";
+import {
+  sampleAirShowTimelineTrack,
+  type AirShowTimeline,
+  type AirShowTimelineTrack
+} from "../src/ui/airshow/AirShowTimeline.js";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -147,6 +153,8 @@ const escortTemplate = {
 } as const;
 
 function buildEngine(): GameEngine {
+  // This scenario owns its roster; prior UI tests may leave committed requisitions.
+  resetDeploymentState();
   const config: GameEngineConfig = {
     scenario: scenario(),
     unitTypes,
@@ -422,6 +430,7 @@ export interface AirScenarioResult {
     readonly missionId?: string;
     readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
     readonly report: AirShowInspectionReport;
+    readonly timeline: AirShowTimeline | null;
     readonly phaseMetrics: readonly AirShowPhaseMetric[];
     readonly findings: readonly AirScenarioFinding[];
   }[];
@@ -476,6 +485,8 @@ export interface AirScenarioCoordinatedPlanSummary {
   readonly bomberStartDelayMs: number;
   readonly fighterIngressLeadMs: number;
   readonly sceneReport: AirShowInspectionReport | null;
+  /** Actual renderer timeline, retained for per-aircraft absolute-time measurements. */
+  readonly sceneTimeline: AirShowTimeline | null;
   readonly scenePhaseMetrics: readonly AirShowPhaseMetric[];
   readonly sceneFindings: readonly AirScenarioFinding[];
 }
@@ -512,6 +523,7 @@ function collectAuthoritativeAirScenarioFindings(
     readonly missionId?: string;
     readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
     readonly report: AirShowInspectionReport;
+    readonly timeline: AirShowTimeline | null;
     readonly phaseMetrics: readonly AirShowPhaseMetric[];
     readonly findings: readonly AirScenarioFinding[];
   }[]
@@ -579,6 +591,7 @@ function inspectCoordinatedScene(
   strikeSortieMissionIds: readonly string[]
 ): {
   readonly report: AirShowInspectionReport;
+  readonly timeline: AirShowTimeline | null;
   readonly phaseLabels: readonly string[];
   readonly tracerCount: number;
   readonly flakBurstCount: number;
@@ -626,7 +639,7 @@ function inspectCoordinatedScene(
   renderer.render(svg, canvas, scenario());
 
   try {
-    const report = renderer.inspectResolvedAirCombatShow(scene);
+    const { report, timeline } = inspectRendererTimeline(renderer, scene);
     if (!report) {
       return null;
     }
@@ -639,6 +652,7 @@ function inspectCoordinatedScene(
         .map((finding) => ({ code: finding.code, message: `${subjectLabel}: ${finding.message}` }));
       return {
         report,
+        timeline,
         phaseLabels: report.phases.map((phase) => phase.label),
         tracerCount: report.phases.reduce((sum, phase) => sum + phase.tracers.length, 0),
         flakBurstCount: report.phases.reduce((sum, phase) => sum + phase.flakBursts.length, 0),
@@ -752,6 +766,7 @@ function inspectCoordinatedScene(
 
     return {
       report,
+      timeline,
       phaseLabels: report.phases.map((phase) => phase.label),
       tracerCount: report.phases.reduce((sum, phase) => sum + phase.tracers.length, 0),
       flakBurstCount: report.phases.reduce((sum, phase) => sum + phase.flakBursts.length, 0),
@@ -1316,6 +1331,7 @@ function buildPlaybackProjection(
         bomberStartDelayMs: plan.bomberStartDelayMs,
         fighterIngressLeadMs: plan.fighterIngressLeadMs,
         sceneReport: fighterSceneInspection?.report ?? null,
+        sceneTimeline: fighterSceneInspection?.timeline ?? null,
         scenePhaseMetrics: fighterSceneInspection?.phaseMetrics ?? [],
         sceneFindings: fighterSceneInspection?.findings ?? []
       } satisfies AirScenarioCoordinatedPlanSummary;
@@ -1698,11 +1714,35 @@ function buildSyntheticInspectableCases(): Array<{
   ];
 }
 
+/** Observes the unchanged production timeline behind the public renderer inspection. */
+function inspectRendererTimeline(renderer: HexMapRenderer, scene: ResolvedAirShowScene): {
+  report: AirShowInspectionReport | null;
+  timeline: AirShowTimeline | null;
+} {
+  // Inspection beats overlap; only the timeline retains actor-specific intervals.
+  const planner = renderer as unknown as {
+    planResolvedAirCombatTimeline: (scene: ResolvedAirShowScene) => AirShowTimeline | null;
+  };
+  const originalPlan = planner.planResolvedAirCombatTimeline;
+  let timeline: AirShowTimeline | null = null;
+  try {
+    planner.planResolvedAirCombatTimeline = (resolvedScene) => {
+      timeline = originalPlan.call(renderer, resolvedScene);
+      return timeline;
+    };
+    const report = renderer.inspectResolvedAirCombatShow(scene);
+    return { report, timeline };
+  } finally {
+    planner.planResolvedAirCombatTimeline = originalPlan;
+  }
+}
+
 function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEngagementEvent[]): Array<{
   readonly eventType: AirEngagementEvent["type"];
   readonly missionId?: string;
   readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
   readonly report: AirShowInspectionReport;
+  readonly timeline: AirShowTimeline | null;
   readonly phaseMetrics: readonly AirShowPhaseMetric[];
   readonly findings: readonly AirScenarioFinding[];
 }> {
@@ -1744,17 +1784,8 @@ function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEn
       event: AirEngagementEvent,
       scene: ResolvedAirShowScene,
       diagnostics: ResolvedAirCombatSceneDiagnostic
-    ): {
-      readonly eventType: AirEngagementEvent["type"];
-      readonly missionId?: string;
-      readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
-      readonly report: AirShowInspectionReport;
-      readonly phaseMetrics: readonly AirShowPhaseMetric[];
-      readonly findings: readonly AirScenarioFinding[];
-    } | null => {
-      const report = (renderer as unknown as {
-        inspectResolvedAirCombatShow: (scene: Record<string, unknown>) => AirShowInspectionReport | null;
-      }).inspectResolvedAirCombatShow(scene as unknown as Record<string, unknown>);
+    ): AirScenarioResult["airshowInspections"][number] | null => {
+      const { report, timeline } = inspectRendererTimeline(renderer, scene);
       if (!report) {
         return null;
       }
@@ -1772,7 +1803,7 @@ function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEn
             phaseMetrics,
             (scene.flakBursts?.length ?? 0) > 0
           );
-      return { eventType: event.type, missionId: event.missionId, diagnostics, report, phaseMetrics, findings };
+      return { eventType: event.type, missionId: event.missionId, diagnostics, report, timeline, phaseMetrics, findings };
     };
 
     const engineCases = engagements.flatMap((event) => {
@@ -2742,6 +2773,76 @@ export function runAirScenario(): AirScenarioResult {
     anomalies: detectAnomalies(engine, missionReports, engagements, expectedFlakCoverageByMissionId),
     findings,
     legacyDiagnosticFindings
+  };
+}
+
+/** Requires the canonical contested package instead of allowing missing fixtures to pass. */
+export function requireContestedAirScenario(result: AirScenarioResult | null): AirScenarioCoordinatedPlanSummary & {
+  readonly sceneReport: AirShowInspectionReport;
+  readonly sceneTimeline: AirShowTimeline;
+} {
+  const plan = result?.playbackProjection.coordinatedPlans.find((entry) => entry.strikeSortieMissionIds.length > 0);
+  if (!plan?.sceneReport || !plan.sceneTimeline || plan.sceneReport.timelineVersion !== 2) {
+    throw new Error("Expected the canonical contested package's renderer inspection and actual timeline.");
+  }
+  for (const role of ["interceptor", "escort", "bomber"] as const) {
+    if (!plan.sceneTimeline.tracks.some((track) => track.role === role)) {
+      throw new Error(`Expected ${role} tracks in the canonical contested package.`);
+    }
+  }
+  return { ...plan, sceneReport: plan.sceneReport, sceneTimeline: plan.sceneTimeline };
+}
+
+/** Samples actual playback positions over a visible absolute-time window, including segment joins. */
+export function sampleAirScenarioTrack(
+  track: AirShowTimelineTrack,
+  startTimeMs: number,
+  endTimeMs: number
+): Array<{ readonly timeMs: number; readonly cx: number; readonly cy: number; readonly segmentProgress: number }> {
+  if (!Number.isFinite(startTimeMs) || !Number.isFinite(endTimeMs) || endTimeMs <= startTimeMs
+    || startTimeMs < track.visibleFromMs || endTimeMs > track.visibleUntilMs) {
+    throw new Error(`Expected a positive visible sampling interval for ${track.actorId}, saw ${startTimeMs}..${endTimeMs}.`);
+  }
+  const steps = Math.max(2, Math.ceil((endTimeMs - startTimeMs) / 100));
+  const times = new Set(Array.from({ length: steps + 1 }, (_, index) =>
+    index === steps ? endTimeMs : startTimeMs + (endTimeMs - startTimeMs) * index / steps
+  ));
+  track.segments.forEach((segment) => {
+    for (const timeMs of [segment.startTimeMs, segment.endTimeMs]) {
+      if (timeMs > startTimeMs && timeMs < endTimeMs) times.add(timeMs);
+    }
+  });
+  return [...times].sort((left, right) => left - right).map((timeMs) => {
+    const sample = sampleAirShowTimelineTrack(track, timeMs);
+    if (!sample || !Number.isFinite(sample.point.cx) || !Number.isFinite(sample.point.cy)) {
+      throw new Error(`Missing or invalid renderer sample for ${track.actorId} at ${timeMs}ms.`);
+    }
+    return { timeMs, ...sample.point, segmentProgress: sample.segmentProgress };
+  });
+}
+
+/** Measures the same actual ingress interval for the first CAP and bomber actors. */
+export function sampleSharedAirScenarioIngress(result: AirScenarioResult | null): {
+  readonly startTimeMs: number;
+  readonly endTimeMs: number;
+  readonly fighterSamples: ReturnType<typeof sampleAirScenarioTrack>;
+  readonly bomberSamples: ReturnType<typeof sampleAirScenarioTrack>;
+} {
+  const { sceneTimeline } = requireContestedAirScenario(result);
+  const fighter = sceneTimeline.tracks.find((track) => track.role === "interceptor");
+  const bomber = sceneTimeline.tracks.find((track) => track.role === "bomber");
+  const fighterIngress = fighter?.segments.find((segment) => segment.label === "fighter-ingress");
+  const bomberIngress = bomber?.segments.find((segment) => segment.label === "bomber-ingress");
+  if (!fighter || !bomber || !fighterIngress || !bomberIngress) {
+    throw new Error("Expected fighter and bomber tracks with their own ingress segments.");
+  }
+  const startTimeMs = Math.max(fighterIngress.startTimeMs, bomberIngress.startTimeMs, fighter.visibleFromMs, bomber.visibleFromMs);
+  const endTimeMs = Math.min(fighterIngress.endTimeMs, bomberIngress.endTimeMs, fighter.visibleUntilMs, bomber.visibleUntilMs);
+  return {
+    startTimeMs,
+    endTimeMs,
+    fighterSamples: sampleAirScenarioTrack(fighter, startTimeMs, endTimeMs),
+    bomberSamples: sampleAirScenarioTrack(bomber, startTimeMs, endTimeMs)
   };
 }
 

@@ -2,6 +2,8 @@
  * Minimal Given/When/Then harness used to express deterministic scenario tests in the DSL style.
  * Tests are registered via `registerTest` and executed sequentially through `runAllTests`.
  */
+import { setTimeout as setTestTimeout, clearTimeout as clearTestTimeout } from "node:timers";
+
 export interface TestContext {
   Given(description: string, fn: () => void | Promise<void>): Promise<void>;
   When(description: string, fn: () => void | Promise<void>): Promise<void>;
@@ -21,7 +23,10 @@ export function registerTest(id: string, spec: TestFn): void {
   tests.push({ id, spec });
 }
 
-export async function runAllTests(): Promise<void> {
+export async function runAllTests({ testTimeoutMs = 60_000 }: { testTimeoutMs?: number } = {}): Promise<void> {
+  if (!Number.isFinite(testTimeoutMs) || testTimeoutMs <= 0) {
+    throw new Error("Each test requires a positive finite timeout.");
+  }
   const processLike = (globalThis as typeof globalThis & {
     process?: { env?: Record<string, string | undefined> };
   }).process;
@@ -53,8 +58,22 @@ export async function runAllTests(): Promise<void> {
       }
     };
 
-    await test.spec(context);
+    // A pending Promise alone does not keep Node alive. Retain a host timer even
+    // when a fixture replaces browser/global clocks, and fail the named test.
+    let timeout: ReturnType<typeof setTestTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTestTimeout(() => reject(new Error(`[TEST TIMEOUT] ${test.id} exceeded ${testTimeoutMs}ms.`)), testTimeoutMs);
+    });
+    try {
+      await Promise.race([Promise.resolve().then(() => test.spec(context)), deadline]);
+    } catch (error) {
+      console.error(`[TEST FAIL] ${test.id}`);
+      throw error;
+    } finally {
+      clearTestTimeout(timeout);
+    }
     console.log(`[TEST PASS] ${test.id}`);
     log.forEach((line) => console.log(`  ${line}`));
   }
+  console.log(`[TEST SUMMARY] ${selectedTests.length}/${selectedTests.length} passed`);
 }

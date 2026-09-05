@@ -4,6 +4,7 @@ import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import { InitiativeQueueManager } from "../src/core/InitiativeQueue";
 import type { ScenarioUnit } from "../src/core/types";
 import { ensureTutorialState } from "../src/state/TutorialState";
+import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 
 function mountBattleScreenRoot(): HTMLElement {
   document.body.innerHTML = "<div id=\"battleScreen\"></div>";
@@ -1303,11 +1304,16 @@ registerTest("BATTLESCREEN_MOVEMENT_TUTORIAL_PRESERVES_THE_FULL_RECON_RANGE", as
     ]);
     (screen as any).playerAttackHexes = new Set<string>();
     (screen as any).selectedUnitMatchesTutorialTarget = () => true;
+    (screen as any).tutorialGuidedHexKeys = new Set<string>();
+    const hexElements = new Map(Array.from((screen as any).playerMoveHexes as Set<string>, (key) => [
+      key, document.createElementNS("http://www.w3.org/2000/svg", "g")
+    ]));
     (screen as any).hexMapRenderer = {
       setTacticalHighlights: (moveHexes: Set<string>) => {
         tacticalMoveCount = moveHexes.size;
       },
-      setZoneHighlights: () => {}
+      setZoneHighlights: () => {},
+      getHexElement: (key: string) => hexElements.get(key) ?? null
     };
     (screen as any).selectionIntelOverlay = {
       update: (intel: unknown) => {
@@ -1320,6 +1326,9 @@ registerTest("BATTLESCREEN_MOVEMENT_TUTORIAL_PRESERVES_THE_FULL_RECON_RANGE", as
       })
     };
     (screen as any).queueTutorialCameraForPhase = () => {};
+    (screen as any).hexMapRenderer.setTacticalHighlights((screen as any).playerMoveHexes);
+    ensureTutorialState().startTutorial();
+    ensureTutorialState().advancePhase("movement_intro", false);
   });
 
   await When("the movement lesson prepares the battlefield", async () => {
@@ -1333,9 +1342,14 @@ registerTest("BATTLESCREEN_MOVEMENT_TUTORIAL_PRESERVES_THE_FULL_RECON_RANGE", as
     if ((screen as any).selectedHexKey !== "6,5" || (screen as any).selectedPlayerUnitId !== "recon_1") {
       throw new Error("Closing tutorial intel must preserve the selected recon patrol.");
     }
-    if (tacticalMoveCount !== 12) {
+    if (tacticalMoveCount !== 12 || (screen as any).playerMoveHexes.size !== 12) {
       throw new Error(`Expected all twelve legal move choices, received ${tacticalMoveCount}.`);
     }
+    const guidedHexes = (screen as any).tutorialGuidedHexKeys as Set<string>;
+    if (guidedHexes.size !== 1 || [...guidedHexes].some((key) => !(screen as any).playerMoveHexes.has(key))) {
+      throw new Error("Expected one guided destination within the complete retained movement range.");
+    }
+    ensureTutorialState().endTutorial();
   });
 });
 
@@ -1348,6 +1362,7 @@ registerTest("BATTLESCREEN_UNIT_INTEL_TUTORIAL_RESTORES_SELECTION_WITHOUT_REENTE
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).selectedHexKey = "6,5";
     (screen as any).tutorialSelectionSyncInProgress = false;
+    (screen as any).tutorialGuidedHexKeys = new Set<string>();
     (screen as any).selectedUnitIsInActiveInitiativeGroup = () => true;
     (screen as any).isBattleIntelOverlayVisible = () => false;
     (screen as any).isBattleIntelOverlayExpanded = () => false;
@@ -1651,14 +1666,15 @@ registerTest("BATTLESCREEN_INITIATIVE_SHORT_MOVE_PRESERVES_REMAINING_ACTIONS", a
     (screen as any).selectedHexKey = "2,2";
     (screen as any).selectedPlayerUnitId = "u_player_1";
     (screen as any).hexMapRenderer = null;
+    (screen as any).scenario = getScenarioByMissionKey("training");
 
-    const movedUnit = createPlayerUnit("u_player_1", 3, 2);
+    const movedUnit = createPlayerUnit("u_player_1", 3, 1);
     const engine = {
       moveUnit: () => ({
         unit: movedUnit,
-        from: { q: 2, r: 2 },
-        to: { q: 3, r: 2 },
-        path: [{ q: 2, r: 2 }, { q: 3, r: 2 }]
+        from: { q: 2, r: 1 },
+        to: { q: 3, r: 1 },
+        path: [{ q: 2, r: 1 }, { q: 3, r: 1 }]
       }),
       getReachableHexes: () => [{ q: 4, r: 2 }],
       getAttackableTargets: () => [],
@@ -1667,6 +1683,7 @@ registerTest("BATTLESCREEN_INITIATIVE_SHORT_MOVE_PRESERVES_REMAINING_ACTIONS", a
     };
     (screen as any).battleState = {
       ensureGameEngine: () => engine,
+      tryGetGameEngine: () => engine,
       emitBattleUpdate: () => {}
     };
     (screen as any).renderEngineUnits = () => {};
@@ -1687,8 +1704,8 @@ registerTest("BATTLESCREEN_INITIATIVE_SHORT_MOVE_PRESERVES_REMAINING_ACTIONS", a
     await (screen as any).executeAnimatedPlayerMove(
       "2,2",
       "3,2",
-      { q: 2, r: 2 },
-      { q: 3, r: 2 },
+      { q: 2, r: 1 },
+      { q: 3, r: 1 },
       "u_player_1"
     );
   });
@@ -1726,20 +1743,24 @@ registerTest("BATTLESCREEN_TUTORIAL_RECON_MOVE_HANDS_OFF_INITIATIVE", async ({ G
     (screen as any).selectedHexKey = "2,2";
     (screen as any).selectedPlayerUnitId = "recon_1";
     (screen as any).hexMapRenderer = null;
-    const movedUnit = createPlayerUnit("recon_1", 3, 2);
+    (screen as any).scenario = getScenarioByMissionKey("training");
+    const movedUnit = { ...createPlayerUnit("recon_1", 3, 1), type: "Recon_Bike" as const };
     (screen as any).battleState = {
       ensureGameEngine: () => ({
         moveUnit: () => ({
           unit: movedUnit,
-          from: { q: 2, r: 2 },
-          to: { q: 3, r: 2 },
-          path: [{ q: 2, r: 2 }, { q: 3, r: 2 }]
+          from: { q: 2, r: 1 },
+          to: { q: 3, r: 1 },
+          path: [{ q: 2, r: 1 }, { q: 3, r: 1 }]
         }),
         getReachableHexes: () => [{ q: 4, r: 2 }],
         getAttackableTargets: () => [],
         getUnitCommandState: () => null,
         getTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 })
       }),
+      tryGetGameEngine() {
+        return this.ensureGameEngine();
+      },
       emitBattleUpdate: () => {}
     };
     (screen as any).renderEngineUnits = () => {};
@@ -1761,8 +1782,8 @@ registerTest("BATTLESCREEN_TUTORIAL_RECON_MOVE_HANDS_OFF_INITIATIVE", async ({ G
     await (screen as any).executeAnimatedPlayerMove(
       "2,2",
       "3,2",
-      { q: 2, r: 2 },
-      { q: 3, r: 2 },
+      { q: 2, r: 1 },
+      { q: 3, r: 1 },
       "recon_1"
     );
   });
@@ -1825,7 +1846,7 @@ registerTest("BATTLESCREEN_TUTORIAL_GUIDED_SELECTION_ACCEPTS_REPEAT_CLICK_ON_SEL
   await Given("the fire-order lesson is waiting on a guided unit that is already selected", async () => {
     tutorialState.endTutorial();
     tutorialState.startTutorial();
-    tutorialState.jumpToPhase("select_attack_unit");
+    tutorialState.advancePhase("select_attack_unit", false);
     mountBattleScreenRoot();
     const firingUnit = createPlayerUnit("infantry_fire_1", 8, 7);
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
@@ -1867,6 +1888,18 @@ registerTest("BATTLESCREEN_INACTIVE_SELECTION_DOES_NOT_BLOCK_THE_NEXT_INITIATIVE
   await Given("a completed recon patrol remains selected when engineers become active", async () => {
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    const manager = new InitiativeQueueManager();
+    const recon = { ...createPlayerUnit("recon_1", 3, 7), type: "Recon_Bike" as const };
+    const engineer = { ...createPlayerUnit("engineer_1", 9, 3), type: "Engineer" as const };
+    const queue = manager.generateQueue([recon, engineer], 1);
+    manager.markActivated(queue, "recon_1");
+    if (manager.getCurrentActivation(queue)?.unitId !== "engineer_1") {
+      throw new Error("Expected the engineer activation after completing the recon patrol.");
+    }
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => manager.getCurrentActivation(queue)
+    };
     (screen as any).selectedHexKey = "3,8";
     (screen as any).selectedPlayerUnitId = "recon_1";
     (screen as any).isInitiativeSystemEnabled = true;
@@ -1876,7 +1909,7 @@ registerTest("BATTLESCREEN_INACTIVE_SELECTION_DOES_NOT_BLOCK_THE_NEXT_INITIATIVE
       ensureGameEngine: () => ({})
     };
     (screen as any).getPlayerStackMembersAtHex = (hexKey: string) =>
-      hexKey === "9,7" ? [{ unitId: "engineer_1" }] : [];
+      hexKey === "9,7" ? [{ unit: engineer, unitId: "engineer_1", isAutomated: false }] : [];
     (screen as any).applySelectedHex = (hexKey: string) => {
       selectedHexKey = hexKey;
     };

@@ -152,7 +152,7 @@ registerTest("ENHANCED_INITIATIVE_CONTROLS_IGNORE_ENTER_FROM_DIALOG_CONTROLS", a
   });
 
   await When("the player presses Enter on the dialog control", async () => {
-    edgeButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    edgeButton.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
 
   await Then("the global initiative shortcut does not end the turn", async () => {

@@ -158,7 +158,9 @@ registerTest("PRECOMBAT_LOCKED_UNITS_RENDER_UNLOCK_CTA_AND_BLOCK_REQUISITIONS", 
     if (row.dataset.locked !== "true") {
       throw new Error(`Expected Rocket Artillery row to be marked locked, received ${row.dataset.locked}.`);
     }
-    if (!row.textContent?.includes("Unlock Unit")) {
+    const unlockLink = row.querySelector<HTMLAnchorElement>("a.allocation-unlock-link");
+    if (unlockLink?.textContent !== "Unlock"
+      || unlockLink.getAttribute("href") !== ensureUnlockState().buildPurchaseUrlForSku("rocketArtilleryBattalion")) {
       throw new Error(`Expected locked unit row to expose an unlock CTA, received ${row.textContent}.`);
     }
     if (/\p{Extended_Pictographic}/u.test(row.textContent ?? "")) {

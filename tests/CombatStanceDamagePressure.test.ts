@@ -4,7 +4,7 @@ import type { Axial, ScenarioUnit, TerrainDefinition, UnitTypeDefinition } from 
 import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
 import { applyDamagePacketToUnit, resolveDamagePacket, summarizeFormationStatus, type DamagePacket } from "../src/data/unitSystem/damagePackets";
 import { formationList } from "../src/data/unitSystem/formations";
-import { createInitialFormationStatus } from "../src/data/unitSystem/status";
+import { createInitialFormationStatus, deriveStrengthFromStatus } from "../src/data/unitSystem/status";
 
 const unitTypes = unitTypesData as Record<string, UnitTypeDefinition>;
 const plains: TerrainDefinition = {
@@ -21,16 +21,17 @@ function formationKeyForType(type: string): string | undefined {
   return formationList.find((formation) => formation.tacticalUnitType === type)?.key;
 }
 
-function makeUnit(type: TestUnitKey, hex: Axial, id: string): ScenarioUnit {
+function makeUnit(type: TestUnitKey, hex: Axial, id: string, readiness = 100): ScenarioUnit {
   const definition = unitTypes[type];
   if (!definition) {
     throw new Error(`Missing '${type}' definition for stance damage pressure test.`);
   }
   const formationKey = formationKeyForType(type);
+  const status = createInitialFormationStatus(type, formationKey, readiness);
   return {
     type,
     hex: structuredClone(hex),
-    strength: 100,
+    strength: deriveStrengthFromStatus(status, readiness),
     experience: definition.baseExperience ?? 0,
     baseExperience: definition.baseExperience ?? 0,
     earnedExperience: 0,
@@ -40,7 +41,7 @@ function makeUnit(type: TestUnitKey, hex: Axial, id: string): ScenarioUnit {
     facing: "E",
     unitId: id,
     formationKey,
-    status: createInitialFormationStatus(type, formationKey)
+    status
   };
 }
 
@@ -92,16 +93,14 @@ function resolveSyntheticPacket(attackerType: TestUnitKey, defenderType: TestUni
   });
 }
 
-function buildRequest(defender: ScenarioUnit, stance: TestedStance): AttackRequest {
+function buildRequest(attacker: ScenarioUnit, defender: ScenarioUnit, stance: TestedStance): AttackRequest {
   const attackerDefinition = unitTypes.Infantry_42;
   const defenderDefinition = unitTypes.Recon_Bike;
-  const attackerHex: Axial = { q: 0, r: 0 };
-  const defenderHex: Axial = { q: 1, r: 0 };
   return {
     attacker: {
       unit: attackerDefinition,
-      strength: 98.19,
-      experience: attackerDefinition.baseExperience ?? 0,
+      strength: attacker.strength,
+      experience: attacker.experience,
       general: { accBonus: 25, dmgBonus: 5 }
     },
     defender: {
@@ -111,7 +110,7 @@ function buildRequest(defender: ScenarioUnit, stance: TestedStance): AttackReque
       general: { accBonus: 0, dmgBonus: 0 }
     },
     attackerCtx: {
-      hex: attackerHex,
+      hex: attacker.hex,
       stance: stance === "fireAtWill" ? undefined : stance,
       suppressionState: "clear"
     },
@@ -119,7 +118,7 @@ function buildRequest(defender: ScenarioUnit, stance: TestedStance): AttackReque
       terrain: plains,
       class: defenderDefinition.class,
       facing: defender.facing,
-      hex: defenderHex,
+      hex: defender.hex,
       isRushing: stance === "assault",
       isSpottedOnly: false
     },
@@ -129,9 +128,8 @@ function buildRequest(defender: ScenarioUnit, stance: TestedStance): AttackReque
   };
 }
 
-function previewDamage(defender: ScenarioUnit, stance: TestedStance): { expectedHits: number; packet: DamagePacket } {
-  const attacker = makeUnit("Infantry_42", { q: 0, r: 0 }, `stance-attacker-${stance}`);
-  const attackResult = resolveAttack(buildRequest(defender, stance));
+function previewDamage(attacker: ScenarioUnit, defender: ScenarioUnit, stance: TestedStance): { expectedHits: number; packet: DamagePacket } {
+  const attackResult = resolveAttack(buildRequest(attacker, defender, stance));
   const packet = resolveDamagePacket({
     attacker,
     attackerDefinition: unitTypes.Infantry_42,
@@ -147,12 +145,15 @@ function previewDamage(defender: ScenarioUnit, stance: TestedStance): { expected
 }
 
 registerTest("ASSAULT_CONTACT_PRESSURE_INCREASES_SEVERITY_AGAINST_DAMAGED_RECON", async ({ Given, When, Then }) => {
+  // Use a depleted infantry formation so the remaining recon readiness is not erased by every stance.
+  // Both combat and damage resolution consume this same status-derived strength.
+  const attacker = makeUnit("Infantry_42", { q: 0, r: 0 }, "depleted-stance-attacker", 25);
   const defender = makeUnit("Recon_Bike", { q: 1, r: 0 }, "damaged-recon-target");
   let fireAtWill: ReturnType<typeof previewDamage>;
   let assault: ReturnType<typeof previewDamage>;
   let suppressive: ReturnType<typeof previewDamage>;
 
-  await Given("a recon bike unit whose fit personnel are already depleted but wounded personnel can still fight", async () => {
+  await Given("quarter-strength infantry facing damaged recon with no fit personnel and injured survivors still contributing readiness", async () => {
     applyDamagePacketToUnit(defender, {
       personnel: { killed: 2, severelyWounded: 2, wounded: 15, injured: 35 },
       equipment: { destroyed: 0, disabled: 1, damaged: 2 },
@@ -162,18 +163,35 @@ registerTest("ASSAULT_CONTACT_PRESSURE_INCREASES_SEVERITY_AGAINST_DAMAGED_RECON"
       weaponHits: []
     });
     const summary = summarizeFormationStatus(defender.status, defender.strength);
-    if (summary.personnel.fit !== 0 || Math.abs(summary.readiness - 43.21) > 0.01) {
+    // Platform readiness is crew-gated; injured personnel retain effectiveness, while wounded personnel remain eligible for severity transitions.
+    if (summary.personnel.fit !== 0 || summary.personnel.injured <= 0 || summary.personnel.wounded <= 0
+      || Math.abs(summary.readiness - 37.5) > 0.01) {
       throw new Error(`Unexpected damaged recon baseline: fit ${summary.personnel.fit}, readiness ${summary.readiness}.`);
+    }
+    const attackerSummary = summarizeFormationStatus(attacker.status, attacker.strength);
+    if (attackerSummary.personnel.fit !== 180 || attackerSummary.personnel.wounded !== 540
+      || attackerSummary.readiness !== 25 || attacker.strength !== attackerSummary.readiness) {
+      throw new Error(`Expected one consistent depleted infantry formation, received ${JSON.stringify(attackerSummary)}.`);
     }
   });
 
   await When("the same infantry attack is previewed in each combat stance", async () => {
-    fireAtWill = previewDamage(defender, "fireAtWill");
-    assault = previewDamage(defender, "assault");
-    suppressive = previewDamage(defender, "suppressive");
+    fireAtWill = previewDamage(attacker, defender, "fireAtWill");
+    assault = previewDamage(attacker, defender, "assault");
+    suppressive = previewDamage(attacker, defender, "suppressive");
   });
 
   await Then("assault converts its extra close-range contacts into higher readiness loss instead of capping to the same damage", async () => {
+    for (const preview of [fireAtWill, assault, suppressive]) {
+      if (![preview.expectedHits, preview.packet.readinessLoss, preview.packet.suppression,
+        ...Object.values(preview.packet.personnel), ...Object.values(preview.packet.equipment)].every(Number.isFinite)) {
+        throw new Error("Expected finite hits, readiness, suppression and casualty effects for every stance.");
+      }
+    }
+    if (fireAtWill.packet.readinessLoss <= 0 || fireAtWill.packet.readinessLoss >= defender.strength
+      || assault.packet.readinessLoss <= 0 || assault.packet.readinessLoss >= defender.strength) {
+      throw new Error(`Expected both stances to inflict measurable, nonterminal damage against ${defender.strength} remaining readiness, saw ${fireAtWill.packet.readinessLoss} and ${assault.packet.readinessLoss}.`);
+    }
     if (assault.expectedHits <= fireAtWill.expectedHits * 2) {
       throw new Error(`Assault did not produce the expected contact-pressure increase (${fireAtWill.expectedHits} -> ${assault.expectedHits}).`);
     }
@@ -188,11 +206,18 @@ registerTest("ASSAULT_CONTACT_PRESSURE_INCREASES_SEVERITY_AGAINST_DAMAGED_RECON"
   });
 
   await Then("suppressing fire keeps normal casualty damage while increasing suppression", async () => {
+    if (JSON.stringify(suppressive.packet.personnel) !== JSON.stringify(fireAtWill.packet.personnel)
+      || JSON.stringify(suppressive.packet.equipment) !== JSON.stringify(fireAtWill.packet.equipment)) {
+      throw new Error("Suppressing fire should preserve the same personnel and equipment casualty effects as Fire at Will.");
+    }
     if (Math.abs(suppressive.packet.readinessLoss - fireAtWill.packet.readinessLoss) > 0.01) {
       throw new Error(`Suppressing fire should not change direct casualty readiness loss (${fireAtWill.packet.readinessLoss} vs ${suppressive.packet.readinessLoss}).`);
     }
     if (suppressive.packet.suppression <= fireAtWill.packet.suppression * 1.9) {
       throw new Error(`Suppressing fire should materially increase suppression (${fireAtWill.packet.suppression} vs ${suppressive.packet.suppression}).`);
+    }
+    if (Math.abs(suppressive.packet.suppression - fireAtWill.packet.suppression * 2) > 1e-9) {
+      throw new Error(`Suppressing fire should apply exactly its twofold suppression scalar (${fireAtWill.packet.suppression} vs ${suppressive.packet.suppression}).`);
     }
   });
 });

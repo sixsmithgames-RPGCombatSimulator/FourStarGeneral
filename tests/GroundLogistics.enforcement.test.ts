@@ -372,8 +372,12 @@ registerTest("GROUND_UNITS_STOP_ATTACKING_OR_MOVING_WITHOUT_CARRIED_STOCK", asyn
     } catch (error) {
       moveError = error instanceof Error ? error.message : String(error);
     }
-    if (!moveError.includes("fuel")) {
-      throw new Error(`Expected a fuel error when moving dry, received '${moveError || "no error"}'.`);
+    if (moveError !== "Destination is not reachable with available movement points.") {
+      throw new Error(`Expected the zero-fuel reachability guard to reject movement, received '${moveError || "no error"}'.`);
+    }
+    const dryUnit = engine.playerUnits.find((unit) => unit.type === ("TestVehicle" as ScenarioUnit["type"]));
+    if (!dryUnit || dryUnit.hex.q !== 0 || dryUnit.hex.r !== 0 || dryUnit.ammo !== 0 || dryUnit.fuel !== 0) {
+      throw new Error("Rejected dry-unit actions must preserve the original position and carried stocks.");
     }
   });
 });
@@ -426,7 +430,7 @@ registerTest("ONLY_BASE_ADJACENT_UNITS_RECEIVE_DIRECT_DEPOT_ISSUES", async ({ Gi
       throw new Error(`Expected the forward battalion to remain dry without a convoy, saw ammo=${forwardRefreshed.ammo}, fuel=${forwardRefreshed.fuel}.`);
     }
 
-    const queueEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.hex === "2,0");
+    const queueEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.unitId === forwardRefreshed.unitId);
     if (!queueEntry) {
       throw new Error("Expected the forward battalion to remain in the logistics queue.");
     }
@@ -758,8 +762,10 @@ registerTest("SUPPLY_PRIORITIES_DECIDE_WHICH_BATTALION_GETS_THE_NEXT_CONVOY", as
       throw new Error("Expected a logistics snapshot after applying convoy priorities.");
     }
 
-    const closerEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.hex === "2,0");
-    const fartherEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.hex === "0,2");
+    const closerId = findPlayerUnit(engine, { q: 2, r: 0 }).unitId;
+    const fartherId = findPlayerUnit(engine, { q: 0, r: 2 }).unitId;
+    const closerEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.unitId === closerId);
+    const fartherEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.unitId === fartherId);
     if (!closerEntry || !fartherEntry) {
       throw new Error("Expected both battalions to remain visible in the logistics queue.");
     }

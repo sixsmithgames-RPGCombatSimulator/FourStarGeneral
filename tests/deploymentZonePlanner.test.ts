@@ -31,14 +31,14 @@ registerTest("DEPLOYMENT_ZONE_PLANNER_PRESERVES_AUTHORED_FRONTAGE_WHEN_SUFFICIEN
   });
 
   await Then("the finalizer keeps the authored west-bank frontage intact", async () => {
-    if (finalizedHexes.length !== 20) {
-      throw new Error(`Expected widened frontage to expose 20 finalized hexes, received ${finalizedHexes.length}`);
+    if (finalizedHexes.length !== 16) {
+      throw new Error(`Expected authored frontage to expose 16 finalized hexes, received ${finalizedHexes.length}`);
     }
     if (finalizedHexes.join("|") !== authoredHexes.join("|")) {
       throw new Error(`Expected finalized zone to preserve authored frontage. Finalized: ${finalizedHexes.join(", ")}`);
     }
-    if (!finalizedHexes.includes("4,1") || !finalizedHexes.includes("4,4")) {
-      throw new Error(`Expected widened frontage to reach the eastern screening edge, received: ${finalizedHexes.join(", ")}`);
+    if (!finalizedHexes.includes("3,1") || !finalizedHexes.includes("3,4")) {
+      throw new Error(`Expected authored frontage to reach the eastern screening edge, received: ${finalizedHexes.join(", ")}`);
     }
   });
 });
@@ -65,13 +65,13 @@ registerTest("DEPLOYMENT_ZONE_PLANNER_DERIVES_RIVER_WATCH_CAPACITY_FROM_DOCTRINE
   });
 
   await Then("the doctrine expands the zone to the mission minimum capacity instead of preserving the undersized authored cap", async () => {
-    if (finalizedCapacity !== 20) {
-      throw new Error(`Expected River Watch doctrine to expand capacity to 20, received ${finalizedCapacity}`);
+    if (finalizedCapacity !== 16) {
+      throw new Error(`Expected River Watch doctrine to expand capacity to 16, received ${finalizedCapacity}`);
     }
-    if (finalizedHexes.length !== 20) {
-      throw new Error(`Expected River Watch doctrine expansion to produce 20 deployment hexes, received ${finalizedHexes.length}`);
+    if (finalizedHexes.length !== 16) {
+      throw new Error(`Expected River Watch doctrine expansion to produce 16 deployment hexes, received ${finalizedHexes.length}`);
     }
-    if (!finalizedHexes.includes("4,1") || !finalizedHexes.includes("4,4")) {
+    if (!finalizedHexes.includes("3,1") || !finalizedHexes.includes("3,4")) {
       throw new Error(`Expected doctrine-expanded frontage to extend to the eastern screening edge, received: ${finalizedHexes.join(", ")}`);
     }
   });

@@ -41,6 +41,11 @@ export function ensureDomEnvironment(): void {
     resources: "usable"
   });
   const jsdomWindow = dom.window as unknown as Window & typeof globalThis;
+  // jsdom has no layout scrolling. Browser regressions own actual scroll geometry;
+  // DOM interaction tests still need the native method surface during rerenders.
+  if (!jsdomWindow.HTMLElement.prototype.scrollIntoView) {
+    jsdomWindow.HTMLElement.prototype.scrollIntoView = () => {};
+  }
   const canvasState = new WeakMap<HTMLCanvasElement, { lastDrawSignature: string }>();
 
   const getCanvasState = (canvas: HTMLCanvasElement): { lastDrawSignature: string } => {
@@ -307,6 +312,7 @@ export function ensureDomEnvironment(): void {
     window: jsdomWindow,
     document: jsdomWindow.document,
     Node: jsdomWindow.Node,
+    Element: jsdomWindow.Element,
     Event: jsdomWindow.Event,
     CustomEvent: jsdomWindow.CustomEvent,
     MouseEvent: jsdomWindow.MouseEvent,

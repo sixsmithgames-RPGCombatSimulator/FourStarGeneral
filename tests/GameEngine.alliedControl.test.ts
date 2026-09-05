@@ -5,6 +5,7 @@
  */
 
 import { registerTest } from "./harness.js";
+import assert from "node:assert/strict";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
 import type {
   ScenarioData,
@@ -120,7 +121,7 @@ function createInfantry(unitId: string, strength: number): ScenarioUnit {
 registerTest("GAME_ENGINE_TRANSFERS_ALL_STACKED_ALLIES_TO_PLAYER_CONTROL", async ({ Given, When, Then }) => {
   let engine: GameEngine;
   let transferredCount = 0;
-  let alliedStatusBefore: string | undefined;
+  let alliesBefore: ScenarioUnit[] = [];
 
   await Given("two allied combat formations share a hex and an allied convoy supports them", async () => {
     const playerSide = createSide({ q: 0, r: 0 });
@@ -155,11 +156,20 @@ registerTest("GAME_ENGINE_TRANSFERS_ALL_STACKED_ALLIES_TO_PLAYER_CONTROL", async
     engine.beginDeployment();
     engine.setBaseCamp({ q: 0, r: 0 });
     engine.finalizeDeployment();
-    alliedStatusBefore = JSON.stringify(engine.allyUnits.find((unit) => unit.unitId === "ally-lead")?.status);
+    alliesBefore = structuredClone([...engine.allyUnits]);
+    const lead = alliesBefore.find((unit) => unit.unitId === "ally-lead");
+    if (!lead?.status || lead.strength <= 0 || lead.strength >= 100 || lead.ammo !== 5 || lead.entrench !== 1) {
+      throw new Error("Expected an initialized damaged lead formation before control transfer.");
+    }
   });
 
   await When("all live allied formations transfer before the opening player turn", async () => {
     transferredCount = engine.transferAllAlliedUnitsToPlayerControl();
+    // Isolate the ownership transaction from the subsequent turn's legitimate logistics refresh.
+    for (const prior of alliesBefore) {
+      const transferred = engine.playerUnits.find((unit) => unit.unitId === prior.unitId);
+      assert.deepEqual(transferred, { ...prior, controlledBy: "Player" }, `Transfer changed ${prior.unitId} beyond control ownership.`);
+    }
     engine.startPlayerTurnPhase();
   });
 
@@ -178,9 +188,6 @@ registerTest("GAME_ENGINE_TRANSFERS_ALL_STACKED_ALLIES_TO_PLAYER_CONTROL", async
     }
     if (lead.controlledBy !== "Player" || wing.controlledBy !== "Player" || convoy.controlledBy !== "Player") {
       throw new Error("Expected transferred allied formations to be explicitly player-controlled.");
-    }
-    if (lead.strength !== 73 || lead.ammo !== 5 || lead.entrench !== 1 || JSON.stringify(lead.status) !== alliedStatusBefore) {
-      throw new Error("Expected the damaged lead formation's readiness, supply, and entrenchment state to be preserved.");
     }
 
     const stack = engine.getHexStackMembers({ q: 2, r: 1 }, "Player");

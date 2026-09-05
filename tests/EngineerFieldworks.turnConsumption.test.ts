@@ -139,7 +139,7 @@ const unitTypes: UnitTypeDictionary = {
   TestEngineer: engineerDef,
   TestTruck: truckDef,
   TestSmokeTank: smokeTankDef,
-  TestSmokeHowitzer: smokeHowitzerDef
+  Howitzer_105: smokeHowitzerDef
 } as unknown as UnitTypeDictionary;
 
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
@@ -339,7 +339,7 @@ registerTest("SMOKE_ACTION_DELEGATES_FROM_GENERIC_MODIFICATION_PATH", async ({ T
 
 registerTest("ARTILLERY_SMOKE_USES_INDIRECT_FIRE_RANGE", async ({ Then }) => {
   const howitzer: ScenarioUnit = {
-    type: "TestSmokeHowitzer" as unknown as ScenarioUnit["type"],
+    type: "Howitzer_105",
     unitId: "smoke-howitzer",
     hex: { q: 1, r: 1 },
     strength: 100,
@@ -456,10 +456,13 @@ registerTest("CLEARED_PATHS_STACK_TO_LEVEL_THREE_AND_CUT_MARSH_COST_TOWARD_ROADS
 
   const { engine } = createEngine([truck, engineer], { tilePalette, tiles });
   const marshHex = { q: 1, r: 0 };
+  const movementCost = (): number => (engine as unknown as {
+    resolveMoveCost(moveType: string, terrain: TerrainDefinition, hex: { q: number; r: number }): number;
+  }).resolveMoveCost("wheel", marsh, marshHex);
 
   const reachableBefore = engine.getReachableHexes(truck.hex, truck.unitId).some((hex) => hex.q === marshHex.q && hex.r === marshHex.r);
-  if (reachableBefore) {
-    throw new Error("Expected truck to be unable to enter an uncleared marsh hex.");
+  if (!reachableBefore || movementCost() !== 4) {
+    throw new Error("Expected the guaranteed first step to remain reachable while uncleared marsh still costs four movement points.");
   }
 
   if (!engine.buildHexModification(marshHex, "clearedPath", undefined, engineer.unitId)) {
@@ -470,8 +473,8 @@ registerTest("CLEARED_PATHS_STACK_TO_LEVEL_THREE_AND_CUT_MARSH_COST_TOWARD_ROADS
     throw new Error(`Expected cleared path level 1 after first build, received ${JSON.stringify(levelOne)}.`);
   }
   const reachableLevelOne = engine.getReachableHexes(truck.hex, truck.unitId).some((hex) => hex.q === marshHex.q && hex.r === marshHex.r);
-  if (reachableLevelOne) {
-    throw new Error("Expected level-1 clear path to still leave the marsh too expensive for the truck.");
+  if (!reachableLevelOne || movementCost() !== 2.83) {
+    throw new Error("Expected level-1 marsh to cost 2.83 points while preserving the guaranteed first step.");
   }
 
   engine.endTurn();
@@ -483,8 +486,8 @@ registerTest("CLEARED_PATHS_STACK_TO_LEVEL_THREE_AND_CUT_MARSH_COST_TOWARD_ROADS
     throw new Error(`Expected cleared path level 2 after second build, received ${JSON.stringify(levelTwo)}.`);
   }
   const reachableLevelTwo = engine.getReachableHexes(truck.hex, truck.unitId).some((hex) => hex.q === marshHex.q && hex.r === marshHex.r);
-  if (!reachableLevelTwo) {
-    throw new Error("Expected level-2 clear path to bring marsh movement into truck range.");
+  if (!reachableLevelTwo || movementCost() !== 1.67) {
+    throw new Error("Expected level-2 marsh to cost 1.67 points, within the truck's normal allowance.");
   }
 
   engine.endTurn();
@@ -500,6 +503,13 @@ registerTest("CLEARED_PATHS_STACK_TO_LEVEL_THREE_AND_CUT_MARSH_COST_TOWARD_ROADS
   const levelCapState = engine.getUnitCommandState(marshHex, engineer.unitId);
   if (!levelCapState || levelCapState.buildModificationAvailability.clearedPath.available) {
     throw new Error(`Expected fresh engineers to be blocked from over-building a level-3 clear path, received ${JSON.stringify(levelCapState)}.`);
+  }
+  if (movementCost() !== 0.5) throw new Error("Expected level-3 clearing to reach the authored road cost of 0.5.");
+  const beforeMove = engine.getMovementBudget(truck.hex, truck.unitId);
+  engine.moveUnit(truck.hex, marshHex, truck.unitId);
+  const afterMove = engine.getMovementBudget(marshHex, truck.unitId);
+  if (!beforeMove || !afterMove || beforeMove.remaining - afterMove.remaining !== 0.5) {
+    throw new Error("Expected actual truck movement to spend exactly the final cleared-path road cost.");
   }
 
   await Then("cleared paths stack to three levels and progressively road the hex for movement", () => {});

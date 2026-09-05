@@ -1,11 +1,54 @@
 import "./domEnvironment.js";
-import { registerTest } from "./harness.js";
+import { registerTest as registerHarnessTest, type TestContext } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 import { ensureCampaignState } from "../src/state/CampaignState";
 import { ensureDeploymentState, resetDeploymentState } from "../src/state/DeploymentState";
 import { ensureTutorialState } from "../src/state/TutorialState";
 import type { ScenarioUnit } from "../src/core/types";
+import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
+import { validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
+import { commitFixture, missionStatus, tacticalStateFixture } from "./CampaignBattleResultExtraction.test.js";
+
+/** Test-only access to the private mission-end entry points; the real handlers remain under test. */
+type MissionEndHandlers = {
+  handleEndMission(alreadyConfirmed?: boolean): Promise<void>;
+  confirmMissionEndRequest(): Promise<boolean>;
+};
+
+/** Owns constructed screens for one case, including the listeners installed before initialize(). */
+interface MissionFlowTestContext extends TestContext {
+  createScreen(...args: ConstructorParameters<typeof BattleScreen>): BattleScreen;
+  onCleanup(cleanup: () => void): void;
+}
+
+/** Always release screen subscriptions through the public lifecycle, even if a test assertion throws. */
+function registerTest(id: string, spec: (context: MissionFlowTestContext) => Promise<void>): void {
+  registerHarnessTest(id, async (context) => {
+    const screens: BattleScreen[] = [];
+    const cleanups: Array<() => void> = [];
+    try {
+      await spec({
+        ...context,
+        createScreen(...args) {
+          const screen = new BattleScreen(...args);
+          screens.push(screen);
+          return screen;
+        },
+        onCleanup(cleanup) {
+          cleanups.push(cleanup);
+        }
+      });
+    } finally {
+      // Unsubscribe the fixtures before ending their tutorial, which itself emits a state update.
+      try {
+        for (const screen of screens.reverse()) screen.dispose();
+      } finally {
+        for (const cleanup of cleanups.reverse()) cleanup();
+      }
+    }
+  });
+}
 
 function mountBattleScreenRoot(): HTMLElement {
   document.body.innerHTML = "<div id=\"battleScreen\"></div>";
@@ -90,6 +133,57 @@ registerTest("BATTLESCREEN_MISSION_RESULT_RETURNS_TO_HQ_WITHOUT_DUPLICATE_CONFIR
   });
 });
 
+registerTest("BATTLESCREEN_MISSION_END_CONSENT_USES_IN_GAME_ACTIONS_AND_RESTORES_FOCUS", async ({ Given, When, Then }) => {
+  // Only the private entry point is exposed; every dialog and event listener comes from BattleScreen.
+  const screen = Object.create(BattleScreen.prototype) as MissionEndHandlers;
+  const outcomes: boolean[] = [];
+  let previousFocus: HTMLButtonElement;
+
+  await Given("a focused mission control before the asynchronous in-game confirmation", () => {
+    const root = mountBattleScreenRoot();
+    previousFocus = document.createElement("button");
+    previousFocus.textContent = "End Mission";
+    root.appendChild(previousFocus);
+    previousFocus.focus();
+  });
+
+  await When("the commander cancels through each supported action, then explicitly confirms", async () => {
+    for (const action of ["cancel", "escape", "backdrop", "enterCancel", "confirm", "enterConfirm"]) {
+      const pending = screen.confirmMissionEndRequest();
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="missionEndConfirmTitle"]');
+      const cancel = dialog?.querySelector<HTMLButtonElement>('[data-action="cancel"]');
+      const confirm = dialog?.querySelector<HTMLButtonElement>('[data-action="confirm"]');
+      const backdrop = dialog?.querySelector<HTMLElement>(".initiative-proceed-modal__backdrop");
+      if (!dialog || !cancel || !confirm || !backdrop || dialog.getAttribute("aria-modal") !== "true"
+        || document.activeElement !== cancel || cancel.textContent !== "Keep Fighting") {
+        throw new Error(`Expected accessible in-game consent with the safe action initially focused (${action}).`);
+      }
+      if (action === "cancel") cancel.click();
+      if (action === "backdrop") backdrop.click();
+      if (action === "confirm") confirm.click();
+      if (action === "enterConfirm") confirm.focus();
+      if (action === "escape" || action.startsWith("enter")) {
+        const keyboard = new window.KeyboardEvent("keydown", { key: action === "escape" ? "Escape" : "Enter", bubbles: true, cancelable: true });
+        document.dispatchEvent(keyboard);
+        if (!keyboard.defaultPrevented) throw new Error("Mission-end keyboard input escaped its dialog owner.");
+      }
+      outcomes.push(await pending);
+      if (dialog.isConnected || document.activeElement !== previousFocus) {
+        throw new Error(`Expected consent to close and restore the original mission control (${action}).`);
+      }
+      const afterClose = new window.KeyboardEvent("keydown", { key: "Enter", cancelable: true });
+      document.dispatchEvent(afterClose);
+      if (afterClose.defaultPrevented) throw new Error("Mission-end dialog leaked its keyboard handler after closing.");
+    }
+  });
+
+  await Then("only explicit confirmation authorizes the handoff", () => {
+    if (outcomes.join() !== "false,false,false,false,true,true") {
+      throw new Error(`Unexpected mission-end consent decisions: ${outcomes.join()}.`);
+    }
+  });
+});
+
 registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Given, When, Then }) => {
   let patrolScenarioName = "";
   let resolvedScenarioName = "";
@@ -116,7 +210,7 @@ registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Giv
     if (resolvedScenarioName !== "River Crossing Watch") {
       throw new Error(`Expected River Crossing Watch, received ${resolvedScenarioName || "<empty>"}`);
     }
-    if (!(thrown instanceof Error) || !thrown.message.includes("Unknown mission key: unknown_mission")) {
+    if (!(thrown instanceof Error) || !thrown.message.includes('Unknown mission key: "unknown_mission"')) {
       throw new Error("Expected unknown mission lookup to throw an explicit scenario registry error");
     }
   });
@@ -148,7 +242,7 @@ registerTest("BATTLESCREEN_STANDALONE_SCENARIOS_CLEAR_CAMPAIGN_BACKDROP", async 
   });
 });
 
-registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;
   let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
@@ -189,11 +283,13 @@ registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async 
     } as any;
 
     const fakeRenderer = {
+      clearInitiativeGroupHighlights() {},
+      syncQueuedTargetMarkers() {},
       applyHexSelection() {},
       renderBaseCampMarker() {}
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       fakeBattleState,
       {} as any,
@@ -232,7 +328,7 @@ registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async 
   });
 });
 
-registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async ({ Given, When, Then, createScreen, onCleanup }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;
   let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
@@ -257,11 +353,11 @@ registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async 
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       { ensureGameEngine: () => fakeEngine } as any,
       {} as any,
-      { applyHexSelection() {}, renderBaseCampMarker() {} } as any,
+      { applyHexSelection() {}, renderBaseCampMarker() {}, clearInitiativeGroupHighlights() {}, syncQueuedTargetMarkers() {} } as any,
       {
         setCriticalError(error: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null) {
           criticalError = error;
@@ -283,6 +379,10 @@ registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async 
     (screen as any).completeTutorialPhase = () => {};
     (screen as any).selectedHexKey = null;
     (screen as any).defaultSelectionKey = "14,2";
+    onCleanup(() => {
+      ensureTutorialState().endTutorial();
+      resetDeploymentState();
+    });
     ensureTutorialState().startTutorial();
     ensureTutorialState().jumpToPhase("base_camp");
   });
@@ -298,14 +398,12 @@ registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async 
     if (criticalError?.title !== "Base camp assignment failed.") {
       throw new Error(`Expected a base camp selection error, received ${JSON.stringify(criticalError)}`);
     }
-    ensureTutorialState().endTutorial();
-    resetDeploymentState();
   });
 });
 
-registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_REFOCUSES_ON_SELECTED_ZONE_HEX", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_PRESERVES_SELECTION_AFTER_INITIAL_ZONE_FRAMING", async ({ Given, When, Then, createScreen, onCleanup }) => {
   let screen: BattleScreen;
-  let focusedHex: string | null = null;
+  const cameraRequests: Array<{ phase: string; hexKeys: string[]; zoom: number }> = [];
 
   await Given("the base-camp tutorial is active in deployment with multiple valid Zone Alpha hexes", async () => {
     mountBattleScreenRoot();
@@ -327,9 +425,9 @@ registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_REFOCUSES_ON_SELECTED_ZONE_HEX", a
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
-      { ensureGameEngine: () => fakeEngine } as any,
+      { ensureGameEngine: () => fakeEngine, tryGetGameEngine: () => fakeEngine } as any,
       {} as any,
       null,
       null,
@@ -342,32 +440,38 @@ registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_REFOCUSES_ON_SELECTED_ZONE_HEX", a
     );
 
     (screen as any).baseCampStatus = document.createElement("div");
-    (screen as any).focusTutorialHex = (hexKey: string) => {
-      focusedHex = hexKey;
+    (screen as any).queueTutorialCameraForPhase = (phase: string, hexKeys: Iterable<string>, zoom: number) => {
+      cameraRequests.push({ phase, hexKeys: [...hexKeys].sort(), zoom });
     };
-    (screen as any).tutorialBaseCampFocusKey = "14,2";
 
+    onCleanup(() => {
+      ensureTutorialState().endTutorial();
+      resetDeploymentState();
+    });
     ensureTutorialState().startTutorial();
-    ensureTutorialState().jumpToPhase("base_camp");
+    ensureTutorialState().advancePhase("base_camp", false);
+    (screen as any).syncTutorialPhaseWithCurrentContext("base_camp");
   });
 
   await When("the commander selects another valid deployment hex in Zone Alpha", async () => {
-    (screen as any).updateSelectionFeedback("15,2");
+    (screen as any).handleRendererSelection("15,2", true);
+    (screen as any).syncTutorialPhaseWithCurrentContext("base_camp");
   });
 
-  await Then("tutorial camera focus is refreshed to that newly selected deployment hex", async () => {
-    if (focusedHex !== "15,2") {
-      throw new Error(`Expected base-camp tutorial focus to move to 15,2, received ${focusedHex ?? "<none>"}`);
+  await Then("the phase frames every legal choice once and preserves the commander's selected hex", async () => {
+    if (cameraRequests.length !== 1 || cameraRequests[0].phase !== "base_camp"
+      || cameraRequests[0].hexKeys.join(";") !== ["14,1", "14,2", "15,1", "15,2"].join(";")
+      || !Number.isFinite(cameraRequests[0].zoom) || cameraRequests[0].zoom <= 0) {
+      throw new Error(`Expected one bounded camera request for the complete deployment zone, received ${JSON.stringify(cameraRequests)}.`);
     }
-    if ((screen as any).tutorialBaseCampFocusKey !== "15,2") {
-      throw new Error(`Expected tutorial base-camp focus key to update to 15,2, received ${(screen as any).tutorialBaseCampFocusKey}`);
+    if ((screen as any).selectedHexKey !== "15,2" || (screen as any).selectionIntel?.hexKey !== "15,2"
+      || !((screen as any).baseCampStatus.textContent ?? "").includes("Selected hex: 15,2")) {
+      throw new Error("Expected selected hex, deployment intelligence and status to retain the commander's exact choice after phase synchronization.");
     }
-    ensureTutorialState().endTutorial();
-    resetDeploymentState();
   });
 });
 
-registerTest("BATTLESCREEN_DEFAULT_SELECTION_USES_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_DEFAULT_SELECTION_USES_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let defaultSelectionKey: string | null = null;
 
@@ -392,7 +496,7 @@ registerTest("BATTLESCREEN_DEFAULT_SELECTION_USES_PLAYER_DEPLOYMENT_HEX", async 
         faction: "Player"
       }
     ]);
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       {} as any,
       {} as any,
@@ -419,7 +523,7 @@ registerTest("BATTLESCREEN_DEFAULT_SELECTION_USES_PLAYER_DEPLOYMENT_HEX", async 
   });
 });
 
-registerTest("BATTLESCREEN_DEFAULT_SELECTION_PREFERS_ASSIGNED_BASE_CAMP", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_DEFAULT_SELECTION_PREFERS_ASSIGNED_BASE_CAMP", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let defaultSelectionKey: string | null = null;
 
@@ -438,7 +542,7 @@ registerTest("BATTLESCREEN_DEFAULT_SELECTION_PREFERS_ASSIGNED_BASE_CAMP", async 
       }
     ]);
     (deploymentState as any).baseCampKey = "5,5";
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       {} as any,
       {} as any,
@@ -465,7 +569,7 @@ registerTest("BATTLESCREEN_DEFAULT_SELECTION_PREFERS_ASSIGNED_BASE_CAMP", async 
   });
 });
 
-registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLIGHTED", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLIGHTED", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let highlightedHexes: string[] = [];
   let selectedHexContext: { key: string | null; context?: { terrainName: string; zoneKey: string | null; zoneLabel: string | null } } | null = null;
@@ -498,10 +602,15 @@ registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLI
             return { phase: "deployment", activeFaction: "Player", turnNumber: 1 };
           }
         };
+      },
+      tryGetGameEngine() {
+        return this.ensureGameEngine();
       }
     } as any;
 
     const fakeRenderer = {
+      clearInitiativeGroupHighlights() {},
+      syncQueuedTargetMarkers() {},
       setZoneHighlights(keys: Iterable<string>) {
         highlightedHexes = Array.from(keys);
       }
@@ -513,7 +622,7 @@ registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLI
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       fakeBattleState,
       {} as any,
@@ -541,7 +650,7 @@ registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLI
     if (baseCampButton.disabled !== true) {
       throw new Error("Expected base-camp assignment button to stay disabled for an invalid deployment hex.");
     }
-    if (!baseCampStatus.textContent?.includes("outside player deployment zones")) {
+    if (!baseCampStatus.textContent?.includes("Outside player deployment zones")) {
       throw new Error(`Expected invalid-selection guidance in base-camp status, received ${baseCampStatus.textContent}`);
     }
     if (!selectedHexContext || selectedHexContext.key !== "0,6") {
@@ -560,7 +669,7 @@ registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLI
   });
 });
 
-registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let soundEnabled = true;
   let toggleButton: HTMLButtonElement;
@@ -577,6 +686,8 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
     window.localStorage.removeItem("fsg-sound-enabled");
 
     const fakeRenderer = {
+      clearInitiativeGroupHighlights() {},
+      syncQueuedTargetMarkers() {},
       setSoundEnabled(enabled: boolean) {
         soundEnabled = enabled;
       },
@@ -585,7 +696,7 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       {} as any,
       {} as any,
@@ -631,7 +742,7 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
   });
 });
 
-registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let deployedToAxialKey: string | null = null;
   let playerPlacements: ScenarioUnit[];
@@ -748,7 +859,7 @@ registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given,
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       fakeBattleState,
       {} as any,
@@ -935,7 +1046,7 @@ registerTest("BATTLESCREEN_NEW_DEPLOYMENT_REOPENS_REUSED_PANEL", async ({ Given,
   });
 });
 
-registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;
   let assignedZoneKey: string | null = null;
@@ -990,12 +1101,14 @@ registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", as
     } as any;
 
     const fakeRenderer = {
+      clearInitiativeGroupHighlights() {},
+      syncQueuedTargetMarkers() {},
       renderBaseCampMarker(hexKey: string | null) {
         renderedBaseCampMarker = hexKey;
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       fakeBattleState,
       {} as any,
@@ -1041,7 +1154,7 @@ registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", as
   });
 });
 
-registerTest("BATTLESCREEN_REPORTS_MISSING_PLAYER_SELECTION_CONTEXT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_REPORTS_MISSING_PLAYER_SELECTION_CONTEXT", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
 
@@ -1065,7 +1178,7 @@ registerTest("BATTLESCREEN_REPORTS_MISSING_PLAYER_SELECTION_CONTEXT", async ({ G
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       {} as any,
       {} as any,
@@ -1120,6 +1233,9 @@ registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", as
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     const engine = {
+      phase: "playerTurn",
+      activeFaction: "Player",
+      turnNumber: 1,
       baseCamp: { key: "0,0", hex: { q: 0, r: 0 } },
       finalizeDeployment: () => {
         callOrder.push("finalize");
@@ -1149,6 +1265,8 @@ registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", as
     (screen as any).focusCurrentInitiativeActivation = () => {};
     (screen as any).refreshDeploymentMirrors = () => {};
     (screen as any).battleState = {
+      tryGetGameEngine: () => engine,
+      getCampaignBridgeState: () => null,
       getCurrentTurnSummary: () => ({ turnNumber: 1, activeFaction: "Player", phase: "playerTurn" })
     };
     (screen as any).battleLoadout = null;
@@ -1179,7 +1297,7 @@ registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", as
   });
 });
 
-registerTest("BATTLESCREEN_BEGIN_BATTLE_ERRORS_USE_PANEL_MESSAGING", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_BEGIN_BATTLE_ERRORS_USE_PANEL_MESSAGING", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let alertCount = 0;
   let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
@@ -1197,7 +1315,7 @@ registerTest("BATTLESCREEN_BEGIN_BATTLE_ERRORS_USE_PANEL_MESSAGING", async ({ Gi
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       {} as any,
       {} as any,
@@ -1255,94 +1373,121 @@ registerTest("BATTLESCREEN_BEGIN_BATTLE_ERRORS_USE_PANEL_MESSAGING", async ({ Gi
 
 registerTest("BATTLESCREEN_MISSION_END_USES_HEADQUARTERS_HANDOFF", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
-  let shownScreenId: string | null = null;
-  let alertCount = 0;
+  const shownScreens: string[] = [];
+  const serviceRecordResults: boolean[] = [];
+  const handoffOrder: string[] = [];
+  const nativeDialogCalls: string[] = [];
   const campaignState = ensureCampaignState();
-  const originalAlert = window.alert ?? (() => {});
-  const originalConfirm = window.confirm ?? (() => true);
-  const originalPrompt = window.prompt ?? (() => "0");
+  let headquartersStatus: ReturnType<typeof campaignState.getHeadquartersStatusMessage> = null;
+  const saveBackend = new InMemoryCampaignSaveBackend();
+  const committed = commitFixture(saveBackend);
+  const tacticalState = tacticalStateFixture(committed.runtime, committed.pkg);
+  const priorHeadquartersStatus = campaignState.getHeadquartersStatusMessage();
+  const originalCampaignMethods = {
+    getScenario: campaignState.getScenario,
+    getActiveCampaignBattlePackage: campaignState.getActiveCampaignBattlePackage,
+    applyCampaignBattleResult: campaignState.applyCampaignBattleResult,
+    getCampaignBattleResultPackage: campaignState.getCampaignBattleResultPackage,
+    savePostBattleAutosave: campaignState.savePostBattleAutosave
+  };
+  const originalDialogs = { alert: window.alert, confirm: window.confirm, prompt: window.prompt };
 
-  await Given("a mission end flow with a live campaign layer", async () => {
+  await Given("a terminal campaign battle backed by a committed package and complete tactical evidence", async () => {
     mountBattleScreenRoot();
-    campaignState.reset();
-    campaignState.setScenario({
-      key: "campaign_test",
-      title: "Campaign Test",
-      description: "",
-      dimensions: { cols: 1, rows: 1 },
-      background: { imageUrl: "about:blank" },
-      tilePalette: {},
-      tiles: [],
-      fronts: [],
-      objectives: [],
-      economies: [{ faction: "Player", supplies: 200, fuel: 150, manpower: 500 }]
-    } as any);
-    window.alert = (() => {
-      alertCount += 1;
-    }) as typeof window.alert;
-    window.confirm = (() => true) as typeof window.confirm;
-    let promptCallCount = 0;
-    window.prompt = (() => {
-      promptCallCount += 1;
-      return promptCallCount === 1 ? "6" : "2";
-    }) as typeof window.prompt;
-
-    const fakeBattleState = {
-      getSupplyHistory() {
-        return [
+    const engine = {
+      playerUnits: tacticalState.playerPlacements,
+      serialize: () => structuredClone(tacticalState)
+    };
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    Object.assign(screen, {
+      uiState: { selectedMission: "campaign", selectedDifficulty: "Normal", isFromCampaign: true },
+      scenario: { name: "Line Assault — Hex 1,0", sides: { Player: { units: tacticalState.playerPlacements } } },
+      missionStatus: structuredClone(missionStatus),
+      battleState: {
+        // Deliberately different from the extracted campaign ledger: the retained result owns the report.
+        getSupplyHistory: () => [
           { stockpile: { ammo: 120, fuel: 90 } },
           { stockpile: { ammo: 105, fuel: 70 } }
-        ];
+        ],
+        hasEngine: () => true,
+        ensureGameEngine: () => engine,
+        tryGetGameEngine: () => engine,
+        getAssignedCommanderId: () => null
       },
-      getSupplySnapshot() {
-        return { stockpile: { ammo: 105, fuel: 70 } };
-      }
-    } as any;
-
-    screen = new BattleScreen(
-      {
+      screenManager: {
         showScreenById(screenId: string) {
-          shownScreenId = screenId;
+          shownScreens.push(screenId);
+          handoffOrder.push("navigate");
         }
-      } as any,
-      fakeBattleState,
-      {} as any,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      { selectedMission: "training" } as any
-    );
-
-    (screen as any).battleAnnouncements = document.createElement("div");
-    (screen as any).baseCampStatus = document.createElement("div");
+      },
+      updateGeneralServiceRecord(success: boolean) {
+        serviceRecordResults.push(success);
+        handoffOrder.push("serviceRecord");
+      },
+      announceBattleUpdate: () => {},
+      tacticalSessionStartedAt: Date.now(),
+      selectedHexKey: null,
+      mapViewport: null,
+      battleAnnouncements: document.createElement("div"),
+      baseCampStatus: document.createElement("div")
+    });
   });
 
-  await When("the mission end handler runs", async () => {
+  await When("the commander consents in-game and the asynchronous handoff completes", async () => {
     try {
-      (screen as any).handleEndMission();
+      window.alert = () => { nativeDialogCalls.push("alert"); };
+      window.confirm = () => { nativeDialogCalls.push("confirm"); return true; };
+      window.prompt = () => { nativeDialogCalls.push("prompt"); return "99"; };
+      // Route the singleton boundary to a real isolated campaign, retaining its validation and transaction authority.
+      campaignState.getScenario = committed.campaign.getScenario.bind(committed.campaign);
+      campaignState.getActiveCampaignBattlePackage = committed.campaign.getActiveCampaignBattlePackage.bind(committed.campaign);
+      campaignState.getCampaignBattleResultPackage = committed.campaign.getCampaignBattleResultPackage.bind(committed.campaign);
+      campaignState.applyCampaignBattleResult = (result) => {
+        handoffOrder.push("apply");
+        return committed.campaign.applyCampaignBattleResult(result);
+      };
+      campaignState.savePostBattleAutosave = async (engagementId, request) => {
+        handoffOrder.push("autosaveStarted");
+        const slot = await committed.campaign.savePostBattleAutosave(engagementId, request);
+        if (shownScreens.length !== 0 || serviceRecordResults.length !== 0) {
+          throw new Error("Campaign navigation or service-record update preceded durable autosave completion.");
+        }
+        handoffOrder.push("autosaveCompleted");
+        return slot;
+      };
+
+      // The prototype fixture exposes the private handler without replacing its consent or computed resolution.
+      const pending = (screen as unknown as MissionEndHandlers).handleEndMission();
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="missionEndConfirmTitle"]');
+      const confirm = dialog?.querySelector<HTMLButtonElement>('[data-action="confirm"]');
+      if (!confirm || handoffOrder.length !== 0 || committed.campaign.getCampaignBattleResultPackage(committed.pkg.engagementId)) {
+        throw new Error("Expected an in-game consent dialog before any campaign result application.");
+      }
+      confirm.click();
+      await pending;
+      headquartersStatus = campaignState.getHeadquartersStatusMessage();
+      if (dialog?.isConnected) throw new Error("Mission-end consent remained open after confirmation.");
     } finally {
-      window.alert = originalAlert;
-      window.confirm = originalConfirm;
-      window.prompt = originalPrompt;
+      Object.assign(window, originalDialogs);
+      Object.assign(campaignState, originalCampaignMethods);
+      campaignState.setHeadquartersStatusMessage(priorHeadquartersStatus);
     }
   });
 
-  await Then("battle results are handed off to headquarters instead of alert", async () => {
-    if (shownScreenId !== "campaign") {
-      throw new Error(`Expected mission end to return to campaign, received ${shownScreenId}`);
+  await Then("headquarters receives the validated result and recovery checkpoint before navigation", async () => {
+    if (shownScreens.join() !== "campaign" || serviceRecordResults.length !== 1 || serviceRecordResults[0] !== true
+      || handoffOrder.join() !== "apply,autosaveStarted,autosaveCompleted,serviceRecord,navigate") {
+      throw new Error(`Expected one awaited campaign handoff, received ${handoffOrder.join()}.`);
     }
-    if (alertCount !== 0) {
-      throw new Error(`Expected alert() to be unused, received ${alertCount} calls`);
+    if (nativeDialogCalls.length !== 0) {
+      throw new Error(`Expected no browser-native mission dialogs, received ${nativeDialogCalls.join()}.`);
     }
-    const headquartersStatus = campaignState.getHeadquartersStatusMessage();
     if (!headquartersStatus || headquartersStatus.title !== "Mission completed successfully.") {
       throw new Error("Expected a headquarters success handoff message after mission end.");
     }
-    if (!headquartersStatus.detail.includes("Coastal Push recorded 6 objectives, 2 casualties, 15 ammo spent, and 20 fuel spent.")) {
+    if (!headquartersStatus.detail.includes("Line Assault — Hex 1,0 recorded 1 objective, 4 casualties, 6 ammo spent, and 2 fuel spent.")
+      || !headquartersStatus.detail.includes("Primary objective secured. Objective board: 1 completed, 1 failed, 0 contested.")
+      || !headquartersStatus.detail.includes("A post-battle recovery checkpoint was saved.")) {
       throw new Error(`Expected headquarters detail to summarize the mission result, received ${headquartersStatus.detail}`);
     }
     if (!headquartersStatus.action.includes("Review the updated front and headquarters ledgers")) {
@@ -1351,19 +1496,37 @@ registerTest("BATTLESCREEN_MISSION_END_USES_HEADQUARTERS_HANDOFF", async ({ Give
     if (headquartersStatus.tone !== "success") {
       throw new Error(`Expected success tone for mission-end handoff, received ${headquartersStatus.tone}`);
     }
-    campaignState.reset();
+    const retained = committed.campaign.getCampaignBattleResultPackage(committed.pkg.engagementId);
+    const runtime = committed.campaign.getRuntimeSnapshot();
+    if (!retained || retained.resourcesConsumed.Player?.ammo !== 6 || retained.resourcesConsumed.Player?.fuel !== 2
+      || runtime?.engagementLedger[committed.pkg.engagementId]?.appliedResolutionIds.length !== 1
+      || runtime.activeEngagementId !== null) {
+      throw new Error("Expected the actual campaign transaction to retain one result and resolve the active engagement.");
+    }
+    const slots = await saveBackend.listSlots();
+    if (slots.length !== 1 || slots[0].slotType !== "autosave"
+      || committed.campaign.getPostBattleAutosaveStatus()?.state !== "saved") {
+      throw new Error("Expected one durable post-battle autosave.");
+    }
+    const saved = validateCampaignSaveEnvelope(await saveBackend.getSave(slots[0].currentSaveId));
+    if (!saved.ok) throw new Error(`Post-battle checkpoint failed validation: ${saved.error.message}`);
+    if (saved.envelope.payload.runtime.engagementLedger[committed.pkg.engagementId]?.resultPackage?.integrityHash !== retained.integrityHash) {
+      throw new Error("The recovery checkpoint did not preserve the applied tactical result.");
+    }
   });
 });
 
-registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let shownScreenId: string | null = null;
+  let campaignRevision = -1;
+  let confirmCount = 0;
   let promptCount = 0;
   const campaignState = ensureCampaignState();
   const originalConfirm = window.confirm ?? (() => true);
   const originalPrompt = window.prompt ?? (() => "0");
 
-  await Given("a River Crossing Watch mission with computed mission status", async () => {
+  await Given("a standalone River Crossing Watch terminal result already confirmed in the result modal", async () => {
     mountBattleScreenRoot();
     campaignState.reset();
     campaignState.setScenario({
@@ -1378,7 +1541,8 @@ registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async 
       objectives: [],
       economies: [{ faction: "Player", supplies: 200, fuel: 150, manpower: 500 }]
     } as any);
-    window.confirm = (() => true) as typeof window.confirm;
+    campaignRevision = campaignState.getRuntimeSnapshot()?.revision ?? -1;
+    window.confirm = (() => { confirmCount += 1; return true; }) as typeof window.confirm;
     window.prompt = (() => {
       promptCount += 1;
       return "0";
@@ -1405,7 +1569,7 @@ registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async 
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {
         showScreenById(screenId: string) {
           shownScreenId = screenId;
@@ -1420,7 +1584,7 @@ registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async 
       null,
       null,
       null,
-      { selectedMission: "patrol_river_watch" } as any
+      { selectedMission: "patrol_river_watch", isFromCampaign: false } as any
     );
 
     (screen as any).battleAnnouncements = document.createElement("div");
@@ -1451,19 +1615,24 @@ registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async 
 
   await When("the mission end handler runs", async () => {
     try {
-      (screen as any).handleEndMission();
+      // This resolution-only test starts after terminal-modal consent; the dialog owners are tested separately.
+      await (screen as unknown as MissionEndHandlers).handleEndMission(true);
     } finally {
       window.confirm = originalConfirm;
       window.prompt = originalPrompt;
     }
   });
 
-  await Then("headquarters uses computed mission results instead of prompts", async () => {
-    if (shownScreenId !== "campaign") {
-      throw new Error(`Expected mission end to return to campaign, received ${shownScreenId}`);
+  await Then("the computed debrief returns standalone play to landing without changing campaign truth", async () => {
+    if (shownScreenId !== "landing") {
+      throw new Error(`Expected standalone mission end to return to landing, received ${shownScreenId}`);
     }
-    if (promptCount !== 0) {
-      throw new Error(`Expected prompt() to be unused for computed mission status, received ${promptCount} calls`);
+    if (promptCount !== 0 || confirmCount !== 0 || document.querySelector('[aria-labelledby="missionEndConfirmTitle"]')) {
+      throw new Error(`Expected no duplicate consent or manual result prompts, received ${confirmCount} confirms and ${promptCount} prompts.`);
+    }
+    if (campaignRevision < 0 || campaignState.getRuntimeSnapshot()?.revision !== campaignRevision
+      || campaignState.getPostBattleAutosaveStatus() !== null) {
+      throw new Error("Standalone mission completion changed campaign truth or attempted a campaign autosave.");
     }
     const headquartersStatus = campaignState.getHeadquartersStatusMessage();
     if (!headquartersStatus) {
@@ -1488,7 +1657,7 @@ registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async 
   });
 });
 
-registerTest("BATTLESCREEN_RIVER_WATCH_SEEDS_INITIAL_MISSION_STATUS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_RIVER_WATCH_SEEDS_INITIAL_MISSION_STATUS", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let missionObjectives: HTMLUListElement | null = null;
   let missionTurnLimit: HTMLElement | null = null;
@@ -1507,6 +1676,12 @@ registerTest("BATTLESCREEN_RIVER_WATCH_SEEDS_INITIAL_MISSION_STATUS", async ({ G
     missionTurnLimit = document.getElementById("battleMissionTurnLimit");
 
     const fakeBattleState = {
+      getCampaignBridgeState() {
+        return null;
+      },
+      tryGetGameEngine() {
+        return this.ensureGameEngine();
+      },
       getPrecombatMissionInfo() {
         return {
           missionKey: "patrol_river_watch",
@@ -1535,17 +1710,17 @@ registerTest("BATTLESCREEN_RIVER_WATCH_SEEDS_INITIAL_MISSION_STATUS", async ({ G
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       fakeBattleState,
       { getActivePopup() { return null; } } as any,
       null,
-      { initialize() {}, resetScenarioState() {}, on() {} } as any,
+      { initialize() {}, resetScenarioState() {}, on() {}, getElement: () => document.getElementById("deploymentPanel") } as any,
       { initialize() {} } as any,
       { initialize() {} } as any,
       null,
       null,
-      { registerCollapsedChangeListener() {}, sync() {} } as any,
+      { registerCollapsedChangeListener() {}, sync() {}, dispose() {} } as any,
       { selectedMission: "patrol_river_watch" } as any
     );
 
@@ -1594,13 +1769,13 @@ registerTest("BATTLESCREEN_RIVER_WATCH_SEEDS_INITIAL_MISSION_STATUS", async ({ G
   });
 });
 
-registerTest("BATTLESCREEN_RIVER_WATCH_IGNORES_DIFFICULTY_FOR_TURN_LIMIT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_RIVER_WATCH_IGNORES_DIFFICULTY_FOR_TURN_LIMIT", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let scenarioTurnLimit = -1;
 
   await Given("a River Watch battle screen on Hard difficulty", async () => {
     mountBattleScreenRoot();
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       {} as any,
       {} as any,
@@ -1626,7 +1801,7 @@ registerTest("BATTLESCREEN_RIVER_WATCH_IGNORES_DIFFICULTY_FOR_TURN_LIMIT", async
   });
 });
 
-registerTest("BATTLESCREEN_RIVER_WATCH_PHASE_CHANGES_ANNOUNCE_AND_UPDATE_SUMMARY", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_RIVER_WATCH_PHASE_CHANGES_ANNOUNCE_AND_UPDATE_SUMMARY", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let missionSummary: HTMLElement | null = null;
   let battleAnnouncements: HTMLElement | null = null;
@@ -1685,7 +1860,7 @@ registerTest("BATTLESCREEN_RIVER_WATCH_PHASE_CHANGES_ANNOUNCE_AND_UPDATE_SUMMARY
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       fakeBattleState,
       {} as any,
@@ -1748,10 +1923,13 @@ registerTest("BATTLESCREEN_RIVER_WATCH_PHASE_CHANGES_ANNOUNCE_AND_UPDATE_SUMMARY
   });
 });
 
-registerTest("BATTLESCREEN_RESETS_MISSION_DERIVED_UI_STATE", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_RESETS_MISSION_DERIVED_UI_STATE", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let panelResetCount = 0;
   let idleHighlightClears = 0;
+  let initiativeHighlightClears = 0;
+  let tacticalHighlightClears = 0;
+  let objectiveMarkerClears = 0;
   let renderedBaseCampMarker: string | null | undefined;
   let lastSyncedActivityCount = -1;
   const zoneHighlightCalls: string[][] = [];
@@ -1760,6 +1938,16 @@ registerTest("BATTLESCREEN_RESETS_MISSION_DERIVED_UI_STATE", async ({ Given, Whe
   await Given("a battle screen with stale mission-derived state", async () => {
     mountBattleScreenRoot();
     const fakeRenderer = {
+      syncQueuedTargetMarkers() {},
+      clearInitiativeGroupHighlights() {
+        initiativeHighlightClears += 1;
+      },
+      clearTacticalHighlights() {
+        tacticalHighlightClears += 1;
+      },
+      clearObjectiveMarkers() {
+        objectiveMarkerClears += 1;
+      },
       clearIdleUnitHighlights() {
         idleHighlightClears += 1;
       },
@@ -1773,19 +1961,21 @@ registerTest("BATTLESCREEN_RESETS_MISSION_DERIVED_UI_STATE", async ({ Given, Whe
       }
     } as any;
     const fakeDeploymentPanel = {
+      getElement: () => document.getElementById("deploymentPanel"),
       resetScenarioState() {
         panelResetCount += 1;
       }
     } as any;
     const fakeBattleActivityLog = {
+      dispose() {},
       sync(events: unknown[]) {
         lastSyncedActivityCount = events.length;
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
-      {} as any,
+      { tryGetGameEngine: () => null } as any,
       {} as any,
       fakeRenderer,
       fakeDeploymentPanel,
@@ -1806,6 +1996,7 @@ registerTest("BATTLESCREEN_RESETS_MISSION_DERIVED_UI_STATE", async ({ Given, Whe
     (screen as any).baseCampStatus = baseCampStatus;
     (screen as any).endMissionButton = endMissionButton;
     (screen as any).selectionIntelOverlay = {
+      dispose() {},
       update(intel: unknown) {
         overlayUpdates.push(intel);
       }
@@ -1871,6 +2062,9 @@ registerTest("BATTLESCREEN_RESETS_MISSION_DERIVED_UI_STATE", async ({ Given, Whe
     if (idleHighlightClears !== 1) {
       throw new Error(`Expected idle highlights to be cleared once, received ${idleHighlightClears}`);
     }
+    if (initiativeHighlightClears !== 1 || tacticalHighlightClears !== 1 || objectiveMarkerClears !== 1) {
+      throw new Error(`Expected initiative, tactical, and objective overlays to clear once, received ${initiativeHighlightClears}, ${tacticalHighlightClears}, ${objectiveMarkerClears}.`);
+    }
     if (!zoneHighlightCalls.some((keys) => keys.length === 0)) {
       throw new Error("Expected zone highlights to be cleared during mission reset");
     }
@@ -1895,7 +2089,7 @@ registerTest("BATTLESCREEN_RESETS_MISSION_DERIVED_UI_STATE", async ({ Given, Whe
   });
 });
 
-registerTest("BATTLESCREEN_DIFFICULTY_CHANGE_FORCES_MISSION_SESSION_REFRESH", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_DIFFICULTY_CHANGE_FORCES_MISSION_SESSION_REFRESH", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let resetCount = 0;
   let engineResetCount = 0;
@@ -1905,7 +2099,7 @@ registerTest("BATTLESCREEN_DIFFICULTY_CHANGE_FORCES_MISSION_SESSION_REFRESH", as
 
   await Given("a battle screen already keyed to the current mission at Normal difficulty", async () => {
     mountBattleScreenRoot();
-    screen = new BattleScreen(
+    screen = createScreen(
       { showScreenById() {}, showScreen() {}, getCurrentScreen() { return null; } } as any,
       { resetEngineState() { engineResetCount += 1; } } as any,
       {} as any,
@@ -1938,7 +2132,7 @@ registerTest("BATTLESCREEN_DIFFICULTY_CHANGE_FORCES_MISSION_SESSION_REFRESH", as
     (screen as any).initializeDeploymentMirrors = () => {};
     (screen as any).syncTurnContext = () => {};
     (screen as any).renderMissionStatus = () => {};
-    (screen as any).selectionIntelOverlay = { update() {} };
+    (screen as any).selectionIntelOverlay = { update() {}, dispose() {} };
   });
 
   await When("the commander re-enters battle on a different difficulty for the same scenario", async () => {
@@ -1965,7 +2159,7 @@ registerTest("BATTLESCREEN_DIFFICULTY_CHANGE_FORCES_MISSION_SESSION_REFRESH", as
   });
 });
 
-registerTest("BATTLESCREEN_BASE_CAMP_ERRORS_USE_PANEL_MESSAGING", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_BASE_CAMP_ERRORS_USE_PANEL_MESSAGING", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let alertCount = 0;
   let criticalError: { title?: string; detail?: string; action?: string } | null = null;
@@ -1983,7 +2177,7 @@ registerTest("BATTLESCREEN_BASE_CAMP_ERRORS_USE_PANEL_MESSAGING", async ({ Given
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       {} as any,
       {} as any,
@@ -2028,7 +2222,7 @@ registerTest("BATTLESCREEN_BASE_CAMP_ERRORS_USE_PANEL_MESSAGING", async ({ Given
   });
 });
 
-registerTest("BATTLESCREEN_DUPLICATE_DEPLOY_EVENTS_IGNORE_STALE_SECOND_ATTEMPT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_DUPLICATE_DEPLOY_EVENTS_IGNORE_STALE_SECOND_ATTEMPT", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let panelListener: ((event: { type: string; payload?: Record<string, unknown> }) => void) | null = null;
   let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
@@ -2081,7 +2275,7 @@ registerTest("BATTLESCREEN_DUPLICATE_DEPLOY_EVENTS_IGNORE_STALE_SECOND_ATTEMPT",
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       { ensureGameEngine() { return fakeEngine; } } as any,
       {} as any,
@@ -2127,7 +2321,7 @@ registerTest("BATTLESCREEN_DUPLICATE_DEPLOY_EVENTS_IGNORE_STALE_SECOND_ATTEMPT",
   });
 });
 
-registerTest("BATTLESCREEN_MANUAL_DEPLOY_COMPLETES_TUTORIAL_WHEN_DEPLOYMENT_POOL_IS_EMPTY", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_MANUAL_DEPLOY_COMPLETES_TUTORIAL_WHEN_DEPLOYMENT_POOL_IS_EMPTY", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let panelListener: ((event: { type: string; payload?: Record<string, unknown> }) => void) | null = null;
   let deployCalls = 0;
@@ -2215,7 +2409,7 @@ registerTest("BATTLESCREEN_MANUAL_DEPLOY_COMPLETES_TUTORIAL_WHEN_DEPLOYMENT_POOL
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       { ensureGameEngine() { return fakeEngine; } } as any,
       {} as any,
@@ -2262,7 +2456,7 @@ registerTest("BATTLESCREEN_MANUAL_DEPLOY_COMPLETES_TUTORIAL_WHEN_DEPLOYMENT_POOL
   });
 });
 
-registerTest("BATTLESCREEN_BIND_PANEL_EVENTS_IS_IDEMPOTENT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_BIND_PANEL_EVENTS_IS_IDEMPOTENT", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let panelOnCalls = 0;
 
@@ -2275,7 +2469,7 @@ registerTest("BATTLESCREEN_BIND_PANEL_EVENTS_IS_IDEMPOTENT", async ({ Given, Whe
       }
     } as any;
 
-    screen = new BattleScreen(
+    screen = createScreen(
       {} as any,
       { ensureGameEngine() { return {}; } } as any,
       {} as any,
@@ -2309,6 +2503,7 @@ registerTest("BATTLESCREEN_PANEL_EVENT_STREAM_DOES_NOT_REBIND_DOM_CONTROLS", asy
 
   await Given("the deployment event stream and its DOM controls are initialized through separate owners", async () => {
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).element = mountBattleScreenRoot();
     (screen as any).deploymentPanel = { on() { return () => {}; } };
     (screen as any).panelEventsBound = false;
     (screen as any).battleState = { ensureGameEngine() { return {}; } };

@@ -10,16 +10,13 @@
  */
 
 import { registerTest } from "./harness.js";
-import { runAirScenario } from "./airScenarioSupport.js";
+import { requireContestedAirScenario, runAirScenario, sampleAirScenarioTrack, sampleSharedAirScenarioIngress } from "./airScenarioSupport.js";
 import { buildCoordinatedAirClusterTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
 import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_EXPECTED_SPEED_RATIO,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
   calculatePathLength,
-  getAuthoritativeContestedInspection,
-  getAuthoritativeContestedPackagePhases,
-  getAuthoritativeContestedPlan,
   type AirScenarioResult
 } from "./airShowTestSupport.js";
 
@@ -38,33 +35,29 @@ registerTest("AIR_SHOW_SPEED_MODEL_FIGHTER_VS_BOMBER_RATIO", async ({ Given, Whe
   });
 
   await Then("inspection timing should preserve fighter-faster-than-bomber ingress ordering while browser tests own the exact visible ratio", async () => {
-    const phases = getAuthoritativeContestedPackagePhases(result);
-    if (!phases) {
-      console.log("[SPEED MODEL] No contested package found - skipping ratio validation");
-      return;
-    }
+    const { sceneReport } = requireContestedAirScenario(result);
+    const phases = sceneReport.phases;
 
     const fighterIngress = phases.find((phase) => phase.label === "fighter-ingress");
     if (!fighterIngress) {
       throw new Error("Expected fighter-ingress phase.");
     }
 
-    const phaseTimingAudit =
-      getAuthoritativeContestedPlan(result)?.sceneReport?.phaseTimingAudit
-      ?? getAuthoritativeContestedInspection(result)?.report.phaseTimingAudit
-      ?? [];
+    const phaseTimingAudit = sceneReport.phaseTimingAudit;
     const fighterIngressAudit = phaseTimingAudit.find((phase) => phase.label === "fighter-ingress");
     const fighterAudit = fighterIngressAudit?.roles.find((role) => role.role === "interceptor" && role.assignmentCount > 0);
-    const bomberAudit = fighterIngressAudit?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0);
+    // Timeline v2 audits each role's own segment, even when those segments overlap in wall-clock time.
+    const bomberAudit = phaseTimingAudit.find((phase) => phase.label === "bomber-ingress")
+      ?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0);
 
     if (!fighterAudit || !bomberAudit) {
-      throw new Error("Expected fighter and bomber timing audits inside fighter-ingress.");
+      throw new Error("Expected fighter and bomber timing audits in their respective ingress phases.");
     }
 
     const fighterSpeed = fighterAudit.realizedSpeedPxPerMs;
     const bomberSpeed = bomberAudit.realizedSpeedPxPerMs;
 
-    if (fighterSpeed === 0 || bomberSpeed === 0) {
+    if (!Number.isFinite(fighterSpeed) || !Number.isFinite(bomberSpeed) || fighterSpeed <= 0 || bomberSpeed <= 0) {
       throw new Error("Could not calculate speeds - insufficient samples.");
     }
 
@@ -97,16 +90,8 @@ registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async 
   });
 
   await Then("pre-target bomber phases should add up to the sampled bomber corridor time while preserving a delayed bomber lead window", async () => {
-    const phases = getAuthoritativeContestedPackagePhases(result);
-    if (!phases) {
-      console.log("[INGRESS DURATION] No contested package found - skipping");
-      return;
-    }
-
-    const phaseTimingAudit =
-      getAuthoritativeContestedPlan(result)?.sceneReport?.phaseTimingAudit
-      ?? getAuthoritativeContestedInspection(result)?.report.phaseTimingAudit
-      ?? [];
+    const coordinatedPlan = requireContestedAirScenario(result);
+    const phaseTimingAudit = coordinatedPlan.sceneReport.phaseTimingAudit;
     const preTargetBomberAudits = phaseTimingAudit
       .filter((phase) => PRE_TARGET_BOMBER_PHASES.has(phase.label))
       .map((phase) => ({
@@ -116,8 +101,8 @@ registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async 
       .filter((
         entry
       ): entry is { label: string; bomber: NonNullable<(typeof phaseTimingAudit)[number]["roles"][number]> } => !!entry.bomber);
-    if (preTargetBomberAudits.length === 0) {
-      throw new Error("Expected bomber pre-target phases.");
+    if (preTargetBomberAudits.length !== PRE_TARGET_BOMBER_PHASES.size) {
+      throw new Error("Expected both bomber ingress and defense timing audits before target-run.");
     }
 
     const sampledBomberPathPx = preTargetBomberAudits.reduce((sum, phase) => {
@@ -127,6 +112,10 @@ registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async 
       return sum + phase.bomber.realizedDurationMs;
     }, 0);
     const canonicalDurationMs = sampledBomberPathPx / AIR_SHOW_BOMBER_SPEED_PX_PER_MS;
+    if (!Number.isFinite(canonicalDurationMs) || canonicalDurationMs <= 0
+      || !Number.isFinite(sampledPreTargetDurationMs) || sampledPreTargetDurationMs <= 0) {
+      throw new Error("Expected positive finite bomber corridor distance and active duration.");
+    }
     const allowedDeltaMs = Math.max(140, canonicalDurationMs * 0.18);
     if (Math.abs(sampledPreTargetDurationMs - canonicalDurationMs) > allowedDeltaMs) {
       throw new Error(
@@ -136,9 +125,8 @@ registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async 
       );
     }
 
-    const coordinatedPlan = getAuthoritativeContestedPlan(result);
     const configuredLeadFloor = buildCoordinatedAirClusterTimingPolicy().bomberStartDelayMs;
-    if (coordinatedPlan && coordinatedPlan.bomberStartDelayMs < configuredLeadFloor) {
+    if (!Number.isFinite(coordinatedPlan.bomberStartDelayMs) || coordinatedPlan.bomberStartDelayMs < configuredLeadFloor) {
       throw new Error(
         `Expected coordinated bomber lead window >= ${configuredLeadFloor}ms, ` +
         `saw ${coordinatedPlan.bomberStartDelayMs}ms.`
@@ -161,34 +149,18 @@ registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async 
 registerTest("AIR_SHOW_FIGHTER_VISIBLE_SPEED_DIFFERENTIATION", async ({ Given, When, Then }) => {
   let result: AirScenarioResult | null = null;
 
-  await Given("simultaneous ingress with fighters on shorter path at same duration", async () => {});
+  await Given("fighters and bombers have overlapping active ingress intervals", async () => {});
 
   await When("the contested package with coordinated ingress is run", async () => {
     result = runAirScenario();
   });
 
   await Then("fighters should cover materially more shared-window path than bombers", async () => {
-    const phases = getAuthoritativeContestedPackagePhases(result);
-    if (!phases) {
-      console.log("[VISIBLE SPEED] No contested package found - skipping");
-      return;
-    }
+    const { fighterSamples, bomberSamples } = sampleSharedAirScenarioIngress(result);
+    const fighterDistance = calculatePathLength(fighterSamples);
+    const bomberDistance = calculatePathLength(bomberSamples);
 
-    const fighterIngress = phases.find((phase) => phase.label === "fighter-ingress");
-    if (!fighterIngress) {
-      throw new Error("Expected fighter-ingress phase.");
-    }
-
-    const fighterAssignment = fighterIngress.assignments.find((assignment) => assignment.role === "interceptor");
-    const bomberAssignment = fighterIngress.assignments.find((assignment) => assignment.role === "bomber");
-    if (!fighterAssignment || !bomberAssignment) {
-      throw new Error("Expected fighter and bomber assignments inside fighter-ingress.");
-    }
-
-    const fighterDistance = calculatePathLength(fighterAssignment.sampledPositions);
-    const bomberDistance = calculatePathLength(bomberAssignment.sampledPositions);
-
-    if (fighterDistance <= bomberDistance) {
+    if (bomberDistance <= 0 || fighterDistance <= bomberDistance) {
       throw new Error(
         `Expected fighters to cover more ground in the shared ingress window, ` +
         `saw fighter=${fighterDistance.toFixed(1)}px bomber=${bomberDistance.toFixed(1)}px.`
@@ -211,6 +183,8 @@ registerTest("AIR_SHOW_INGRESS_PHASES_TRACK_POLICY_SPEEDS_ACROSS_INSPECTIONS", a
 
   await Then("ingress phases should stay positive and preserve role speeds across inspections", async () => {
     const inspections = result?.airshowInspections ?? [];
+    requireContestedAirScenario(result);
+    if (inspections.length === 0) throw new Error("Expected airshow inspections for ingress speed validation.");
 
     const violations: string[] = [];
     const observations: string[] = [];
@@ -219,6 +193,9 @@ registerTest("AIR_SHOW_INGRESS_PHASES_TRACK_POLICY_SPEEDS_ACROSS_INSPECTIONS", a
       const ingressPhases = inspection.report.phases.filter(p =>
         p.label.includes("ingress")
       );
+      if (ingressPhases.length === 0) {
+        violations.push(`${inspection.missionId}: missing ingress phases`);
+      }
 
       for (const phase of ingressPhases) {
         const hasFighters = phase.assignments.some(a =>
@@ -240,20 +217,29 @@ registerTest("AIR_SHOW_INGRESS_PHASES_TRACK_POLICY_SPEEDS_ACROSS_INSPECTIONS", a
           );
         }
 
-        if (phase.durationMs <= 0) {
+        if (!Number.isFinite(phase.durationMs) || phase.durationMs <= 0) {
           violations.push(`${inspection.missionId}/${phase.label}: non-positive duration ${phase.durationMs}ms`);
         }
 
-        const fighterAssignments = phase.assignments.filter((assignment) => assignment.role === "interceptor");
-        if (fighterAssignments.length > 0) {
+        for (const fighterRole of ["interceptor", "escort"] as const) {
+          const fighterAssignments = phase.assignments.filter((assignment) => assignment.role === fighterRole);
+          if (fighterAssignments.length === 0) continue;
           const phaseAudit = inspection.report.phaseTimingAudit.find((audit) => audit.label === phase.label);
-          const fighterAudit = phaseAudit?.roles.find((role) => role.role === "interceptor" && role.assignmentCount > 0);
+          const fighterAudit = phaseAudit?.roles.find((role) => role.role === fighterRole && role.assignmentCount > 0);
           const meanFighterSpeed = fighterAudit?.realizedSpeedPxPerMs ?? 0;
           observations.push(
-            `${inspection.missionId}/${phase.label}: fighter=${meanFighterSpeed.toFixed(3)} px/ms`
+            `${inspection.missionId}/${phase.label}: ${fighterRole}=${meanFighterSpeed.toFixed(3)} px/ms`
           );
           if (phase.label === "fighter-ingress") {
-            const bomberAudit = phaseAudit?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0);
+            if (!Number.isFinite(meanFighterSpeed) || meanFighterSpeed < AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 0.75
+              || meanFighterSpeed > AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 1.25) {
+              violations.push(`${inspection.missionId}/${phase.label}: fighter speed ${meanFighterSpeed} px/ms out of range`);
+            }
+            const bomberAudit = inspection.report.phaseTimingAudit.find((audit) => audit.label === "bomber-ingress")
+              ?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0);
+            if (inspection.report.flights.some((flight) => flight.role === "bomber") && !bomberAudit) {
+              violations.push(`${inspection.missionId}: missing bomber ingress timing audit`);
+            }
             const bomberReferenceSpeed = bomberAudit?.realizedSpeedPxPerMs ?? null;
             if (bomberReferenceSpeed !== null && meanFighterSpeed <= bomberReferenceSpeed * 1.15) {
               violations.push(
@@ -270,7 +256,7 @@ registerTest("AIR_SHOW_INGRESS_PHASES_TRACK_POLICY_SPEEDS_ACROSS_INSPECTIONS", a
             const bomberAudit = phaseAudit?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0);
             const bomberReferenceSpeed = bomberAudit?.realizedSpeedPxPerMs ?? null;
             if (
-              meanFighterSpeed < minimumFighterSpeed
+              !Number.isFinite(meanFighterSpeed) || meanFighterSpeed < minimumFighterSpeed
               || meanFighterSpeed > maximumFighterSpeed
             ) {
               violations.push(
@@ -297,11 +283,8 @@ registerTest("AIR_SHOW_INGRESS_PHASES_TRACK_POLICY_SPEEDS_ACROSS_INSPECTIONS", a
           observations.push(
             `${inspection.missionId}/${phase.label}: bomber=${meanBomberSpeed.toFixed(3)} px/ms`
           );
-          if (phase.label === "fighter-ingress") {
-            continue;
-          }
           if (
-            meanBomberSpeed < AIR_SHOW_BOMBER_SPEED_PX_PER_MS * 0.7
+            !Number.isFinite(meanBomberSpeed) || meanBomberSpeed < AIR_SHOW_BOMBER_SPEED_PX_PER_MS * 0.7
             || meanBomberSpeed > AIR_SHOW_BOMBER_SPEED_PX_PER_MS * 1.3
           ) {
             violations.push(
@@ -339,33 +322,11 @@ registerTest("AIR_SHOW_SPEED_MODEL_PATH_LENGTH_DIFFERENTIATION", async ({ Given,
   });
 
   await Then("fighters should accumulate more shared-window path length than bombers", async () => {
-    const phases = getAuthoritativeContestedPackagePhases(result);
-    if (!phases) {
-      console.log("[PATH LENGTH] No contested package found - skipping");
-      return;
-    }
+    const { fighterSamples, bomberSamples } = sampleSharedAirScenarioIngress(result);
+    const fighterPathLength = calculatePathLength(fighterSamples);
+    const bomberPathLength = calculatePathLength(bomberSamples);
 
-    const fighterIngress = phases.find(p =>
-      p.label === "fighter-ingress" && p.assignments.some(a => a.role === "interceptor")
-    );
-
-    if (!fighterIngress) {
-      console.log("[PATH LENGTH] Missing fighter-ingress phase - skipping path comparison");
-      return;
-    }
-
-    const fighterAssignment = fighterIngress.assignments.find(a => a.role === "interceptor");
-    const bomberAssignment = fighterIngress.assignments.find(a => a.role === "bomber");
-
-    if (!fighterAssignment || !bomberAssignment) {
-      console.log("[PATH LENGTH] Missing assignments - skipping path comparison");
-      return;
-    }
-
-    const fighterPathLength = calculatePathLength(fighterAssignment.sampledPositions);
-    const bomberPathLength = calculatePathLength(bomberAssignment.sampledPositions);
-
-    if (fighterPathLength <= bomberPathLength) {
+    if (bomberPathLength <= 0 || fighterPathLength <= bomberPathLength) {
       throw new Error(
         `Expected fighters to accumulate more shared-window path length than bombers, ` +
         `saw fighter=${fighterPathLength.toFixed(1)}px bomber=${bomberPathLength.toFixed(1)}px.`
@@ -388,17 +349,10 @@ registerTest("AIR_SHOW_ESCORTS_HAVE_CONTINUOUS_PRESENCE_ACROSS_PHASES", async ({
   });
 
   await Then("escorts should be present across multiple phases (continuity, not teleport/disappear)", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" &&
-        entry.diagnostics.participants.some(p => p.renderRole === "escort")
-    );
-    if (!inspection) {
-      console.log("[ESCORT SPEED] No package with escorts found - skipping");
-      return;
-    }
+    const { sceneReport, sceneTimeline } = requireContestedAirScenario(result);
 
     // Find escort assignments across phases
-    const escortAssignments = inspection.report.phases.flatMap(p =>
+    const escortAssignments = sceneReport.phases.flatMap(p =>
       p.assignments.filter(a => a.role === "escort").map(a => ({
         phase: p.label,
         actorId: a.actorId,
@@ -421,8 +375,31 @@ registerTest("AIR_SHOW_ESCORTS_HAVE_CONTINUOUS_PRESENCE_ACROSS_PHASES", async ({
     // Validate escorts appear in multiple phases (showing continuity through transition)
     let continuousEscorts = 0;
     for (const [, phases] of byActor) {
+      if (phases.some((phase) => phase.sampleCount < 2)) {
+        throw new Error("Expected sampled motion for each escort phase assignment.");
+      }
       if (phases.length >= 2) {
         continuousEscorts++;
+      }
+    }
+
+    if (continuousEscorts === 0 || continuousEscorts !== byActor.size) {
+      throw new Error(`Expected every escort to continue across multiple phases, saw ${continuousEscorts}/${byActor.size}.`);
+    }
+    // Beat windows overlap, so continuity is checked at the actor's actual segment joins.
+    for (const track of sceneTimeline.tracks.filter((entry) => entry.role === "escort")) {
+      if (track.segments.length < 2 || !byActor.has(track.actorId)) {
+        throw new Error(`Expected continuous inspection coverage for escort ${track.actorId}.`);
+      }
+      for (let index = 1; index < track.segments.length; index += 1) {
+        const previous = track.segments[index - 1];
+        const current = track.segments[index];
+        const previousPoint = previous.points[previous.points.length - 1];
+        const currentPoint = current.points[0];
+        if (!previousPoint || !currentPoint || Math.abs(previous.endTimeMs - current.startTimeMs) > 0.001
+          || Math.hypot(previousPoint.cx - currentPoint.cx, previousPoint.cy - currentPoint.cy) > 0.001) {
+          throw new Error(`Escort ${track.actorId} jumps or disappears between ${previous.label} and ${current.label}.`);
+        }
       }
     }
 
@@ -441,40 +418,31 @@ registerTest("AIR_SHOW_CAP_COMBAT_PHASES_STAY_IN_PURPOSEFUL_MOTION", async ({ Gi
   });
 
   await Then("CAP should keep moving through combat phases without falling into slow loiter outside compact merge work", async () => {
-    const inspection =
-      getAuthoritativeContestedInspection(result)
-      ?? result?.airshowInspections.find(
-        (entry) => entry.eventType === "airToAir" &&
-          entry.diagnostics.participants.some(p => p.renderRole === "interceptor")
-      );
-    if (!inspection) {
-      console.log("[CAP SPEED] No package with CAP found - skipping");
-      return;
-    }
+    const { sceneTimeline } = requireContestedAirScenario(result);
 
     // Calculate CAP speed in different phases
-    const combatPhases = inspection.report.phases.filter(p =>
-      p.label.includes("clash") || p.label.includes("merge") || p.label.includes("scramble") ||
-      p.label.includes("defense")
-    );
+    const combatPhases = sceneTimeline.tracks.filter((track) => track.role === "interceptor")
+      .flatMap((track) => track.segments.filter((segment) =>
+        segment.label.includes("clash") || segment.label.includes("merge") || segment.label.includes("scramble")
+        || segment.label.includes("defense")
+      ).map((segment) => ({ track, segment })));
 
     if (combatPhases.length === 0) {
-      console.log("[CAP SPEED] No combat phases found - skipping");
-      return;
+      throw new Error("Expected CAP combat segments in the contested timeline.");
     }
 
     const speeds: Array<{ phase: string; speed: number }> = [];
 
     for (const phase of combatPhases) {
-      const capAssignment = phase.assignments.find(a => a.role === "interceptor");
-      if (!capAssignment || capAssignment.sampledPositions.length < 2) {
-        continue;
-      }
+      const startTimeMs = Math.max(phase.segment.startTimeMs, phase.track.visibleFromMs);
+      const endTimeMs = Math.min(phase.segment.endTimeMs, phase.track.visibleUntilMs);
+      // Destroyed aircraft have no visible later combat interval to measure.
+      if (endTimeMs <= startTimeMs) continue;
 
       // Calculate average speed
       let totalDistance = 0;
       let totalTime = 0;
-      const samples = capAssignment.sampledPositions;
+      const samples = sampleAirScenarioTrack(phase.track, startTimeMs, endTimeMs);
       for (let i = 1; i < samples.length; i++) {
         const dx = samples[i].cx - samples[i - 1].cx;
         const dy = samples[i].cy - samples[i - 1].cy;
@@ -484,12 +452,11 @@ registerTest("AIR_SHOW_CAP_COMBAT_PHASES_STAY_IN_PURPOSEFUL_MOTION", async ({ Gi
       }
 
       const avgSpeed = totalTime > 0 ? totalDistance / totalTime : 0;
-      speeds.push({ phase: phase.label, speed: avgSpeed });
+      speeds.push({ phase: `${phase.segment.label}/${phase.track.actorId}`, speed: avgSpeed });
     }
 
     if (speeds.length === 0) {
-      console.log("[CAP SPEED] Could not calculate speeds - skipping validation");
-      return;
+      throw new Error("Expected visible CAP combat samples for speed validation.");
     }
 
     const violations = speeds.flatMap(({ phase, speed }) => {
@@ -498,7 +465,7 @@ registerTest("AIR_SHOW_CAP_COMBAT_PHASES_STAY_IN_PURPOSEFUL_MOTION", async ({ Gi
         AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * (isCompactMergePhase ? 0.25 : 0.55);
       const maximumSpeed = AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 1.35;
       const failures: string[] = [];
-      if (speed < minimumSpeed) {
+      if (!Number.isFinite(speed) || speed < minimumSpeed) {
         failures.push(
           `${phase}: CAP speed ${speed.toFixed(2)} px/ms below minimum ${minimumSpeed.toFixed(2)} px/ms`
         );

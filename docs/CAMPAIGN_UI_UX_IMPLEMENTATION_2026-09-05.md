@@ -94,8 +94,51 @@ Focused local verification is complete: 20 browser checks passed in `diagnostics
 
 The final six commands run sequentially from a clean worktree. Logs and the tested commit are retained in `diagnostics/campaign-audit-release/release-results.json`. The integration owner verifies the absolute `dist` and `dist-tsc` cleanup paths before invoking the existing scripts. Final results pending.
 
+### Full-suite completion defect and fixture repair
+
+The repeat release run at `7e1e2b8` returned zero from all six commands, but `npm test` emitted only 67 passes and never finished. That result is **invalid**, not a full-suite pass. The historical output and command record are preserved as `full-test-premature-exit.log` and `release-results-incomplete-full-run.json`.
+
+The old runner launched an unawaited async function. A frame-animation fixture mutated an obsolete CSS position instead of the actual SVG `x` attribute, leaving its fake animation-frame Promise pending without a Node event-loop handle. Node exited successfully before executing the remaining registered tests. The runner now uses top-level await, a retained native per-test watchdog independent of fixture clocks, named failure reporting, and a final exact completion count. Two isolated child-process regressions prove named timeout failure and ordered asynchronous completion. The release helper also rejects a zero exit without a matching positive completion summary. No test filters or exclusions are added to release commands.
+
+The exact audited frame fixture fails under the corrected watchdog (`frame-sequence-baseline-red.log`). Its replacement checks finite SVG geometry, positive width/height, stable playback placement, and rejection of actual SVG anchor drift. The harness and all three frame cases pass together in `harness-and-frame-focused.log`.
+
+Executing the previously unreachable tests revealed additional stale fixtures. These repairs change test code only; they do not alter the tactical engine, BattleScreen, air renderer, tutorial behavior, mission doctrine, or unlock behavior:
+
+| Fixture area | Corrected contract |
+|---|---|
+| Frame, sprite and viewport geometry | Actual SVG attributes, authored one-pixel sprite trim and inverse-zoom marker scale |
+| Battle air playback | Real resolved renderer scenes/options, exact identities and impact ownership; fabricated legacy animation logs removed |
+| Mission lifecycle | Actual asynchronous in-game consent, computed resolution, validated campaign application and completed autosave before navigation; constructed screens dispose in `finally` |
+| Tutorial and initiative | Real active action phases, valid selected axial/offset pairs and current initiative queue; current authored navigation copy and mobile header clearance |
+| Browser API fixtures | jsdom's actual Element and KeyboardEvent constructors; explicit layout-free scroll method adapter, with actual scrolling owned by browser regressions |
+| River Watch deployment | Intentional pre-audit capacity reduction from 20 to 16 (`bab490c`); separate explicitly authored 20-capacity expansion case retained |
+| Unlock entry | Exact current Unlock link and correct SKU purchase destination, with locked requisition rejection retained |
+| Air timing | Actual timeline-v2 actor windows and renderer sampling; overlapping phases are not treated as sequential or shared assignments; missing required scenarios now fail |
+| Air combat | Required canonical weapon models and authoritative aircraft salvo/status ledgers; exact readiness preview/application conservation |
+| AI air decisions | Heavy-flak fixture uses four real batteries and proves lethal predicted coverage, with an undefended control that launches; target distribution uses equally valuable targets while separate target-priority checks remain |
+| Ground actions and logistics | Correct authored forest offset and visible support targets; support impact measured before turn refresh; queue identities use unit IDs; allied transfer compares complete units before legitimate turn resupply |
+| Fieldworks and infantry | Actual recognized towable type; exact road costs and move debit; valid combat profiles and status pools; deployed guns remain immobile despite an unspent budget; lethal sentry retaliation conserves the full personnel pool |
+| Combat stance severity | One status-derived depleted attacker avoids terminal damage saturation; strict assault severity and exact doubled suppression remain enforced |
+| Fighter motion and flak | Actual actor handoffs retain the 2px continuity limit; 100ms headings use current 32° bomber / 67° fighter limits; flak smoke covers actual release and tapers before egress; visibility is checked at real release and impact times |
+
+The infantry suppression fixture contained a historical rule mismatch: May 16 commit `413994c0` added the broken-state test expecting dig-in rejection, but did not add that restriction to the engine. Exact baseline and current engine both allow uncommitted infantry to entrench under suppression. The documented Dig In requirements and current broken-state explanation do not prohibit it. This package preserves shipped behavior and explicitly proves dig-in succeeds once, adds one entrenchment, consumes the activation, retains broken status, and still bars sentry; it does not introduce a tactical rules change.
+
+Additional workers remained restricted to disjoint test files and isolated output directories. Parent-only exploratory filtering allowed work around active worker scopes; those runs are diagnostic and cannot certify the release. The final 42 infantry, stance and fighter-motion checks pass together, and fresh project TypeScript and zero-warning test lint pass. The complete unfiltered diagnostic run then finished with **701/701 passes**, an exact matching summary and exit zero (`full-unfiltered-diagnostic.log`). The final six-command clean-commit sequence remains pending.
+
+Independent test-integrity review then required four assertion corrections: finite guards before numeric comparisons, preservation of the fighter's synchronized scalar ammo check alongside its salvo ledger, independently pinned documented motion limits, and explicit visibility intervals at release/impact. The last correction exposed a genuine old-test false positive: the path sampler returns coordinates after an actor's visual lifetime. The canonical scenario now verifies all five exact surviving bomber identities and eleven explicit destruction lifecycles, rather than calling destroyed aircraft visible. All 30 affected cases pass together in `review-corrections-focused.log`.
+
+### Existing build advisories
+
+Vite reports a large output chunk and an unresolved `FSG_Explosion_Large.png` URL from `SpriteSheetAnimator.ts`. Both are present in the exact audited baseline. The similarly named existing eight-frame image is not a valid replacement for the referenced 24-frame sheet. The renderer's large-explosion branch currently uses `playBombImpactStick` before that older sprite path; this has not established an active missing-asset request. No speculative asset or rendering change is included. The required live console/request sweep must check the deployed effects before certification.
+
+### Full-suite diagnostic limitations
+
+The unfiltered log contains expected rejected-action errors from deliberate negative tests, and `MapViewport` context warnings where jsdom fixtures have no measurable viewport. Browser geometry checks own actual layout proof. Node also emits its existing experimental-loader advisory.
+
+The preexisting `AIR_SHOW_SPATIAL_SEPARATION_REPORT` is a non-asserting diagnostic and prints severe fighter proximity findings; its pass line does not certify air spacing. Investigation with actual simultaneous timeline samples confirms close fighter crossings, including approximately 0.10px between escorts in the coordinated package at 36,000ms (`separation-timeline-probe.log`). `AirShowDirector.ts` and `AirShowTimeline.ts` are byte-identical to the audited baseline; this campaign package does not introduce or correct that choreography. The diagnostic remains visible and unchanged. Natural live tactical verification must assess this existing air-visual limitation; the 701-test completion result must not be represented as a clean air-visual certificate.
+
 ## Release certification
 
 **Release verdict: FAIL / live certification OPEN.** No push or deployment has been performed. Section 7 explicitly separates implementation authorization from deployment authorization. The complete natural campaign journey, supported and unsupported engagement, actual 20+ turn tactical battle, natural AI defense, external-browser viewport evidence, live build fingerprint and console/request sweep remain required. Existing unit tests for no arbitrary campaign turn cap and AI response are not evidence of that full player journey.
 
-Independent reviewers have binary veto authority. McClintock returned explicit **local UI/UX PASS** after re-viewing the corrected 1280×720 toolbar, checking direct campaign entry, and verifying the saved 20/20 browser report with no failures, skips or flaky results. Wegener returned explicit **local test-architecture PASS**, closing the naval, recovery and actual danger-consent caller findings. A narrow review of the subsequent mechanical lint package and the complete release-command rerun remain pending. No local screenshot, entitlement fixture, headless browser test or successful build is described as deployed certification.
+Independent reviewers have binary veto authority. McClintock returned explicit **local UI/UX PASS** after re-viewing the corrected 1280×720 toolbar, checking direct campaign entry, and verifying the saved 20/20 browser report with no failures, skips or flaky results. Wegener returned explicit **local test-architecture PASS**, closing the naval, recovery and actual danger-consent caller findings, subsequently passed the mechanical lint package `a8467b8..87d0647`, and returned a final **local test-integrity PASS** after all four assertion corrections and the 30/30 focused proof. No actionable review blockers remain in the local package. The complete release-command rerun remains pending. No local screenshot, entitlement fixture, headless browser test or successful build is described as deployed certification.

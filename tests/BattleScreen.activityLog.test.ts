@@ -42,7 +42,7 @@ registerTest("BATTLESCREEN_ENEMY_ACTIVITY_LOG_SHOWS_COUNTERFIRE_DAMAGE", async (
     }
 
     const [entry] = published;
-    if (!entry.summary.includes("Counterfire dealt 6 damage; attacker strength now 52.")) {
+    if (!entry.summary.includes("Counterfire dealt 6 damage. Attacker strength now 52.")) {
       throw new Error(`Expected counterfire summary in activity log, received: ${entry.summary}`);
     }
 

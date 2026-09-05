@@ -10,6 +10,7 @@ import type {
   Axial
 } from "../src/core/types";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { canonicalWeaponModel } from "./canonicalWeaponFixture";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -21,6 +22,7 @@ const plains: TerrainDefinition = {
 const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const fighterDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("fighter"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "large" },
   movement: 5,
@@ -42,6 +44,7 @@ const fighterDef: UnitTypeDefinition = {
 };
 
 const bomberDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("bomber"),
   class: "air",
   combat: { category: "air", weight: "light", role: "normal", signature: "large" },
   movement: 5,
@@ -63,6 +66,7 @@ const bomberDef: UnitTypeDefinition = {
 };
 
 const infantryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("infantry"),
   class: "infantry",
   combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 1,

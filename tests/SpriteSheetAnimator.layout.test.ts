@@ -55,21 +55,21 @@ registerTest("SPRITESHEET_ANIMATOR_EXPLOSION_SMALL_SLICE_REMAINS_STRICT_PER_CELL
     );
   });
 
-  await Then("cached explosion frames keep the original cell dimensions and spec anchor", async () => {
+  await Then("cached explosion frames trim the bleed border while retaining source dimensions and proportional anchors", async () => {
     if (!frames) {
       throw new Error("Expected cached small-explosion frames to resolve.");
     }
-    if (frames.frameWidth !== 256 || frames.frameHeight !== 256) {
-      throw new Error(`Expected strict 256x256 cached explosion frames, received ${frames.frameWidth}x${frames.frameHeight}.`);
+    if (frames.frameWidth !== 254 || frames.frameHeight !== 254) {
+      throw new Error(`Expected 254x254 cached explosion frames after the one-pixel border trim, received ${frames.frameWidth}x${frames.frameHeight}.`);
     }
     if (frames.sourceFrameWidth !== 256 || frames.sourceFrameHeight !== 256) {
       throw new Error(`Expected cached source explosion frames to remain 256x256, received ${frames.sourceFrameWidth}x${frames.sourceFrameHeight}.`);
     }
-    if (frames.anchorPixelX !== 128) {
-      throw new Error(`Expected small explosion anchorPixelX to remain 128, received ${frames.anchorPixelX}.`);
+    if (frames.anchorPixelX !== 127) {
+      throw new Error(`Expected small explosion anchorPixelX to be 127 in the trimmed frame, received ${frames.anchorPixelX}.`);
     }
-    if (Math.abs(frames.anchorPixelY - 199.68) > 0.001) {
-      throw new Error(`Expected small explosion anchorPixelY to remain 199.68, received ${frames.anchorPixelY}.`);
+    if (Math.abs(frames.anchorPixelY - 198.12) > 0.001) {
+      throw new Error(`Expected small explosion anchorPixelY to be 198.12 in the trimmed frame, received ${frames.anchorPixelY}.`);
     }
   });
 });

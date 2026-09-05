@@ -1,5 +1,7 @@
 import { registerTest } from "./harness.js";
-import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { canonicalWeaponModel } from "./canonicalWeaponFixture.js";
+import { GameEngine, type BotAttackSummary, type GameEngineConfig } from "../src/game/GameEngine";
+import { createInitialFormationStatus, deriveStrengthFromStatus } from "../src/data/unitSystem/status";
 import type {
   ScenarioData,
   ScenarioSide,
@@ -20,6 +22,7 @@ const plains: TerrainDefinition = {
 const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const infantryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("infantry"),
   class: "infantry",
   combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 2,
@@ -40,6 +43,7 @@ const infantryDef: UnitTypeDefinition = {
 };
 
 const engineerDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("engineer"),
   class: "specialist",
   combat: { category: "specialist", weight: "light", role: "antiInfantry", signature: "small" },
   movement: 2,
@@ -60,8 +64,9 @@ const engineerDef: UnitTypeDefinition = {
 };
 
 const shockInfantryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("infantry"),
   class: "infantry",
-  combat: { category: "infantry", weight: "medium", role: "antiInfantry", signature: "medium" },
+  combat: { category: "infantry", weight: "light", role: "normal", signature: "medium" },
   movement: 2,
   moveType: "leg",
   vision: 2,
@@ -80,8 +85,9 @@ const shockInfantryDef: UnitTypeDefinition = {
 };
 
 const retaliationDummyDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("supplyConvoy"),
   class: "vehicle",
-  combat: { category: "vehicle", weight: "heavy", role: "support", signature: "large" },
+  combat: { category: "vehicle", weight: "medium", role: "support", signature: "large" },
   movement: 3,
   moveType: "wheel",
   vision: 2,
@@ -100,6 +106,7 @@ const retaliationDummyDef: UnitTypeDefinition = {
 };
 
 const towedGunDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("antiTankBattery"),
   class: "specialist",
   combat: { category: "specialist", weight: "medium", role: "antiTank", signature: "medium" },
   movement: 2,
@@ -120,6 +127,7 @@ const towedGunDef: UnitTypeDefinition = {
 };
 
 const wheeledReconDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("reconBike"),
   class: "recon",
   combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
   movement: 5,
@@ -140,6 +148,7 @@ const wheeledReconDef: UnitTypeDefinition = {
 };
 
 const supplyTruckDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("supplyConvoy"),
   class: "vehicle",
   combat: { category: "vehicle", weight: "medium", role: "support", signature: "medium" },
   movement: 3,
@@ -561,7 +570,7 @@ registerTest("UNIT_FACING_UPDATES_AFTER_MOVEMENT_AND_ATTACK", async ({ Then }) =
 
   engine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 });
   const movedUnit = engine.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 1 && unit.hex.r === 0);
-  if (!movedUnit || movedUnit.facing !== "SE") {
+  if (!movedUnit || movedUnit.facing !== "E") {
     throw new Error(`Expected moved infantry to face its movement direction, received ${JSON.stringify(movedUnit)}`);
   }
 
@@ -572,10 +581,10 @@ registerTest("UNIT_FACING_UPDATES_AFTER_MOVEMENT_AND_ATTACK", async ({ Then }) =
 
   const attackerAfter = engine.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 1 && unit.hex.r === 0);
   const defenderAfter = engine.botUnits.find((unit) => unit.hex.q === 2 && unit.hex.r === 0);
-  if (!attackerAfter || attackerAfter.facing !== "SE") {
+  if (!attackerAfter || attackerAfter.facing !== "E") {
     throw new Error(`Expected attacker to face the unit it attacked, received ${JSON.stringify(attackerAfter)}`);
   }
-  if (defenderAfter && defenderAfter.facing !== "NW") {
+  if (!defenderAfter || defenderAfter.facing !== "W") {
     throw new Error(`Expected defender to turn toward the attacker, received ${JSON.stringify(defenderAfter)}`);
   }
 
@@ -737,8 +746,19 @@ registerTest("SUPPRESSED_AND_PINNED_INFANTRY_RESPECT_MOVEMENT_AND_ASSAULT_RULES"
   if (brokenCommand?.suppressionState !== "broken") {
     throw new Error(`Expected pin-level suppression below 25 readiness to become broken, received ${brokenCommand?.suppressionState}.`);
   }
-  if (brokenCommand.canEnterSentry || brokenCommand.canDigIn) {
-    throw new Error(`Expected broken infantry command actions to be blocked, received ${JSON.stringify(brokenCommand)}.`);
+  if (brokenCommand.canEnterSentry || !brokenCommand.canDigIn) {
+    throw new Error(`Expected broken infantry to be barred from sentry but able to take cover, received ${JSON.stringify(brokenCommand)}.`);
+  }
+  // Entrenching is a defensive field action; the authored eligibility rules
+  // allow it under suppression while still consuming the whole activation.
+  if (!brokenCommandEngine.digInUnit(movingInfantry.hex)) {
+    throw new Error("Expected broken infantry to execute its available dig-in order.");
+  }
+  const brokenAfterDigIn = brokenCommandEngine.getUnitCommandState(movingInfantry.hex);
+  if (!brokenAfterDigIn || brokenAfterDigIn.entrenchment !== 1 || brokenAfterDigIn.canDigIn
+    || brokenAfterDigIn.canEnterSentry || brokenAfterDigIn.suppressionState !== "broken"
+    || brokenCommandEngine.getMovementBudget(movingInfantry.hex)?.remaining !== 0) {
+    throw new Error(`Expected digging in to consume the broken unit's activation without clearing suppression, received ${JSON.stringify(brokenAfterDigIn)}.`);
   }
 
   await Then("suppression still allows movement, pinning halts movement, and broken requires pin-level suppression below 25 readiness", () => {});
@@ -994,10 +1014,18 @@ registerTest("SENTRY_COMMITS_A_UNIT_UNTIL_ITS_NEXT_ACTIVATION", async ({ Then })
 });
 
 registerTest("SENTRY_DEFENDERS_RETURN_FIRE_SIMULTANEOUSLY_DURING_BOT_ATTACKS", async ({ Then }) => {
+  // A low scalar readiness can leave injured survivors after a hit. Author a
+  // depleted pool with one fit survivor so this exchange actually is lethal.
+  const defenderStatus = createInitialFormationStatus("TestInfantry");
+  const personnelTotal = Object.values(defenderStatus.personnel).reduce((total, pool) => total + pool.fit, 0);
+  defenderStatus.personnel = {
+    core: { fit: 1, injured: 0, wounded: 0, severelyWounded: 0, killed: personnelTotal - 1 }
+  };
   const defender: ScenarioUnit = {
     type: "TestInfantry" as unknown as ScenarioUnit["type"],
     hex: { q: 0, r: 0 },
-    strength: 10,
+    strength: deriveStrengthFromStatus(defenderStatus, 100),
+    status: defenderStatus,
     experience: 0,
     ammo: 6,
     fuel: 0,
@@ -1020,12 +1048,20 @@ registerTest("SENTRY_DEFENDERS_RETURN_FIRE_SIMULTANEOUSLY_DURING_BOT_ATTACKS", a
     throw new Error("Expected defending infantry to enter sentry before the bot attack.");
   }
 
-  const botAttack = (engine as any).resolveBotAttack(attacker, { q: 0, r: 1 }, { q: 0, r: 0 });
+  const botAttack: BotAttackSummary | null = (engine as any).resolveBotAttack(attacker, { q: 0, r: 1 }, { q: 0, r: 0 });
   if (!botAttack?.defenderDestroyed) {
     throw new Error(`Expected the sentry defender to be destroyed by the stronger bot attack, received ${JSON.stringify(botAttack)}`);
   }
   if (!botAttack?.retaliation || botAttack.retaliation.damage <= 0) {
     throw new Error(`Expected sentry defender to return fire simultaneously even when destroyed, received ${JSON.stringify(botAttack)}`);
+  }
+  const damage = botAttack.defenderDamage;
+  if (!damage || damage.statusBefore.personnel.effective !== 1 || damage.statusAfter.personnel.effective !== 0
+    || damage.statusBefore.personnel.total !== personnelTotal || damage.statusAfter.personnel.total !== personnelTotal) {
+    throw new Error(`Expected lethal status application to consume the last effective soldier and conserve the personnel pool, received ${JSON.stringify(damage)}`);
+  }
+  if (engine.getPlayerPlacementsSnapshot().some((unit) => unit.hex.q === defender.hex.q && unit.hex.r === defender.hex.r)) {
+    throw new Error("Expected the destroyed sentry to be removed after returning fire.");
   }
 
   await Then("sentry preserves simultaneous return fire on lethal bot attacks", () => {});
@@ -1060,11 +1096,21 @@ registerTest("TOWED_GUNS_MUST_MOVE_OUT_BEFORE_TOWING_AND_CANNOT_DEPLOY_AFTER_MOV
   if (initialCommand?.towState !== "deployed" || !initialCommand.canMoveOut) {
     throw new Error(`Expected gun to begin deployed with Move Out available, received ${JSON.stringify(initialCommand)}`);
   }
-  if (initialBudget?.remaining !== 0) {
-    throw new Error(`Expected deployed gun to have no towing movement before Move Out, received ${JSON.stringify(initialBudget)}`);
+  // The budget tracks unspent points; deployment separately blocks movement.
+  if (initialBudget?.max !== 2 || initialBudget.remaining !== 2) {
+    throw new Error(`Expected the fresh gun's full 2-point allowance before Move Out, received ${JSON.stringify(initialBudget)}`);
   }
   if (engine.getReachableHexes(gun.hex).length !== 0) {
     throw new Error("Expected deployed gun to have no reachable towing hexes before Move Out.");
+  }
+  let deployedMoveBlocked = false;
+  try {
+    engine.moveUnit(gun.hex, { q: 1, r: 0 });
+  } catch (error) {
+    deployedMoveBlocked = String(error).includes("must choose Move Out");
+  }
+  if (!deployedMoveBlocked) {
+    throw new Error("Expected moving a deployed gun to require Move Out first.");
   }
 
   if (!engine.moveOutTowableUnit(gun.hex)) {
@@ -1222,7 +1268,10 @@ registerTest("TOWED_GUNS_CANNOT_RETALIATE_UNTIL_DEPLOYED", async ({ Then }) => {
   };
   const { engine: botVsTowed } = createEngine([playerTowedGun], [botAttacker]);
   const towedBotAttack = (botVsTowed as any).resolveBotAttack(botAttacker, botAttacker.hex, playerTowedGun.hex);
-  if (towedBotAttack?.retaliation) {
+  if (!towedBotAttack) {
+    throw new Error("Expected the bot attack against a limbered gun to resolve.");
+  }
+  if (towedBotAttack.retaliation) {
     throw new Error(`Expected bot summary to omit retaliation from limbered gun, received ${JSON.stringify(towedBotAttack)}`);
   }
 

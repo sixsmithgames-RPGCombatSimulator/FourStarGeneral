@@ -1,5 +1,6 @@
 import "./domEnvironment.js";
 import { runAllTests } from "./harness.js";
+import "./Harness.completion.test.js";
 
 // Import only tests that do not rely on JSON module loading in Node. These specs use inline scenarios.
 import "./UnitSystem.rules.test.js";
@@ -103,6 +104,4 @@ import "./precombatLogisticsMinimum.test.js";
 import "./AirShow.fighterMotion.test.js";
 
 // Execute the registered tests sequentially.
-(async () => {
-  await runAllTests();
-})();
+await runAllTests();

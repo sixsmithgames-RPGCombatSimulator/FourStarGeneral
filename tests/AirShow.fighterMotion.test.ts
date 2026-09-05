@@ -14,9 +14,10 @@ import {
   resolveAirShowHqAxis
 } from "../src/ui/airshow/AirShowPlanner.js";
 import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
-import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
+import { sampleAirShowTimelineTrack } from "../src/ui/airshow/AirShowTimeline";
 import {
   resolveInspectionAssignmentBoundaryPoint,
+  requireContestedAirScenario,
   runAirScenario
 } from "./airScenarioSupport.js";
 import type { AirShowMapBounds, AirShowPlannerPoint } from "../src/ui/airshow/AirShowPlanner.js";
@@ -30,7 +31,11 @@ const HEX_HEIGHT = HEX_RADIUS * 2;
 
 // Sample count to approximate heading rate (40 samples = 0.025 progress steps)
 const HEADING_SAMPLE_COUNT = 40;
-const GOVERNED_BOMB_RELEASE_PROGRESS = buildResolvedAirCombatSceneTimingPolicy(0).bombReleaseProgress;
+
+// Pin the North Star §5.2 contract independently of production constants.
+const TIMELINE_SAMPLE_INTERVAL_MS = 100;
+const FIGHTER_HEADING_LIMIT_DEG = 67;
+const BOMBER_HEADING_LIMIT_DEG = 32;
 
 function vectorToDegrees(dx: number, dy: number): number {
   return ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
@@ -39,42 +44,6 @@ function vectorToDegrees(dx: number, dy: number): number {
 function headingDeltaDeg(a: number, b: number): number {
   const raw = Math.abs(a - b);
   return raw > 180 ? 360 - raw : raw;
-}
-
-function maxMovingTurnDegrees(
-  sampledPositions: ReadonlyArray<{ readonly cx: number; readonly cy: number }>
-): number {
-  let maxTurnDeg = 0;
-  let previousVector: { x: number; y: number } | null = null;
-
-  for (let index = 1; index < sampledPositions.length; index += 1) {
-    const previous = sampledPositions[index - 1];
-    const current = sampledPositions[index];
-    if (!previous || !current) {
-      continue;
-    }
-    const vector = {
-      x: current.cx - previous.cx,
-      y: current.cy - previous.cy
-    };
-    if (Math.hypot(vector.x, vector.y) < 4) {
-      continue;
-    }
-    if (previousVector) {
-      const previousLength = Math.hypot(previousVector.x, previousVector.y);
-      const currentLength = Math.hypot(vector.x, vector.y);
-      const dot = previousLength > 0 && currentLength > 0
-        ? (previousVector.x * vector.x + previousVector.y * vector.y) / (previousLength * currentLength)
-        : 1;
-      maxTurnDeg = Math.max(
-        maxTurnDeg,
-        (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI
-      );
-    }
-    previousVector = vector;
-  }
-
-  return maxTurnDeg;
 }
 
 function assertBoundaryPointOnTileEnvelope(
@@ -478,40 +447,40 @@ registerTest("AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY", async 
     result = runAirScenario();
   });
 
-  await Then("actors should begin each later phase where their previous phase ended", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId === "bot-strike-1"
-    );
-    if (!inspection) {
-      throw new Error("Expected inspected airToAir report for bot-strike-1.");
-    }
-
-    const phases = inspection.report.phases;
+  await Then("each actor's chronological track should remain continuous across segment handoffs", async () => {
+    // Report beats overlap in timeline v2; adjacent report rows are not successive
+    // positions of the same actor. Inspect the actual renderer-owned actor tracks.
+    const { sceneTimeline } = requireContestedAirScenario(result);
     let largestGapPx = 0;
     let worstTransition = "<none>";
-    for (let phaseIndex = 1; phaseIndex < phases.length; phaseIndex += 1) {
-      const previousPhase = phases[phaseIndex - 1];
-      const currentPhase = phases[phaseIndex];
-      const previousByActorId = new Map(
-        previousPhase.assignments.map((assignment) => [assignment.actorId, assignment] as const)
-      );
-      currentPhase.assignments.forEach((assignment) => {
-        const previousAssignment = previousByActorId.get(assignment.actorId);
-        const previousEnd = previousAssignment
-          ? resolveInspectionAssignmentBoundaryPoint(previousAssignment, "end")
-          : null;
-        const currentStart = resolveInspectionAssignmentBoundaryPoint(assignment, "start");
-        if (!previousEnd || !currentStart) {
-          return;
+    let handoffs = 0;
+    for (const track of sceneTimeline.tracks) {
+      for (let index = 1; index < track.segments.length; index += 1) {
+        const previous = track.segments[index - 1];
+        const current = track.segments[index];
+        if (Math.abs(current.startTimeMs - previous.endTimeMs) > 0.001) {
+          throw new Error(`Actor ${track.actorId} has a temporal gap or overlap between ${previous.label} and ${current.label}.`);
         }
-        const gapPx = Math.hypot(currentStart.cx - previousEnd.cx, currentStart.cy - previousEnd.cy);
+        const previousEnd = previous.points[previous.points.length - 1];
+        const currentStart = current.points[0];
+        const before = sampleAirShowTimelineTrack(track, previous.endTimeMs - 0.001)?.point;
+        const after = sampleAirShowTimelineTrack(track, current.startTimeMs + 0.001)?.point;
+        if (!previousEnd || !currentStart || !before || !after) {
+          throw new Error(`Actor ${track.actorId} has missing geometry at a segment handoff.`);
+        }
+        const gapPx = Math.max(
+          Math.hypot(currentStart.cx - previousEnd.cx, currentStart.cy - previousEnd.cy),
+          Math.hypot(after.cx - before.cx, after.cy - before.cy)
+        );
+        if (!Number.isFinite(gapPx)) throw new Error(`Non-finite continuity sample for ${track.actorId}.`);
+        handoffs += 1;
         if (gapPx > largestGapPx) {
           largestGapPx = gapPx;
-          worstTransition = `${assignment.actorId} ${previousPhase.label} -> ${currentPhase.label}`;
+          worstTransition = `${track.actorId} ${previous.label} -> ${current.label}`;
         }
-      });
+      }
     }
-
+    if (handoffs === 0) throw new Error("Expected real actor segment handoffs in the full engagement.");
     if (largestGapPx > 2) {
       throw new Error(
         `Expected painted phase handoff continuity within 2px, saw ${largestGapPx.toFixed(1)}px at ${worstTransition}.`
@@ -946,28 +915,40 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_STAYS_INSIDE_STRIKE
       );
     }
 
-    const flakBursts = targetRunPhase.flakBursts!;
-    const firstFlakProgress = flakBursts[0]?.progress ?? 0;
-    const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-    const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
-    if (lastFlakProgress <= bombReleaseProgress) {
-      throw new Error(
-        `Flak ends too early in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-        `(should persist beyond bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`
-      );
+    // Timeline v2 places release by distance along the actual bomber track. The
+    // retired sequential planner's 56% release constant is not its release time.
+    // Individual bursts precede release; their painted smoke must cover release.
+    const { sceneTimeline } = requireContestedAirScenario(result);
+    for (const track of sceneTimeline.tracks.filter((entry) => entry.role === "bomber")) {
+      const targetRun = track.segments.find((segment) => segment.label === "target-run");
+      const egress = track.segments.find((segment) => segment.label === "egress");
+      const release = sceneTimeline.cues.find((cue) => cue.kind === "bomb-release" && cue.bomberActorId === track.actorId);
+      const bursts = sceneTimeline.cues.filter((cue) => cue.kind === "flak" && cue.bomberActorId === track.actorId)
+        .sort((left, right) => left.timeMs - right.timeMs);
+      const first = bursts[0];
+      const last = bursts[bursts.length - 1];
+      if (!targetRun || !egress || !release || !first || !last || bursts.length < 2) {
+        throw new Error(`Expected a complete strike and sustained flak for bomber ${track.actorId}.`);
+      }
+      const firstSegment = sampleAirShowTimelineTrack(track, first.timeMs)?.segment.label;
+      if ((firstSegment !== "bomber-ingress" && firstSegment !== "bomber-defense-pass")
+        || last.timeMs < targetRun.startTimeMs || last.timeMs >= release.timeMs) {
+        throw new Error(`Expected ${track.actorId} flak to open on approach and continue into target-run before release.`);
+      }
+      let visibleUntilMs = first.timeMs;
+      for (const burst of bursts) {
+        if (burst.kind !== "flak" || !Number.isFinite(burst.timeMs) || !Number.isFinite(burst.lingerMs)
+          || burst.lingerMs <= 0 || burst.timeMs > visibleUntilMs) {
+          throw new Error(`Invalid or interrupted visible flak coverage for ${track.actorId}.`);
+        }
+        visibleUntilMs = Math.max(visibleUntilMs, burst.timeMs + burst.lingerMs);
+      }
+      const taperProgress = (visibleUntilMs - targetRun.startTimeMs) / (targetRun.endTimeMs - targetRun.startTimeMs);
+      if (release.timeMs <= targetRun.startTimeMs || release.timeMs >= targetRun.endTimeMs
+        || visibleUntilMs <= release.timeMs || visibleUntilMs >= egress.startTimeMs || taperProgress > 0.86) {
+        throw new Error(`Expected ${track.actorId} flak to remain visible through release and taper before egress (progress ${taperProgress}).`);
+      }
     }
-    if (lastFlakProgress > 0.86) {
-      throw new Error(
-        `Flak tapers too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-        `(should taper before egress setup)`
-      );
-    }
-
-    console.log(
-      `[FLAK TIMING] phases=${phasesWithFlak.map((phase) => phase.label).join(" -> ")}; ` +
-      `target-run bursts ${flakBursts.length} from ${(firstFlakProgress * 100).toFixed(1)}% ` +
-      `to ${(lastFlakProgress * 100).toFixed(1)}%`
-    );
   });
 });
 
@@ -1016,7 +997,7 @@ registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_HARD_SAMPLED_TURNS", async
     result = runAirScenario();
   });
 
-  await Then("sampled assignments should stay below the broad-turn threshold in non-dogfight phases", async () => {
+  await Then("actual playback headings stay within the governed limits at 100ms cadence across all phases", async () => {
     const inspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack"
     );
@@ -1024,29 +1005,31 @@ registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_HARD_SAMPLED_TURNS", async
       throw new Error("Expected the governed synthetic stack package inspection to be present.");
     }
 
-    const checkedPhaseLabels = new Set([
-      "fighter-ingress",
-      "bomber-defense-pass",
-      "target-run",
-      "egress"
-    ]);
+    if (!inspection.timeline || inspection.timeline.version !== 2 || inspection.timeline.tracks.length === 0) {
+      throw new Error("Expected actual actor tracks for the synthetic stack package.");
+    }
+    // Report samples span overlapping, variable-duration beats. Measure the
+    // specified 100ms playback cadence, including actual segment boundaries.
     const violations: string[] = [];
-    inspection.report.phases
-      .filter((phase) => checkedPhaseLabels.has(phase.label))
-      .forEach((phase) => {
-        phase.assignments.forEach((assignment) => {
-          const maxTurnDeg = maxMovingTurnDegrees(assignment.sampledPositions);
-          const thresholdDeg =
-            phase.label === "target-run" || phase.label === "egress"
-              ? 88
-              : 94;
-          if (maxTurnDeg > thresholdDeg) {
-            violations.push(
-              `${phase.label}/${assignment.actorId}: ${maxTurnDeg.toFixed(1)}deg > ${thresholdDeg}deg`
-            );
-          }
-        });
-      });
+    for (const track of inspection.timeline.tracks) {
+      const limit = track.role === "bomber"
+        ? BOMBER_HEADING_LIMIT_DEG
+        : FIGHTER_HEADING_LIMIT_DEG;
+      let previous = sampleAirShowTimelineTrack(track, track.visibleFromMs);
+      let samples = 0;
+      for (let timeMs = track.visibleFromMs + TIMELINE_SAMPLE_INTERVAL_MS;
+        timeMs <= track.visibleUntilMs; timeMs += TIMELINE_SAMPLE_INTERVAL_MS) {
+        const current = sampleAirShowTimelineTrack(track, timeMs);
+        if (!current || !previous || !Number.isFinite(current.headingDegrees) || !Number.isFinite(previous.headingDegrees)) {
+          throw new Error(`Missing finite heading sample for ${track.actorId} at ${timeMs}ms.`);
+        }
+        const turn = headingDeltaDeg(previous.headingDegrees, current.headingDegrees);
+        if (turn > limit) violations.push(`${current.segment.label}/${track.actorId}: ${turn.toFixed(1)}deg > ${limit}deg per 100ms`);
+        previous = current;
+        samples += 1;
+      }
+      if (samples < 2) throw new Error(`Expected moving samples for ${track.actorId}.`);
+    }
 
     if (violations.length > 0) {
       throw new Error(`Expected synthetic stack sampled turns to stay broad:\n${violations.join("\n")}`);
@@ -1121,10 +1104,10 @@ registerTest("AIR_SHOW_BOMB_RELEASE_ACTORS_REMAIN_ASSIGNED", async ({ Given, Whe
     result = runAirScenario();
   });
 
-  await Then("all bomber actors should remain assigned throughout target-run phase (no disappear/reappear)", async () => {
+  await Then("surviving bombers remain visible at release and impact while recorded losses have explicit destruction lifecycles", async () => {
     // Per North Star Spec: Aircraft must not disappear during bomb release/explosion
     // The explosion is ground-level ordnance, not the aircraft itself
-    const BOMB_RELEASE_PROGRESS = 0.74;
+    const { sceneTimeline } = requireContestedAirScenario(result);
 
     const strikeInspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
@@ -1152,35 +1135,45 @@ registerTest("AIR_SHOW_BOMB_RELEASE_ACTORS_REMAIN_ASSIGNED", async ({ Given, Whe
       throw new Error("Expected bomber actors in target-run phase.");
     }
 
-    // Check that each bomber actor has valid position samples at bomb release
+    // Check the actual renderer timeline at release and impact, rather than a
+    // report sample nearest a retired hard-coded percentage of a phase.
     const disappearedActors: string[] = [];
-
-    for (const actorId of bomberActorIds) {
-      const assignment = targetRunPhase.assignments.find(a => a.actorId === actorId);
-      if (!assignment) {
-        disappearedActors.push(`${actorId}: missing from assignments`);
+    const bomberTracks = sceneTimeline.tracks.filter((track) => track.role === "bomber");
+    const impacts = sceneTimeline.cues.filter((cue) => cue.kind === "impact");
+    // The canonical combat fixture loses both first flights, two actors from the
+    // third, and one from the fourth. Do not mistake combat losses for disappearing survivors.
+    const expectedSurvivors = new Set(["u_bbomber3:0", "u_bbomber3:1", "u_bbomber4:0", "u_bbomber4:1", "u_bbomber4:2"]);
+    const observedSurvivors = new Set<string>();
+    if (bomberTracks.length !== 16 || impacts.length === 0) throw new Error("Expected all 16 canonical bomber tracks and ground impact cues.");
+    for (const track of bomberTracks) {
+      if (!Number.isFinite(track.visibleFromMs) || !Number.isFinite(track.visibleUntilMs)
+        || track.visibleUntilMs <= track.visibleFromMs) {
+        throw new Error(`Expected a finite positive visibility interval for ${track.actorId}.`);
+      }
+      const losses = sceneTimeline.cues.filter((cue) => cue.kind === "destruction" && cue.actorId === track.actorId);
+      if (!expectedSurvivors.has(track.actorId)) {
+        if (losses.length !== 1 || !Number.isFinite(losses[0].timeMs)
+          || losses[0].timeMs < track.visibleFromMs || losses[0].timeMs >= track.visibleUntilMs) {
+          throw new Error(`Expected one explicit destruction cue with a visible exit for lost bomber ${track.actorId}.`);
+        }
         continue;
       }
-
-      // Find sample closest to bomb release progress
-      const sampledPositionsCopy = [...assignment.sampledPositions];
-      const sampleAtBombRelease = sampledPositionsCopy
-        .sort((a: { progress: number }, b: { progress: number }) => Math.abs(a.progress - BOMB_RELEASE_PROGRESS) - Math.abs(b.progress - BOMB_RELEASE_PROGRESS))[0];
-
-      if (!sampleAtBombRelease) {
-        disappearedActors.push(`${actorId}: no sampled positions at bomb release`);
-        continue;
-      }
-
-      // Check if position is valid (not NaN/undefined - which would indicate disappearance)
-      if (isNaN(sampleAtBombRelease.cx) || isNaN(sampleAtBombRelease.cy) ||
-          sampleAtBombRelease.cx === undefined || sampleAtBombRelease.cy === undefined) {
-        disappearedActors.push(
-          `${actorId}: invalid position at progress ${sampleAtBombRelease.progress.toFixed(2)} ` +
-          `(cx=${sampleAtBombRelease.cx}, cy=${sampleAtBombRelease.cy})`
-        );
+      if (losses.length !== 0) throw new Error(`Surviving bomber ${track.actorId} must not receive a destruction cue.`);
+      observedSurvivors.add(track.actorId);
+      const releases = sceneTimeline.cues.filter((cue) => cue.kind === "bomb-release" && cue.bomberActorId === track.actorId);
+      if (releases.length !== 1) throw new Error(`Expected exactly one bomb release for ${track.actorId}.`);
+      const release = releases[0];
+      for (const timeMs of [release.timeMs - 1, release.timeMs, release.timeMs + 1, ...impacts.map((cue) => cue.timeMs)]) {
+        if (!Number.isFinite(timeMs) || timeMs < track.visibleFromMs || timeMs > track.visibleUntilMs) {
+          throw new Error(`Expected ${track.actorId} to be visible at finite release/impact time ${timeMs}ms.`);
+        }
+        const sample = sampleAirShowTimelineTrack(track, timeMs);
+        if (!sample || !Number.isFinite(sample.point.cx) || !Number.isFinite(sample.point.cy)) {
+          disappearedActors.push(`${track.actorId}: missing finite painted position at release/impact time ${timeMs}ms`);
+        }
       }
     }
+    if (observedSurvivors.size !== expectedSurvivors.size) throw new Error("Missing one or more of the five surviving bomber identities.");
 
     if (disappearedActors.length > 0) {
       throw new Error(
@@ -1190,6 +1183,6 @@ registerTest("AIR_SHOW_BOMB_RELEASE_ACTORS_REMAIN_ASSIGNED", async ({ Given, Whe
       );
     }
 
-    console.log(`[BOMB RELEASE VISIBILITY] All ${bomberActorIds.size} bomber actors remained assigned and visible through bomb release at ~74% progress`);
+    console.log(`[BOMB RELEASE VISIBILITY] All ${observedSurvivors.size} surviving bombers remain visible at release/impact; all 11 losses have explicit destruction cues.`);
   });
 });

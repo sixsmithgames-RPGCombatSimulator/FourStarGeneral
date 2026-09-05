@@ -16,6 +16,7 @@ import {
 } from "../src/game/bot/BotPlanner";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
 import { registerTest } from "./harness";
+import { canonicalWeaponModel } from "./canonicalWeaponFixture";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -41,6 +42,7 @@ const roughWoods: TerrainDefinition = {
 const terrain: TerrainDictionary = { plains, woods, roughWoods } as unknown as TerrainDictionary;
 
 const playerInfantryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("infantry"),
   class: "infantry",
   combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 2,
@@ -61,6 +63,7 @@ const playerInfantryDef: UnitTypeDefinition = {
 };
 
 const playerTankDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("tank"),
   class: "tank",
   combat: { category: "tank", weight: "medium", role: "normal", signature: "large" },
   movement: 3,
@@ -81,6 +84,7 @@ const playerTankDef: UnitTypeDefinition = {
 };
 
 const playerArtilleryDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("howitzer"),
   class: "artillery",
   combat: { category: "artillery", weight: "medium", role: "support", signature: "large" },
   movement: 1,
@@ -101,6 +105,7 @@ const playerArtilleryDef: UnitTypeDefinition = {
 };
 
 const antiTankGunDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("antiTankBattery"),
   class: "specialist",
   combat: { category: "specialist", weight: "medium", role: "antiTank", signature: "medium" },
   movement: 1,
@@ -121,6 +126,7 @@ const antiTankGunDef: UnitTypeDefinition = {
 };
 
 const reconBikeDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("reconBike"),
   class: "recon",
   combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
   movement: 4,
@@ -141,6 +147,7 @@ const reconBikeDef: UnitTypeDefinition = {
 };
 
 const bomberDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("bomber"),
   class: "air",
   combat: { category: "air", weight: "medium", role: "antiInfantry", signature: "large" },
   movement: 6,
@@ -167,6 +174,7 @@ const bomberDef: UnitTypeDefinition = {
 };
 
 const groundAttackDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("groundAttackWing"),
   class: "air",
   combat: { category: "air", weight: "light", role: "antiVehicle", signature: "medium" },
   movement: 8,
@@ -193,6 +201,7 @@ const groundAttackDef: UnitTypeDefinition = {
 };
 
 const supplyTruckDef: UnitTypeDefinition = {
+  weaponModel: canonicalWeaponModel("supplyConvoy"),
   class: "vehicle",
   combat: { category: "vehicle", weight: "medium", role: "support", signature: "large" },
   movement: 2,
@@ -663,7 +672,7 @@ registerTest("BOT_LEVEL_BOMBERS_STRIKE_ARTILLERY_OVER_CLOSER_INFANTRY", async ({
 registerTest("BOT_LEVEL_MULTIPLE_BOMBERS_QUEUE_MULTIPLE_STRIKES", async ({ Given, When, Then }) => {
   let engine: GameEngine;
 
-  await Given("two bot bombers and two valuable ground targets", async () => {
+  await Given("two bot bombers and two equally valuable artillery targets", async () => {
     const artillery: ScenarioUnit = {
       type: "TestArtillery" as ScenarioUnit["type"],
       hex: { q: 4, r: 0 },
@@ -674,13 +683,13 @@ registerTest("BOT_LEVEL_MULTIPLE_BOMBERS_QUEUE_MULTIPLE_STRIKES", async ({ Given
       entrench: 0,
       facing: "NW"
     };
-    const tank: ScenarioUnit = {
-      type: "TestTank" as ScenarioUnit["type"],
+    const secondArtillery: ScenarioUnit = {
+      type: "TestArtillery" as ScenarioUnit["type"],
       hex: { q: 4, r: 1 },
       strength: 100,
       experience: 0,
-      ammo: 6,
-      fuel: 55,
+      ammo: 5,
+      fuel: 0,
       entrench: 0,
       facing: "NW"
     };
@@ -704,7 +713,7 @@ registerTest("BOT_LEVEL_MULTIPLE_BOMBERS_QUEUE_MULTIPLE_STRIKES", async ({ Given
       entrench: 0,
       facing: "NW"
     };
-    engine = createHeuristicEngine([artillery, tank], [firstBomber, secondBomber]);
+    engine = createHeuristicEngine([artillery, secondArtillery], [firstBomber, secondBomber]);
   });
 
   await When("the bot runs its air-tasking pass for the turn", async () => {

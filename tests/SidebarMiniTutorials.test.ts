@@ -104,7 +104,7 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getTutorialStep("movement_intro")?.waitForAction === true, "Movement tutorial should require a successful map move.");
     expect((getTutorialStep("movement_intro")?.content.includes("moves quickly") ?? false), "Movement tutorial should explain recon's speed.");
     expect((getTutorialStep("movement_intro")?.content.includes("lightly armed") ?? false), "Movement tutorial should explain recon's weakness.");
-    expect((getTutorialStep("movement_intro")?.content.includes("Drag the map") ?? false), "Movement tutorial should teach map navigation.");
+    expect((getTutorialStep("movement_intro")?.content.includes("Drag or scroll the map") ?? false), "Movement tutorial should teach map navigation.");
     const fortificationStep = getTutorialStep("engineer_orders");
     expect(fortificationStep?.waitForAction === true, "Fortifications should require a successful engineer order.");
     expect(fortificationStep?.title === "Build Fortifications", "The engineer lesson should use direct fortification language.");
@@ -164,7 +164,8 @@ registerTest("TUTORIAL_WAIT_BUTTON_USES_DIRECT_DISABLED_COPY", async ({ Given, T
     setRect(document.querySelector<HTMLElement>(".initiative-group-highlight") as HTMLElement, { left: 160, top: 180, width: 80, height: 72 });
     overlay = new TutorialOverlay();
     overlay.initialize();
-    tutorialState.jumpToPhase("active_group_units");
+    tutorialState.startTutorial();
+    tutorialState.advancePhase("active_group_units", false);
   });
 
   await Then("the disabled button is the full instruction and does not use the legacy waiting class", async () => {
@@ -284,7 +285,7 @@ registerTest("BATTLE_TUTORIAL_PROMPTS_DOCK_BELOW_THE_COMMAND_HEADER", async ({ G
   });
 });
 
-registerTest("MOBILE_BATTLE_TUTORIAL_PROMPTS_DOCK_OVER_THE_HEADER", async ({ Given, Then }) => {
+registerTest("MOBILE_BATTLE_TUTORIAL_PROMPTS_DOCK_BELOW_THE_HEADER", async ({ Given, Then }) => {
   let overlay: TutorialOverlay;
   const tutorialState = ensureTutorialState();
 
@@ -314,10 +315,11 @@ registerTest("MOBILE_BATTLE_TUTORIAL_PROMPTS_DOCK_OVER_THE_HEADER", async ({ Giv
     tutorialState.jumpToPhase("active_group_units");
   });
 
-  await Then("the prompt uses the header top so the short map remains visible", async () => {
+  await Then("the prompt clears the command header with the compact eight-pixel gap", async () => {
     const panel = document.querySelector<HTMLElement>(".tutorial-panel");
     expect(panel?.classList.contains("tutorial-battle-docked") === true, "Mobile battle prompts should use the shared top dock.");
-    expect(panel?.style.getPropertyValue("--tutorial-dock-top") === "138px", `Unexpected mobile battle dock position: ${panel?.style.getPropertyValue("--tutorial-dock-top") ?? "<missing>"}.`);
+    expect(panel?.style.getPropertyValue("--tutorial-dock-top") === "269px", `Unexpected mobile battle dock position: ${panel?.style.getPropertyValue("--tutorial-dock-top") ?? "<missing>"}.`);
+    expect(panel?.style.top === "269px", "The mobile panel position should use the unobstructed dock.");
     overlay.dispose();
     tutorialState.endTutorial();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
