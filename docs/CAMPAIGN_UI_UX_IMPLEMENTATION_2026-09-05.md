@@ -21,7 +21,7 @@ CSS extraction is reviewed and committed before geometry changes. Behavior packa
 
 ## Finding traceability
 
-The implementation has passed focused local checks. The complete release-command run is recorded below when finished. All deployed acceptance exercises remain OPEN; local proof is not live certification.
+The implementation has passed the complete local release-command sequence recorded below. All deployed acceptance exercises remain OPEN; local proof is not live certification.
 
 | Finding | Primary automated owner | Local acceptance | Live exercise | Status |
 |---|---|---|---|---|
@@ -52,7 +52,7 @@ The implementation has passed focused local checks. The complete release-command
 
 Naval UI and authorization use `CampaignNavalSupportService`; `economy.navalPower` no longer masquerades as available support. A support assignment carries one exact fleet and two actual tactical fire missions. The service evaluates ownership, authored task-force capacity, operational condition, range, target authorization, current reservations and replenishment. Current package v3, result v2 and AAR v2 preserve source identity through tactical assets and returned charge deltas. Consequence v2 accounts for each fleet's reserved, consumed and refunded RP. Older package/report versions remain readable; expired historical claims are retained without creating active holds, while active ambiguous claims fail closed. Hydration validates authored membership before replacing live state.
 
-The player-safe location contract changes presentation only. Persistent formation IDs and offset navigation keys remain unchanged; coordinate conversion is used only for exact authored lookup. Campaign feature work leaves tactical and coordinate algorithms unchanged. The final lint gate includes mechanically verified `HexMapRenderer.ts` cleanup described below; `BattleScreen.ts` and `src/engine` remain unchanged.
+The player-safe location contract changes presentation only. Persistent formation IDs and offset navigation keys remain unchanged; coordinate conversion is used only for exact authored lookup. Campaign feature work leaves tactical and coordinate algorithms unchanged. The final lint gate includes mechanically verified `HexMapRenderer.ts` cleanup described below; `BattleScreen.ts`, `src/game/GameEngine.ts`, and `src/core/Combat.ts` remain unchanged.
 
 ### Reviewable local packages
 
@@ -74,6 +74,7 @@ The player-safe location contract changes presentation only. Persistent formatio
 | `d159114` | Toolbar wrap and real native landing-route browser proof |
 | `d397136` | Exact recovered tactical resume and real danger/recovery caller regressions |
 | `87d0647` | Mechanical zero-warning lint gate, with emitted-code parity and renderer impact review |
+| `0ee7285` | Complete test execution, repaired stale fixtures and independently reviewed assertion integrity |
 
 ## Risk controls
 
@@ -92,7 +93,18 @@ To meet the plan's zero-warning requirement, a separate mechanical package remov
 
 Focused local verification is complete: 20 browser checks passed in `diagnostics/campaign-audit-geometry/local-final-report.json`, and 48 naval/domain and existing persistence/result/consequence/AAR checks passed during domain review. The campaign integration run passed 305 selected cases before the last three producer checks were added; those three also passed their isolated interaction run. These focused counts are not a substitute for the unfiltered release commands.
 
-The final six commands run sequentially from a clean worktree. Logs and the tested commit are retained in `diagnostics/campaign-audit-release/release-results.json`. The integration owner verifies the absolute `dist` and `dist-tsc` cleanup paths before invoking the existing scripts. Final results pending.
+The final six commands ran sequentially from clean commit **`0ee7285c6d21c4b16b0f616f44e9289736dfd75d`**, September 5, 2026, 14:05–14:10 EDT. The worktree remained clean through completion. Logs, exact commands, timestamps and the tested commit are retained in `diagnostics/campaign-audit-release/release-results.json`. The integration owner verified the absolute `dist` and `dist-tsc` cleanup paths before invoking the existing scripts. Only this evidence ledger changes after the tested commit.
+
+| Required command | Final result |
+|---|---|
+| `npm run test:campaign:professional-ui` | PASS — 92/92, exact completion summary |
+| `npm run test:campaign` | PASS — 310/310, exact completion summary |
+| `npm run test:e2e -- tests/e2e/campaign-command-ui.spec.ts --project=chromium --workers=1` | PASS — 20/20; all six viewports; no failed tests |
+| `npm run build` | PASS — zero TypeScript errors; production bundle verified without static chunk cycles; existing advisories recorded below |
+| `npm run lint` | PASS — zero ESLint errors or warnings |
+| `npm test` | PASS — 701/701, exact completion summary; no filter or exclusions |
+
+Browser artifacts are in `diagnostics/playwright/results/` and `diagnostics/playwright/report/`. The last-run record reports `passed` with an empty failed-test list. This local result certifies the implemented campaign contracts and completed regression execution; it does not replace the open deployed acceptance exercises or certify unrelated air choreography.
 
 ### Full-suite completion defect and fixture repair
 
@@ -123,7 +135,7 @@ Executing the previously unreachable tests revealed additional stale fixtures. T
 
 The infantry suppression fixture contained a historical rule mismatch: May 16 commit `413994c0` added the broken-state test expecting dig-in rejection, but did not add that restriction to the engine. Exact baseline and current engine both allow uncommitted infantry to entrench under suppression. The documented Dig In requirements and current broken-state explanation do not prohibit it. This package preserves shipped behavior and explicitly proves dig-in succeeds once, adds one entrenchment, consumes the activation, retains broken status, and still bars sentry; it does not introduce a tactical rules change.
 
-Additional workers remained restricted to disjoint test files and isolated output directories. Parent-only exploratory filtering allowed work around active worker scopes; those runs are diagnostic and cannot certify the release. The final 42 infantry, stance and fighter-motion checks pass together, and fresh project TypeScript and zero-warning test lint pass. The complete unfiltered diagnostic run then finished with **701/701 passes**, an exact matching summary and exit zero (`full-unfiltered-diagnostic.log`). The final six-command clean-commit sequence remains pending.
+Additional workers remained restricted to disjoint test files and isolated output directories. Parent-only exploratory filtering allowed work around active worker scopes; those runs are diagnostic and cannot certify the release. The final 42 infantry, stance and fighter-motion checks pass together, and fresh project TypeScript and zero-warning test lint pass. The complete unfiltered diagnostic run then finished with **701/701 passes**, an exact matching summary and exit zero (`full-unfiltered-diagnostic.log`). The final clean-commit sequence above independently repeats the complete suite after review corrections.
 
 Independent test-integrity review then required four assertion corrections: finite guards before numeric comparisons, preservation of the fighter's synchronized scalar ammo check alongside its salvo ledger, independently pinned documented motion limits, and explicit visibility intervals at release/impact. The last correction exposed a genuine old-test false positive: the path sampler returns coordinates after an actor's visual lifetime. The canonical scenario now verifies all five exact surviving bomber identities and eleven explicit destruction lifecycles, rather than calling destroyed aircraft visible. All 30 affected cases pass together in `review-corrections-focused.log`.
 
@@ -141,4 +153,4 @@ The preexisting `AIR_SHOW_SPATIAL_SEPARATION_REPORT` is a non-asserting diagnost
 
 **Release verdict: FAIL / live certification OPEN.** No push or deployment has been performed. Section 7 explicitly separates implementation authorization from deployment authorization. The complete natural campaign journey, supported and unsupported engagement, actual 20+ turn tactical battle, natural AI defense, external-browser viewport evidence, live build fingerprint and console/request sweep remain required. Existing unit tests for no arbitrary campaign turn cap and AI response are not evidence of that full player journey.
 
-Independent reviewers have binary veto authority. McClintock returned explicit **local UI/UX PASS** after re-viewing the corrected 1280×720 toolbar, checking direct campaign entry, and verifying the saved 20/20 browser report with no failures, skips or flaky results. Wegener returned explicit **local test-architecture PASS**, closing the naval, recovery and actual danger-consent caller findings, subsequently passed the mechanical lint package `a8467b8..87d0647`, and returned a final **local test-integrity PASS** after all four assertion corrections and the 30/30 focused proof. No actionable review blockers remain in the local package. The complete release-command rerun remains pending. No local screenshot, entitlement fixture, headless browser test or successful build is described as deployed certification.
+Independent reviewers have binary veto authority. McClintock returned explicit **local UI/UX PASS** after re-viewing the corrected 1280×720 toolbar, checking direct campaign entry, and verifying the saved 20/20 browser report with no failures, skips or flaky results. Wegener returned explicit **local test-architecture PASS**, closing the naval, recovery and actual danger-consent caller findings, subsequently passed the mechanical lint package `a8467b8..87d0647`, and returned a final **local test-integrity PASS** after all four assertion corrections and the 30/30 focused proof. No actionable review blockers remain in the local package, and all required local release commands pass. No local screenshot, entitlement fixture, headless browser test or successful build is described as deployed certification.
