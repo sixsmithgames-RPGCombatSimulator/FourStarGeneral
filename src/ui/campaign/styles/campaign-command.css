@@ -2,6 +2,72 @@
  * Component-specific styles migrate here from index.html as each FCI workspace is replaced.
  */
 
+/* Access recovery is outside the shell so drawers and its tray cannot cover it. */
+#campaignLockOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20010;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding: clamp(0.75rem, 3vmin, 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: rgba(8, 10, 17, 0.98);
+  color: #efe8d4;
+  text-align: center;
+}
+
+#campaignLockOverlay .campaign-access-gate__surface {
+  flex: 0 0 auto;
+  width: min(100%, 36rem);
+  margin-block: auto;
+}
+
+#campaignLockOverlay h1 {
+  margin: 0 0 0.65rem;
+  font-size: clamp(1.35rem, 4vmin, 2rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#campaignLockOverlay p { margin: 0 0 0.65rem; line-height: 1.45; }
+#campaignLockDescription { color: #f5c46d; }
+#campaignLockOverlay .campaign-access-gate__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+#campaignLockOverlay :is(a, button) {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0.6rem 1rem;
+  border: 1px solid #d4ad59;
+  border-radius: 4px;
+  background: #171b14;
+  color: #efe8d4;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+#campaignLockOverlay [data-lock-sign-in] { background: #e9c575; color: #080a11; }
+#campaignLockOverlay [hidden] { display: none; }
+#campaignLockOverlay [data-lock-return] { flex-basis: 100%; border-color: transparent; text-decoration: underline; }
+#campaignLockOverlay :is(a, button):focus-visible { outline: 3px solid #f5c46d; outline-offset: 3px; }
+
 #campaignScreen {
   --campaign-color-canvas: #080b09;
   --campaign-color-surface: #10130f;

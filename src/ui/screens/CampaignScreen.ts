@@ -16,6 +16,7 @@ import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
 import { MapViewport } from "../controls/MapViewport";
 import { computeDailyProduction, ensureCampaignState } from "../../state/CampaignState";
 import { ensureUnlockState } from "../../state/UnlockState";
+import { buildSignInUrl } from "../../utils/guestMode";
 import {
   type CampaignCommandAdvanceMode,
   type CampaignCommandHexView,
@@ -214,6 +215,14 @@ export class CampaignScreen {
   // Overlay shown while campaign mode is locked. Kept as an overlay (not an innerHTML swap)
   // so late-arriving auth resolution (Clerk loads asynchronously) can unlock without a rebuild.
   private lockOverlay: HTMLElement | null = null;
+  private lockInvoker: HTMLElement | null = null;
+  private lockBackgroundState: Array<{ element: HTMLElement; inert: boolean; ariaHidden: string | null }> = [];
+  private lockFocusGuard: ((event: FocusEvent) => void) | null = null;
+  private lockEntryFocusHandler: ((event: FocusEvent) => void) | null = null;
+  private lockLastAvailableFocus: HTMLElement | null = null;
+  private lockAuthUnsubscribe: (() => void) | null = null;
+  private lockScreenHandler: (() => void) | null = null;
+  private lockVisibilityObserver: MutationObserver | null = null;
   private intelDrawer: HTMLElement | null = null;
   private intelSummary: HTMLElement | null = null;
   private intelUnreadBadge: HTMLElement | null = null;
@@ -883,7 +892,9 @@ export class CampaignScreen {
    * re-evaluated whenever UnlockState hydrates — never decided once at startup.
    */
   private syncCampaignLockState(): void {
-    if (this.unlockState.isCampaignLocked("campaign")) {
+    if (!this.element.isConnected || this.element.closest(".hidden, [hidden]")) {
+      this.removeCampaignLockedOverlay(false);
+    } else if (this.unlockState.isCampaignLocked("campaign")) {
       this.showCampaignLockedOverlay();
     } else {
       this.removeCampaignLockedOverlay();
@@ -892,42 +903,160 @@ export class CampaignScreen {
 
   /**
    * Displays a locked overlay when campaign mode is not unlocked.
-   * Redirects user to pricing page for full-game subscription.
-   * Rendered as an overlay so the campaign screen beneath stays intact and can be
-   * revealed the moment entitlements arrive.
+   * Keeps account recovery above every campaign stacking context. Only the
+   * stable screen/background roots are isolated; compact sheets retain ownership
+   * of their nested inert states while resizing or rendering beneath the gate.
    */
   private showCampaignLockedOverlay(): void {
     if (this.lockOverlay) {
+      this.refreshCampaignLockRecovery();
       return;
     }
     const purchaseUrl = this.unlockState.buildPurchaseUrlForSku("campaign");
     const overlay = document.createElement("div");
     overlay.id = "campaignLockOverlay";
-    overlay.style.cssText = "position:absolute;inset:0;z-index:40;background:rgba(8,10,17,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem;text-align:center;";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-labelledby", "campaignLockTitle");
+    overlay.setAttribute("aria-describedby", "campaignLockDescription campaignLockRecovery");
     overlay.innerHTML = `
-      <h1 style="font-size:2rem;font-weight:800;margin-bottom:0.5rem;letter-spacing:0.08em;text-transform:uppercase;">Campaign Locked</h1>
-      <p style="color:#f5c46d;margin-bottom:2rem;max-width:500px;line-height:1.6;">
-        Campaign mode requires a full-game subscription. Unlock the Western Europe offensive by subscribing to Four Star General or the All-Access Bundle.
-      </p>
-      <a href="${purchaseUrl}" style="background:linear-gradient(135deg,#b45309,#f5c46d);color:#080a11;padding:0.875rem 2rem;border-radius:50px;text-decoration:none;font-weight:700;font-size:1rem;">View Plans →</a>
-      <button type="button" class="secondary-button" data-lock-return style="margin-top:1rem;color:#6b7280;font-size:0.875rem;background:none;border:none;cursor:pointer;text-decoration:underline;">Return to Landing Screen</button>
+      <div class="campaign-access-gate__surface">
+        <h1 id="campaignLockTitle">Campaign Locked</h1>
+        <p id="campaignLockDescription">Campaign mode requires a Four Star General or All-Access Bundle subscription.</p>
+        <p id="campaignLockRecovery" data-lock-recovery></p>
+        <div class="campaign-access-gate__actions">
+          <a data-lock-sign-in>Sign In</a>
+          <a href="${this.escapeHtml(purchaseUrl)}" data-lock-plans>View Plans →</a>
+          <button type="button" data-lock-return>Return to Landing Screen</button>
+        </div>
+      </div>
     `;
     overlay.querySelector<HTMLButtonElement>("[data-lock-return]")?.addEventListener("click", () => {
-      this.screenManager.showScreenById("landing");
+      this.returnFromCampaignAccessGate();
     });
-    if (getComputedStyle(this.element).position === "static") {
-      this.element.style.position = "relative";
-    }
-    this.element.appendChild(overlay);
+    overlay.addEventListener("keydown", (event) => {
+      // Even non-Tab keys must not reach global numeric/workspace shortcuts.
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.returnFromCampaignAccessGate();
+      } else if (event.key === "Tab") {
+        const actions = Array.from(overlay.querySelectorAll<HTMLElement>("a[href]:not([hidden]), button:not([hidden])"));
+        const index = actions.findIndex((action) => action === document.activeElement);
+        event.preventDefault();
+        actions[(index + (event.shiftKey ? actions.length - 1 : 1)) % actions.length].focus();
+      }
+    });
+    this.lockInvoker = this.lockLastAvailableFocus?.isConnected ? this.lockLastAvailableFocus
+      : document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.body.appendChild(overlay);
     this.lockOverlay = overlay;
+    this.refreshCampaignLockRecovery();
+    // Isolate stable branches, never their shared #app ancestor: ScreenManager
+    // owns that ancestor's transient inert state and clears it after entry.
+    const backgrounds = new Set<HTMLElement>([this.element]);
+    let branch: HTMLElement = this.element;
+    while (branch.parentElement) {
+      const parent = branch.parentElement;
+      Array.from(parent.children).forEach((element) => {
+        if (element instanceof HTMLElement && element !== branch && element !== overlay
+          && element.id !== "screenTransitionStatus") backgrounds.add(element);
+      });
+      if (parent === document.body) break;
+      branch = parent;
+    }
+    this.lockBackgroundState = Array.from(backgrounds, (element) => ({
+      element, inert: element.inert === true, ariaHidden: element.getAttribute("aria-hidden")
+    }));
+    const focusRecovery = (): void => {
+      overlay.querySelector<HTMLElement>("[data-lock-sign-in]:not([hidden]), [data-lock-plans]")?.focus();
+    };
+    focusRecovery();
+    this.lockBackgroundState.forEach(({ element }) => {
+      element.inert = true;
+      element.setAttribute("aria-hidden", "true");
+    });
+    this.lockFocusGuard = (event) => {
+      if (event.target instanceof Node && !overlay.contains(event.target)) focusRecovery();
+    };
+    document.addEventListener("focusin", this.lockFocusGuard, true);
   }
 
-  /** Removes the locked overlay once campaign access is confirmed. */
-  private removeCampaignLockedOverlay(): void {
-    if (this.lockOverlay) {
-      this.lockOverlay.remove();
-      this.lockOverlay = null;
+  /** Refreshes recovery without replacing the focused action during auth hydration. */
+  private refreshCampaignLockRecovery(): void {
+    const signIn = this.lockOverlay?.querySelector<HTMLAnchorElement>("[data-lock-sign-in]");
+    const recovery = this.lockOverlay?.querySelector<HTMLElement>("[data-lock-recovery]");
+    if (!signIn || !recovery) return;
+    const authUrl = new URL(buildSignInUrl());
+    authUrl.searchParams.set("redirect_url", new URL("/play?mode=campaign", window.location.origin).href);
+    signIn.href = authUrl.href;
+    const signedIn = this.unlockState.getSnapshot().isAuthenticated;
+    // The canonical route is sign-in, not a verified account-switch operation.
+    // An authenticated account without access receives purchase/return actions.
+    if (signedIn && document.activeElement === signIn) {
+      this.lockOverlay?.querySelector<HTMLElement>("[data-lock-plans]")?.focus();
     }
+    signIn.hidden = signedIn;
+    recovery.textContent = signedIn
+      ? "You are signed in, but this account does not have campaign access. View plans or return to the landing screen."
+      : "Already subscribed? Sign in to return to your campaign.";
+  }
+
+  /** Leaves locked gameplay through the normal landing route; Escape uses this same exit. */
+  private returnFromCampaignAccessGate(): void {
+    const invoker = this.lockInvoker;
+    this.removeCampaignLockedOverlay(false);
+    this.screenManager.showScreenById("landing");
+    // The destination is already constructed. Finish its transition before
+    // restoring focus so a delayed transition cannot replace the recovery focus.
+    this.screenManager.endTransition?.();
+    this.restoreCampaignAccessFocus(invoker, document.getElementById("landingScreen"));
+  }
+
+  /** Restores only a connected, available target in the active screen. */
+  private restoreCampaignAccessFocus(invoker: HTMLElement | null, destination: HTMLElement | null): void {
+    const target = invoker?.isConnected && !invoker.closest(".hidden, [hidden], [inert], [aria-hidden='true']")
+      ? invoker : destination;
+    if (!target || target.closest(".hidden, [hidden], [inert], [aria-hidden='true']")) return;
+    if (target === destination && !target.hasAttribute("tabindex")) target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+  }
+
+  /** Restores prior isolation without changing compact-sheet state or hidden-screen semantics. */
+  private removeCampaignLockedOverlay(restoreFocus = true): void {
+    if (!this.lockOverlay) return;
+    const invoker = this.lockInvoker;
+    if (this.lockFocusGuard) document.removeEventListener("focusin", this.lockFocusGuard, true);
+    this.lockFocusGuard = null;
+    this.lockOverlay.remove();
+    this.lockOverlay = null;
+    this.lockInvoker = null;
+    this.lockBackgroundState.forEach(({ element, inert, ariaHidden }) => {
+      element.inert = inert;
+      if (element === this.element && element.closest(".hidden, [hidden]")) element.setAttribute("aria-hidden", "true");
+      // A normal screen transition may have revealed a different screen while
+      // the gate was active. Do not undo that newer visibility decision.
+      else if (element.getAttribute("aria-hidden") === "true") {
+        if (ariaHidden === null) element.removeAttribute("aria-hidden");
+        else element.setAttribute("aria-hidden", ariaHidden);
+      }
+    });
+    this.lockBackgroundState = [];
+    if (restoreFocus) this.restoreCampaignAccessFocus(invoker, this.element);
+  }
+
+  /** Releases this screen's access-only subscriptions and modal handlers before disposal. */
+  public disposeCampaignAccessGate(): void {
+    this.lockAuthUnsubscribe?.();
+    this.lockAuthUnsubscribe = null;
+    if (this.lockScreenHandler) document.removeEventListener("screen:shown", this.lockScreenHandler);
+    this.lockScreenHandler = null;
+    this.lockVisibilityObserver?.disconnect();
+    this.lockVisibilityObserver = null;
+    if (this.lockEntryFocusHandler) document.removeEventListener("focusin", this.lockEntryFocusHandler, true);
+    this.lockEntryFocusHandler = null;
+    this.lockLastAvailableFocus = null;
+    this.removeCampaignLockedOverlay(false);
   }
 
   /**
@@ -946,11 +1075,6 @@ export class CampaignScreen {
   }
 
   initialize(): void {
-    // Gate via a live subscription rather than a one-time startup check: Clerk auth
-    // resolves after initializeApplication() runs, so the entitlement snapshot here
-    // may still be the guest bootstrap. The overlay reacts to hydration in both directions.
-    this.unlockState.subscribe(() => this.syncCampaignLockState());
-
     this.mountCampaignDeveloperTools();
     this.commandInterface = new CampaignCommandInterface(this.element, {
       onMapLayerChanged: (overlay) => (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>)
@@ -1080,6 +1204,25 @@ export class CampaignScreen {
       }
     });
     this.commandInterface.initialize();
+
+    // Subscribe only after shell composition: subscribe immediately delivers the
+    // current auth snapshot, and every newly created control must be isolated.
+    this.disposeCampaignAccessGate();
+    this.lockEntryFocusHandler = (event) => {
+      const target = event.target;
+      // ScreenManager focuses its temporary status before announcing a screen.
+      // Preserve the real invoker instead of restoring that transient status.
+      if (!this.lockOverlay && target instanceof HTMLElement
+        && !target.closest("#screenTransitionStatus, #appBootStatus, .hidden, [hidden]")) {
+        this.lockLastAvailableFocus = target;
+      }
+    };
+    document.addEventListener("focusin", this.lockEntryFocusHandler, true);
+    this.lockScreenHandler = () => this.syncCampaignLockState();
+    document.addEventListener("screen:shown", this.lockScreenHandler);
+    this.lockVisibilityObserver = new window.MutationObserver(() => this.syncCampaignLockState());
+    this.lockVisibilityObserver.observe(this.element, { attributes: true, attributeFilter: ["class", "hidden"] });
+    this.lockAuthUnsubscribe = this.unlockState.subscribe(() => this.syncCampaignLockState());
 
     // The scenario is rendered during application startup while the campaign screen is hidden,
     // so its viewport has no measurable size at that point. Center only after ScreenManager has

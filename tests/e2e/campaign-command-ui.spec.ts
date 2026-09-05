@@ -96,6 +96,59 @@ test('FSG_CAM_081: public Enter Campaign link opens campaign while tactical entr
 for (const viewport of releaseViewports) {
   const size = `${viewport.width}x${viewport.height}`;
 
+  test(`FSG_CAM_082 ${size}: locked entry isolates campaign controls and exposes account recovery`, async ({ page }, info) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.route('**/clerk.browser.js', (route) => route.fulfill({
+      contentType: 'application/javascript',
+      body: 'window.Clerk = { load: () => Promise.resolve(), user: null };'
+    }));
+    await page.goto('/landing/index.html');
+    expect(['localhost', '127.0.0.1']).toContain(new URL(page.url()).hostname);
+    await page.getByRole('link', { name: 'Enter Campaign', exact: true }).click();
+    const gate = page.getByRole('dialog', { name: /campaign locked/i });
+    await expect(gate).toBeVisible();
+    await expect(gate).toHaveAttribute('aria-modal', 'true');
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Situation', exact: true })).toHaveCount(0);
+
+    for (let step = 0; step < 8; step += 1) {
+      await page.keyboard.press(step < 4 ? 'Tab' : 'Shift+Tab');
+      expect(await gate.evaluate(element => element.contains(document.activeElement)),
+        'Locked campaign must keep keyboard focus on its recovery actions').toBe(true);
+    }
+
+    const signIn = gate.getByRole('link', { name: /sign in/i });
+    const href = await signIn.getAttribute('href');
+    expect(href).toBeTruthy();
+    const signInUrl = new URL(href!, page.url());
+    expect(signInUrl.hostname).toBe('www.sixsmithgames.com');
+    expect(signInUrl.pathname).toBe('/sign-in');
+    const returnUrl = new URL(signInUrl.searchParams.get('redirect_url')!);
+    expect(returnUrl.pathname).toBe('/play');
+    expect(returnUrl.searchParams.get('mode')).toBe('campaign');
+
+    // Trial clicks use actual hit testing, catching a higher workspace/tray above the gate.
+    const recoveryActions = [signIn, gate.getByRole('link', { name: /view plans/i }),
+      gate.getByRole('button', { name: /return to landing screen/i })];
+    for (const action of recoveryActions) {
+      await action.scrollIntoViewIfNeeded();
+      await action.click({ trial: true });
+      const bounds = await geometry(action);
+      expect(bounds.y).toBeGreaterThanOrEqual(0);
+      expect(bounds.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.right).toBeLessThanOrEqual(viewport.width);
+    }
+    await evidence(page, info, `locked-access-${size}`, { viewport, gate: await geometry(gate), signIn: href });
+    await recoveryActions[2].click();
+    await expect(page.locator('#landingScreen')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Enter Western Europe Campaign', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Enter Western Europe Campaign', exact: true }).click();
+    await expect(gate).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Situation', exact: true })).toHaveCount(0);
+  });
+
   test(`FSG_CAM_076 ${size}: inspector and primary action fit above the tray`, async ({ page }, info) => {
     await openFront(page, viewport);
     const shell = await geometry(page.locator('.campaign-command-shell'));
