@@ -394,6 +394,26 @@
   min-height: 36px;
 }
 
+.campaign-command-priority--objective {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.campaign-command-priority__objective-progress {
+  min-width: 0;
+}
+
+.campaign-command-priority__objective-progress > .campaign-objective-row__status {
+  color: #d9bd79;
+  font-size: 0.64rem;
+}
+
+.campaign-command-priority--objective .campaign-advance-alert__link {
+  grid-column: 1;
+  grid-row: auto;
+  justify-self: start;
+  min-height: 44px;
+}
+
 #campaignScreen[data-campaign-command-ui="v2"] button.campaign-workspace-list-row {
   width: 100%;
   color: inherit;

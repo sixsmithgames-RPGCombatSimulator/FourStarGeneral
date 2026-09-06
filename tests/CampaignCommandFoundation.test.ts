@@ -5,7 +5,9 @@
  */
 
 import "./domEnvironment.js";
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
+import { createCampaignContextInspector, renderCampaignContextInspector } from "../src/ui/campaign/components/CampaignContextInspector";
 import { CampaignCommandScreen } from "../src/ui/campaign/CampaignCommandScreen";
 import { CampaignCommandNavigator } from "../src/ui/campaign/CampaignCommandNavigator";
 import { CampaignCommandUIState } from "../src/ui/campaign/CampaignCommandUIState";
@@ -81,6 +83,67 @@ function createSafeView(title = "Operation Test"): CampaignCommandShellView {
     }
   };
 }
+
+registerTest("FSG_CAM_086_TRANSIT_INSPECTOR_USES_ONLY_MATCHING_ACTIVE_MOVE_ROUTE", async ({ Given, When, Then }) => {
+  const workspace = document.createElement("aside");
+  const inspector = createCampaignContextInspector(workspace);
+  document.body.append(inspector);
+  const formation: NonNullable<CampaignCommandShellView["formations"]>[number] = {
+    id: "moving-formation", name: "First U.S. Army", typeLabel: "Infantry", ownershipLabel: "Core",
+    locationHexKey: null, postureKey: "inTransit", statusLabel: "In transit", currentOrderId: "current-move",
+    readiness: "100%", cohesion: "100%", fatigue: "0%", personnel: "720 fit / 720 present", equipment: "No vehicle pool",
+    supply: "Ammo 6", experience: "0 XP", honors: [], battles: 0, latestHistory: null
+  };
+  const movement: CampaignCommandShellView["orders"][number] = {
+    id: "current-move", kind: "redeploy", label: "Redeploy formation", detail: "Formation movement", status: "committed",
+    eta: "ETA 7 June, 03:00–06:00", routeSummary: "Portsmouth → Utah Beach · via Channel approach",
+    mapHexKeys: ["9,9", "8,8"], validationMessages: [], canRemove: false, canCancel: true
+  };
+  const unrelated = { ...movement, id: "other-move", routeSummary: "Unrelated route" };
+  const render = (changes: Partial<CampaignCommandShellView> = {}): void => {
+    renderCampaignContextInspector(inspector, {
+      ...createSafeView(), formations: [formation], orders: [unrelated, movement], ...changes
+    }, { kind: "formation", id: formation.id });
+  };
+  const factValues = (label: string): Array<string | null | undefined> => Array.from(inspector.querySelectorAll("dt"))
+    .filter((term) => term.textContent === label).map((term) => term.nextElementSibling?.textContent);
+
+  await Given("an off-map formation links to its own movement among unrelated orders", () => {
+    render();
+    assert.deepEqual(factValues("Current order"), ["Redeploy formation · committed · ETA 7 June, 03:00–06:00"]);
+  });
+  await When("the committed move starts executing", () => {
+    for (const status of ["committed", "executing"] as const) {
+      render({ orders: [unrelated, { ...movement, status }] });
+      assert.deepEqual(factValues("Route"), [movement.routeSummary], "Show exactly one supplied route for the selected formation's current active move.");
+      assert.deepEqual(factValues("Location"), ["Off map"], "Route context must not assign a map position.");
+      assert.equal(inspector.querySelector("[data-campaign-map-hex-target]"), null);
+      assert.doesNotMatch(inspector.textContent ?? "", /Unrelated route|Grid 9,9|Grid 8,8/);
+    }
+  });
+  await Then("arrival, cancellation, filed orders, and unrelated assignments cannot retain a transit route", () => {
+    const cases: Array<{ label: string; changes: Partial<CampaignCommandShellView> }> = [
+      { label: "arrived, even with a stale active-order link", changes: { formations: [{ ...formation, postureKey: "ready", statusLabel: "Ready", locationHexKey: "8,8", location: { primaryLabel: "Utah Beach", secondaryGridReference: "Grid 8,8" } }] } },
+      ...(["completed", "cancelled", "draft", "conflict", "blocked"] as const).map((status) => ({
+        label: status, changes: { orders: [unrelated, { ...movement, status }] }
+      })),
+      { label: "current order cleared", changes: { formations: [{ ...formation, currentOrderId: null }] } },
+      { label: "only an unrelated active move remains", changes: { orders: [unrelated] } },
+      { label: "matching order is not a move", changes: { orders: [{ ...movement, kind: "production" }] } },
+      { label: "route was not supplied", changes: { orders: [{ ...movement, routeSummary: undefined }] } }
+    ];
+    for (const { label, changes } of cases) {
+      render();
+      assert.deepEqual(factValues("Route"), [movement.routeSummary]);
+      render(changes);
+      assert.deepEqual(factValues("Route"), [], `${label}: remove the previous route instead of borrowing another order's route.`);
+      assert.doesNotMatch(inspector.textContent ?? "", /Portsmouth → Utah Beach|Unrelated route/);
+    }
+    assert.equal(formation.locationHexKey, null);
+    assert.equal(movement.status, "committed");
+    assert.equal(movement.routeSummary, "Portsmouth → Utah Beach · via Channel approach");
+  });
+});
 
 registerTest("CAMPAIGN_COMMAND_UI_STATE_IS_EPHEMERAL_AND_SHEET_EXCLUSIVE", async ({ Given, When, Then }) => {
   const events = new CampaignUIEvents();

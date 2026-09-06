@@ -1,8 +1,17 @@
 /** Pure safe-view decision contracts for FSG-CAM-003 and FSG-CAM-005. */
+import "./domEnvironment";
 import assert from "node:assert/strict";
 import { registerTest } from "./harness";
-import type { CampaignCommandFormationView, CampaignCommandContactView, CampaignCommandIntelBriefView } from "../src/ui/campaign/CampaignCommandShell";
+import type { CampaignCommandFormationView, CampaignCommandContactView, CampaignCommandIntelBriefView, CampaignCommandOrderView } from "../src/ui/campaign/CampaignCommandShell";
 import { projectCampaignForcesWorkspace, projectCampaignIntelligenceWorkspace, type CampaignForceFilter } from "../src/ui/campaign/CampaignWorkspaceProjection";
+import campaignScenarioData from "../src/data/campaign01.json";
+import type { CampaignScenarioData } from "../src/core/campaignTypes";
+import { CampaignState } from "../src/state/CampaignState";
+import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
+import { projectCampaignFormationPosture } from "../src/game/campaign/formations/CampaignFormationPosture";
+import { resolveCampaignFormationRecordPresentation } from "../src/game/campaign/formations/CampaignFormationPresentation";
+import { projectRuntimeHexKeyToCampaignOffset } from "../src/ui/campaign/CampaignCommandProjection";
+import { resolveCampaignMapLocationPresentation } from "../src/ui/campaign/CampaignLocationPresentation";
 
 function formation(id: string, changes: Partial<CampaignCommandFormationView> = {}): CampaignCommandFormationView {
   return {
@@ -26,6 +35,187 @@ function contact(id: string, changes: Partial<CampaignCommandContactView> = {}):
 function brief(id: string, changes: Partial<CampaignCommandIntelBriefView> = {}): CampaignCommandIntelBriefView {
   return { id, title: "Assessment changed", detail: "Armor reported on the approach.", timeLabel: "Day 2, dawn", segment: 9, read: false, kind: "upgraded", contactId: "armor", ...changes };
 }
+
+function movement(changes: Partial<CampaignCommandOrderView> = {}): CampaignCommandOrderView {
+  return {
+    id: "move-1", kind: "redeploy", label: "Redeploy formation", detail: "Portland → Exeter · Truck",
+    status: "committed", eta: "ETA D+1 · 7 June 1944, 03:00–06:00", routeSummary: "Portland → Exeter · 2 hex",
+    mapHexKeys: ["14,10", "15,9"], validationMessages: [], canRemove: false, canCancel: true, ...changes
+  };
+}
+
+/** Recreates the audited movement through real draft/commit APIs with an exact formation identity. */
+function committedMovement(): { state: CampaignState; formationId: string; orderId: string; origin: string; destination: string } {
+  const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+  state.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+  const map = state.getCampaignMapView("Player");
+  assert.ok(map);
+  const locationKey = (label: string): string => {
+    const tile = map.scenario.tiles.find((entry) => map.scenario.tilePalette[entry.tile]?.mapLabel === label);
+    assert.ok(tile, `The shipped campaign needs the authored ${label} location.`);
+    const key = projectRuntimeHexKeyToCampaignOffset(`${tile.hex.q},${tile.hex.r}`);
+    assert.ok(key);
+    return key;
+  };
+  const origin = locationKey("Portland");
+  const destination = locationKey("Exeter");
+  const selected = state.getCampaignRedeployAvailableFormations(origin).find((entry) => entry.campaignUnitType === "Infantry_42");
+  assert.ok(selected, "Portland needs its ready follow-on infantry formation.");
+  const draft = state.createRedeployDraft(origin, destination, [{ unitType: selected.campaignUnitType, count: 1 }], "truck", undefined, [selected.id]);
+  assert.ok(draft.ok, draft.ok ? "" : draft.reason);
+  assert.equal(draft.order.kind, "redeploy");
+  if (draft.order.kind !== "redeploy") throw new Error("The movement fixture must produce a redeployment order.");
+  assert.equal(draft.order.payload.distance, 2);
+  assert.equal(draft.order.payload.fuelCost, 6);
+  assert.equal(draft.order.payload.suppliesCost, 4);
+  assert.equal(draft.order.payload.etaSegment, state.getRuntimeSnapshot()!.currentSegment + 1);
+  const committed = state.commitCampaignOrders([draft.order.id]);
+  assert.ok(committed.ok);
+  assert.equal(committed.committedCount, 1);
+  return { state, formationId: selected.id, orderId: draft.order.id, origin, destination };
+}
+
+/** Supplies only the existing shell contract from public state views and shared presentation resolvers. */
+function movementView(state: CampaignState, formationId: string): Parameters<typeof projectCampaignForcesWorkspace>[0] {
+  const map = state.getCampaignMapView("Player");
+  const record = state.getCampaignFormationRoster("Player").find((entry) => entry.id === formationId);
+  assert.ok(record);
+  const posture = projectCampaignFormationPosture(record);
+  assert.ok(posture.posture === "ready" || posture.posture === "inTransit", "This fixture covers movement and arrival/cancellation only.");
+  const presentation = resolveCampaignFormationRecordPresentation(record);
+  const locationHexKey = projectRuntimeHexKeyToCampaignOffset(record.locationHexKey);
+  const orders = state.getCampaignOrders().filter((order) => order.faction === "Player").flatMap((order): CampaignCommandOrderView[] => {
+    if (order.kind !== "redeploy") return [];
+    const origin = resolveCampaignMapLocationPresentation(map, order.payload.originOffsetKey).primaryLabel;
+    const destination = resolveCampaignMapLocationPresentation(map, order.payload.destinationOffsetKey).primaryLabel;
+    return [movement({
+      id: order.id, status: order.status,
+      detail: `${origin} → ${destination} · ${order.payload.transportModeKey}`,
+      routeSummary: `${origin} → ${destination} · ${order.payload.distance} hex`,
+      mapHexKeys: order.targetHexKeys.slice(),
+      eta: `ETA ${state.segmentToTimeDisplay(order.payload.etaSegment)}`
+    })];
+  });
+  return {
+    formations: [formation(record.id, {
+      name: presentation.formationName, commandLabel: presentation.commandLabel, locationHexKey,
+      location: locationHexKey === null ? undefined : resolveCampaignMapLocationPresentation(map, locationHexKey),
+      postureKey: posture.posture, statusLabel: posture.label, canReceiveOrders: posture.canReceiveOrders,
+      currentOrderId: record.currentOrderId, blockingReason: posture.blockingReason, readiness: `${record.readiness}%`
+    })],
+    forces: [], objectives: [], orders
+  };
+}
+
+registerTest("FSG_CAM_070_FORCES_COMMITTED_REDEPLOYMENT_RETAINS_NAMED_ROUTE_ETA_AND_EXACT_IDENTITY", async ({ Given, When, Then }) => {
+  const { state, formationId, orderId, origin, destination } = committedMovement();
+  const view = movementView(state, formationId);
+  const beforeProjection = state.getRuntimeSnapshot();
+  const input = Object.freeze({ ...view, formations: Object.freeze([...view.formations!, ...view.formations!]) });
+  await Given("the real Portland-to-Exeter truck order is committed exactly once, before any advance", () => {
+    assert.equal(beforeProjection!.orders[orderId].status, "committed");
+    assert.equal(view.formations![0].currentOrderId, orderId);
+    assert.equal(view.formations![0].locationHexKey, null);
+    assert.equal(view.formations![0].name, "First U.S. Army");
+    assert.equal(state.getCampaignRedeployAvailableFormations(origin).some((entry) => entry.id === formationId), false);
+    assert.equal(state.getCampaignRedeployAvailableFormations(destination).some((entry) => entry.id === formationId), false);
+  });
+  await When("Forces searches origin, destination, command, status, and the exact persistent ID", () => {
+    for (const query of ["Portland", "Exeter", "First U.S. Army", "Portland Exeter in transit", formationId]) {
+      const result = projectCampaignForcesWorkspace(input, { query, filter: "inTransit" });
+      assert.equal(result.totalCount, 1);
+      assert.equal(result.matchingCount, 1, query);
+      assert.equal(result.groups.length, 1);
+      const group = result.groups[0];
+      assert.match(group.key, /^transit:/);
+      assert.equal(group.label, "In transit · Portland → Exeter · 2 hex");
+      assert.equal(group.readyCount, 0);
+      assert.equal(group.formationCount, 1);
+      const row = group.commands[0].rows[0];
+      assert.equal(row.id, formationId);
+      assert.equal(row.selectionKind, "formation");
+      assert.equal(row.locationLabel, group.label);
+      assert.equal(row.gridReference, "No map position assigned");
+      assert.equal(row.transitEta, "ETA D+1 · 7 June 1944, 03:00–06:00");
+      assert.equal(row.availability, null, "Arrival ETA must not promise readiness or permission to give orders.");
+      assert.equal(row.statusLabel, "In transit");
+      assert.equal(row.blockingReason, view.formations![0].blockingReason);
+    }
+  });
+  await Then("Forces does not invent map presence, readiness, or another record and does not mutate authoritative state", () => {
+    assert.equal(projectCampaignForcesWorkspace(input, { filter: "ready" }).matchingCount, 0);
+    assert.equal(projectCampaignForcesWorkspace(input).activeCount, 0);
+    assert.deepEqual(state.getRuntimeSnapshot(), beforeProjection);
+  });
+});
+
+registerTest("FSG_CAM_070_FORCES_REDEPLOYMENT_ARRIVAL_AND_CANCELLATION_REMOVE_TRANSIT_COPY", async ({ Given, When, Then }) => {
+  const arrived = committedMovement();
+  const cancelled = committedMovement();
+  await Given("two independent committed movement fixtures share the audited route", () => {});
+  await When("one movement reaches Exeter and the other is cancelled before execution", () => {
+    const advanced = arrived.state.advanceSegment();
+    assert.ok(advanced.ok);
+    const cancellation = cancelled.state.cancelCampaignOrder(cancelled.orderId);
+    assert.ok(cancellation.ok);
+  });
+  await Then("each current formation appears once at its actual location with no retained route or ETA", () => {
+    for (const [fixture, expectedPlace, oldPlace, expectedKey] of [
+      [arrived, "Exeter", "Portland", arrived.destination],
+      [cancelled, "Portland", "Exeter", cancelled.origin]
+    ] as const) {
+      const view = movementView(fixture.state, fixture.formationId);
+      assert.equal(view.formations![0].currentOrderId, null);
+      assert.equal(view.formations![0].locationHexKey, expectedKey);
+      const result = projectCampaignForcesWorkspace(view, { query: fixture.formationId });
+      assert.equal(result.totalCount, 1);
+      assert.equal(result.groups[0].label, expectedPlace);
+      assert.equal(result.groups[0].readyCount, 1);
+      const row = result.groups[0].commands[0].rows[0];
+      assert.equal(row.locationLabel, expectedPlace);
+      assert.equal(row.gridReference, `Grid ${expectedKey}`);
+      assert.equal(row.transitEta, undefined);
+      assert.equal(row.blockingReason, null);
+      assert.equal(projectCampaignForcesWorkspace(view, { filter: "inTransit" }).matchingCount, 0);
+      assert.equal(projectCampaignForcesWorkspace(view, { query: oldPlace }).matchingCount, 0);
+    }
+  });
+});
+
+registerTest("FSG_CAM_070_FORCES_TRANSIT_USES_ONLY_ITS_ACTIVE_ORDER_WITHOUT_INFERRING_POSITION", async ({ Given, When, Then }) => {
+  const transit = formation("moving", { postureKey: "inTransit", statusLabel: "In transit", canReceiveOrders: false, currentOrderId: "move-1" });
+  // A stale recorded location is deliberately supplied: transit posture still forbids map presence.
+  const view = { formations: [transit], forces: [], objectives: [], fronts: [{ key: "front", label: "Carentan front", hexKeys: ["1,1"], initiativeLabel: "Friendly" }] };
+  await Given("a moving formation has a stale departure location and unrelated or filed order records", () => {});
+  await When("the exact order is missing, not a movement, or not active", () => {
+    const invalidOrders = [
+      undefined, [], [movement({ id: "another-order" })], [movement({ kind: "production" })],
+      ...(["draft", "conflict", "completed", "cancelled"] as const).map((status) => [movement({ status })])
+    ];
+    for (const orders of invalidOrders) {
+      const result = projectCampaignForcesWorkspace({ ...view, orders }, { filter: "inTransit" });
+      const row = result.groups[0].commands[0].rows[0];
+      assert.equal(result.activeCount, 0);
+      assert.equal(result.groups[0].label, "In transit · Route not reported");
+      assert.equal(row.gridReference, "No map position assigned");
+      assert.equal(row.transitEta, undefined);
+      assert.equal(projectCampaignForcesWorkspace({ ...view, orders }, { query: "Exeter" }).matchingCount, 0);
+    }
+  });
+  await Then("executing orders retain the supplied route and explicit front association but never create readiness", () => {
+    const orders = [movement({ id: "other", routeSummary: "SECRET unrelated route" }), movement({ status: "executing", eta: null })];
+    const result = projectCampaignForcesWorkspace({ ...view, formations: [{ ...transit, operationalFrontKey: "front" }], orders });
+    assert.equal(result.activeCount, 1);
+    assert.equal(result.groups[0].label, "Carentan front");
+    assert.equal(result.groups[0].readyCount, 0);
+    assert.equal(result.groups[0].commands[0].rows[0].locationLabel, "In transit · Portland → Exeter · 2 hex");
+    assert.equal(result.groups[0].commands[0].rows[0].transitEta, undefined);
+    assert.equal(JSON.stringify(result).includes("SECRET"), false);
+    const missingRoute = projectCampaignForcesWorkspace({ ...view, orders: [movement({ routeSummary: undefined })] }, { filter: "inTransit" });
+    assert.equal(missingRoute.groups[0].label, "In transit · Route not reported");
+    assert.equal(missingRoute.groups[0].commands[0].rows[0].transitEta, movement().eta);
+  });
+});
 
 registerTest("FSG_CAM_068_FORCES_ACTIVE_OPERATIONS_GROUP_COMMANDS_WITHOUT_ROSTER_LOSS", async ({ Given, When, Then }) => {
   const roster = [formation("one"), formation("two"), formation("objective", { locationHexKey: "2,2", commandLabel: "V Corps", location: { primaryLabel: "Omaha lodgment", secondaryGridReference: "Grid 2,2" } }), formation("reserve", { locationHexKey: "9,9", commandLabel: "Theater reserve", location: { primaryLabel: "Portsmouth", secondaryGridReference: "Grid 9,9" } })];

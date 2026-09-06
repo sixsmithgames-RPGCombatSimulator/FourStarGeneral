@@ -8,6 +8,7 @@
  */
 
 import "./domEnvironment.js";
+import "./CampaignSituationFirstFrame.test.js";
 import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import campaignScenarioData from "../src/data/campaign01.json";

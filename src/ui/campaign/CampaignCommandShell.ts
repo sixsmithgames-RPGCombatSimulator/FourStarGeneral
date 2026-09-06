@@ -529,6 +529,11 @@ export class CampaignCommandShell {
     const inspector = createCampaignContextInspector(workspacePanel);
     const tray = this.createOrderTray();
     configureCampaignWorkspacePanel(workspacePanel);
+    // Reorder the actual regions so reading and keyboard order both reach
+    // current front decisions before the full objective backlog.
+    const objectivesSection = workspacePanel.querySelector("#campaignSituationObjectives")?.closest("section");
+    const frontsSection = workspacePanel.querySelector("#campaignSituationFronts")?.closest("section");
+    if (objectivesSection && frontsSection) objectivesSection.before(frontsSection);
     this.configureMapStage(map);
 
     layout.prepend(commandBar);
@@ -1227,14 +1232,21 @@ export class CampaignCommandShell {
       afterActionUnread: (view.afterActionReports ?? []).filter((report) => !report.acknowledged).length,
       recentChanges: view.advance.timeline.slice(0, 5)
     };
-    this.renderPriorities(view.priorities ?? []);
-    this.renderObjectives(view.objectives, view.objectiveScore);
+    const priority = view.priorities?.[0];
+    const priorityObjective = priority?.targetKind === "objective"
+      ? view.objectives.find((objective) => objective.key === priority.targetId && objective.status === "In progress")
+      : undefined;
+    this.renderPriorities(view.priorities ?? [], priorityObjective);
+    this.renderObjectives(view.objectives, view.objectiveScore, priorityObjective?.key);
     this.renderSituationFronts(view.fronts ?? []);
     this.renderSituationAlerts(situation);
     this.renderSituationRecent(situation.recentChanges);
   }
 
-  private renderPriorities(priorities: readonly CampaignCommandPriorityView[]): void {
+  private renderPriorities(
+    priorities: readonly CampaignCommandPriorityView[],
+    objective?: CampaignCommandObjectiveView
+  ): void {
     const container = this.root.querySelector<HTMLElement>("#campaignSituationPriority");
     if (!container) return;
     const priority = priorities[0];
@@ -1257,14 +1269,30 @@ export class CampaignCommandShell {
       createTextElement("strong", "", priority.title)
     );
     const action = this.createAlertLink(priority.targetKind, priority.targetId, priority.actionLabel);
-    card.append(heading, createTextElement("p", "", priority.detail), action);
+    card.append(heading, createTextElement("p", "", priority.detail));
+    if (objective) {
+      card.classList.add("campaign-command-priority--objective");
+      // Keep the existing objective control identity and canonical priority route.
+      action.dataset.objectiveKey = objective.key;
+      // This action replaces the objective row. After priority navigation, retain
+      // the row's inspector-entry focus rather than focusing its now-hidden invoker.
+      action.addEventListener("click", () => this.revealInspector());
+      const progress = document.createElement("div");
+      progress.className = "campaign-command-priority__objective-progress";
+      if (priority.title !== objective.label) progress.append(createTextElement("strong", "", objective.label));
+      progress.append(createTextElement("span", "campaign-objective-row__status", objective.status));
+      this.appendObjectiveProgress(progress, objective);
+      card.append(progress);
+    }
+    card.append(action);
     priorityRegion.append(card);
     container.replaceChildren(priorityRegion);
   }
 
   private renderObjectives(
     objectives: readonly CampaignCommandObjectiveView[],
-    score?: CampaignCommandObjectiveScoreView
+    score?: CampaignCommandObjectiveScoreView,
+    priorityObjectiveKey?: string
   ): void {
     const container = this.root.querySelector<HTMLElement>("#campaignSituationObjectives");
     if (!container) return;
@@ -1275,11 +1303,15 @@ export class CampaignCommandShell {
     if (score) {
       scoreCard.append(
         createTextElement("span", "", "Campaign score"),
-        createTextElement("strong", "", `${score.earned} / ${score.available} · ${score.percent}%`),
-        createTextElement("small", "", `Projected ${score.projectedGrade}`)
+        createTextElement("strong", "", `${score.earned} / ${score.available} · ${score.percent}%`)
       );
+      // The opening zero-progress projection is not evidence of an achieved
+      // result. Keep score visible without predicting victory before progress.
+      if (score.earned > 0 || objectives.some((objective) => (objective.progress ?? 0) > 0)) {
+        scoreCard.append(createTextElement("small", "", `Projected ${score.projectedGrade}`));
+      }
     }
-    const rows = objectives.map((objective) => {
+    const rows = objectives.filter((objective) => objective.key !== priorityObjectiveKey).map((objective) => {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "campaign-workspace-list-row campaign-objective-row";
@@ -1293,33 +1325,37 @@ export class CampaignCommandShell {
         createTextElement("span", "campaign-objective-row__status", objective.status)
       );
       row.append(header);
-      const progressLabel = objective.status === "Upcoming" && objective.progressLabel === "Awaiting evaluation"
-        ? ""
-        : objective.progressLabel;
-      if (progressLabel) row.append(createTextElement("p", "campaign-objective-row__condition", progressLabel));
-      if (objective.progress !== undefined) {
-        const progress = document.createElement("div");
-        progress.className = "campaign-objective-row__progress";
-        progress.setAttribute("role", "progressbar");
-        progress.setAttribute("aria-label", `${objective.label} progress`);
-        progress.setAttribute("aria-valuemin", "0");
-        progress.setAttribute("aria-valuemax", "100");
-        progress.setAttribute("aria-valuenow", String(Math.round(objective.progress * 100)));
-        const fill = document.createElement("i");
-        fill.style.width = `${Math.round(Math.max(0, Math.min(1, objective.progress)) * 100)}%`;
-        progress.append(fill);
-        row.append(progress);
-      }
-      const meta = [objective.category, objective.deadline, objective.score].filter((value): value is string => Boolean(value));
-      if (meta.length > 0) row.append(createTextElement("small", "campaign-objective-row__meta", meta.join(" · ")));
+      this.appendObjectiveProgress(row, objective);
       row.addEventListener("click", () => this.requestSelection({ kind: "objective", id: objective.key }, true));
       return row;
     });
     const content: HTMLElement[] = [];
     if (score) content.push(scoreCard);
     if (rows.length > 0) content.push(...rows);
-    else content.push(createTextElement("p", "campaign-workspace-empty", "No active objectives are published for this phase."));
+    else if (objectives.length === 0) content.push(createTextElement("p", "campaign-workspace-empty", "No active objectives are published for this phase."));
     container.replaceChildren(...content);
+  }
+
+  private appendObjectiveProgress(container: HTMLElement, objective: CampaignCommandObjectiveView): void {
+    const progressLabel = objective.status === "Upcoming" && objective.progressLabel === "Awaiting evaluation"
+      ? ""
+      : objective.progressLabel;
+    if (progressLabel) container.append(createTextElement("p", "campaign-objective-row__condition", progressLabel));
+    if (objective.progress !== undefined) {
+      const progress = document.createElement("div");
+      progress.className = "campaign-objective-row__progress";
+      progress.setAttribute("role", "progressbar");
+      progress.setAttribute("aria-label", `${objective.label} progress`);
+      progress.setAttribute("aria-valuemin", "0");
+      progress.setAttribute("aria-valuemax", "100");
+      progress.setAttribute("aria-valuenow", String(Math.round(objective.progress * 100)));
+      const fill = document.createElement("i");
+      fill.style.width = `${Math.round(Math.max(0, Math.min(1, objective.progress)) * 100)}%`;
+      progress.append(fill);
+      container.append(progress);
+    }
+    const meta = [objective.category, objective.deadline, objective.score].filter((value): value is string => Boolean(value));
+    if (meta.length > 0) container.append(createTextElement("small", "campaign-objective-row__meta", meta.join(" · ")));
   }
 
   private renderSituationFronts(fronts: readonly CampaignCommandFrontView[]): void {
@@ -1562,6 +1598,7 @@ export class CampaignCommandShell {
           createTextElement("small", "", formation.equipment)
         );
         if (formation.availability) row.append(createTextElement("small", "", `Available ${formation.availability}`));
+        if (formation.transitEta) row.append(createTextElement("small", "", formation.transitEta));
         if (formation.blockingReason) row.append(createTextElement("small", "", formation.blockingReason));
         row.addEventListener("click", () => this.requestSelection({ kind: formation.selectionKind, id: formation.id }, true));
         commandSection.append(row);

@@ -26,6 +26,8 @@ export interface CampaignForceRow {
   readonly strength: string;
   readonly equipment: string;
   readonly availability: string | null;
+  /** Formatted arrival estimate from the active movement order; never an orderability promise. */
+  readonly transitEta?: string;
   readonly blockingReason: string | null;
 }
 
@@ -57,7 +59,8 @@ export interface CampaignForcesProjection {
   readonly searchingTheater: boolean;
 }
 
-type ForcesInput = Pick<CampaignCommandShellView, "forces" | "formations" | "fronts" | "objectives" | "hexes" | "knownSites">;
+type ForcesInput = Pick<CampaignCommandShellView, "forces" | "formations" | "fronts" | "objectives" | "hexes" | "knownSites">
+  & Partial<Pick<CampaignCommandShellView, "orders">>;
 
 function normalize(value: string): string {
   return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -84,13 +87,14 @@ export function projectCampaignForcesWorkspace(
     row: CampaignForceRow,
     hexKey: string | null,
     frontKey?: string,
-    objectiveKey?: string
+    objectiveKey?: string,
+    transitKey?: string
   ): void => {
     const front = fronts.find((entry) => frontKey ? entry.key === frontKey : hexKey !== null && entry.hexKeys.includes(hexKey));
     const objective = objectives.find((entry) => objectiveKey ? entry.key === objectiveKey : hexKey !== null && entry.hexKey === hexKey);
     entries.push({
       row,
-      key: front ? `front:${front.key}` : objective ? `objective:${objective.key}` : `location:${hexKey ?? "unplaced"}`,
+      key: front ? `front:${front.key}` : objective ? `objective:${objective.key}` : transitKey ?? `location:${hexKey ?? "unplaced"}`,
       label: front?.label ?? objective?.label ?? row.locationLabel,
       active: Boolean(front || objective)
     });
@@ -106,26 +110,38 @@ export function projectCampaignForcesWorkspace(
     for (const formation of view.formations) {
       if (seen.has(formation.id)) continue;
       seen.add(formation.id);
-      const location = formation.location ?? locationAt(formation.locationHexKey);
+      const inTransit = formation.postureKey === "inTransit";
+      // The exact current-order link supplies route context, not a new map position.
+      // Filed or unrelated orders must not keep an arrived/cancelled formation moving.
+      const movement = inTransit && formation.currentOrderId !== null
+        ? view.orders?.find((order) => order.id === formation.currentOrderId && order.kind === "redeploy"
+          && (order.status === "committed" || order.status === "executing"))
+        : undefined;
+      const route = movement?.routeSummary?.trim();
+      const locationHexKey = inTransit ? null : formation.locationHexKey;
+      const location = inTransit ? undefined : formation.location ?? locationAt(locationHexKey);
       const front = fronts.find((entry) => entry.key === formation.operationalFrontKey
-        || (formation.locationHexKey !== null && entry.hexKeys.includes(formation.locationHexKey)));
+        || (locationHexKey !== null && entry.hexKeys.includes(locationHexKey)));
       const objective = objectives.find((entry) => entry.key === formation.objectiveKey
-        || (formation.locationHexKey !== null && entry.hexKey === formation.locationHexKey));
+        || (locationHexKey !== null && entry.hexKey === locationHexKey));
       add({
         id: formation.id,
         selectionKind: "formation",
         commandLabel: formation.commandLabel?.trim() || formation.name,
         name: formation.name,
-        locationLabel: location?.primaryLabel ?? front?.label ?? objective?.label ?? "Location not reported",
-        gridReference: location?.secondaryGridReference ?? (formation.locationHexKey === null ? "No map position assigned" : `Grid ${formation.locationHexKey}`),
+        locationLabel: inTransit ? `In transit · ${route || "Route not reported"}`
+          : location?.primaryLabel ?? front?.label ?? objective?.label ?? "Location not reported",
+        gridReference: location?.secondaryGridReference ?? (locationHexKey === null ? "No map position assigned" : `Grid ${locationHexKey}`),
         statusLabel: formation.statusLabel,
         category: forceCategory(formation),
         readiness: formation.readiness,
         strength: formation.personnel,
         equipment: formation.equipment,
         availability: formation.availabilityLabel ?? null,
+        ...(movement?.eta ? { transitEta: movement.eta } : {}),
         blockingReason: formation.blockingReason ?? null
-      }, formation.locationHexKey, formation.operationalFrontKey, formation.objectiveKey);
+      }, locationHexKey, formation.operationalFrontKey, formation.objectiveKey,
+      inTransit ? `transit:${movement ? JSON.stringify(movement.mapHexKeys?.length ? movement.mapHexKeys : [movement.id]) : "unreported"}` : undefined);
     }
   } else {
     // Legacy aggregate views carry strength, not formation readiness. Keep that absence explicit.
@@ -154,7 +170,7 @@ export function projectCampaignForcesWorkspace(
   const filter = options.filter ?? "all";
   const tokens = normalize(options.query ?? "").split(/\s+/).filter(Boolean);
   const matching = entries.filter((entry) => (filter === "all" || entry.row.category === filter)
-    && tokens.every((token) => normalize(`${entry.row.commandLabel} ${entry.row.name} ${entry.row.locationLabel} ${entry.label}`).includes(token)));
+    && tokens.every((token) => normalize(`${entry.row.id} ${entry.row.commandLabel} ${entry.row.name} ${entry.row.locationLabel} ${entry.row.statusLabel} ${entry.row.transitEta ?? ""} ${entry.label}`).includes(token)));
   const groupEntries = (rows: typeof entries): CampaignForceGroup[] => {
     const groups = new Map<string, typeof entries>();
     for (const entry of rows) {

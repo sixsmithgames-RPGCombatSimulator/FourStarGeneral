@@ -493,6 +493,10 @@ function resolveInspectorRoute(
       const currentOrderLabel = currentOrder
         ? `${currentOrder.label} · ${currentOrder.status}${currentOrder.eta ? ` · ${currentOrder.eta}` : ""}`
         : rosterFormation.currentOrderId ? "Assigned to an active operation" : "None";
+      const transitRoute = rosterFormation.postureKey === "inTransit" && currentOrder?.kind === "redeploy"
+        && (currentOrder.status === "committed" || currentOrder.status === "executing")
+        ? currentOrder.routeSummary
+        : undefined;
       return {
         kind: "formation",
         title: rosterFormation.name,
@@ -517,6 +521,7 @@ function resolveInspectorRoute(
           { label: "Supply", value: rosterFormation.supply },
           { label: "Experience", value: `${rosterFormation.experience} · ${rosterFormation.battles} battle${rosterFormation.battles === 1 ? "" : "s"}` },
           { label: "Current order", value: currentOrderLabel },
+          ...(transitRoute ? [{ label: "Route", value: transitRoute }] : []),
           { label: "Honors", value: rosterFormation.honors.join(", ") || "None" }
         ],
         mode: "projected",

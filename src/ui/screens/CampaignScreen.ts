@@ -57,6 +57,7 @@ import {
   resolveCampaignFormationRecordPresentation
 } from "../../game/campaign/formations/CampaignFormationPresentation";
 import { projectCampaignFormationPosture } from "../../game/campaign/formations/CampaignFormationPosture";
+import type { CampaignFormationHistoryEntry } from "../../game/campaign/formations/campaignFormationTypes";
 import { projectLegacyForceGroupAsSupportCapacity } from "../../game/campaign/logistics/CampaignSupportCapacityAdapter";
 import {
   projectCampaignAssociatedLocations,
@@ -1074,6 +1075,70 @@ export class CampaignScreen {
     if (editorTemplate && editorTarget) editorTarget.appendChild(editorTemplate.content.cloneNode(true));
   }
 
+  /** Synchronizes map/composer context after canonical list or navigation selection has changed. */
+  private syncCampaignSelection(): void {
+    const selection = this.commandInterface?.getUIState().getSnapshot().selection ?? null;
+    const choosingRedeploymentDestination = selection?.kind === "hex" && this.moveOriginHexKey !== null;
+    if (selection?.kind === "formation") this.selectedFormationId = selection.id;
+    else if (!choosingRedeploymentDestination) this.selectedFormationId = null;
+    let selectedHexKey: string | null = null;
+    if (selection?.kind === "hex") {
+      selectedHexKey = selection.id;
+      this.selectedFrontKey = null;
+      this.selectedFrontTargetHexKey = null;
+    } else if (selection?.kind === "front") {
+      const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
+      if (!front) return;
+      if (this.selectedFrontKey !== front.key) this.selectedFrontTargetHexKey = null;
+      this.selectedFrontKey = front.key;
+      selectedHexKey = front.hexKeys[0] ?? null;
+    } else if (selection?.kind === "formation") {
+      const formation = this.campaignState.getCampaignFormationSnapshot(selection.id);
+      if (!formation || formation.faction !== "Player") return;
+      this.selectedFrontKey = null;
+      this.selectedFrontTargetHexKey = null;
+      selectedHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
+    } else if (selection?.kind === "objective") {
+      const objective = this.campaignState.getCampaignMapView("Player")?.scenario.objectives
+        .find((entry) => entry.key === selection.id);
+      if (!objective) return;
+      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+      this.selectedFrontKey = null;
+      this.selectedFrontTargetHexKey = null;
+      selectedHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+    } else if (selection?.kind === "contact") {
+      const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts
+        .find((entry) => entry.id === selection.id);
+      if (!contact) return;
+      this.selectedFrontKey = null;
+      this.selectedFrontTargetHexKey = null;
+      selectedHexKey = contact.locationHexKey;
+    } else {
+      // A route without a map target must not inherit the previously inspected
+      // contact or location as an implicit collection target.
+      this.selectedFrontKey = null;
+      this.selectedFrontTargetHexKey = null;
+    }
+    // Identity matters even at an unchanged hex: contact → ground must discard
+    // contact-only preview eligibility and clear any obsolete front context.
+    this.selectedHexKey = selectedHexKey;
+    if (!choosingRedeploymentDestination) this.moveOriginHexKey = null;
+    this.renderer.clearAllHighlights("selected");
+    this.renderer.clearAllHighlights("origin");
+    if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
+    if (selection?.kind === "front") {
+      const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
+      front?.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
+    } else if (selectedHexKey) {
+      this.renderer.highlightHex(selectedHexKey, "selected");
+      const center = this.renderer.getHexCenter(selectedHexKey);
+      if (center) this.viewport?.centerOn(center.cx, center.cy);
+    }
+    this.renderSelection();
+    this.renderCampaignIntel();
+    this.syncRedeploymentTargetMode();
+  }
+
   initialize(): void {
     this.mountCampaignDeveloperTools();
     this.commandInterface = new CampaignCommandInterface(this.element, {
@@ -1098,7 +1163,8 @@ export class CampaignScreen {
         this.renderCommandShell();
       },
       onAlertSelected: (targetKind, targetId) => {
-        if (targetKind === "intelligence" && targetId) this.focusCampaignContact(targetId);
+        if (targetKind === "intelligence" && targetId && this.focusCampaignContact(targetId)) return;
+        this.syncCampaignSelection();
       },
       onAfterActionTargetSelected: (targetKind, targetId) => {
         this.commandInterface?.navigate({ kind: targetKind, id: targetId, focus: true });
@@ -1119,64 +1185,7 @@ export class CampaignScreen {
           this.renderSelection();
         }
       },
-      onSelectionRequested: (selection) => {
-        if (!selection) return;
-        const choosingRedeploymentDestination = selection.kind === "hex" && this.moveOriginHexKey !== null;
-        if (selection.kind === "formation") this.selectedFormationId = selection.id;
-        else if (!choosingRedeploymentDestination) this.selectedFormationId = null;
-        let selectedHexKey: string | null = null;
-        if (selection.kind === "hex") {
-          selectedHexKey = selection.id;
-          this.selectedFrontKey = null;
-          this.selectedFrontTargetHexKey = null;
-        } else if (selection.kind === "front") {
-          const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
-          if (!front) return;
-          if (this.selectedFrontKey !== front.key) this.selectedFrontTargetHexKey = null;
-          this.selectedFrontKey = front.key;
-          selectedHexKey = front.hexKeys[0] ?? null;
-        } else if (selection.kind === "formation") {
-          const formation = this.campaignState.getCampaignFormationSnapshot(selection.id);
-          if (!formation || formation.faction !== "Player") return;
-          this.selectedFrontKey = null;
-          this.selectedFrontTargetHexKey = null;
-          selectedHexKey = projectRuntimeHexKeyToCampaignOffset(formation.locationHexKey);
-        } else if (selection.kind === "objective") {
-          const objective = this.campaignState.getCampaignMapView("Player")?.scenario.objectives
-            .find((entry) => entry.key === selection.id);
-          if (!objective) return;
-          const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
-          this.selectedFrontKey = null;
-          this.selectedFrontTargetHexKey = null;
-          selectedHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
-        } else if (selection.kind === "contact") {
-          const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts
-            .find((entry) => entry.id === selection.id);
-          if (!contact) return;
-          this.selectedFrontKey = null;
-          this.selectedFrontTargetHexKey = null;
-          selectedHexKey = contact.locationHexKey;
-        } else {
-          return;
-        }
-        if (selection.kind === "hex" && selectedHexKey === this.selectedHexKey && !choosingRedeploymentDestination) return;
-        this.selectedHexKey = selectedHexKey;
-        if (!choosingRedeploymentDestination) this.moveOriginHexKey = null;
-        this.renderer.clearAllHighlights("selected");
-        this.renderer.clearAllHighlights("origin");
-        if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
-        if (selection.kind === "front") {
-          const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
-          front?.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
-        } else if (selectedHexKey) {
-          this.renderer.highlightHex(selectedHexKey, "selected");
-          const center = this.renderer.getHexCenter(selectedHexKey);
-          if (center) this.viewport?.centerOn(center.cx, center.cy);
-        }
-        this.renderSelection();
-        this.renderCampaignIntel();
-        this.syncRedeploymentTargetMode();
-      },
+      onSelectionRequested: () => this.syncCampaignSelection(),
       onCommitOrders: () => this.commitDraftOrders(),
       onAdvance: (mode) => this.advanceCampaignTime(mode),
       onAdvanceModeChanged: (mode) => { this.campaignAdvanceMode = mode; },
@@ -1460,9 +1469,9 @@ export class CampaignScreen {
         this.renderer.clearAllHighlights("selected");
         this.renderer.highlightHex(selectedTarget.targetHexKey, "selected");
         this.renderSelection();
-        this.renderCampaignIntel();
         this.renderCommandShell();
         this.commandInterface?.revealInspector({ kind: "front", id: this.selectedFrontKey });
+        this.renderCampaignIntel();
         return;
       }
       if (contactId && this.focusCampaignContact(contactId)) return;
@@ -1492,8 +1501,8 @@ export class CampaignScreen {
       if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
       if (this.selectedHexKey) this.renderer.highlightHex(this.selectedHexKey, "selected");
       this.renderSelection();
-      this.renderCampaignIntel();
       this.commandInterface?.revealInspector({ kind: "hex", id: hexKey });
+      this.renderCampaignIntel();
     });
 
     // Initial sidebar render
@@ -2210,10 +2219,20 @@ export class CampaignScreen {
         return;
       }
       const tab = target.closest<HTMLButtonElement>("[data-intel-tab]")?.dataset.intelTab;
-      if ((tab === "situation" || tab === "contacts") && this.commandInterface) {
+      const chooseContact = tab === "contacts" || Boolean(target.closest("[data-intel-select-contact]"));
+      if ((tab === "situation" || chooseContact) && this.commandInterface) {
         this.intelDrawer?.classList.add("hidden");
         toggle?.setAttribute("aria-expanded", "false");
+        this.renderer.clearAllHighlights("order-preview-target");
         this.commandInterface.showWorkspace("intelligence", true);
+        if (chooseContact) {
+          const heading = this.element.querySelector<HTMLElement>("#campaignIntelligenceContactsTitle");
+          if (heading) {
+            heading.tabIndex = -1;
+            heading.scrollIntoView({ block: "nearest" });
+            heading.focus({ preventScroll: true });
+          }
+        }
         return;
       }
       if (tab === "situation" || tab === "contacts" || tab === "operations") {
@@ -2245,7 +2264,7 @@ export class CampaignScreen {
           this.intelTargetContactId = contact.id;
           this.selectedHexKey = contact.locationHexKey;
           this.intelFeedback = `Verification target set: ${contact.label} near ${this.getCampaignLocationDisplayLabel(contact.locationHexKey)} (Grid ${contact.locationHexKey}).`;
-          this.renderCampaignIntel();
+          this.focusCampaignContact(contact.id);
         }
         return;
       }
@@ -2284,9 +2303,27 @@ export class CampaignScreen {
     const center = this.renderer.getHexCenter(contact.locationHexKey);
     if (center) this.viewport?.centerOn(center.cx, center.cy);
     this.renderSelection();
-    this.renderCampaignIntel();
     this.commandInterface?.revealInspector({ kind: "contact", id: contact.id });
+    this.renderCampaignIntel();
     return true;
+  }
+
+  /** Carries only the canonical, currently authorized contact identity into the operation composer. */
+  private syncIntelTargetContact(view: CampaignMapViewModel | null): string | null {
+    const selection = this.commandInterface?.getUIState().getSnapshot().selection;
+    // Editing retains the draft's explicit target; a fresh plan uses the current
+    // selection, never an arbitrary contact that happens to occupy the same hex.
+    const contactId = this.editingIntelOrderId
+      ? this.intelTargetContactId
+      : selection?.kind === "contact" ? selection.id : null;
+    const contact = view?.enemyContacts.find((entry) => entry.id === contactId);
+    this.intelTargetContactId = this.intelOperationType === null || this.intelOperationType === "verify"
+      ? contact?.id ?? null
+      : null;
+    if (this.intelOperationType === "verify" && contact && !this.editingIntelOrderId) {
+      this.selectedHexKey = contact.locationHexKey;
+    }
+    return contact?.id ?? null;
   }
 
   private scheduleSelectedIntelOperation(): void {
@@ -2295,6 +2332,7 @@ export class CampaignScreen {
       this.renderCampaignIntel();
       return;
     }
+    this.syncIntelTargetContact(this.campaignState.getCampaignMapView("Player"));
     if (!this.selectedHexKey) {
       this.intelFeedback = "Select a campaign hex on the map before issuing this order.";
       this.renderCampaignIntel();
@@ -2425,12 +2463,13 @@ export class CampaignScreen {
   }
 
   private composeIntelOperationsMarkup(view: CampaignMapViewModel, operations: CampaignIntelOperationView[]): string {
+    const verificationContactId = this.syncIntelTargetContact(view);
     const rules = this.campaignState.getIntelOperationRules();
     const operationButtons = (Object.keys(rules) as CampaignIntelOperationType[]).map((type) => {
       const descriptor = this.campaignActionRegistry.resolve(getCampaignIntelligenceActionId(type), {
-        selectionKind: type === "verify" && this.intelTargetContactId ? "contact" : this.selectedHexKey ? "hex" : "none",
+        selectionKind: type === "verify" && verificationContactId ? "contact" : this.selectedHexKey ? "hex" : "none",
         selectionId: this.selectedHexKey,
-        targetContactId: type === "verify" ? this.intelTargetContactId : null,
+        targetContactId: type === "verify" ? verificationContactId : null,
         excludeOrderId: type === this.intelOperationType ? this.editingIntelOrderId : null
       });
       return `
@@ -2493,6 +2532,10 @@ export class CampaignScreen {
     });
     const requiresAsset = rule.requiresAsset !== "none";
     const hasTarget = Boolean(this.selectedHexKey);
+    const needsContact = this.intelOperationType === "verify" && !this.intelTargetContactId;
+    const correctiveAction = needsContact
+      ? "In Intelligence, inspect a reported contact, then choose Plan collection operation and Verify."
+      : selectedAction.correctiveAction ?? "Review the target and assigned asset.";
     return `
       <div class="campaign-intel-capacity"><span>Capacity</span><strong>${draftAwareCapacity}/${view.capacity.total} free</strong><small>${view.capacity.committed} committed · ${heldCapacity} held</small></div>
       <div class="campaign-intel-operation-grid">${operationButtons}</div>
@@ -2513,9 +2556,9 @@ export class CampaignScreen {
         ${hasTarget
           ? `<p class="campaign-intel-order-summary">${selectedPreview.resolveSegment === null ? "Timing unavailable" : `Starts next segment · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(selectedPreview.resolveSegment))}`} · reserves ${rule.capacityCost} capacity, ${rule.suppliesCost} supply, and ${rule.fuelCost} fuel.</p>`
           : `<p class="campaign-intel-order-summary">Select a map hex to see eligible assets and complete this draft.</p>`}
-        ${!hasTarget || selectedAction.availability === "available"
+        ${(!hasTarget && !needsContact) || selectedAction.availability === "available"
           ? ""
-          : `<div class="redeploy-issue" data-reason-code="${selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID"}"><strong>Operation unavailable</strong><span>${this.escapeHtml(selectedAction.reason ?? "The operation is unavailable.")}</span><small>${this.escapeHtml(selectedAction.correctiveAction ?? "Review the target and assigned asset.")}</small></div>`}
+          : `<div class="redeploy-issue" data-reason-code="${selectedAction.reasonCode ?? "ORDER_OPERATION_INVALID"}"><strong>Operation unavailable</strong><span>${this.escapeHtml(selectedAction.reason ?? "The operation is unavailable.")}</span><small>${this.escapeHtml(correctiveAction)}</small>${needsContact ? '<button type="button" data-intel-select-contact>Choose reported contact</button>' : ""}</div>`}
         ${this.intelFeedback ? `<div class="campaign-intel-feedback" aria-live="polite">${this.escapeHtml(this.intelFeedback)}</div>` : ""}
         <button type="button" class="campaign-intel-confirm" data-intel-schedule ${selectedAction.availability !== "available" ? "disabled" : ""}>${this.editingIntelOrderId ? "Replace draft" : "Add draft"}</button>
       </section>
@@ -2829,6 +2872,7 @@ export class CampaignScreen {
     let riskSummary: string;
     let objectiveEffect: string;
     let routeSummary: string;
+    let transportReturn: { timing: string; next: string; eta: string } | null = null;
     if (order.kind === "redeploy") {
       label = "Redeploy formation";
       const originLabel = this.getCampaignLocationDisplayLabel(order.payload.originOffsetKey);
@@ -2841,6 +2885,30 @@ export class CampaignScreen {
         ? `${order.payload.manpowerCost.toLocaleString()} modeled transit attrition; destination conditions can change before arrival.`
         : "No modeled transit attrition; destination conditions can change before arrival.";
       objectiveEffect = "No direct score change; formation position affects later control, engagement, and objective checks.";
+      const execution = order.executionRefId
+        ? this.campaignState.getQueuedDecisions().find((decision) => decision.id === order.executionRefId
+          && decision.type === "redeploy" && decision.faction === order.faction)
+        : undefined;
+      // The movement adapter releases formations at arrival, while the typed
+      // order remains executing until its reserved transport completes the return.
+      if (order.status === "executing" && execution?.payload.status === "arrived") {
+        const transportLabel = order.payload.transportCapacityType === "trucks" ? "Trucks"
+          : order.payload.transportCapacityType === "transportShips" ? "Transport ships"
+            : order.payload.transportCapacityType === "transportPlanes" ? "Transport planes"
+              : this.formatCampaignLabel(order.payload.transportModeKey);
+        const returnTime = this.campaignState.segmentToTimeDisplay(order.payload.returnEtaSegment);
+        const arrivalTime = typeof execution.payload.arrivedSegment === "number"
+          ? `Arrival ${this.campaignState.segmentToTimeDisplay(execution.payload.arrivedSegment)}`
+          : "Arrival recorded";
+        detail = `Formations arrived at ${destinationLabel}; ${transportLabel.toLowerCase()} return ${returnTime}.`;
+        etaSegment = order.payload.returnEtaSegment;
+        transportReturn = {
+          timing: `${arrivalTime} · Transport available ${returnTime}`,
+          next: `${transportLabel} return ${returnTime}`,
+          eta: `Transport available ${returnTime}`
+        };
+        riskSummary = `${transportLabel} remain committed until their return (${order.payload.transportCapacityCost.toLocaleString()} capacity reserved).`;
+      }
     } else if (order.kind === "production") {
       label = "Set Allied support allocation";
       const allocation = order.payload.allocation;
@@ -2875,12 +2943,12 @@ export class CampaignScreen {
     const draftOrders = playerOrders.filter((entry) => entry.status === "draft");
     const draftIndex = draftOrders.findIndex((entry) => entry.id === order.id);
     const cancellation = this.campaignState.previewCampaignOrderCancellation(order.id, "Player");
-    const timingSummary = `${this.campaignState.segmentToTimeDisplay(order.earliestStartSegment)} start · ${etaSegment === null ? "completion not scheduled" : `${order.kind === "production" ? "effective" : "ETA"} ${this.campaignState.segmentToTimeDisplay(etaSegment)}`}`;
+    const timingSummary = `${this.campaignState.segmentToTimeDisplay(order.earliestStartSegment)} start · ${transportReturn?.timing ?? (etaSegment === null ? "completion not scheduled" : `${order.kind === "production" ? "effective" : "ETA"} ${this.campaignState.segmentToTimeDisplay(etaSegment)}`)}`;
     const nextTransition = order.status === "draft"
       ? order.validation.valid ? "Ready for atomic commit" : "Blocked until the listed rule is corrected"
       : order.status === "committed"
         ? order.kind === "production" ? `Becomes effective ${this.campaignState.segmentToTimeDisplay(order.payload.effectiveSegment)}` : "Begins at the next campaign resolution boundary"
-        : order.status === "executing" ? `Resolves ${etaSegment === null ? "at a future report" : this.campaignState.segmentToTimeDisplay(etaSegment)}`
+        : order.status === "executing" ? transportReturn?.next ?? `Resolves ${etaSegment === null ? "at a future report" : this.campaignState.segmentToTimeDisplay(etaSegment)}`
           : order.status === "blocked" ? "Requires a command decision before progress can continue"
             : "Filed in command history";
     return {
@@ -2889,7 +2957,7 @@ export class CampaignScreen {
       label,
       detail,
       status: order.status === "draft" && !order.validation.valid ? "conflict" : order.status,
-      eta: etaSegment === null ? null : `${order.kind === "production" ? "Effective" : "ETA"} ${this.campaignState.segmentToTimeDisplay(etaSegment)}`,
+      eta: transportReturn?.eta ?? (etaSegment === null ? null : `${order.kind === "production" ? "Effective" : "ETA"} ${this.campaignState.segmentToTimeDisplay(etaSegment)}`),
       validationMessages: order.validation.issues.map((entry) => entry.message),
       validationIssues: order.validation.issues.map((entry) => explainCampaignOrderValidationIssue(entry)),
       routeSummary,
@@ -2914,6 +2982,22 @@ export class CampaignScreen {
       canCancel: cancellation.canCancel,
       mapHexKeys: order.targetHexKeys.slice()
     };
+  }
+
+  /** Presents structured movement history with the same named locations and player grids as the map. */
+  private projectFormationHistorySummary(history: CampaignFormationHistoryEntry | undefined, view: CampaignMapViewModel): string | null {
+    if (!history) return null;
+    if (history.type !== "moved") return history.summary;
+    const originKey = projectRuntimeHexKeyToCampaignOffset(history.fromHexKey);
+    const destinationKey = projectRuntimeHexKeyToCampaignOffset(history.toHexKey);
+    if (!originKey || !destinationKey) {
+      return "Movement recorded; historical route details are unavailable. Review the formation's current location.";
+    }
+    const origin = this.getCampaignLocationPresentation(originKey, view);
+    const destination = this.getCampaignLocationPresentation(destinationKey, view);
+    // History remains append-only domain evidence. Its free-form summary is not
+    // a coordinate contract and must not be parsed or rewritten in persistence.
+    return `Moved from ${origin.primaryLabel} (${origin.secondaryGridReference}) to ${destination.primaryLabel} (${destination.secondaryGridReference}).`;
   }
 
   /** Renders the first-class shell from the Player projection and Player-owned compatibility records only. */
@@ -3082,7 +3166,7 @@ export class CampaignScreen {
         currentOrderId: formation.currentOrderId,
         latestHistory: availabilityLabel
           ? `Scheduled to become available ${availabilityLabel}.`
-          : formation.battleHistory[formation.battleHistory.length - 1]?.summary ?? null
+          : this.projectFormationHistorySummary(formation.battleHistory[formation.battleHistory.length - 1], view)
       }];
     });
     const knownSites = (view.knownStrategicSites ?? []).map((site) => ({
@@ -3572,9 +3656,6 @@ export class CampaignScreen {
         targetHexKey: engagementTarget?.targetHexKey,
         roleLabel: engagementTarget?.roleLabel,
         intelligenceUnknowns: engagementTarget?.explicitUnknowns,
-        targetChoiceLabel: playerAssessment?.targetRequired
-          ? `${playerAssessment.targets.length} legal opposing targets require a command choice.`
-          : undefined,
         stageLabel,
         forcePosture: `${friendlyFormations.length} friendly formation${friendlyFormations.length === 1 ? "" : "s"} in sector`,
         objectivePosture: `${sectorObjectives.length} objective${sectorObjectives.length === 1 ? "" : "s"} in sector`,

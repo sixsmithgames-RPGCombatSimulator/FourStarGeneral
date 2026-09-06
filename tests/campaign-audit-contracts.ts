@@ -6,3 +6,5 @@ import "./CampaignWorkspaceProjection.test.js";
 import "./CampaignWorkspaceDiscovery.test.js";
 import "./LandingCampaignIdentity.contract.test.js";
 import "./CampaignAccessGate.test.js";
+import "./CampaignIntelVerification.test.js";
+import "./CampaignOrderArrivalPresentation.test.js";
