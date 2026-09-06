@@ -1,8 +1,17 @@
 import "./domEnvironment.js";
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import { BattleState, projectCampaignRosterFormationNames } from "../src/state/BattleState";
-import { ensureCampaignState } from "../src/state/CampaignState";
+import { CampaignState, ensureCampaignState } from "../src/state/CampaignState";
+import campaignScenarioData from "../src/data/campaign01.json";
+import type { CampaignScenarioData } from "../src/core/campaignTypes";
+import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
+import { GameEngine } from "../src/game/GameEngine";
+import { getBattleTemplateByKey } from "../src/game/campaign/battleTemplates";
+import { computeCampaignBattlePackageIntegrity } from "../src/game/campaign/engagements/CampaignEngagementLedgerService";
+import { createMissionRulesController } from "../src/state/missionRules";
+import { assertCompleteActiveCampaignBattleSave, type ActiveCampaignBattleSave } from "../src/game/battle/persistence/BattleSaveTypes";
 import { buildCompleteActiveBattleSave } from "./TacticalSaveCompleteness.test.js";
 import {
   commitFixture,
@@ -133,16 +142,82 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_PRESERVES_THE_HYDRATED_CAMPAIGN_
   });
 });
 
-registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION", async ({ Given, When, Then }) => {
+/** Keep the complete save fixture while binding its title to the shipped Omaha-Gold sector. */
+function buildNamedSectorResumeSave(binding: Parameters<typeof buildCompleteActiveBattleSave>[0]): ActiveCampaignBattleSave {
+  const original = buildCompleteActiveBattleSave(binding);
+  const originalPackage = original.engagementPackage.bridge.battlePackage;
+  assert.ok(originalPackage);
+  const context = {
+    ...originalPackage.context, battleHexKey: "24,24", missionType: "fortifiedAssault" as const,
+    templateKey: "fortified_omaha_coast", frontKey: "omaha_gold", coastal: true
+  };
+  const provisionalPackage = {
+    ...originalPackage, context,
+    engagement: { ...originalPackage.engagement, context, frontKey: context.frontKey, hexKeys: [context.battleHexKey] }
+  };
+  const battlePackage = { ...provisionalPackage, integrityHash: computeCampaignBattlePackageIntegrity(provisionalPackage) };
+  const template = getBattleTemplateByKey(context.templateKey);
+  assert.ok(template);
+  const scenario = {
+    ...normalizeScenarioSource(template.scenario as RawScenarioInput, { turnLimit: 0 }),
+    name: `Fortified Assault${binding.playerRole === "defender" ? " Defense" : ""} — Hex 24,24`,
+    campaignTemplateKey: template.key, campaignTemplatePlayerRole: template.playerRole,
+    campaignPlayerRole: binding.playerRole ?? "attacker", campaignMissionType: context.missionType,
+    campaignBattleHexKey: context.battleHexKey, campaignEngagementId: binding.engagementId,
+    campaignBattlePackageId: battlePackage.packageId, campaignInfrastructureEffectiveness: 1
+  };
+  const rules = createMissionRulesController("campaign", scenario);
+  return {
+    ...original,
+    engagementPackage: {
+      ...original.engagementPackage, commitmentIntegrityHash: battlePackage.integrityHash,
+      bridge: { ...original.engagementPackage.bridge, battlePackage }
+    },
+    battle: {
+      ...original.battle,
+      engineConfig: {
+        ...original.battle.engineConfig, scenario,
+        playerSide: scenario.sides.Player, botSide: scenario.sides.Bot, allySide: scenario.sides.Ally
+      },
+      engine: {
+        ...original.battle.engine,
+        scenarioObjectives: structuredClone(scenario.objectives),
+        supportAssets: [{
+          id: "western-naval-force", label: "Western Naval Force naval gunfire", type: "artillery" as const,
+          status: "ready" as const, charges: 2, maxCharges: 2, cooldown: 0, maxCooldown: 0,
+          assignedHex: null, notes: null, queuedHex: null, queuedByHex: null
+        }]
+      },
+      missionRules: rules.serializeState(), missionStatus: rules.getStatus()
+    }
+  };
+}
+
+for (const playerRole of ["attacker", "defender"] as const) {
+registerTest(`BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION_${playerRole.toUpperCase()}`, async ({ Given, When, Then }) => {
   const campaign = ensureCampaignState();
   const originalGetRuntimeSnapshot = campaign.getRuntimeSnapshot;
+  const originalGetCampaignMapView = campaign.getCampaignMapView;
+  const geography = new CampaignState({ legacyStorage: null });
+  geography.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
   const binding = {
     campaignId: "cold-resume-campaign",
     campaignRevision: 12,
     scenarioKey: "central_channel",
-    engagementId: "cold-resume-engagement"
+    engagementId: "cold-resume-engagement",
+    playerRole
   };
-  const save = buildCompleteActiveBattleSave(binding);
+  const save = buildNamedSectorResumeSave(binding);
+  const originalSave = structuredClone(save);
+  // Migration may normalize legacy metadata; establish that baseline before
+  // resume invokes the UI so a first-hydration title rewrite cannot bless itself.
+  const normalizedMission = assertCompleteActiveCampaignBattleSave(save, binding).battle.precombatMission;
+  assert.ok(normalizedMission);
+  const expectedStoredTitle = normalizedMission.title;
+  const expectedSessionKey = `${normalizedMission.missionKey}:Normal:${expectedStoredTitle}`;
+  const expectedEngine = GameEngine.fromSerialized(structuredClone(save.battle.engineConfig), structuredClone(save.battle.engine)).serialize();
+  const expectedTitle = `Fortified Assault${playerRole === "defender" ? " Defense" : ""} — Omaha-Gold Sector`;
+  const battleState = new BattleState();
   let screen: BattleScreen;
   let preserveHydratedScenario: boolean | null = null;
   let preserveHydratedSelection: boolean | null = null;
@@ -151,6 +226,7 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
   let resumeError: unknown = null;
   let campaignTitle: HTMLElement;
   let missionTitle: HTMLElement;
+  const announcements: string[] = [];
 
   await Given("a fresh battle screen and a verified campaign-bound tactical checkpoint", async () => {
     document.body.innerHTML = `
@@ -167,6 +243,7 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
       scenarioKey: binding.scenarioKey,
       activeEngagementId: binding.engagementId
     });
+    campaign.getCampaignMapView = (faction) => geography.getCampaignMapView(faction);
 
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).element = document.getElementById("battleScreen");
@@ -175,7 +252,7 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
       selectedDifficulty: "Normal",
       isFromCampaign: false
     };
-    (screen as any).battleState = new BattleState();
+    (screen as any).battleState = battleState;
     (screen as any).scenario = { name: "Coastal Push", objectives: [] };
     (screen as any).campaignTitleElement = campaignTitle;
     (screen as any).missionTitleElement = missionTitle;
@@ -211,6 +288,7 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
     (screen as any).renderMissionStatus = () => {};
     (screen as any).restoreInitiativeTurnControlsAfterResume = () => {};
     (screen as any).requestTacticalTurnStartAutosave = async () => {};
+    (screen as any).announceBattleUpdate = (message: string) => { announcements.push(message); };
     (screen as any).syncQueuedTargetMarkers = () => {};
     (screen as any).applySelectedHex = (hexKey: string) => {
       restoredSelectionKey = hexKey;
@@ -223,16 +301,32 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
   await When("the checkpoint hydrates before the tactical map is reconstructed", async () => {
     try {
       screen.resumeActiveCampaignBattle(save);
+      assert.equal(battleState.getPrecombatMissionInfo()?.title, expectedStoredTitle, "Initial resume must not rewrite the normalized stored title.");
+      assert.equal((screen as any).getMissionSessionKey(), expectedSessionKey);
       (screen as any).handleScreenShown(new CustomEvent("screen:shown", { detail: { id: "battle" } }));
+      (screen as any).handleScreenShown(new CustomEvent("screen:shown", { detail: { id: "battle" } }));
+      (screen as any).hydrateMissionBriefing(true);
     } catch (error) {
       resumeError = error;
     } finally {
       (campaign as any).getRuntimeSnapshot = originalGetRuntimeSnapshot;
+      campaign.getCampaignMapView = originalGetCampaignMapView;
     }
   });
 
   await Then("the saved scenario renders directly and the campaign and engagement headers return", async () => {
     if (resumeError) throw resumeError;
+    assert.deepEqual(save, originalSave, "Title presentation must not rewrite the checkpoint.");
+    assert.equal((screen as any).getMissionSessionKey(), expectedSessionKey);
+    assert.equal(battleState.getPrecombatMissionInfo()?.title, expectedStoredTitle);
+    assert.deepEqual(announcements, [`${expectedTitle}. ${battleState.getPrecombatMissionInfo()?.briefing}`]);
+    assert.deepEqual(battleState.getCampaignBridgeState()?.battlePackage, save.engagementPackage.bridge.battlePackage);
+    const restoredEngine = battleState.ensureGameEngine().serialize();
+    assert.deepEqual(restoredEngine, expectedEngine, "Resume presentation must preserve the complete tactical engine state.");
+    assert.deepEqual(restoredEngine.playerPlacements.map((unit) => unit.unitId), ["player-core-1"]);
+    assert.deepEqual(restoredEngine.botPlacements.map((unit) => unit.unitId), ["bot-core-1"]);
+    assert.deepEqual(restoredEngine.allyPlacements?.map((unit) => unit.unitId), ["ally-core-1"]);
+    assert.equal(restoredEngine.supportAssets?.find((asset) => asset.id === "western-naval-force")?.charges, 2);
     if (preserveHydratedScenario !== true) {
       throw new Error(`Cold resume rebuilt the map without preserving its hydrated scenario: ${String(preserveHydratedScenario)}.`);
     }
@@ -241,13 +335,62 @@ registerTest("BATTLESCREEN_COLD_TACTICAL_RESUME_REHYDRATES_CAMPAIGN_PRESENTATION
         `Cold resume presentation timing drifted: preserveSelection=${String(preserveHydratedSelection)}, selection=${restoredSelectionKey}, logCollapsed=${String(activityLogCollapsed)}.`
       );
     }
-    if ((screen as any).scenario.name !== "Meeting Engagement — Hex 1,1"
+    if ((screen as any).scenario.name !== save.battle.engineConfig.scenario.name
       || campaignTitle.textContent !== "Operation Overlord - Central Channel Sector"
-      || missionTitle.textContent !== "Meeting Engagement — Hex 1,1") {
+      || missionTitle.textContent !== expectedTitle) {
       throw new Error(
         `Cold resume presentation drifted: scenario=${(screen as any).scenario.name}, campaign=${campaignTitle.textContent}, engagement=${missionTitle.textContent}.`
       );
     }
+  });
+});
+}
+
+registerTest("BATTLESCREEN_MISSION_TITLE_PRESERVES_STANDALONE_AND_UNRELATED_CAMPAIGN_CONTEXT", async ({ When, Then }) => {
+  const save = assertCompleteActiveCampaignBattleSave(buildNamedSectorResumeSave({
+    campaignId: "title-bound-campaign", campaignRevision: 12,
+    scenarioKey: "central_channel", engagementId: "title-bound-engagement"
+  }));
+  const battleState = new BattleState();
+  battleState.hydrateComplete(save.battle);
+  const sourcePackage = structuredClone(battleState.getCampaignBridgeState()?.battlePackage);
+  const campaign = ensureCampaignState();
+  const originalRuntime = campaign.getRuntimeSnapshot;
+  const originalMap = campaign.getCampaignMapView;
+  const unrelated = new CampaignState({ legacyStorage: null });
+  unrelated.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+  const title = document.createElement("span");
+  const announcements: string[] = [];
+  let mapReads = 0;
+  // Exercise the real title consumer with complete BattleState metadata; only
+  // detached DOM wiring is supplied instead of constructing the tactical map.
+  const screen = Object.assign(Object.create(BattleScreen.prototype), {
+    battleState, scenario: save.battle.engineConfig.scenario, missionTitleElement: title,
+    renderBattleObjectiveSummary: () => {},
+    announceBattleUpdate: (message: string) => { announcements.push(message); }
+  }) as { hydrateMissionBriefing: (announce: boolean) => void };
+
+  await When("a saved campaign title encounters unrelated geography, followed by a standalone mission", () => {
+    campaign.getRuntimeSnapshot = () => unrelated.getRuntimeSnapshot();
+    campaign.getCampaignMapView = (faction) => { mapReads += 1; return unrelated.getCampaignMapView(faction); };
+    try {
+      screen.hydrateMissionBriefing(false);
+      assert.equal(title.textContent, save.battle.precombatMission?.title);
+      assert.equal(mapReads, 0, "An unrelated campaign must not supply title geography.");
+      const mission = battleState.getPrecombatMissionInfo();
+      assert.ok(mission);
+      battleState.setPrecombatMissionInfo({ ...mission, missionKey: "training", title: "Coastal Push" });
+      screen.hydrateMissionBriefing(true);
+    } finally {
+      campaign.getRuntimeSnapshot = originalRuntime;
+      campaign.getCampaignMapView = originalMap;
+    }
+  });
+  await Then("standalone copy remains exact even with retained campaign bridge metadata", () => {
+    assert.equal(title.textContent, "Coastal Push");
+    assert.deepEqual(announcements, [`Coastal Push. ${battleState.getPrecombatMissionInfo()?.briefing}`]);
+    assert.equal(mapReads, 0);
+    assert.deepEqual(battleState.getCampaignBridgeState()?.battlePackage, sourcePackage);
   });
 });
 
@@ -451,6 +594,7 @@ registerTest("BATTLESCREEN_CAMPAIGN_TITLE_STAYS_DISTINCT_FROM_ENGAGEMENT_TITLE",
     (screen as any).missionSuppliesList = null;
     (screen as any).scenario = { name: "Port Assault — Hex 28,38" };
     (screen as any).battleState = {
+      getCampaignBridgeState: () => null,
       getPrecombatMissionInfo() {
         return {
           missionKey: "campaign",

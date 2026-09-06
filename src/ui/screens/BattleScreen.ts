@@ -92,6 +92,8 @@ import type {
   TerrainSelectionIntel
 } from "../announcements/AnnouncementTypes";
 import { ensureCampaignState } from "../../state/CampaignState";
+import { resolveCampaignMapLocationPresentation } from "../campaign/CampaignLocationPresentation";
+import { MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialState";
 import { getNextPhase, getTutorialStep } from "../../data/tutorialSteps";
 import {
@@ -8560,7 +8562,28 @@ export class BattleScreen {
   private hydrateMissionBriefing(announce = true): void {
     const missionInfo: PrecombatMissionInfo | null = this.battleState.getPrecombatMissionInfo();
 
-    const title = missionInfo?.title ?? this.scenario.name ?? "Operation Pending";
+    // Saved mission titles also identify tactical sessions. Project geography for
+    // display only, and never borrow another campaign's current map context.
+    const battlePackage = missionInfo?.missionKey === "campaign"
+      ? this.battleState.getCampaignBridgeState()?.battlePackage
+      : null;
+    let campaignDisplayTitle: string | null = null;
+    if (battlePackage) {
+      const campaign = ensureCampaignState();
+      const runtime = campaign.getRuntimeSnapshot();
+      if (runtime?.campaignId === battlePackage.campaignId
+        && runtime.scenarioKey === battlePackage.scenarioKey
+        && runtime.activeEngagementId === battlePackage.engagementId) {
+        const view = campaign.getCampaignMapView("Player");
+        if (view?.observerFaction === "Player" && view.scenario.key === battlePackage.scenarioKey) {
+          const context = battlePackage.context;
+          const location = resolveCampaignMapLocationPresentation(view, context.battleHexKey);
+          const playerDefense = context.attacker === "Bot" && context.defender === "Player";
+          campaignDisplayTitle = `${MISSION_TYPE_LABELS[context.missionType]}${playerDefense ? " Defense" : ""} — ${location.primaryLabel}`;
+        }
+      }
+    }
+    const title = campaignDisplayTitle ?? missionInfo?.title ?? this.scenario.name ?? "Operation Pending";
     const briefing = missionInfo?.briefing ?? "Mission details will synchronize once precombat data is available.";
     const objectives = missionInfo?.objectives ?? [];
     const doctrine = missionInfo?.doctrine ?? "Doctrine summary not yet provided.";
@@ -8594,7 +8617,7 @@ export class BattleScreen {
     }
     this.renderBattleObjectiveSummary();
 
-    const announcementTitle = missionInfo?.title ?? "Mission ready";
+    const announcementTitle = campaignDisplayTitle ?? missionInfo?.title ?? "Mission ready";
     const announcementSummary = missionInfo?.briefing ?? "Awaiting mission briefing details.";
     if (announce) {
       this.announceBattleUpdate(`${announcementTitle}. ${announcementSummary}`);
