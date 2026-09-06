@@ -397,8 +397,8 @@ registerTest("MAP_VIEWPORT_FITS_AND_CENTERS_COMPLETE_MAP", async ({ Given, When,
     const inverseZoom = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom"));
     const restingScale = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom-resting"));
     const markerScale = Number(viewportRoot.style.getPropertyValue("--campaign-map-marker-scale"));
-    // At overview zoom, markers retain their authored screen size instead of shrinking with the theater.
-    const expectedMarkerScale = 1 / expectedZoom;
+    // At overview zoom, markers follow the theater so they cannot cover adjacent authored cells.
+    const expectedMarkerScale = 1;
     if (!appliedTransform.includes(`scale(${expectedZoom})`)
       || Math.abs(inverseZoom - 1 / expectedZoom) > tolerance
       || Math.abs(restingScale - 0.92 / expectedZoom) > tolerance

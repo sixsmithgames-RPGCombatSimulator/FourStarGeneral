@@ -9,6 +9,418 @@ import type { CampaignMapViewModel } from "../src/core/campaignIntelTypes";
 import { buildCampaignMapView, createCampaignKnowledgeState } from "../src/state/CampaignIntelligence";
 import campaignScenarioData from "../src/data/campaign01.json";
 
+type MapRect = { left: number; right: number; top: number; bottom: number };
+
+function rectsIntersect(left: MapRect, right: MapRect): boolean {
+  return left.left < right.right
+    && left.right > right.left
+    && left.top < right.bottom
+    && left.bottom > right.top;
+}
+
+function imageRect(image: SVGImageElement, scale = 1): MapRect {
+  const x = Number(image.getAttribute("x"));
+  const y = Number(image.getAttribute("y"));
+  const width = Number(image.getAttribute("width"));
+  const height = Number(image.getAttribute("height"));
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  return {
+    left: centerX - width * scale / 2,
+    right: centerX + width * scale / 2,
+    top: centerY - height * scale / 2,
+    bottom: centerY + height * scale / 2
+  };
+}
+
+function circleRect(circle: SVGCircleElement, scale = 1): MapRect {
+  const cx = Number(circle.getAttribute("cx"));
+  const cy = Number(circle.getAttribute("cy"));
+  const radius = Number(circle.getAttribute("r")) * scale;
+  return { left: cx - radius, right: cx + radius, top: cy - radius, bottom: cy + radius };
+}
+
+function textRect(text: SVGTextElement): MapRect {
+  const x = Number(text.getAttribute("x"));
+  const baseline = Number(text.getAttribute("y"));
+  const fontSize = Number(text.getAttribute("font-size"));
+  const width = fontSize * ((text.textContent?.length ?? 0) * 0.61 + 0.8);
+  const height = fontSize * 1.2;
+  const padding = fontSize * 0.38;
+  const anchor = text.getAttribute("text-anchor");
+  const left = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+  return {
+    left: left - padding,
+    right: left + width + padding,
+    top: baseline - height - padding,
+    bottom: baseline + padding
+  };
+}
+
+function circleStaysInsideFlatTopHex(
+  center: { cx: number; cy: number },
+  hexRadius: number,
+  circle: SVGCircleElement,
+  circleScale: number
+): boolean {
+  const dx = Math.abs(Number(circle.getAttribute("cx")) - center.cx);
+  const dy = Math.abs(Number(circle.getAttribute("cy")) - center.cy);
+  const radius = Number(circle.getAttribute("r")) * circleScale;
+  return dx + radius <= hexRadius + 0.001
+    && Math.sqrt(3) * dx + dy + 2 * radius <= Math.sqrt(3) * hexRadius + 0.001;
+}
+
+function imageStaysInsideFlatTopHex(
+  center: { cx: number; cy: number },
+  hexRadius: number,
+  image: SVGImageElement,
+  imageScale: number
+): boolean {
+  const rect = imageRect(image, imageScale);
+  return [
+    [rect.left, rect.top],
+    [rect.right, rect.top],
+    [rect.left, rect.bottom],
+    [rect.right, rect.bottom]
+  ].every(([x, y]) => {
+    const dx = Math.abs(x - center.cx);
+    const dy = Math.abs(y - center.cy);
+    return dx <= hexRadius + 0.001
+      && Math.sqrt(3) * dx + dy <= Math.sqrt(3) * hexRadius + 0.001;
+  });
+}
+
+registerTest("FSG_CAM_101_SHIPPED_COLOCATED_MARKERS_REMAIN_INSIDE_AUTHORED_HEX", () => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.id = "campaignColocatedGeometryMap";
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  try {
+    const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+    const knowledge = createCampaignKnowledgeState(scenario, "Player", 0);
+    const view = buildCampaignMapView(scenario, knowledge, 0);
+    const before = JSON.stringify({ scenario, knowledge, view });
+    const renderer = new CampaignMapRenderer();
+    renderer.render(svg, canvas, view);
+    const root = svg.querySelector<SVGGElement>("#viewportRoot");
+    const center = renderer.getHexCenter("29,23")!;
+    const contact = view.enemyContacts.find(entry => entry.locationHexKey === "29,23");
+    if (!contact || !root) throw new Error("Shipped Douvres co-location prerequisite is missing.");
+    const radius = 1024 / (2 + 1.5 * 57);
+    const viewport = new MapViewport("#campaignColocatedGeometryMap", null, 0.1);
+    viewport.setViewportRoot(root);
+    const activations: Array<{ hex: string; contact?: string }> = [];
+    renderer.onHexClick((hex, _tile, contactId) => activations.push({ hex, contact: contactId }));
+    const site = svg.querySelector<SVGGElement>('[data-known-site-id="briefed_douvres"]')!;
+    const siteTarget = site.querySelector<SVGCircleElement>(".campaign-known-site__hit-target")!;
+    const siteSprite = site.querySelector<SVGImageElement>(".campaign-known-site__sprite")!;
+    const contactMarker = svg.querySelector<SVGGElement>(`[data-contact-id="${contact.id}"]`)!;
+    const contactToken = contactMarker.querySelector<SVGCircleElement>("circle:not(.campaign-intel-uncertainty)")!;
+    for (const zoom of [0.714, 1, 3.48, 7.5]) {
+      viewport.setTransform(zoom, 0, 0);
+      const markerScale = Number(root.style.getPropertyValue("--campaign-map-marker-scale"));
+      const contactScale = Number(root.style.getPropertyValue("--campaign-map-contact-scale"));
+      renderer.setIntelContactsVisible(false);
+      if (Number(siteTarget.getAttribute("cx")) !== center.cx
+        || Number(siteTarget.getAttribute("cy")) !== center.cy
+        || !circleStaysInsideFlatTopHex(center, radius, siteTarget, 1)
+        || !imageStaysInsideFlatTopHex(center, radius, siteSprite, markerScale)) {
+        throw new Error(`Operational Douvres marker escapes authored Grid 29,23 at zoom ${zoom}.`);
+      }
+      renderer.setIntelContactsVisible(true);
+      if (Number(contactToken.getAttribute("cx")) <= center.cx
+        || !circleStaysInsideFlatTopHex(center, radius, contactToken, contactScale)) {
+        throw new Error(`Intelligence co-location is not distinct and bounded at zoom ${zoom}.`);
+      }
+    }
+    siteTarget.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    site.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    contactToken.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    contactMarker.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    if (activations.length !== 4
+      || activations[0]?.hex !== "29,23" || activations[0]?.contact !== undefined
+      || activations[1]?.hex !== "29,23" || activations[1]?.contact !== undefined
+      || activations[2]?.hex !== "29,23" || activations[2]?.contact !== contact.id
+      || activations[3]?.hex !== "29,23" || activations[3]?.contact !== contact.id) {
+      throw new Error(`Co-located selection identities changed: ${JSON.stringify(activations)}`);
+    }
+    if (JSON.stringify({ scenario, knowledge, view }) !== before) throw new Error("Map presentation mutated campaign knowledge or scenario.");
+  } finally { canvas.remove(); }
+});
+
+registerTest("FSG_CAM_102_DETAIL_ZOOM_CAPS_CAMPAIGN_SYMBOL_FOOTPRINTS", () => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.id = "campaignSymbolScaleMap";
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  try {
+    const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+    const rotatedSymbolTile = scenario.tiles.find(instance => {
+      const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
+      return `${col},${row}` === "24,23";
+    });
+    if (!rotatedSymbolTile) throw new Error("Shipped Omaha symbol prerequisite is missing.");
+    rotatedSymbolTile.rotation = 30;
+    const renderer = new CampaignMapRenderer();
+    renderer.render(svg, canvas, buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0));
+    const root = svg.querySelector<SVGGElement>("#viewportRoot")!;
+    const viewport = new MapViewport("#campaignSymbolScaleMap", null, 0.1);
+    viewport.setViewportRoot(root);
+    const douvres = svg.querySelector<SVGImageElement>('[data-known-site-id="briefed_douvres"] .campaign-known-site__sprite')!;
+    const junoSymbol = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="28,23"]')!;
+    const rotatedSymbol = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="24,23"]')!;
+    const junoForce = svg.querySelector<SVGCircleElement>('#campaign-map-forces .campaign-force-stack[data-hex="28,23"] .campaign-force-stack__footprint')!;
+    const rotatedTaskForces = svg.querySelectorAll<SVGGElement>('.campaign-task-force[data-facing="SW"][transform]');
+    const base = svg.querySelector<SVGImageElement>(".campaign-base-marker__sprite")!;
+    const baseHex = base?.closest<SVGGElement>(".campaign-base-marker")?.dataset.hex;
+    const douvresCenter = renderer.getHexCenter("29,23");
+    const junoCenter = renderer.getHexCenter("28,23");
+    const baseCenter = baseHex ? renderer.getHexCenter(baseHex) : null;
+    const radius = 1024 / (2 + 1.5 * 57);
+    if (!douvres || !junoSymbol || !rotatedSymbol || !junoForce || !base || !douvresCenter || !junoCenter || !baseCenter
+      || junoSymbol.dataset.symbolTreatment !== "bounded-icon"
+      || junoSymbol.getAttribute("transform") !== null
+      || junoSymbol.parentElement?.style.transform !== "scale(var(--campaign-map-tile-symbol-scale, 1))"
+      || !rotatedSymbol.getAttribute("transform")?.startsWith("rotate(30 ")
+      || rotatedSymbol.parentElement?.style.transform !== "scale(var(--campaign-map-tile-symbol-scale, 1))"
+      || rotatedTaskForces.length === 0) {
+      throw new Error("Shipped Douvres/Juno symbol prerequisites were not rendered with explicit treatment.");
+    }
+    for (const zoom of [1, 3.48, 7.5]) {
+      viewport.setTransform(zoom, 0, 0);
+      const markerScale = Number(root.style.getPropertyValue("--campaign-map-marker-scale"));
+      const tileScale = Number(root.style.getPropertyValue("--campaign-map-tile-symbol-scale"));
+      const forceScale = Number(root.style.getPropertyValue("--campaign-map-force-scale"));
+      const douvresWidth = Number(douvres.getAttribute("width")) * zoom * markerScale;
+      const junoSymbolWidth = Number(junoSymbol.getAttribute("width")) * zoom * tileScale;
+      const junoForceWidth = Number(junoForce.getAttribute("r")) * 2 * zoom * forceScale;
+      const baseWidth = Number(base.getAttribute("width")) * zoom * markerScale;
+      if (![markerScale, tileScale, forceScale].every(value => Number.isFinite(value) && value > 0)
+        || douvresWidth > 44.01
+        || junoSymbolWidth > 36.01
+        || junoForceWidth > 44.01
+        || baseWidth > 44.01
+        || !imageStaysInsideFlatTopHex(douvresCenter, radius, douvres, markerScale)
+        || !imageStaysInsideFlatTopHex(junoCenter, radius, junoSymbol, tileScale)
+        || !circleStaysInsideFlatTopHex(junoCenter, radius, junoForce, forceScale)
+        || !imageStaysInsideFlatTopHex(baseCenter, radius, base, markerScale)) {
+        throw new Error(`Campaign symbols outgrow their cells at zoom ${zoom}: ${JSON.stringify({ douvresWidth, junoSymbolWidth, junoForceWidth, baseWidth })}`);
+      }
+    }
+  } finally { canvas.remove(); }
+});
+
+registerTest("FSG_CAM_103_SHIPPED_LABELS_CLEAR_RENDERED_MARKER_FOOTPRINTS", () => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  document.body.appendChild(canvas);
+  try {
+    const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+    const renderer = new CampaignMapRenderer();
+    const view = buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0);
+    renderer.render(svg, canvas, view);
+    renderer.setIntelContactsVisible(false);
+    const labels = Array.from(svg.querySelectorAll<SVGTextElement>(".campaign-map-location-label > text"));
+    const expectedLabels = view.scenario.tiles.filter(instance => {
+      const palette = view.scenario.tilePalette[instance.tile];
+      return Boolean(palette?.mapLabel?.trim())
+        && palette.role !== "taskForce"
+        && !(palette.factionControl === "Player"
+          && (palette.role === "airbase" || palette.role === "logisticsHub" || palette.role === "navalBase"));
+    }).map(instance => view.scenario.tilePalette[instance.tile].mapLabel!.trim()).sort();
+    const obstacles: MapRect[] = [
+      ...Array.from(svg.querySelectorAll<SVGImageElement>("#campaign-map-sprites image")).map(image => imageRect(image)),
+      ...Array.from(svg.querySelectorAll<SVGCircleElement>("#campaign-map-forces .campaign-force-stack__footprint")).map(circle => circleRect(circle)),
+      ...Array.from(svg.querySelectorAll<SVGImageElement>(".campaign-base-marker__sprite, .campaign-known-site__sprite")).map(image => imageRect(image)),
+      ...Array.from(svg.querySelectorAll<SVGCircleElement>(".campaign-intel-contact circle:not(.campaign-intel-uncertainty)")).map(circle => circleRect(circle))
+    ];
+    const labelRects = labels.map(text => ({ label: text.textContent?.trim() ?? "", rect: textRect(text) }));
+    const collisions = labelRects.flatMap(entry => obstacles
+      .map((obstacle, index) => rectsIntersect(entry.rect, obstacle) ? `${entry.label}:marker-${index}` : null)
+      .filter((value): value is string => value !== null));
+    const labelCollisions = labelRects.flatMap((entry, index) => labelRects.slice(index + 1)
+      .filter(other => rectsIntersect(entry.rect, other.rect))
+      .map(other => `${entry.label}:${other.label}`));
+    const rootChildren = Array.from(svg.querySelector("#viewportRoot")?.children ?? []);
+    const leaderLayerIndex = rootChildren.findIndex(child => child.id === "campaign-map-location-leaders");
+    const labelLayerIndex = rootChildren.findIndex(child => child.id === "campaign-map-location-labels");
+    const transientLayerIndex = rootChildren.findIndex(child => child.id === "campaign-map-transient-disclosures");
+    const earliestMarkerLayerIndex = Math.min(
+      rootChildren.findIndex(child => child.id === "campaign-map-sprites"),
+      rootChildren.findIndex(child => child.id === "campaign-map-forces"),
+      rootChildren.findIndex(child => child.id === "campaign-map-known-sites"),
+      rootChildren.findIndex(child => child.id === "campaign-map-intel-contacts")
+    );
+    const latestMarkerLayerIndex = Math.max(
+      rootChildren.findIndex(child => child.id === "campaign-map-forces"),
+      rootChildren.findIndex(child => child.id === "campaign-map-known-sites"),
+      rootChildren.findIndex(child => child.id === "campaign-map-intel-contacts")
+    );
+    const leaders = svg.querySelectorAll("#campaign-map-location-leaders .campaign-map-location-label__leader");
+    const renderedLabels = labels.map(label => label.textContent?.trim() ?? "").sort();
+    if (JSON.stringify(renderedLabels) !== JSON.stringify(expectedLabels)
+      || collisions.length > 0
+      || labelCollisions.length > 0
+      || leaderLayerIndex < 0
+      || leaderLayerIndex >= earliestMarkerLayerIndex
+      || labelLayerIndex <= latestMarkerLayerIndex
+      || labelLayerIndex >= transientLayerIndex
+      || !labels.some(label => label.textContent === "Juno")
+      || leaders.length !== labels.length) {
+      throw new Error(`Shipped place-label layout remains occluded: ${JSON.stringify({ renderedLabels, expectedLabels, collisions: collisions.slice(0, 12), labelCollisions: labelCollisions.slice(0, 12), leaderLayerIndex, earliestMarkerLayerIndex, labelLayerIndex, latestMarkerLayerIndex, transientLayerIndex, leaderCount: leaders.length })}`);
+    }
+  } finally { canvas.remove(); }
+});
+
+registerTest("FSG_CAM_104_DISCLOSURE_FITS_THE_INTERSECTION_OF_CLIPPING_ANCESTORS", async () => {
+  const outer = document.createElement("section");
+  outer.style.overflow = "hidden";
+  const viewportHost = document.createElement("div");
+  viewportHost.style.overflow = "auto";
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  viewportHost.appendChild(canvas);
+  outer.appendChild(viewportHost);
+  document.body.appendChild(outer);
+  const makeRect = (left: number, top: number, width: number, height: number): DOMRect => ({
+    x: left, y: top, left, top, width, height, right: left + width, bottom: top + height, toJSON: () => ""
+  } as DOMRect);
+  try {
+    const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+    const renderer = new CampaignMapRenderer();
+    renderer.render(svg, canvas, buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0));
+    const root = svg.querySelector<SVGGElement>("#viewportRoot")!;
+    const douvres = svg.querySelector<SVGGElement>('[data-known-site-id="briefed_douvres"]')!;
+    const disclosure = douvres.querySelector<SVGGElement>(".campaign-known-site-disclosure")!;
+    Object.defineProperty(outer, "getBoundingClientRect", { configurable: true, value: () => makeRect(80, 20, 640, 520) });
+    Object.defineProperty(viewportHost, "getBoundingClientRect", { configurable: true, value: () => makeRect(100, 40, 600, 460) });
+    Object.defineProperty(svg, "getBoundingClientRect", { configurable: true, value: () => makeRect(0, 0, 1024, 768) });
+    Object.defineProperty(disclosure, "getBoundingClientRect", { configurable: true, value: () => makeRect(560, 420, 220, 100) });
+    Object.defineProperty(root, "getScreenCTM", {
+      configurable: true,
+      value: () => ({ a: 3.48, b: 0, c: 0, d: 3.48, e: 0, f: 0 })
+    });
+    for (const event of ["pointerenter", "focus"] as const) {
+      douvres.dispatchEvent(event === "focus"
+        ? new window.FocusEvent(event)
+        : new window.MouseEvent(event, { bubbles: false }));
+      await new Promise<void>(resolve => window.setTimeout(resolve, 24));
+      const shiftX = Number.parseFloat(disclosure.style.getPropertyValue("--campaign-disclosure-shift-x"));
+      const shiftY = Number.parseFloat(disclosure.style.getPropertyValue("--campaign-disclosure-shift-y"));
+      if (Math.abs(shiftX - (-88 / 3.48)) > 0.01 || Math.abs(shiftY - (-28 / 3.48)) > 0.01) {
+        throw new Error(`${event} disclosure ignored a clipping ancestor: ${JSON.stringify({ shiftX, shiftY })}`);
+      }
+    }
+  } finally { outer.remove(); }
+});
+
+registerTest("FSG_CAM_105_RENDERER_RELEASES_DISCLOSURE_AND_INTERACTION_TRACKING", () => {
+  const firstOuter = document.createElement("section");
+  const firstCanvas = document.createElement("div");
+  const firstSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const secondOuter = document.createElement("section");
+  const secondCanvas = document.createElement("div");
+  const secondSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  firstCanvas.appendChild(firstSvg); firstOuter.appendChild(firstCanvas);
+  secondCanvas.appendChild(secondSvg); secondOuter.appendChild(secondCanvas);
+  document.body.append(firstOuter, secondOuter);
+  const originalResizeObserver = globalThis.ResizeObserver;
+  const originalWindowAdd = window.addEventListener.bind(window);
+  const originalWindowRemove = window.removeEventListener.bind(window);
+  let resizeDisconnects = 0;
+  let windowResizeAdds = 0;
+  let windowResizeRemoves = 0;
+  class AuditResizeObserver {
+    constructor(_callback: ResizeObserverCallback) {}
+    observe(_target: Element): void {}
+    unobserve(_target: Element): void {}
+    disconnect(): void { resizeDisconnects += 1; }
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: AuditResizeObserver });
+  window.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+    if (type === "resize") windowResizeAdds += 1;
+    originalWindowAdd(type, listener, options);
+  }) as typeof window.addEventListener;
+  window.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+    if (type === "resize") windowResizeRemoves += 1;
+    originalWindowRemove(type, listener, options);
+  }) as typeof window.removeEventListener;
+  try {
+    const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+    const view = buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0);
+    const renderer = new CampaignMapRenderer();
+    const activations: string[] = [];
+    renderer.render(firstSvg, firstCanvas, view);
+    renderer.onHexClick(hexKey => activations.push(hexKey));
+    const firstTarget = firstSvg.querySelector<SVGCircleElement>(".campaign-known-site__hit-target")!;
+    const expectedHex = firstTarget.dataset.hex;
+    firstTarget.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    renderer.render(secondSvg, secondCanvas, view);
+    firstSvg.querySelector<SVGCircleElement>(".campaign-known-site__hit-target")!
+      .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    secondSvg.querySelector<SVGCircleElement>(".campaign-known-site__hit-target")!
+      .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    renderer.dispose();
+    secondSvg.querySelector<SVGCircleElement>(".campaign-known-site__hit-target")!
+      .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    if (!expectedHex || JSON.stringify(activations) !== JSON.stringify([expectedHex, expectedHex])
+      || resizeDisconnects !== 2
+      || windowResizeAdds !== 2
+      || windowResizeRemoves !== 2) {
+      throw new Error(`Renderer lifecycle retained old tracking: ${JSON.stringify({ activations, resizeDisconnects, windowResizeAdds, windowResizeRemoves })}`);
+    }
+  } finally {
+    window.addEventListener = originalWindowAdd;
+    window.removeEventListener = originalWindowRemove;
+    Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: originalResizeObserver });
+    firstOuter.remove(); secondOuter.remove();
+  }
+});
+
+registerTest("FSG_CAM_106_LEADERS_SHARE_LEGACY_GRID_REGISTRATION", () => {
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg); document.body.appendChild(canvas);
+  try {
+    const scenario: CampaignScenarioData = {
+      key: "legacy-label-registration",
+      title: "Legacy label registration",
+      description: "Non-registered grid transform contract",
+      hexScaleKm: 10,
+      dimensions: { cols: 3, rows: 2 },
+      background: { imageUrl: "about:blank" },
+      tilePalette: { town: { role: "region", factionControl: "Neutral", mapLabel: "Test Town" } },
+      tiles: [{ tile: "town", hex: { q: 0, r: 0 } }],
+      fronts: [],
+      objectives: [],
+      economies: []
+    };
+    const renderer = new CampaignMapRenderer();
+    renderer.render(svg, canvas, {
+      scenario,
+      observerFaction: "Player",
+      coverage: [],
+      enemyContacts: [],
+      knownStrategicSites: [],
+      capacity: { total: 0, committed: 0, available: 0 },
+      unreadReportCount: 0,
+      currentSegment: 0
+    });
+    const transform = svg.querySelector("#campaign-map-hexes")?.getAttribute("transform");
+    const leaderTransform = svg.querySelector("#campaign-map-location-leaders")?.getAttribute("transform");
+    const labelTransform = svg.querySelector("#campaign-map-location-labels")?.getAttribute("transform");
+    if (!transform || transform === "translate(0.000, 0.000)"
+      || leaderTransform !== transform || labelTransform !== transform
+      || svg.querySelectorAll("#campaign-map-location-leaders line").length !== 1) {
+      throw new Error(`Legacy grid labels and leaders diverged: ${JSON.stringify({ transform, leaderTransform, labelTransform })}`);
+    }
+  } finally { canvas.remove(); }
+});
+
 registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
   canvas.id = "campaignMapCanvas";
@@ -237,20 +649,24 @@ registerTest("FSG_CAM_036_KNOWN_SITES_USE_ONE_PLAYER_SAFE_DISCLOSURE", async ({ 
 
   await Then("every briefed site has one physical icon, one disclosure, and no competing native tooltip", () => {
     const knownSiteMarkers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-known-site"));
+    const registeredRadius = 1024 / (2 + 1.5 * (view.scenario.dimensions.cols - 1));
     const permanentLabels = new Set(Array.from(svg.querySelectorAll(".campaign-map-location-label"))
       .map((entry) => entry.textContent?.trim() ?? ""));
     const expectedKnownLabels = new Set((view.knownStrategicSites ?? []).map((site) => site.label));
-    const siteMarkerContractHolds = knownSiteMarkers.every((marker) => (
-      marker.getAttribute("role") === "button"
-      && marker.getAttribute("tabindex") === "0"
-      && marker.querySelectorAll(".campaign-known-site__sprite[data-authoritative-anchor='true']").length === 1
-      && !marker.querySelector(".campaign-known-site__badge-ring")
-      && Number(marker.querySelector(".campaign-known-site__hit-target")?.getAttribute("r")) >= 18
-      && !marker.querySelector("title")
-      && !/select for|source:|representative ten-kilometer sector/i.test(
-        `${marker.querySelector(".campaign-known-site-disclosure")?.textContent ?? ""} ${marker.getAttribute("aria-label") ?? ""}`
-      )
-    ));
+    const siteMarkerContractHolds = knownSiteMarkers.every((marker) => {
+      const center = renderer.getHexCenter(marker.dataset.hex ?? "");
+      const hitTarget = marker.querySelector<SVGCircleElement>(".campaign-known-site__hit-target");
+      return marker.getAttribute("role") === "button"
+        && marker.getAttribute("tabindex") === "0"
+        && marker.querySelectorAll(".campaign-known-site__sprite[data-authoritative-anchor='true']").length === 1
+        && !marker.querySelector(".campaign-known-site__badge-ring")
+        && Boolean(center && hitTarget && Number(hitTarget.getAttribute("r")) > 0
+          && circleStaysInsideFlatTopHex(center, registeredRadius, hitTarget, 1))
+        && !marker.querySelector("title")
+        && !/select for|source:|representative ten-kilometer sector/i.test(
+          `${marker.querySelector(".campaign-known-site-disclosure")?.textContent ?? ""} ${marker.getAttribute("aria-label") ?? ""}`
+        );
+    });
     const siteDisclosureLinesAreBounded = Array.from(
       svg.querySelectorAll<SVGTextElement>(".campaign-known-site-disclosure__line")
     ).every((line) => (line.textContent?.length ?? 0) <= 38);
@@ -356,7 +772,7 @@ registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING",
 
   await When("semantic density tiers are applied across supported overview and detail zooms", () => {});
 
-  await Then("selected and tier-priority markers stay operable while lower-priority markers leave pointer flow", () => {
+  await Then("selected and tier-priority markers stay bounded while lower-priority markers leave pointer flow", () => {
     const root = svg.querySelector<SVGGElement>("#viewportRoot");
     const markers = Array.from(svg.querySelectorAll<SVGGElement>(".campaign-base-marker, .campaign-known-site"));
     const selected = markers[0];
@@ -365,6 +781,7 @@ registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING",
     renderer.highlightHex(selectedHex, "selected");
     const viewport = new MapViewport("#campaignDensityContractMap", null, 0.1);
     viewport.setViewportRoot(root);
+    const registeredRadius = 1024 / (2 + 1.5 * (view.scenario.dimensions.cols - 1));
     const violations: string[] = [];
     let priorVisibleCount = 0;
     for (const zoom of [0.1, 0.34, 0.714, 1, 1.5]) {
@@ -385,14 +802,17 @@ registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING",
       priorVisibleCount = visible.length;
 
       const markerScale = Number(root.style.getPropertyValue("--campaign-map-marker-scale"));
-      const hitScale = Number(root.style.getPropertyValue("--campaign-map-hit-scale"));
       const geometry = visible.map((marker, index) => {
         const sprite = marker.querySelector<SVGImageElement>(".campaign-base-marker__sprite, .campaign-known-site__sprite");
         const target = marker.querySelector<SVGCircleElement>(".campaign-base-marker__hit-target, .campaign-known-site__hit-target");
+        const center = renderer.getHexCenter(marker.dataset.hex ?? "");
         const visualDiameter = Number(sprite?.getAttribute("width")) * zoom * markerScale;
-        const hitRadius = Number(target?.getAttribute("r")) * zoom * hitScale;
-        if (visualDiameter < 22) violations.push(`zoom ${zoom}: visible marker ${index} is ${visualDiameter.toFixed(2)}px`);
-        if (density !== "theater" && hitRadius * 2 < 36) violations.push(`zoom ${zoom}: marker ${index} hit target is ${(hitRadius * 2).toFixed(2)}px`);
+        const hitRadius = Number(target?.getAttribute("r")) * zoom;
+        if (!center || !sprite || !target || visualDiameter <= 0
+          || !imageStaysInsideFlatTopHex(center, registeredRadius, sprite, markerScale)
+          || !circleStaysInsideFlatTopHex(center, registeredRadius, target, 1)) {
+          violations.push(`zoom ${zoom}: marker ${index} escapes its authored cell`);
+        }
         return {
           index,
           identity: marker.dataset.baseName ?? marker.dataset.knownSiteId ?? `marker-${index}`,
@@ -414,11 +834,12 @@ registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING",
     const theaterHidesSecondaryPointerFlow = /data-campaign-map-density="theater"[\s\S]{0,320}display:\s*none;[\s\S]{0,80}pointer-events:\s*none;/.test(shellCss);
     const theaterSelectedMarkerYieldsPointerFlow = /data-campaign-map-density="theater"[\s\S]{0,260}\.campaign-base-marker\.is-selected[\s\S]{0,260}pointer-events:\s*none;/.test(shellCss);
     const operationalHidesDetailPointerFlow = /data-campaign-map-density="operational"[\s\S]{0,240}data-density-tier="detail"[\s\S]{0,240}display:\s*none;[\s\S]{0,80}pointer-events:\s*none;/.test(shellCss);
-    const compactHitTargetContract = /@media\s*\(max-width:\s*520px\)[\s\S]*campaign-base-marker__hit-target[\s\S]{0,260}\*\s*1\.22[3-9]/.test(shellCss);
+    const campaignCss = readFileSync("src/ui/campaign/styles/campaign-command.css", "utf8");
+    const mapListAlternative = /\.campaign-map-list-entry\s*\{[\s\S]{0,160}min-height:\s*46px/.test(campaignCss);
     if (!theaterHidesSecondaryPointerFlow) violations.push("theater-hidden markers remain in pointer flow");
     if (!theaterSelectedMarkerYieldsPointerFlow) violations.push("theater selected marker still captures neighboring 10 km hexes");
     if (!operationalHidesDetailPointerFlow) violations.push("operational-hidden detail markers remain in pointer flow");
-    if (!compactHitTargetContract) violations.push("compact hit targets do not expand from 36px to at least 44px");
+    if (!mapListAlternative) violations.push("bounded overview markers lack a full-size Map list selection path");
 
     if (markers.length !== 31 || violations.length > 0) {
       throw new Error(`Campaign semantic-zoom density is not first-class: ${JSON.stringify({
@@ -952,21 +1373,23 @@ registerTest("CAMPAIGN_RENDERER_SEPARATES_COLOCATED_SITE_AND_CONTACT_MARKERS", a
 
   await When("both intelligence records are rendered", () => {});
 
-  await Then("two bounded markers share the hex without covering each other or exposing a raw role ID", () => {
+  await Then("two bounded markers retain distinct in-cell anchors without exposing a raw role ID", () => {
     const center = renderer.getHexCenter("1,1");
     const contactToken = svg.querySelector<SVGCircleElement>('.campaign-intel-contact[data-contact-id="contact-colocated"] circle:not(.campaign-intel-uncertainty)');
     const site = svg.querySelector<SVGGElement>('.campaign-known-site[data-known-site-id="site-colocated"]');
-    const siteRing = site?.querySelector<SVGCircleElement>("circle") ?? null;
+    const siteRing = site?.querySelector<SVGCircleElement>(".campaign-known-site__hit-target") ?? null;
     const contactX = Number(contactToken?.getAttribute("cx"));
     const siteX = Number(siteRing?.getAttribute("cx"));
-    const radiusSum = Number(contactToken?.getAttribute("r")) + Number(siteRing?.getAttribute("r"));
+    const registeredRadius = 1024 / (2 + 1.5 * (scenario.dimensions.cols - 1));
     const accessibleName = site?.getAttribute("aria-label") ?? "";
     if (!center || !contactToken || !siteRing
-      || contactX <= center.cx || siteX >= center.cx
-      || contactX - siteX < radiusSum
+      || contactX <= center.cx || Math.abs(siteX - center.cx) > 0.001
+      || contactX === siteX
+      || !circleStaysInsideFlatTopHex(center, registeredRadius, contactToken, 1)
+      || !circleStaysInsideFlatTopHex(center, registeredRadius, siteRing, 1)
       || !accessibleName.includes("briefed logistics hub")
       || accessibleName.includes("logisticsHub")) {
-      throw new Error(`Colocated intelligence remained overlapped or raw: ${JSON.stringify({ contactX, siteX, radiusSum, accessibleName })}.`);
+      throw new Error(`Colocated intelligence lost a bounded distinct anchor or safe label: ${JSON.stringify({ contactX, siteX, accessibleName })}.`);
     }
   });
 });

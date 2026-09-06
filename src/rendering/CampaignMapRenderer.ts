@@ -15,6 +15,7 @@ const HEX_STROKE_WIDTH = 0.75;
 const BACKGROUND_LAYER_ID = "campaign-map-background";
 const HEX_LAYER_ID = "campaign-map-hexes";
 const TERRAIN_OVERLAY_LAYER_ID = "campaign-map-terrain-overlay";
+const LOCATION_LEADER_LAYER_ID = "campaign-map-location-leaders";
 const SPRITE_LAYER_ID = "campaign-map-sprites";
 const FRONT_LAYER_ID = "campaign-map-fronts";
 const FORCE_LAYER_ID = "campaign-map-forces";
@@ -56,6 +57,8 @@ export type CampaignHexClickHandler = (
  * Unlike the tactical renderer, this class focuses on clean overlays and large-scale markers.
  */
 export class CampaignMapRenderer {
+  private activeDisclosureFit: (() => void) | null = null;
+  private releaseDisclosureTracking: (() => void) | null = null;
   private svgElement: SVGSVGElement | null = null;
   private canvasElement: HTMLDivElement | null = null;
   private scenario: CampaignScenarioData | null = null;
@@ -66,6 +69,7 @@ export class CampaignMapRenderer {
   private hexClickHandler: CampaignHexClickHandler | null = null;
   private boundClickListener: ((event: MouseEvent) => void) | null = null;
   private boundKeydownListener: ((event: KeyboardEvent) => void) | null = null;
+  private interactionElement: SVGSVGElement | null = null;
   /** Single pan/zoom transform owner recreated on each render (see MapViewport). */
   private viewportRoot: SVGGElement | null = null;
   /** Topmost map layer reserved for the one disclosure currently opened by hover or keyboard focus. */
@@ -230,6 +234,10 @@ export class CampaignMapRenderer {
    * Background image loads beneath hex outlines, followed by strategic sprites.
    */
   render(svg: SVGSVGElement, canvas: HTMLDivElement, viewModel: CampaignMapViewModel): void {
+    this.releaseDisclosureTracking?.();
+    this.releaseDisclosureTracking = null;
+    this.activeDisclosureFit = null;
+    this.releaseInteraction();
     const scenario = viewModel.scenario;
     this.svgElement = svg;
     this.canvasElement = canvas;
@@ -269,6 +277,7 @@ export class CampaignMapRenderer {
     const backgroundGroup = this.ensureLayer(viewportRoot, BACKGROUND_LAYER_ID);
     const hexGroup = this.ensureLayer(viewportRoot, HEX_LAYER_ID);
     const terrainOverlayGroup = this.ensureLayer(viewportRoot, TERRAIN_OVERLAY_LAYER_ID);
+    const locationLeaderGroup = this.ensureLayer(viewportRoot, LOCATION_LEADER_LAYER_ID);
     const spriteGroup = this.ensureLayer(viewportRoot, SPRITE_LAYER_ID);
     const frontGroup = this.ensureLayer(viewportRoot, FRONT_LAYER_ID);
     const locationLabelGroup = this.ensureLayer(viewportRoot, LOCATION_LABEL_LAYER_ID);
@@ -296,7 +305,10 @@ export class CampaignMapRenderer {
     this.renderIntelCoverage(coverageGroup, viewModel);
     this.renderKnownStrategicSites(knownSiteGroup, viewModel);
     this.renderIntelContacts(contactGroup, viewModel);
-    this.renderNamedLocations(locationLabelGroup, scenario);
+    this.renderNamedLocations(locationLabelGroup, locationLeaderGroup, scenario);
+    // Names remain above physical markers; the active disclosure retains the top layer.
+    viewportRoot.insertBefore(locationLabelGroup, transientDisclosureGroup);
+    this.trackDisclosureViewport(svg, viewportRoot);
 
     const bounds = this.gridBounds;
     if (!bounds) {
@@ -318,6 +330,7 @@ export class CampaignMapRenderer {
     const transform = `translate(${offsetX.toFixed(3)}, ${offsetY.toFixed(3)})`;
     hexGroup.setAttribute("transform", transform);
     terrainOverlayGroup.setAttribute("transform", transform);
+    locationLeaderGroup.setAttribute("transform", transform);
     frontGroup.setAttribute("transform", transform);
     spriteGroup.setAttribute("transform", transform);
     forceGroup.setAttribute("transform", transform);
@@ -357,6 +370,54 @@ export class CampaignMapRenderer {
     }
     group.classList.add(className);
     if (className === "selected") this.setEntitySelection(hexKey, true);
+  }
+
+  /** Symbol art is a bounded token, never a second terrain hex competing with the lattice. */
+  private boundSymbol(element: SVGGraphicsElement, scaleVariable: string): void {
+    element.style.transformBox = "fill-box";
+    element.style.transformOrigin = "center";
+    element.style.transform = `scale(var(${scaleVariable}, 1))`;
+  }
+
+  private markerRadius(): number {
+    return this.getRegisteredGridGeometry()?.radius ?? HEX_RADIUS * this.getHexDensityScalar();
+  }
+
+  private trackDisclosureViewport(svg: SVGSVGElement, root: SVGGElement): void {
+    const refit = (): void => this.activeDisclosureFit?.();
+    const ancestors: Element[] = [];
+    for (let parent = svg.parentElement; parent; parent = parent.parentElement) {
+      ancestors.push(parent);
+      parent.addEventListener("scroll", refit, { passive: true });
+    }
+    const observer = typeof MutationObserver === "function" ? new MutationObserver(refit) : null;
+    observer?.observe(root, { attributes: true, attributeFilter: ["transform", "style"] });
+    ancestors.forEach(parent => observer?.observe(parent, {
+      attributes: true,
+      attributeFilter: ["class", "hidden", "style"]
+    }));
+    const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(refit) : null;
+    resizeObserver?.observe(svg);
+    ancestors.forEach(parent => resizeObserver?.observe(parent));
+    window.addEventListener("resize", refit, { passive: true });
+    this.releaseDisclosureTracking = () => {
+      observer?.disconnect();
+      resizeObserver?.disconnect();
+      ancestors.forEach(parent => parent.removeEventListener("scroll", refit));
+      window.removeEventListener("resize", refit);
+    };
+  }
+
+  /** Releases every global/ancestor listener when the owning campaign screen is disposed. */
+  public dispose(): void {
+    this.releaseDisclosureTracking?.();
+    this.releaseDisclosureTracking = null;
+    this.activeDisclosureFit = null;
+    this.releaseInteraction();
+    this.viewportRoot = null;
+    this.transientDisclosureLayer = null;
+    this.svgElement = null;
+    this.canvasElement = null;
   }
 
   /** Clears a highlight class from a specific hex. */
@@ -740,8 +801,9 @@ export class CampaignMapRenderer {
   /** Drops strategic sprites (bases, fleets) onto the map using campaign palette metadata. */
   private renderSprites(layer: SVGGElement, scenario: CampaignScenarioData): void {
     const density = this.getHexDensityScalar();
-    // Scale icon size based on hex size - icons should fill most of the hex without overlapping neighbors
-    const iconSize = HEX_RADIUS * density * 1.6;
+    // The raster source files include a point-top tile silhouette. Treat that artwork as an
+    // installation symbol inside the registered flat-top cell instead of a second full-size tile.
+    const iconSize = HEX_RADIUS * density * 1.05;
 
     scenario.tiles.forEach((instance) => {
       const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
@@ -781,6 +843,11 @@ export class CampaignMapRenderer {
         return;
       }
 
+      const symbol = document.createElementNS(SVG_NS, "g");
+      symbol.classList.add("campaign-map-tile-symbol-frame");
+      symbol.setAttribute("data-hex", hexKey);
+      this.boundSymbol(symbol, "--campaign-map-tile-symbol-scale");
+
       const image = document.createElementNS(SVG_NS, "image");
       image.setAttribute("href", asset);
       image.setAttribute("width", String(iconSize));
@@ -789,7 +856,8 @@ export class CampaignMapRenderer {
       image.setAttribute("y", String(cy - iconSize / 2));
       image.setAttribute("role", "img");
       image.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
-      image.classList.add("campaign-sprite");
+      image.classList.add("campaign-sprite", "campaign-map-tile-symbol");
+      image.dataset.symbolTreatment = "bounded-icon";
 
       // Apply rotation if specified
       const rotation = instance.rotation ?? 0;
@@ -800,7 +868,8 @@ export class CampaignMapRenderer {
       // Associate the sprite with its hex so clicks on the icon can be resolved to the correct tile.
       image.setAttribute("data-hex", hexKey);
 
-      layer.appendChild(image);
+      symbol.appendChild(image);
+      layer.appendChild(symbol);
       this.spriteIndex.set(hexKey, image);
     });
   }
@@ -941,7 +1010,7 @@ export class CampaignMapRenderer {
       const cardX = Math.max(6, Math.min(this.mapPixelWidth - cardWidth - 6, unclampedX));
       const cardY = Math.max(6, Math.min(this.mapPixelHeight - cardHeight - 6, center.cy - cardHeight / 2));
       const cardEdgeX = prefersRight ? cardX : cardX + cardWidth;
-      const triggerRadius = THEATER_BASE_HIT_RADIUS;
+      const triggerRadius = Math.min(THEATER_BASE_HIT_RADIUS, this.markerRadius() * 0.74);
       const accessibleName = `${baseName}, ${roleLabel}. ${commandSummary}. Select for orders and assigned formations.`;
       const spriteKey = palette.spriteKey ?? palette.role;
       const asset = CAMPAIGN_SPRITES[spriteKey];
@@ -963,10 +1032,11 @@ export class CampaignMapRenderer {
       const installation = document.createElementNS(SVG_NS, "image");
       installation.classList.add("campaign-base-marker__sprite");
       installation.setAttribute("href", asset);
-      installation.setAttribute("x", String(center.cx - THEATER_MARKER_ICON_SIZE / 2));
-      installation.setAttribute("y", String(center.cy - THEATER_MARKER_ICON_SIZE / 2));
-      installation.setAttribute("width", String(THEATER_MARKER_ICON_SIZE));
-      installation.setAttribute("height", String(THEATER_MARKER_ICON_SIZE));
+      const installationSize = Math.min(THEATER_MARKER_ICON_SIZE, this.markerRadius() * 1.25);
+      installation.setAttribute("x", String(center.cx - installationSize / 2));
+      installation.setAttribute("y", String(center.cy - installationSize / 2));
+      installation.setAttribute("width", String(installationSize));
+      installation.setAttribute("height", String(installationSize));
       installation.setAttribute("preserveAspectRatio", "xMidYMid meet");
       installation.setAttribute("data-marker-sprite-key", spriteKey);
       installation.setAttribute("data-authoritative-anchor", "true");
@@ -997,6 +1067,7 @@ export class CampaignMapRenderer {
 
       const hitTarget = document.createElementNS(SVG_NS, "circle");
       hitTarget.classList.add("campaign-base-marker__hit-target");
+      hitTarget.style.transform = "none";
       hitTarget.setAttribute("cx", String(center.cx));
       hitTarget.setAttribute("cy", String(center.cy));
       hitTarget.setAttribute("r", String(triggerRadius));
@@ -1009,6 +1080,7 @@ export class CampaignMapRenderer {
 
       const focusRing = document.createElementNS(SVG_NS, "circle");
       focusRing.classList.add("campaign-base-marker__focus-ring");
+      focusRing.style.transform = "none";
       focusRing.setAttribute("cx", String(center.cx));
       focusRing.setAttribute("cy", String(center.cy));
       focusRing.setAttribute("r", String(triggerRadius));
@@ -1202,6 +1274,7 @@ export class CampaignMapRenderer {
 
       const stack = document.createElementNS(SVG_NS, "g");
       stack.classList.add("campaign-force-stack");
+      this.boundSymbol(stack, "--campaign-map-force-scale");
       stack.setAttribute("data-hex", hexKey);
       stack.setAttribute("data-faction", controller);
       stack.setAttribute("data-formation-count", String(totalFormations));
@@ -1249,14 +1322,38 @@ export class CampaignMapRenderer {
   }
 
   /** Renders geographic names with a small collision-aware placement pass. */
-  private renderNamedLocations(layer: SVGGElement, scenario: CampaignScenarioData): void {
+  private renderNamedLocations(layer: SVGGElement, leaderLayer: SVGGElement, scenario: CampaignScenarioData): void {
     layer.style.pointerEvents = "none";
+    leaderLayer.style.pointerEvents = "none";
     const density = this.getHexDensityScalar();
     const fontSize = Math.max(5.5, density * 32);
     const inset = HEX_RADIUS * density * 0.8;
-    type Placement = "above" | "below" | "left" | "right";
+    type Placement = "above" | "below" | "left" | "right" | "above-left" | "above-right" | "below-left" | "below-right";
     type LabelBox = { left: number; right: number; top: number; bottom: number };
     const occupied: LabelBox[] = [];
+    // Reserve painted entities as well as other names. Transparent interaction/uncertainty
+    // areas are deliberately excluded; they are not competing artwork. Full authored footprints
+    // are the maximum world-space size across supported zooms, so one placement serves every tier.
+    this.svgElement?.querySelectorAll<SVGGraphicsElement>(
+      "#campaign-map-sprites image, .campaign-base-marker__sprite, .campaign-force-stack__footprint, .campaign-known-site__sprite, .campaign-intel-contact circle:not(.campaign-intel-uncertainty)"
+    ).forEach(marker => {
+      if (marker.tagName === "circle") {
+        const cx = Number(marker.getAttribute("cx")); const cy = Number(marker.getAttribute("cy"));
+        const r = Number(marker.getAttribute("r"));
+        occupied.push({ left: cx - r, right: cx + r, top: cy - r, bottom: cy + r });
+      } else {
+        const x = Number(marker.getAttribute("x")); const y = Number(marker.getAttribute("y"));
+        const width = Number(marker.getAttribute("width"));
+        const height = Number(marker.getAttribute("height"));
+        const footprint = Math.max(width, height);
+        occupied.push({
+          left: x + width / 2 - footprint / 2,
+          top: y + height / 2 - footprint / 2,
+          right: x + width / 2 + footprint / 2,
+          bottom: y + height / 2 + footprint / 2
+        });
+      }
+    });
     const intersects = (a: LabelBox, b: LabelBox): boolean => (
       a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
     );
@@ -1282,23 +1379,33 @@ export class CampaignMapRenderer {
       if (!center) return;
 
       const preferred: Placement[] = palette.role === "region"
-        ? ["above", "right", "left", "below"]
+        ? ["above", "above-right", "above-left", "right", "left", "below-right", "below-left", "below"]
         : palette.role.startsWith("fortification")
-          ? ["below", "above", "right", "left"]
-          : ["right", "above", "below", "left"];
+          ? ["below", "below-right", "below-left", "above", "above-right", "above-left", "right", "left"]
+          : ["right", "above-right", "below-right", "above", "below", "above-left", "below-left", "left"];
       const placements = preferred.filter((placement) => (
-        !(col === 0 && placement === "left")
-        && !(col === scenario.dimensions.cols - 1 && placement === "right")
+        !(col === 0 && placement.includes("left"))
+        && !(col === scenario.dimensions.cols - 1 && placement.includes("right"))
       ));
       const estimatedWidth = fontSize * (label.length * 0.61 + 0.8);
       const estimatedHeight = fontSize * 1.2;
       const padding = fontSize * 0.38;
       let chosen: { placement: Placement; x: number; y: number; anchor: "start" | "middle" | "end"; box: LabelBox } | null = null;
 
-      for (const placement of placements) {
-        const anchor: "start" | "middle" | "end" = placement === "right" ? "start" : placement === "left" ? "end" : "middle";
-        const x = center.cx + (placement === "right" ? inset : placement === "left" ? -inset : 0);
-        const y = center.cy + (placement === "below" ? inset + fontSize * 0.72 : placement === "above" ? -inset + fontSize * 0.3 : fontSize * 0.3);
+      const radialDistances = [1, 1.4, 1.8, 2.2, 2.8, 3.4, 4.2, 5, 6, 7];
+      const maximumRadialDistance = Math.ceil(Math.hypot(this.mapPixelWidth, this.mapPixelHeight) / inset);
+      for (let distance = 8; distance <= maximumRadialDistance; distance += 0.5) radialDistances.push(distance);
+      const candidates = radialDistances
+        .flatMap(distance => placements.map(placement => ({ placement, distance })));
+      for (const { placement, distance } of candidates) {
+        const extendsRight = placement.includes("right");
+        const extendsLeft = placement.includes("left");
+        const extendsAbove = placement.includes("above");
+        const extendsBelow = placement.includes("below");
+        const anchor: "start" | "middle" | "end" = extendsRight ? "start" : extendsLeft ? "end" : "middle";
+        const offset = inset * distance;
+        const x = center.cx + (extendsRight ? offset : extendsLeft ? -offset : 0);
+        const y = center.cy + (extendsBelow ? offset + fontSize * 1.2 : extendsAbove ? -offset : fontSize * 0.3);
         const left = anchor === "start" ? x : anchor === "end" ? x - estimatedWidth : x - estimatedWidth / 2;
         const box = {
           left: left - padding,
@@ -1311,7 +1418,48 @@ export class CampaignMapRenderer {
         chosen = { placement, x, y, anchor, box };
         break;
       }
-      if (!chosen) return;
+      if (!chosen) {
+        // A final measured lane search guarantees that crowded geography is retained. It scans
+        // the full authored canvas, keeps the nearest collision-free slot, and lets the leader
+        // preserve the label's relationship to its source hex.
+        const laneStep = Math.max(2, fontSize * 0.5);
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        for (let top = padding; top + estimatedHeight + padding * 2 <= this.mapPixelHeight; top += laneStep) {
+          for (let left = padding; left + estimatedWidth + padding * 2 <= this.mapPixelWidth; left += laneStep) {
+            const box = {
+              left,
+              right: left + estimatedWidth + padding * 2,
+              top,
+              bottom: top + estimatedHeight + padding * 2
+            };
+            if (occupied.some(existing => intersects(box, existing))) continue;
+            const labelCx = (box.left + box.right) / 2;
+            const labelCy = (box.top + box.bottom) / 2;
+            const distance = (labelCx - center.cx) ** 2 + (labelCy - center.cy) ** 2;
+            if (distance >= nearestDistance) continue;
+            nearestDistance = distance;
+            const horizontal = labelCx < center.cx ? "left" : "right";
+            const vertical = labelCy < center.cy ? "above" : "below";
+            const dx = Math.abs(labelCx - center.cx);
+            const dy = Math.abs(labelCy - center.cy);
+            const placement: Placement = dx > dy * 1.8
+              ? horizontal
+              : dy > dx * 1.8
+                ? vertical
+                : `${vertical}-${horizontal}` as Placement;
+            chosen = {
+              placement,
+              x: box.left + padding,
+              y: box.bottom - padding,
+              anchor: "start",
+              box
+            };
+          }
+        }
+      }
+      if (!chosen) {
+        throw new Error(`Unable to place campaign map label '${label}' without occluding rendered geometry.`);
+      }
       occupied.push(chosen.box);
 
       const marker = document.createElementNS(SVG_NS, "g");
@@ -1319,6 +1467,17 @@ export class CampaignMapRenderer {
       marker.setAttribute("data-hex", hexKey);
       marker.setAttribute("data-placement", chosen.placement);
       marker.setAttribute("aria-hidden", "true");
+
+      const leader = document.createElementNS(SVG_NS, "line");
+      leader.classList.add("campaign-map-location-label__leader");
+      leader.setAttribute("x1", String(center.cx));
+      leader.setAttribute("y1", String(center.cy));
+      leader.setAttribute("x2", String(Math.max(chosen.box.left, Math.min(chosen.box.right, center.cx))));
+      leader.setAttribute("y2", String(Math.max(chosen.box.top, Math.min(chosen.box.bottom, center.cy))));
+      leader.setAttribute("stroke", "rgba(255, 241, 189, 0.65)");
+      leader.setAttribute("stroke-width", "1");
+      leader.setAttribute("vector-effect", "non-scaling-stroke");
+      leaderLayer.appendChild(leader);
 
       const text = document.createElementNS(SVG_NS, "text");
       text.textContent = label;
@@ -1406,8 +1565,11 @@ export class CampaignMapRenderer {
 
       const sharesHexWithKnownSite = (viewModel.knownStrategicSites ?? [])
         .some((site) => site.locationHexKey === contact.locationHexKey);
-      const markerCx = cx + (sharesHexWithKnownSite ? HEX_RADIUS * density * 0.38 : 0);
-      const tokenRadius = HEX_RADIUS * density * (sharesHexWithKnownSite ? 0.36 : 0.54);
+      const markerCx = cx + (sharesHexWithKnownSite ? this.markerRadius() * 0.4 : 0);
+      const tokenRadius = this.markerRadius() * (sharesHexWithKnownSite ? 0.27 : 0.54);
+      const tokenGroup = document.createElementNS(SVG_NS, "g");
+      tokenGroup.classList.add("campaign-intel-contact__token");
+      this.boundSymbol(tokenGroup, "--campaign-map-contact-scale");
       const token = document.createElementNS(SVG_NS, "circle");
       token.setAttribute("cx", String(markerCx));
       token.setAttribute("cy", String(cy));
@@ -1422,7 +1584,7 @@ export class CampaignMapRenderer {
       if (contact.state !== "current") token.setAttribute("stroke-dasharray", `${Math.max(1.5, density * 12)} ${Math.max(1, density * 8)}`);
       token.setAttribute("data-hex", contact.locationHexKey);
       token.setAttribute("aria-hidden", "true");
-      marker.appendChild(token);
+      tokenGroup.appendChild(token);
 
       const spriteUrl = this.resolveContactSprite(contact);
       if (spriteUrl) {
@@ -1438,7 +1600,7 @@ export class CampaignMapRenderer {
         icon.setAttribute("data-hex", contact.locationHexKey);
         icon.setAttribute("aria-hidden", "true");
         icon.classList.add("campaign-intel-contact__sprite");
-        marker.appendChild(icon);
+        tokenGroup.appendChild(icon);
       } else {
         const diamond = document.createElementNS(SVG_NS, "polygon");
         const inset = tokenRadius * 0.46;
@@ -1452,8 +1614,9 @@ export class CampaignMapRenderer {
         diamond.setAttribute("opacity", "0.9");
         diamond.setAttribute("data-hex", contact.locationHexKey);
         diamond.setAttribute("aria-hidden", "true");
-        marker.appendChild(diamond);
+        tokenGroup.appendChild(diamond);
       }
+      marker.appendChild(tokenGroup);
       layer.appendChild(marker);
     });
   }
@@ -1472,8 +1635,6 @@ export class CampaignMapRenderer {
       const cy = Number(hex.dataset.cy ?? NaN);
       if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
 
-      const sharesHexWithContact = viewModel.enemyContacts
-        .some((contact) => contact.locationHexKey === site.locationHexKey);
       // The safe role owns presentation for specialized sites. This corrects Douvres' authored
       // airbase sprite without reading or mutating the hidden runtime installation at the same hex.
       const resolvedSpriteKey = site.role === "intelNode" ? "intelNode" : site.spriteKey;
@@ -1487,7 +1648,12 @@ export class CampaignMapRenderer {
         return;
       }
 
-      const markerCx = cx - (sharesHexWithContact ? THEATER_MARKER_VISUAL_RADIUS + 4 : 0);
+      const radius = this.markerRadius();
+      // The fixed installation remains centered even when the Operational layer hides its
+      // co-located mobile contact. Intelligence mode adds the smaller contact token in-cell.
+      const markerCx = cx;
+      const iconSize = Math.min(THEATER_MARKER_ICON_SIZE, radius * 1.25);
+      const hitRadius = Math.min(THEATER_KNOWN_SITE_HIT_RADIUS, radius * 0.74);
       const roleLabel = this.formatMarkerLabel(site.role);
       const statusLabel = site.category === "enemyInstallation"
         ? "Current control, condition, and garrison remain unconfirmed."
@@ -1508,10 +1674,10 @@ export class CampaignMapRenderer {
       const image = document.createElementNS(SVG_NS, "image");
       image.classList.add("campaign-known-site__sprite");
       image.setAttribute("href", asset);
-      image.setAttribute("x", String(markerCx - THEATER_MARKER_ICON_SIZE / 2));
-      image.setAttribute("y", String(cy - THEATER_MARKER_ICON_SIZE / 2));
-      image.setAttribute("width", String(THEATER_MARKER_ICON_SIZE));
-      image.setAttribute("height", String(THEATER_MARKER_ICON_SIZE));
+      image.setAttribute("x", String(markerCx - iconSize / 2));
+      image.setAttribute("y", String(cy - iconSize / 2));
+      image.setAttribute("width", String(iconSize));
+      image.setAttribute("height", String(iconSize));
       image.setAttribute("preserveAspectRatio", "xMidYMid meet");
       image.setAttribute("opacity", "0.9");
       image.setAttribute("pointer-events", "none");
@@ -1521,9 +1687,10 @@ export class CampaignMapRenderer {
 
       const focusRing = document.createElementNS(SVG_NS, "circle");
       focusRing.classList.add("campaign-known-site__focus-ring");
+      focusRing.style.transform = "none";
       focusRing.setAttribute("cx", String(markerCx));
       focusRing.setAttribute("cy", String(cy));
-      focusRing.setAttribute("r", String(THEATER_MARKER_VISUAL_RADIUS + 3));
+      focusRing.setAttribute("r", String(hitRadius));
       focusRing.setAttribute("fill", "rgba(209, 180, 104, 0.1)");
       focusRing.setAttribute("stroke", "#ffe2a0");
       focusRing.setAttribute("stroke-width", "1.5");
@@ -1545,9 +1712,10 @@ export class CampaignMapRenderer {
 
       const hitTarget = document.createElementNS(SVG_NS, "circle");
       hitTarget.classList.add("campaign-known-site__hit-target");
+      hitTarget.style.transform = "none";
       hitTarget.setAttribute("cx", String(markerCx));
       hitTarget.setAttribute("cy", String(cy));
-      hitTarget.setAttribute("r", String(THEATER_KNOWN_SITE_HIT_RADIUS));
+      hitTarget.setAttribute("r", String(hitRadius));
       hitTarget.setAttribute("fill", "rgba(0, 0, 0, 0.001)");
       hitTarget.setAttribute("stroke", "transparent");
       hitTarget.setAttribute("pointer-events", "all");
@@ -1631,6 +1799,7 @@ export class CampaignMapRenderer {
    * a screen-derived correction, so map registration and hit geometry are unaffected.
    */
   private bindViewportFittedDisclosure(marker: SVGGElement, disclosure: SVGGElement): void {
+    disclosure.style.transition = "opacity 140ms ease";
     disclosure.setAttribute("data-viewport-fit", "dynamic");
     disclosure.setAttribute("data-disclosure-side", marker.getAttribute("data-disclosure-side") ?? "right");
     const fit = (): void => {
@@ -1643,10 +1812,28 @@ export class CampaignMapRenderer {
       const card = disclosure.getBoundingClientRect();
       if (viewport.width <= 0 || viewport.height <= 0 || card.width <= 0 || card.height <= 0) return;
       const margin = 8;
-      const left = Math.max(viewport.left + margin, margin);
-      const right = Math.min(viewport.right - margin, window.innerWidth - margin);
-      const top = Math.max(viewport.top + margin, margin);
-      const bottom = Math.min(viewport.bottom - margin, window.innerHeight - margin);
+      let left = Math.max(viewport.left + margin, margin);
+      let right = Math.min(viewport.right - margin, window.innerWidth - margin);
+      let top = Math.max(viewport.top + margin, margin);
+      let bottom = Math.min(viewport.bottom - margin, window.innerHeight - margin);
+      for (let parent = svg.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        const frame = parent.getBoundingClientRect();
+        const overflowX = style.overflowX || style.overflow;
+        const overflowY = style.overflowY || style.overflow;
+        const contentLeft = parent.clientWidth > 0 ? frame.left + parent.clientLeft : frame.left;
+        const contentRight = parent.clientWidth > 0 ? contentLeft + parent.clientWidth : frame.right;
+        const contentTop = parent.clientHeight > 0 ? frame.top + parent.clientTop : frame.top;
+        const contentBottom = parent.clientHeight > 0 ? contentTop + parent.clientHeight : frame.bottom;
+        if (/(auto|scroll|hidden|clip)/.test(overflowX)) {
+          left = Math.max(left, contentLeft + margin);
+          right = Math.min(right, contentRight - margin);
+        }
+        if (/(auto|scroll|hidden|clip)/.test(overflowY)) {
+          top = Math.max(top, contentTop + margin);
+          bottom = Math.min(bottom, contentBottom - margin);
+        }
+      }
       const shiftScreenX = card.left < left
         ? left - card.left
         : card.right > right
@@ -1670,11 +1857,13 @@ export class CampaignMapRenderer {
       const overlay = this.transientDisclosureLayer;
       if (overlay && disclosure.parentNode !== overlay) overlay.appendChild(disclosure);
       disclosure.classList.add("is-open");
+      this.activeDisclosureFit = fit;
       scheduleFit();
     };
     const conceal = (): void => {
       if (marker.matches(":hover") || document.activeElement === marker) return;
       disclosure.classList.remove("is-open");
+      if (this.activeDisclosureFit === fit) this.activeDisclosureFit = null;
       if (disclosure.parentNode !== marker) marker.appendChild(disclosure);
     };
     const scheduleConceal = (): void => {
@@ -2006,14 +2195,7 @@ export class CampaignMapRenderer {
       return;
     }
 
-    if (this.boundClickListener) {
-      svg.removeEventListener("click", this.boundClickListener);
-      this.boundClickListener = null;
-    }
-    if (this.boundKeydownListener) {
-      svg.removeEventListener("keydown", this.boundKeydownListener);
-      this.boundKeydownListener = null;
-    }
+    this.releaseInteraction();
 
     if (!handler) {
       return;
@@ -2052,7 +2234,20 @@ export class CampaignMapRenderer {
 
     svg.addEventListener("click", listener);
     svg.addEventListener("keydown", keydownListener);
+    this.interactionElement = svg;
     this.boundClickListener = listener;
     this.boundKeydownListener = keydownListener;
+  }
+
+  private releaseInteraction(): void {
+    if (this.interactionElement && this.boundClickListener) {
+      this.interactionElement.removeEventListener("click", this.boundClickListener);
+    }
+    if (this.interactionElement && this.boundKeydownListener) {
+      this.interactionElement.removeEventListener("keydown", this.boundKeydownListener);
+    }
+    this.interactionElement = null;
+    this.boundClickListener = null;
+    this.boundKeydownListener = null;
   }
 }

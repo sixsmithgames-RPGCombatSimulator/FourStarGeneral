@@ -1,4 +1,5 @@
 import type { IMapViewport } from "../../contracts/IMapViewport";
+import { CAMPAIGN_MAP_SYMBOL_ZOOM_CAP } from "../../core/campaignMapPresentation";
 
 // Overview markers must shrink with the theater while disclosure cards remain
 // readable at a fixed physical size. These values keep the full painted badge
@@ -563,15 +564,20 @@ export class MapViewport implements IMapViewport {
     // mismatches between viewport state and actual rendered transform
     const transformValue = `translate(${panX}, ${panY}) scale(${zoom})`;
     this.viewportRoot.setAttribute("transform", transformValue);
-    // Keep strategic entities and their pointer targets legible in screen pixels. Marker art
-    // counter-scales only while zooming out, then grows naturally with the map when zooming in.
-    // Pointer targets remain a constant screen size so close zoom never captures adjacent hexes.
+    // Strategic art follows the map while zooming out so a symbol never covers an adjacent hex.
+    // Close zoom is capped independently by visual type; the Map list remains the accessible
+    // overview selection path when individual map cells are intentionally dense.
     const inverseZoom = 1 / zoom;
-    const markerScale = Math.max(1, inverseZoom);
+    const markerScale = Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.marker * inverseZoom);
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom", String(inverseZoom));
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom-resting", String(inverseZoom * 0.92));
     this.viewportRoot.style.setProperty("--campaign-map-marker-scale", String(markerScale));
     this.viewportRoot.style.setProperty("--campaign-map-hit-scale", String(inverseZoom));
+    // Each strategic visual has its own close-zoom cap because its authored footprint differs.
+    // Parent groups carry these transforms so child SVG rotation remains intact.
+    this.viewportRoot.style.setProperty("--campaign-map-tile-symbol-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.tile * inverseZoom)));
+    this.viewportRoot.style.setProperty("--campaign-map-force-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.force * inverseZoom)));
+    this.viewportRoot.style.setProperty("--campaign-map-contact-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.contact * inverseZoom)));
     this.viewportRoot.dataset.campaignMapDensity = zoom < 0.25
       ? "theater"
       : zoom < 0.55

@@ -1061,6 +1061,7 @@ export class CampaignScreen {
   /** Releases this screen's access-only subscriptions and modal handlers before disposal. */
   public disposeCampaignAccessGate(): void {
     this.cancelCampaignCheckpointRequest();
+    (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>).dispose?.();
     this.lockAuthUnsubscribe?.();
     this.lockAuthUnsubscribe = null;
     if (this.lockScreenHandler) document.removeEventListener("screen:shown", this.lockScreenHandler);
