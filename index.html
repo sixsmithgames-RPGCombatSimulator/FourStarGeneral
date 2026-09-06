@@ -2059,6 +2059,11 @@
       cursor: pointer;
       outline: none;
     }
+    .campaign-map-location-label {
+      transform: scale(var(--campaign-map-location-label-scale, 1));
+      transform-box: fill-box;
+      transform-origin: center bottom;
+    }
     #viewportRoot[data-campaign-map-density="theater"] .campaign-base-marker:not(.is-selected),
     #viewportRoot[data-campaign-map-density="theater"] .campaign-known-site:not(.is-selected) {
       display: none;
@@ -2073,10 +2078,9 @@
       display: none;
       pointer-events: none;
     }
-    .campaign-base-marker__sprite,
     .campaign-base-marker__strength,
-    .campaign-known-site__sprite,
-    .campaign-map-selection-locator {
+    .campaign-base-marker__sprite:not(.campaign-map-hex-art),
+    .campaign-known-site__sprite:not(.campaign-map-hex-art) {
       transform: scale(var(--campaign-map-marker-scale, 1));
       transform-box: fill-box;
       transform-origin: center;

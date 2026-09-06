@@ -149,7 +149,7 @@ registerTest("FSG_CAM_101_SHIPPED_COLOCATED_MARKERS_REMAIN_INSIDE_AUTHORED_HEX",
   } finally { canvas.remove(); }
 });
 
-registerTest("FSG_CAM_102_DETAIL_ZOOM_CAPS_CAMPAIGN_SYMBOL_FOOTPRINTS", () => {
+registerTest("FSG_CAM_102_HEX_ART_REGISTERS_TO_FLAT_TOP_CELLS_AT_EVERY_ZOOM", () => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.id = "campaignSymbolScaleMap";
@@ -163,6 +163,15 @@ registerTest("FSG_CAM_102_DETAIL_ZOOM_CAPS_CAMPAIGN_SYMBOL_FOOTPRINTS", () => {
     });
     if (!rotatedSymbolTile) throw new Error("Shipped Omaha symbol prerequisite is missing.");
     rotatedSymbolTile.rotation = 30;
+    scenario.tilePalette.testNonHexSymbol = {
+      role: "region",
+      factionControl: "Player",
+      spriteKey: "intelNode"
+    };
+    scenario.tiles.push({
+      tile: "testNonHexSymbol",
+      hex: CoordinateSystem.offsetToAxial(12, 18)
+    });
     const renderer = new CampaignMapRenderer();
     renderer.render(svg, canvas, buildCampaignMapView(scenario, createCampaignKnowledgeState(scenario, "Player", 0), 0));
     const root = svg.querySelector<SVGGElement>("#viewportRoot")!;
@@ -171,6 +180,7 @@ registerTest("FSG_CAM_102_DETAIL_ZOOM_CAPS_CAMPAIGN_SYMBOL_FOOTPRINTS", () => {
     const douvres = svg.querySelector<SVGImageElement>('[data-known-site-id="briefed_douvres"] .campaign-known-site__sprite')!;
     const junoSymbol = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="28,23"]')!;
     const rotatedSymbol = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="24,23"]')!;
+    const nonHexSymbol = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="12,18"]')!;
     const junoForce = svg.querySelector<SVGCircleElement>('#campaign-map-forces .campaign-force-stack[data-hex="28,23"] .campaign-force-stack__footprint')!;
     const rotatedTaskForces = svg.querySelectorAll<SVGGElement>('.campaign-task-force[data-facing="SW"][transform]');
     const base = svg.querySelector<SVGImageElement>(".campaign-base-marker__sprite")!;
@@ -178,15 +188,27 @@ registerTest("FSG_CAM_102_DETAIL_ZOOM_CAPS_CAMPAIGN_SYMBOL_FOOTPRINTS", () => {
     const douvresCenter = renderer.getHexCenter("29,23");
     const junoCenter = renderer.getHexCenter("28,23");
     const baseCenter = baseHex ? renderer.getHexCenter(baseHex) : null;
+    const baseSelection = base?.closest<SVGGElement>(".campaign-base-marker")?.querySelector<SVGPolygonElement>(".campaign-map-selection-locator");
+    const baseHexOutline = baseHex
+      ? svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${baseHex}"] polygon`)
+      : null;
+    const junoClip = svg.querySelector<SVGPolygonElement>('clipPath[data-hex="28,23"] polygon');
     const radius = 1024 / (2 + 1.5 * 57);
-    if (!douvres || !junoSymbol || !rotatedSymbol || !junoForce || !base || !douvresCenter || !junoCenter || !baseCenter
-      || junoSymbol.dataset.symbolTreatment !== "bounded-icon"
-      || junoSymbol.getAttribute("transform") !== null
-      || junoSymbol.parentElement?.style.transform !== "scale(var(--campaign-map-tile-symbol-scale, 1))"
+    if (!douvres || !junoSymbol || !rotatedSymbol || !nonHexSymbol || !junoForce || !base || !douvresCenter || !junoCenter || !baseCenter || !baseSelection || !baseHexOutline || !junoClip
+      || junoSymbol.dataset.symbolTreatment !== "grid-registered-hex"
+      || !junoSymbol.getAttribute("transform")?.startsWith("rotate(30 ")
+      || junoSymbol.parentElement?.style.transform
       || !rotatedSymbol.getAttribute("transform")?.startsWith("rotate(30 ")
-      || rotatedSymbol.parentElement?.style.transform !== "scale(var(--campaign-map-tile-symbol-scale, 1))"
+      || rotatedSymbol.parentElement?.style.transform
+      || nonHexSymbol.dataset.symbolTreatment !== "bounded-icon"
+      || nonHexSymbol.parentElement?.style.transform !== "scale(var(--campaign-map-tile-symbol-scale, 1))"
+      || !base.getAttribute("transform")?.startsWith("rotate(30 ")
+      || baseSelection.getAttribute("points") !== baseHexOutline.getAttribute("points")
+      || junoClip.getAttribute("points") !== svg.querySelector<SVGPolygonElement>('.campaign-hex[data-hex="28,23"] polygon')?.getAttribute("points")
+      || Math.abs(Number(junoSymbol.getAttribute("width")) - radius * 2) > 0.001
+      || Math.abs(Number(junoSymbol.getAttribute("height")) - radius * 2) > 0.001
       || rotatedTaskForces.length === 0) {
-      throw new Error("Shipped Douvres/Juno symbol prerequisites were not rendered with explicit treatment.");
+      throw new Error("Campaign hex artwork is not registered to the shipped flat-top cell geometry.");
     }
     for (const zoom of [1, 3.48, 7.5]) {
       viewport.setTransform(zoom, 0, 0);
@@ -194,19 +216,20 @@ registerTest("FSG_CAM_102_DETAIL_ZOOM_CAPS_CAMPAIGN_SYMBOL_FOOTPRINTS", () => {
       const tileScale = Number(root.style.getPropertyValue("--campaign-map-tile-symbol-scale"));
       const forceScale = Number(root.style.getPropertyValue("--campaign-map-force-scale"));
       const douvresWidth = Number(douvres.getAttribute("width")) * zoom * markerScale;
-      const junoSymbolWidth = Number(junoSymbol.getAttribute("width")) * zoom * tileScale;
+      const junoSymbolWidth = Number(junoSymbol.getAttribute("width")) * zoom;
       const junoForceWidth = Number(junoForce.getAttribute("r")) * 2 * zoom * forceScale;
-      const baseWidth = Number(base.getAttribute("width")) * zoom * markerScale;
+      const baseWidth = Number(base.getAttribute("width")) * zoom;
+      const junoCellWidth = radius * 2 * zoom;
       if (![markerScale, tileScale, forceScale].every(value => Number.isFinite(value) && value > 0)
+        || Math.abs(tileScale - Math.min(1, 2.9 / zoom)) > 0.000001
         || douvresWidth > 44.01
-        || junoSymbolWidth > 36.01
+        || Math.abs(junoSymbolWidth / junoCellWidth - 1) > 0.001
         || junoForceWidth > 44.01
-        || baseWidth > 44.01
+        || Math.abs(baseWidth / junoCellWidth - Number(base.getAttribute("width")) / (radius * 2)) > 0.001
         || !imageStaysInsideFlatTopHex(douvresCenter, radius, douvres, markerScale)
-        || !imageStaysInsideFlatTopHex(junoCenter, radius, junoSymbol, tileScale)
         || !circleStaysInsideFlatTopHex(junoCenter, radius, junoForce, forceScale)
-        || !imageStaysInsideFlatTopHex(baseCenter, radius, base, markerScale)) {
-        throw new Error(`Campaign symbols outgrow their cells at zoom ${zoom}: ${JSON.stringify({ douvresWidth, junoSymbolWidth, junoForceWidth, baseWidth })}`);
+        || !imageStaysInsideFlatTopHex(baseCenter, radius, base, 1)) {
+        throw new Error(`Campaign artwork changed its cell-relative scale at zoom ${zoom}: ${JSON.stringify({ douvresWidth, junoSymbolWidth, junoCellWidth, junoForceWidth, baseWidth })}`);
       }
     }
   } finally { canvas.remove(); }

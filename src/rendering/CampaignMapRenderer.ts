@@ -46,6 +46,15 @@ const CAMPAIGN_SPRITES: Record<string, string> = {
   fortificationLight: new URL("../assets/campaign/Fortifications -- Light -- Land -- small.png", import.meta.url).href
 };
 
+/** Raster sources whose transparent canvas contains a regular point-top hex silhouette. */
+const HEX_SHAPED_CAMPAIGN_SPRITES = new Set([
+  "airbase",
+  "navalBase",
+  "logisticsHub",
+  "fortificationHeavy",
+  "fortificationLight"
+]);
+
 export type CampaignHexClickHandler = (
   hexKey: string,
   tile: CampaignTileInstance | null,
@@ -74,6 +83,9 @@ export class CampaignMapRenderer {
   private viewportRoot: SVGGElement | null = null;
   /** Topmost map layer reserved for the one disclosure currently opened by hover or keyboard focus. */
   private transientDisclosureLayer: SVGGElement | null = null;
+  /** SVG definitions used to clip raster hex artwork to its authoritative map cell. */
+  private hexArtworkClipDefinitions: SVGDefsElement | null = null;
+  private hexArtworkClipSequence = 0;
   private gridBounds: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
 
   /** Stores the dimensions in pixels so callers can size viewports accordingly. */
@@ -274,6 +286,11 @@ export class CampaignMapRenderer {
     viewportRoot.id = "viewportRoot";
     svg.appendChild(viewportRoot);
     this.viewportRoot = viewportRoot;
+    const clipDefinitions = document.createElementNS(SVG_NS, "defs");
+    clipDefinitions.id = "campaign-map-hex-art-clips";
+    viewportRoot.appendChild(clipDefinitions);
+    this.hexArtworkClipDefinitions = clipDefinitions;
+    this.hexArtworkClipSequence = 0;
     const backgroundGroup = this.ensureLayer(viewportRoot, BACKGROUND_LAYER_ID);
     const hexGroup = this.ensureLayer(viewportRoot, HEX_LAYER_ID);
     const terrainOverlayGroup = this.ensureLayer(viewportRoot, TERRAIN_OVERLAY_LAYER_ID);
@@ -372,7 +389,7 @@ export class CampaignMapRenderer {
     if (className === "selected") this.setEntitySelection(hexKey, true);
   }
 
-  /** Symbol art is a bounded token, never a second terrain hex competing with the lattice. */
+  /** Non-geographic symbol art keeps a bounded screen-space footprint. */
   private boundSymbol(element: SVGGraphicsElement, scaleVariable: string): void {
     element.style.transformBox = "fill-box";
     element.style.transformOrigin = "center";
@@ -381,6 +398,65 @@ export class CampaignMapRenderer {
 
   private markerRadius(): number {
     return this.getRegisteredGridGeometry()?.radius ?? HEX_RADIUS * this.getHexDensityScalar();
+  }
+
+  /** Registers point-top hex raster art to the active grid without changing geographic state. */
+  private registerCampaignSpriteOrientation(
+    image: SVGImageElement,
+    spriteKey: string,
+    cx: number,
+    cy: number,
+    authoredRotation = 0
+  ): boolean {
+    const isHexArtwork = HEX_SHAPED_CAMPAIGN_SPRITES.has(spriteKey);
+    const registrationRotation = isHexArtwork && this.usesRegisteredFlatTopGrid() ? 30 : 0;
+    // A 30-degree authored turn would flip a regular hex back to point-top. Hex-shaped
+    // rasters therefore use one canonical lattice rotation; authored facing remains valid
+    // for non-hex symbols such as ships and reconnaissance icons.
+    const rotation = isHexArtwork ? registrationRotation : authoredRotation;
+    if (rotation !== 0) image.setAttribute("transform", `rotate(${rotation} ${cx} ${cy})`);
+    if (isHexArtwork) {
+      image.classList.add("campaign-map-hex-art");
+      image.dataset.sourceGridOrientation = "point-top";
+      image.dataset.mapGridOrientation = this.usesRegisteredFlatTopGrid() ? "flat-top" : "point-top";
+      image.dataset.registrationRotation = String(registrationRotation);
+    }
+    return isHexArtwork;
+  }
+
+  /** Clips the raster canvas, including stray alpha pixels, to the exact owning hex. */
+  private appendCampaignSpriteArtwork(
+    parent: SVGGElement,
+    image: SVGImageElement,
+    spriteKey: string,
+    hexKey: string,
+    cx: number,
+    cy: number,
+    authoredRotation = 0
+  ): boolean {
+    const isHexArtwork = this.registerCampaignSpriteOrientation(image, spriteKey, cx, cy, authoredRotation);
+    if (!isHexArtwork || !this.hexArtworkClipDefinitions) {
+      parent.appendChild(image);
+      return isHexArtwork;
+    }
+
+    const clipId = `campaign-map-hex-art-clip-${this.hexArtworkClipSequence++}`;
+    const clipPath = document.createElementNS(SVG_NS, "clipPath");
+    clipPath.id = clipId;
+    clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+    clipPath.setAttribute("data-hex", hexKey);
+    const clipPolygon = document.createElementNS(SVG_NS, "polygon");
+    clipPolygon.setAttribute("points", this.buildActiveHexPolygon(cx, cy, this.getHexDensityScalar()));
+    clipPath.appendChild(clipPolygon);
+    this.hexArtworkClipDefinitions.appendChild(clipPath);
+
+    const frame = document.createElementNS(SVG_NS, "g");
+    frame.classList.add("campaign-map-hex-art-frame");
+    frame.setAttribute("data-hex", hexKey);
+    frame.setAttribute("clip-path", `url(#${clipId})`);
+    frame.appendChild(image);
+    parent.appendChild(frame);
+    return true;
   }
 
   private trackDisclosureViewport(svg: SVGSVGElement, root: SVGGElement): void {
@@ -416,6 +492,8 @@ export class CampaignMapRenderer {
     this.releaseInteraction();
     this.viewportRoot = null;
     this.transientDisclosureLayer = null;
+    this.hexArtworkClipDefinitions = null;
+    this.hexArtworkClipSequence = 0;
     this.svgElement = null;
     this.canvasElement = null;
   }
@@ -801,9 +879,6 @@ export class CampaignMapRenderer {
   /** Drops strategic sprites (bases, fleets) onto the map using campaign palette metadata. */
   private renderSprites(layer: SVGGElement, scenario: CampaignScenarioData): void {
     const density = this.getHexDensityScalar();
-    // The raster source files include a point-top tile silhouette. Treat that artwork as an
-    // installation symbol inside the registered flat-top cell instead of a second full-size tile.
-    const iconSize = HEX_RADIUS * density * 1.05;
 
     scenario.tiles.forEach((instance) => {
       const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
@@ -828,8 +903,9 @@ export class CampaignMapRenderer {
       const markerLabel = paletteEntry?.notes && (paletteEntry.factionControl === "Player" || paletteEntry.intelConfirmed)
         ? paletteEntry.notes.trim()
         : this.formatMarkerLabel(paletteEntry?.role ?? spriteKey);
+      const markerIconSize = HEX_RADIUS * density * 1.05;
       if (spriteKey === "taskForce") {
-        this.renderTaskForce(layer, hexKey, cx, cy, iconSize, instance.rotation ?? 0, markerLabel);
+        this.renderTaskForce(layer, hexKey, cx, cy, markerIconSize, instance.rotation ?? 0, markerLabel);
         return;
       }
       if (this.isFriendlyInstallation(instance, scenario) && Boolean(paletteEntry?.mapLabel?.trim())) {
@@ -846,7 +922,9 @@ export class CampaignMapRenderer {
       const symbol = document.createElementNS(SVG_NS, "g");
       symbol.classList.add("campaign-map-tile-symbol-frame");
       symbol.setAttribute("data-hex", hexKey);
-      this.boundSymbol(symbol, "--campaign-map-tile-symbol-scale");
+      const isHexArtwork = HEX_SHAPED_CAMPAIGN_SPRITES.has(spriteKey);
+      if (!isHexArtwork) this.boundSymbol(symbol, "--campaign-map-tile-symbol-scale");
+      const iconSize = isHexArtwork ? this.markerRadius() * 2 : markerIconSize;
 
       const image = document.createElementNS(SVG_NS, "image");
       image.setAttribute("href", asset);
@@ -857,18 +935,17 @@ export class CampaignMapRenderer {
       image.setAttribute("role", "img");
       image.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
       image.classList.add("campaign-sprite", "campaign-map-tile-symbol");
-      image.dataset.symbolTreatment = "bounded-icon";
+      image.dataset.symbolTreatment = isHexArtwork && this.usesRegisteredFlatTopGrid()
+        ? "grid-registered-hex"
+        : isHexArtwork
+          ? "grid-aligned-hex"
+          : "bounded-icon";
+      image.setAttribute("pointer-events", "none");
 
-      // Apply rotation if specified
-      const rotation = instance.rotation ?? 0;
-      if (rotation !== 0) {
-        image.setAttribute("transform", `rotate(${rotation} ${cx} ${cy})`);
-      }
-
-      // Associate the sprite with its hex so clicks on the icon can be resolved to the correct tile.
+      // Preserve identity for inspection while pointer input falls through to the authoritative hex.
       image.setAttribute("data-hex", hexKey);
 
-      symbol.appendChild(image);
+      this.appendCampaignSpriteArtwork(symbol, image, spriteKey, hexKey, cx, cy, instance.rotation ?? 0);
       layer.appendChild(symbol);
       this.spriteIndex.set(hexKey, image);
     });
@@ -1042,7 +1119,7 @@ export class CampaignMapRenderer {
       installation.setAttribute("data-authoritative-anchor", "true");
       installation.setAttribute("pointer-events", "none");
       installation.setAttribute("aria-hidden", "true");
-      marker.appendChild(installation);
+      this.appendCampaignSpriteArtwork(marker, installation, spriteKey, hexKey, center.cx, center.cy);
       this.spriteIndex.set(hexKey, installation);
 
       if (totalAssigned > 0) {
@@ -1094,7 +1171,7 @@ export class CampaignMapRenderer {
 
       const selectionLocator = document.createElementNS(SVG_NS, "polygon");
       selectionLocator.classList.add("campaign-map-selection-locator");
-      selectionLocator.setAttribute("points", this.buildHexPolygon(center.cx, center.cy, 0.18));
+      selectionLocator.setAttribute("points", this.buildActiveHexPolygon(center.cx, center.cy, this.getHexDensityScalar()));
       selectionLocator.setAttribute("fill", "none");
       selectionLocator.setAttribute("stroke", "#d7b45f");
       selectionLocator.setAttribute("stroke-width", "2");
@@ -1370,7 +1447,7 @@ export class CampaignMapRenderer {
         return priority(b.palette.role) - priority(a.palette.role);
       });
 
-    labeledTiles.forEach(({ instance, palette }) => {
+    labeledTiles.forEach(({ instance, palette }, labelIndex) => {
       const label = palette.mapLabel?.trim();
       if (!label) return;
       const { col, row } = CoordinateSystem.axialToOffset(instance.hex.q, instance.hex.r);
@@ -1465,11 +1542,13 @@ export class CampaignMapRenderer {
       const marker = document.createElementNS(SVG_NS, "g");
       marker.classList.add("campaign-map-location-label");
       marker.setAttribute("data-hex", hexKey);
+      marker.setAttribute("data-location-label-id", String(labelIndex));
       marker.setAttribute("data-placement", chosen.placement);
       marker.setAttribute("aria-hidden", "true");
 
       const leader = document.createElementNS(SVG_NS, "line");
       leader.classList.add("campaign-map-location-label__leader");
+      leader.setAttribute("data-location-label-id", String(labelIndex));
       leader.setAttribute("x1", String(center.cx));
       leader.setAttribute("y1", String(center.cy));
       leader.setAttribute("x2", String(Math.max(chosen.box.left, Math.min(chosen.box.right, center.cx))));
@@ -1683,7 +1762,7 @@ export class CampaignMapRenderer {
       image.setAttribute("pointer-events", "none");
       image.setAttribute("aria-hidden", "true");
       image.setAttribute("data-authoritative-anchor", "true");
-      marker.appendChild(image);
+      this.appendCampaignSpriteArtwork(marker, image, resolvedSpriteKey, site.locationHexKey, markerCx, cy);
 
       const focusRing = document.createElementNS(SVG_NS, "circle");
       focusRing.classList.add("campaign-known-site__focus-ring");
@@ -1701,7 +1780,7 @@ export class CampaignMapRenderer {
 
       const selectionLocator = document.createElementNS(SVG_NS, "polygon");
       selectionLocator.classList.add("campaign-map-selection-locator");
-      selectionLocator.setAttribute("points", this.buildHexPolygon(markerCx, cy, 0.18));
+      selectionLocator.setAttribute("points", this.buildActiveHexPolygon(markerCx, cy, this.getHexDensityScalar()));
       selectionLocator.setAttribute("fill", "none");
       selectionLocator.setAttribute("stroke", "#d7b45f");
       selectionLocator.setAttribute("stroke-width", "2");

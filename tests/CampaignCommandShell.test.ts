@@ -31,6 +31,7 @@ import {
   CampaignScreen,
   projectCampaignAfterActionFormationEffects
 } from "../src/ui/screens/CampaignScreen";
+import { MapViewport } from "../src/ui/controls/MapViewport";
 
 /** Builds the compatibility markup required for shell composition without loading index.html. */
 function mountCommandShellFixture(includeDeveloperTemplates = false): HTMLElement {
@@ -85,6 +86,35 @@ function mountIsolatedCampaignScreen(state: CampaignState): { root: HTMLElement;
   assert.equal(document.getElementById("campaignLockOverlay"), null);
   return { root, screen, unlock };
 }
+
+registerTest("FSG_CAM_109_SCREEN_DISPOSAL_RELEASES_VIEWPORT_AND_STATE_SUBSCRIPTIONS", () => {
+  const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+  const scenario = scenarioFixture();
+  state.setScenario(scenario);
+  const originalDispose = MapViewport.prototype.dispose;
+  let viewportDisposals = 0;
+  MapViewport.prototype.dispose = function auditedViewportDispose(): void {
+    viewportDisposals += 1;
+    originalDispose.call(this);
+  };
+  let mounted: ReturnType<typeof mountIsolatedCampaignScreen> | null = null;
+  try {
+    mounted = mountIsolatedCampaignScreen(state);
+    mounted.screen.renderScenario(scenario);
+    const internal = mounted.screen as unknown as { viewport: MapViewport | null };
+    assert.ok(internal.viewport, "Rendering the campaign must create its viewport owner.");
+    mounted.screen.disposeCampaignAccessGate();
+    assert.equal(viewportDisposals, 1, "Campaign disposal must release the current viewport exactly once.");
+    assert.equal(internal.viewport, null);
+    state.setScenario(structuredClone(scenario));
+    assert.equal(internal.viewport, null, "Disposed campaign-state subscriptions must not recreate a viewport.");
+  } finally {
+    if ((mounted?.screen as unknown as { viewport: MapViewport | null } | undefined)?.viewport) {
+      mounted?.screen.disposeCampaignAccessGate();
+    }
+    MapViewport.prototype.dispose = originalDispose;
+  }
+});
 
 /** Uses the shipped popup structure, outside the campaign root that becomes inert while it is open. */
 function appendCampaignPopupFixture(): HTMLElement {

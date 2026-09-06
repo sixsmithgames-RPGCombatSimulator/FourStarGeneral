@@ -69,7 +69,7 @@ function setupMapDom(options?: {
   readonly svgHeight?: number;
   readonly viewBoxWidth?: number;
   readonly viewBoxHeight?: number;
-}): { host: HTMLElement; svg: SVGSVGElement; viewportRoot: SVGGElement } {
+}): { host: HTMLElement; viewport: HTMLElement; svg: SVGSVGElement; viewportRoot: SVGGElement } {
   const viewportWidth = options?.viewportWidth ?? 400;
   const viewportHeight = options?.viewportHeight ?? 300;
   const canvasWidth = options?.canvasWidth ?? 600;
@@ -80,6 +80,7 @@ function setupMapDom(options?: {
   const viewBoxHeight = options?.viewBoxHeight ?? svgHeight;
 
   const viewport = document.createElement("div");
+  viewport.className = "campaign-map-viewport";
   viewport.style.width = `${viewportWidth}px`;
   viewport.style.height = `${viewportHeight}px`;
   viewport.style.overflow = "hidden";
@@ -107,7 +108,7 @@ function setupMapDom(options?: {
   defineLayoutMetrics(canvas, canvasWidth, canvasHeight);
   defineLayoutMetrics(svg, svgWidth, svgHeight);
 
-  return { host: canvas, svg, viewportRoot };
+  return { host: canvas, viewport, svg, viewportRoot };
 }
 
 registerTest("MAP_VIEWPORT_WHEEL_ZOOM", async ({ Given, When, Then }) => {
@@ -312,6 +313,132 @@ registerTest("MAP_VIEWPORT_TOUCH_PINCH_ZOOM", async ({ Given, When, Then }) => {
       throw new Error(`Expected pinch zoom ${expectedZoom}; received ${transform.zoom}`);
     }
     host.remove();
+  });
+});
+
+registerTest("MAP_VIEWPORT_NON_HEX_TILE_SYMBOLS_RETAIN_CLOSE_ZOOM_CAP", async ({ Given, When, Then }) => {
+  let mapViewport: MapViewport;
+  let host: HTMLElement;
+  let viewportRoot: SVGGElement;
+  const tileScales: number[] = [];
+  const labelScales: number[] = [];
+
+  await Given("a campaign viewport with a bounded non-hex tile symbol", () => {
+    const dom = setupMapDom();
+    host = dom.host;
+    viewportRoot = dom.viewportRoot;
+    mapViewport = new MapViewport();
+  });
+
+  await When("the commander moves from opening zoom to maximum detail zoom", () => {
+    for (const zoom of [1, 3.48, 7.5]) {
+      mapViewport.setTransform(zoom, 0, 0);
+      tileScales.push(Number(viewportRoot.style.getPropertyValue("--campaign-map-tile-symbol-scale")));
+      labelScales.push(Number(viewportRoot.style.getPropertyValue("--campaign-map-location-label-scale")));
+    }
+  });
+
+  await Then("the non-hex symbol retains its previous screen-space growth cap", () => {
+    const expected = [1, 2.9 / 3.48, 2.9 / 7.5];
+    if (tileScales.some((scale, index) => Math.abs(scale - expected[index]!) > 0.000001)) {
+      throw new Error(`Expected bounded non-hex tile scales ${JSON.stringify(expected)}, received ${JSON.stringify(tileScales)}.`);
+    }
+    const expectedLabelScales = [1, 2.8 / 3.48, 2.8 / 7.5];
+    if (labelScales.some((scale, index) => Math.abs(scale - expectedLabelScales[index]!) > 0.000001)) {
+      throw new Error(`Expected bounded location-label scales ${JSON.stringify(expectedLabelScales)}, received ${JSON.stringify(labelScales)}.`);
+    }
+    host.remove();
+  });
+});
+
+registerTest("MAP_VIEWPORT_LABEL_VISIBILITY_TRACKS_NATIVE_VIEWPORT_GEOMETRY", async ({ Given, When, Then }) => {
+  let mapViewport: MapViewport;
+  let host: HTMLElement;
+  let viewport: HTMLElement;
+  let label: SVGGElement;
+  let leader: SVGLineElement;
+  let labelLeft = 120;
+  let resizeCallback: ResizeObserverCallback | null = null;
+  let resizeDisconnected = false;
+  const originalResizeObserver = globalThis.ResizeObserver;
+
+  await Given("a campaign label inside a natively scrollable and resizable viewport", () => {
+    class AuditResizeObserver {
+      constructor(callback: ResizeObserverCallback) { resizeCallback = callback; }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void { resizeDisconnected = true; }
+    }
+    Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: AuditResizeObserver });
+    const dom = setupMapDom();
+    host = dom.host;
+    viewport = dom.viewport;
+    label = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    label.classList.add("campaign-map-location-label");
+    label.dataset.locationLabelId = "audit-label";
+    Object.defineProperty(label, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        x: labelLeft, y: 80, left: labelLeft, top: 80, width: 90, height: 24,
+        right: labelLeft + 90, bottom: 104, toJSON: () => ""
+      })
+    });
+    leader = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    leader.classList.add("campaign-map-location-label__leader");
+    leader.dataset.locationLabelId = "audit-label";
+    leader.setAttribute("x1", "0");
+    leader.setAttribute("y1", "0");
+    const translatedLayerMatrix = {
+      a: 1, b: 0, c: 0, d: 1, e: 36, f: 52,
+      inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: -36, f: -52 })
+    } as unknown as DOMMatrix;
+    Object.defineProperty(leader, "getScreenCTM", {
+      configurable: true,
+      value: () => translatedLayerMatrix
+    });
+    dom.viewportRoot.append(leader, label);
+    mapViewport = new MapViewport();
+    mapViewport.setViewportRoot(dom.viewportRoot);
+  });
+
+  await When("native scrolling clips the label and resizing reveals it without a camera transform", () => {
+    labelLeft = 360;
+    viewport.dispatchEvent(new Event("scroll"));
+    if (label.style.visibility !== "hidden" || leader.style.visibility !== "hidden") {
+      throw new Error("Native viewport scrolling did not suppress the clipped label and leader.");
+    }
+    labelLeft = 120;
+    if (!resizeCallback) throw new Error("Campaign label ResizeObserver was not installed.");
+    resizeCallback([], {} as ResizeObserver);
+  });
+
+  await Then("the label is readable again and disposal releases viewport observers", () => {
+    if (label.style.visibility !== "visible" || leader.style.visibility !== "visible") {
+      throw new Error("Resize-driven geometry did not restore the fully readable label and leader.");
+    }
+    if (Math.abs(Number(leader.getAttribute("x2")) - 84) > 0.000001
+      || Math.abs(Number(leader.getAttribute("y2")) - 28) > 0.000001) {
+      throw new Error("Leader endpoint did not account for its translated legacy-grid layer.");
+    }
+    mapViewport.dispose();
+    const transformBeforeDisposedInput = mapViewport.getTransform();
+    labelLeft = 360;
+    viewport.dispatchEvent(new Event("scroll"));
+    const wheel = new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true });
+    host.dispatchEvent(wheel);
+    const pointerDown = createPointerEvent("pointerdown", { button: 1, pointerId: 71, clientX: 30, clientY: 30 });
+    const pointerMove = createPointerEvent("pointermove", { button: 1, pointerId: 71, clientX: 90, clientY: 80 });
+    host.dispatchEvent(pointerDown);
+    host.dispatchEvent(pointerMove);
+    const contextMenu = new Event("contextmenu", { bubbles: true, cancelable: true });
+    host.dispatchEvent(contextMenu);
+    if (label.style.visibility !== "visible" || !resizeDisconnected
+      || JSON.stringify(mapViewport.getTransform()) !== JSON.stringify(transformBeforeDisposedInput)
+      || wheel.defaultPrevented || pointerDown.wasPrevented() || pointerMove.wasPrevented() || contextMenu.defaultPrevented) {
+      throw new Error("MapViewport disposal retained campaign label geometry observers.");
+    }
+    host.remove();
+    Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: originalResizeObserver });
   });
 });
 

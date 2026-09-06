@@ -46,6 +46,61 @@ async function evidence(page: Page, info: TestInfo, name: string, value: unknown
   await info.attach(`${name}.png`, { path: screenshot, contentType: 'image/png' });
 }
 
+async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promise<{
+  hexKey: string; scale: number; intersectsViewport: boolean;
+  ratio: number; centerDelta: number; treatment: string | undefined;
+  transform: string | null; registrationFailures: string[];
+}> {
+  return page.locator('#campaignHexMap').evaluate((svg, requestedHex) => {
+    const viewport = document.querySelector<HTMLElement>('.campaign-map-viewport')!.getBoundingClientRect();
+    const candidates = Array.from(svg.querySelectorAll<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol.campaign-map-hex-art'));
+    const tile = requestedHex
+      ? candidates.find(image => image.dataset.hex === requestedHex)
+      : candidates.filter(image => {
+        const box = image.getBoundingClientRect();
+        return box.right > viewport.left && box.left < viewport.right && box.bottom > viewport.top && box.top < viewport.bottom;
+      }).sort((left, right) => {
+        const leftBox = left.getBoundingClientRect(); const rightBox = right.getBoundingClientRect();
+        const cx = viewport.left + viewport.width / 2; const cy = viewport.top + viewport.height / 2;
+        return Math.hypot(leftBox.left + leftBox.width / 2 - cx, leftBox.top + leftBox.height / 2 - cy)
+          - Math.hypot(rightBox.left + rightBox.width / 2 - cx, rightBox.top + rightBox.height / 2 - cy);
+      })[0];
+    if (!tile?.dataset.hex) throw new Error(`No visible registered hex artwork${requestedHex ? ` at ${requestedHex}` : ''}.`);
+    const hexKey = tile.dataset.hex;
+    const cell = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${hexKey}"] polygon`)!;
+    const tileBox = tile.getBoundingClientRect();
+    const cellBox = cell.getBoundingClientRect();
+    const transform = svg.querySelector('#viewportRoot')?.getAttribute('transform') ?? null;
+    const scale = Number(transform?.match(/scale\(([^)]+)\)/)?.[1]);
+    const registrationFailures = Array.from(svg.querySelectorAll<SVGImageElement>('.campaign-map-hex-art')).flatMap(image => {
+      if (!image.getAttribute('transform')?.startsWith('rotate(30 ')) return [`${image.getAttribute('class')}:rotation`];
+      const frame = image.closest<SVGGElement>('.campaign-map-hex-art-frame');
+      const clipId = frame?.getAttribute('clip-path')?.match(/^url\(#(.+)\)$/)?.[1];
+      const clip = clipId ? svg.querySelector<SVGPolygonElement>(`#${clipId} polygon`) : null;
+      const owner = frame?.dataset.hex
+        ? svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${frame.dataset.hex}"] polygon`)
+        : null;
+      return frame && clip && owner && clip.getAttribute('points') === owner.getAttribute('points')
+        ? []
+        : [`${image.getAttribute('class')}:clip`];
+    });
+    return {
+      hexKey,
+      scale,
+      intersectsViewport: tileBox.right > viewport.left && tileBox.left < viewport.right
+        && tileBox.bottom > viewport.top && tileBox.top < viewport.bottom,
+      ratio: tileBox.width / cellBox.width,
+      centerDelta: Math.hypot(
+        tileBox.left + tileBox.width / 2 - (cellBox.left + cellBox.width / 2),
+        tileBox.top + tileBox.height / 2 - (cellBox.top + cellBox.height / 2)
+      ),
+      treatment: tile.dataset.symbolTreatment,
+      transform,
+      registrationFailures
+    };
+  }, preferredHex);
+}
+
 /** Local entitlement fixture only. Campaign state and order results use normal product controls. */
 async function openFront(page: Page, viewport: { width: number; height: number }, startCompact = false): Promise<void> {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -91,6 +146,45 @@ test('FSG_CAM_081: public Enter Campaign link opens campaign while tactical entr
   await expect(page.locator('.campaign-command-shell')).toBeVisible();
   await expect(page.locator('#campaignCommandClock')).toContainText('7 June 1944');
   await evidence(page, info, 'public-campaign-entry', { url: page.url(), campaignVisible: true });
+});
+
+test('FSG_CAM_108: real theater and zoom controls preserve hex-art registration', async ({ page }, info) => {
+  await openFront(page, { width: 1506, height: 768 });
+  const cameraControls = page.locator('.campaign-map-viewport-controls');
+  await cameraControls.getByRole('button', { name: 'Active front', exact: true }).click();
+  await expect(page.locator('#campaignMapScopeLabel')).toHaveText('Active front');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const active = await campaignHexArtGeometry(page);
+  await cameraControls.getByRole('button', { name: 'Theater overview', exact: true }).click();
+  await expect(cameraControls.getByRole('button', { name: 'Theater overview', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const overview = await campaignHexArtGeometry(page, active.hexKey);
+  await evidence(page, info, 'hex-art-theater-overview', overview);
+
+  await cameraControls.getByRole('button', { name: 'Active front', exact: true }).click();
+  await expect(cameraControls.getByRole('button', { name: 'Active front', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const restoredActive = await campaignHexArtGeometry(page, active.hexKey);
+  const zoomIn = page.locator('#campaignZoomIn');
+  await zoomIn.evaluate(button => {
+    for (let step = 0; step < 36; step += 1) (button as HTMLButtonElement).click();
+  });
+  await expect.poll(async () => (await campaignHexArtGeometry(page, restoredActive.hexKey)).scale).toBe(7.5);
+  const maximum = await campaignHexArtGeometry(page, restoredActive.hexKey);
+  await evidence(page, info, 'hex-art-maximum-zoom', maximum);
+
+  for (const result of [active, overview, restoredActive, maximum]) {
+    expect(result.treatment).toBe('grid-registered-hex');
+    expect(result.centerDelta).toBeLessThan(0.5);
+    expect(result.registrationFailures).toEqual([]);
+    expect(result.intersectsViewport, `${result.hexKey} must remain visible at zoom ${result.scale}`).toBe(true);
+  }
+  expect(overview.ratio).toBeCloseTo(active.ratio, 4);
+  expect(restoredActive.ratio).toBeCloseTo(active.ratio, 4);
+  expect(maximum.ratio).toBeCloseTo(active.ratio, 4);
+  expect(overview.scale).toBeGreaterThanOrEqual(0.1);
+  expect(overview.scale).toBeLessThan(active.scale);
+  expect(maximum.scale).toBe(7.5);
+  expect(overview.transform).not.toBe(active.transform);
+  expect(maximum.transform).not.toBe(active.transform);
 });
 
 for (const viewport of releaseViewports) {

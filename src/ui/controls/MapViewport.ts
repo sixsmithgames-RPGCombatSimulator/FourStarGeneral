@@ -1,5 +1,8 @@
 import type { IMapViewport } from "../../contracts/IMapViewport";
-import { CAMPAIGN_MAP_SYMBOL_ZOOM_CAP } from "../../core/campaignMapPresentation";
+import {
+  CAMPAIGN_MAP_LABEL_ZOOM_CAP,
+  CAMPAIGN_MAP_SYMBOL_ZOOM_CAP
+} from "../../core/campaignMapPresentation";
 
 // Overview markers must shrink with the theater while disclosure cards remain
 // readable at a fixed physical size. These values keep the full painted badge
@@ -21,7 +24,9 @@ export class MapViewport implements IMapViewport {
   private viewportRoot: SVGGElement | null = null;
   private readonly wheelZoomStep = 0.18;
   private readonly wheelEventTarget: HTMLElement | SVGSVGElement;
+  private readonly campaignMapViewport: HTMLElement | null;
   private readonly onCameraAdjusted: (() => void) | null;
+  private campaignLabelResizeObserver: ResizeObserver | null = null;
   /** Tracks whether viewportRoot warning has been logged to reduce console noise */
   private hasLoggedViewportWarning = false;
   /** Timestamp of last user camera input (wheel/drag) to suppress auto-focus */
@@ -83,6 +88,8 @@ export class MapViewport implements IMapViewport {
   private readonly bindWheelInteractions = (): void => {
     this.wheelEventTarget.addEventListener("wheel", this.handleWheel, { passive: false });
   };
+  private readonly handleContextMenu = (event: Event): void => event.preventDefault();
+  private readonly handleCampaignLabelViewportChange = (): void => this.updateCampaignLocationLabelVisibility();
 
   /**
    * Begins a middle-button drag when the commander presses and holds the mouse wheel.
@@ -169,7 +176,7 @@ export class MapViewport implements IMapViewport {
     this.wheelEventTarget.addEventListener("pointercancel", this.handlePointerUp as EventListener);
     this.wheelEventTarget.addEventListener("pointerleave", this.handlePointerUp as EventListener);
     // Right-drag pans the map, so the browser context menu must not open over the battlefield.
-    this.wheelEventTarget.addEventListener("contextmenu", (event) => event.preventDefault());
+    this.wheelEventTarget.addEventListener("contextmenu", this.handleContextMenu);
   };
 
   private resolveTouchGestureMetrics(): { distance: number; centerX: number; centerY: number } | null {
@@ -300,6 +307,7 @@ export class MapViewport implements IMapViewport {
     this.onCameraAdjusted = onCameraAdjusted;
     this.minZoom = Math.max(0.1, Math.min(1, minimumZoom));
     this.wheelEventTarget = this.mapElement.parentElement instanceof HTMLElement ? this.mapElement.parentElement : this.mapElement;
+    this.campaignMapViewport = this.mapElement.closest<HTMLElement>(".campaign-map-viewport");
     this.wheelEventTarget.style.touchAction = "none";
 
     // Find viewportRoot - this is the ONLY element we transform
@@ -314,6 +322,25 @@ export class MapViewport implements IMapViewport {
 
     this.bindWheelInteractions();
     this.bindPointerInteractions();
+    this.campaignMapViewport?.addEventListener("scroll", this.handleCampaignLabelViewportChange, { passive: true });
+    if (this.campaignMapViewport && typeof ResizeObserver === "function") {
+      this.campaignLabelResizeObserver = new ResizeObserver(this.handleCampaignLabelViewportChange);
+      this.campaignLabelResizeObserver.observe(this.campaignMapViewport);
+    }
+  }
+
+  /** Releases input and campaign-label geometry observers owned by this viewport. */
+  dispose(): void {
+    this.wheelEventTarget.removeEventListener("wheel", this.handleWheel);
+    this.wheelEventTarget.removeEventListener("pointerdown", this.handlePointerDown as EventListener);
+    this.wheelEventTarget.removeEventListener("pointermove", this.handlePointerMove as EventListener);
+    this.wheelEventTarget.removeEventListener("pointerup", this.handlePointerUp as EventListener);
+    this.wheelEventTarget.removeEventListener("pointercancel", this.handlePointerUp as EventListener);
+    this.wheelEventTarget.removeEventListener("pointerleave", this.handlePointerUp as EventListener);
+    this.wheelEventTarget.removeEventListener("contextmenu", this.handleContextMenu);
+    this.campaignMapViewport?.removeEventListener("scroll", this.handleCampaignLabelViewportChange);
+    this.campaignLabelResizeObserver?.disconnect();
+    this.campaignLabelResizeObserver = null;
   }
 
   /**
@@ -354,6 +381,7 @@ export class MapViewport implements IMapViewport {
    */
   setViewportRoot(root: SVGGElement | null): void {
     this.viewportRoot = root;
+    this.updateCampaignLocationLabelVisibility();
   }
 
   /**
@@ -369,11 +397,13 @@ export class MapViewport implements IMapViewport {
    * Adjusts the zoom level by the specified delta.
    */
   adjustZoom(delta: number): void {
-    this.transform.zoom = this.clamp(
-      this.transform.zoom + delta,
-      this.minZoom,
-      this.MAX_ZOOM
-    );
+    const context = this.computeViewportContext();
+    if (context) {
+      const frame = context.viewport.getBoundingClientRect();
+      this.adjustZoomAt(delta, frame.left + frame.width / 2, frame.top + frame.height / 2);
+      return;
+    }
+    this.transform.zoom = this.clamp(this.transform.zoom + delta, this.minZoom, this.MAX_ZOOM);
     this.updateTransform();
     this.onCameraAdjusted?.();
   }
@@ -564,25 +594,94 @@ export class MapViewport implements IMapViewport {
     // mismatches between viewport state and actual rendered transform
     const transformValue = `translate(${panX}, ${panY}) scale(${zoom})`;
     this.viewportRoot.setAttribute("transform", transformValue);
-    // Strategic art follows the map while zooming out so a symbol never covers an adjacent hex.
-    // Close zoom is capped independently by visual type; the Map list remains the accessible
-    // overview selection path when individual map cells are intentionally dense.
+    // Non-geographic strategic markers keep a bounded screen footprint. Registered hex artwork
+    // remains at scale 1 inside this root so it follows the same camera transform as its map cell.
     const inverseZoom = 1 / zoom;
     const markerScale = Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.marker * inverseZoom);
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom", String(inverseZoom));
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom-resting", String(inverseZoom * 0.92));
     this.viewportRoot.style.setProperty("--campaign-map-marker-scale", String(markerScale));
     this.viewportRoot.style.setProperty("--campaign-map-hit-scale", String(inverseZoom));
-    // Each strategic visual has its own close-zoom cap because its authored footprint differs.
-    // Parent groups carry these transforms so child SVG rotation remains intact.
     this.viewportRoot.style.setProperty("--campaign-map-tile-symbol-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.tile * inverseZoom)));
+    // Each non-geographic visual has its own close-zoom cap because its authored footprint differs.
     this.viewportRoot.style.setProperty("--campaign-map-force-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.force * inverseZoom)));
     this.viewportRoot.style.setProperty("--campaign-map-contact-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.contact * inverseZoom)));
+    this.viewportRoot.style.setProperty("--campaign-map-location-label-scale", String(Math.min(1, CAMPAIGN_MAP_LABEL_ZOOM_CAP * inverseZoom)));
     this.viewportRoot.dataset.campaignMapDensity = zoom < 0.25
       ? "theater"
       : zoom < 0.55
         ? "operational"
         : "detail";
+    this.updateCampaignLocationLabelVisibility();
+  }
+
+  /** Prevents half-painted place names when panning or zooming clips the map viewport. */
+  private updateCampaignLocationLabelVisibility(): void {
+    const root = this.viewportRoot;
+    const viewport = this.campaignMapViewport;
+    if (!root || !viewport) return;
+
+    const frame = viewport.getBoundingClientRect();
+    const labels = Array.from(root.querySelectorAll<SVGGElement>(".campaign-map-location-label"));
+    labels.forEach((label) => { label.style.visibility = "visible"; });
+    labels.forEach((label) => {
+      const box = label.getBoundingClientRect();
+      const text = label.querySelector<SVGTextElement>("text");
+      const matrix = text?.getScreenCTM();
+      const screenScale = matrix ? Math.hypot(matrix.a, matrix.b) : 1;
+      const strokeWidth = text ? Number.parseFloat(getComputedStyle(text).strokeWidth) : 0;
+      const strokePadding = Number.isFinite(strokeWidth) ? strokeWidth * screenScale / 2 : 0;
+      const paintedBox = {
+        left: box.left - strokePadding,
+        right: box.right + strokePadding,
+        top: box.top - strokePadding,
+        bottom: box.bottom + strokePadding
+      };
+      const fullyReadable = box.width > 0 && box.height > 0
+        && paintedBox.left - 1 >= frame.left
+        && paintedBox.right + 1 <= frame.right
+        && paintedBox.top - 1 >= frame.top
+        && paintedBox.bottom + 1 <= frame.bottom;
+      const visibility = fullyReadable ? "visible" : "hidden";
+      label.style.visibility = visibility;
+      label.dataset.viewportVisibility = fullyReadable ? "inside" : "clipped";
+      const labelId = label.dataset.locationLabelId;
+      if (labelId) {
+        const leader = root.querySelector<SVGLineElement>(
+          `.campaign-map-location-label__leader[data-location-label-id="${labelId}"]`
+        );
+        if (leader) {
+          let leaderMatrix: DOMMatrix | null = null;
+          let inverseLeaderMatrix: DOMMatrix | null = null;
+          if (typeof leader.getScreenCTM === "function") {
+            try {
+              leaderMatrix = leader.getScreenCTM();
+              inverseLeaderMatrix = leaderMatrix?.inverse() ?? null;
+            } catch {
+              leaderMatrix = null;
+              inverseLeaderMatrix = null;
+            }
+          }
+          if (leaderMatrix && inverseLeaderMatrix) {
+            const sourceX = Number(leader.getAttribute("x1"));
+            const sourceY = Number(leader.getAttribute("y1"));
+            if (Number.isFinite(sourceX) && Number.isFinite(sourceY)) {
+              const sourceScreenX = leaderMatrix.a * sourceX + leaderMatrix.c * sourceY + leaderMatrix.e;
+              const sourceScreenY = leaderMatrix.b * sourceX + leaderMatrix.d * sourceY + leaderMatrix.f;
+              const endpointScreenX = this.clamp(sourceScreenX, paintedBox.left, paintedBox.right);
+              const endpointScreenY = this.clamp(sourceScreenY, paintedBox.top, paintedBox.bottom);
+              const endpointX = inverseLeaderMatrix.a * endpointScreenX
+                + inverseLeaderMatrix.c * endpointScreenY + inverseLeaderMatrix.e;
+              const endpointY = inverseLeaderMatrix.b * endpointScreenX
+                + inverseLeaderMatrix.d * endpointScreenY + inverseLeaderMatrix.f;
+              leader.setAttribute("x2", String(endpointX));
+              leader.setAttribute("y2", String(endpointY));
+            }
+          }
+          leader.style.visibility = visibility;
+        }
+      }
+    });
   }
 
   /**

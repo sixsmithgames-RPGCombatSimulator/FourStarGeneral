@@ -233,6 +233,7 @@ export class CampaignScreen {
   private lockLastAvailableFocus: HTMLElement | null = null;
   private lockAuthUnsubscribe: (() => void) | null = null;
   private lockScreenHandler: (() => void) | null = null;
+  private campaignShownHandler: ((event: Event) => void) | null = null;
   private lockVisibilityObserver: MutationObserver | null = null;
   private intelDrawer: HTMLElement | null = null;
   private intelSummary: HTMLElement | null = null;
@@ -1058,10 +1059,8 @@ export class CampaignScreen {
     if (restoreFocus) this.restoreCampaignAccessFocus(invoker, this.element);
   }
 
-  /** Releases this screen's access-only subscriptions and modal handlers before disposal. */
-  public disposeCampaignAccessGate(): void {
-    this.cancelCampaignCheckpointRequest();
-    (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>).dispose?.();
+  /** Resets access-only subscriptions before they are rebound during initialization. */
+  private resetCampaignAccessGate(): void {
     this.lockAuthUnsubscribe?.();
     this.lockAuthUnsubscribe = null;
     if (this.lockScreenHandler) document.removeEventListener("screen:shown", this.lockScreenHandler);
@@ -1072,6 +1071,19 @@ export class CampaignScreen {
     this.lockEntryFocusHandler = null;
     this.lockLastAvailableFocus = null;
     this.removeCampaignLockedOverlay(false);
+  }
+
+  /** Releases all screen-owned subscriptions, renderer observers and viewport input handlers. */
+  public disposeCampaignAccessGate(): void {
+    this.cancelCampaignCheckpointRequest();
+    this.viewport?.dispose();
+    this.viewport = null;
+    (this.renderer as CampaignMapRenderer | Partial<CampaignMapRenderer>).dispose?.();
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    if (this.campaignShownHandler) document.removeEventListener("screen:shown", this.campaignShownHandler);
+    this.campaignShownHandler = null;
+    this.resetCampaignAccessGate();
   }
 
   /** Releases checkpoint UI ownership; an already accepted State load retains its own transaction semantics. */
@@ -1239,7 +1251,7 @@ export class CampaignScreen {
 
     // Subscribe only after shell composition: subscribe immediately delivers the
     // current auth snapshot, and every newly created control must be isolated.
-    this.disposeCampaignAccessGate();
+    this.resetCampaignAccessGate();
     this.lockEntryFocusHandler = (event) => {
       const target = event.target;
       // ScreenManager focuses its temporary status before announcing a screen.
@@ -1259,12 +1271,14 @@ export class CampaignScreen {
     // The scenario is rendered during application startup while the campaign screen is hidden,
     // so its viewport has no measurable size at that point. Center only after ScreenManager has
     // revealed the campaign; the extra frame gives the browser a layout pass before centerOn.
-    document.addEventListener("screen:shown", (event) => {
+    if (this.campaignShownHandler) document.removeEventListener("screen:shown", this.campaignShownHandler);
+    this.campaignShownHandler = (event) => {
       const detail = (event as CustomEvent<{ id?: string }>).detail;
       if (detail?.id !== "campaign") return;
       const scenario = this.campaignState.getCampaignMapView("Player")?.scenario;
       if (scenario) this.focusActiveFront(scenario);
-    });
+    };
+    document.addEventListener("screen:shown", this.campaignShownHandler);
 
     // Capture hooks after shell composition. Existing IDs are moved, never duplicated.
     this.economyContainer = this.element.querySelector<HTMLElement>("#campaignEconomySummary");
@@ -1447,6 +1461,7 @@ export class CampaignScreen {
     }
 
     // Subscribe to campaign state changes so the sidebar reflects latest data
+    this.unsubscribe?.();
     this.unsubscribe = this.campaignState.subscribe((reason) => {
       // On scenario mutations (e.g., post-battle outcome), re-render the map so fronts/economy refresh visually.
       if (reason === "scenarioLoaded" || reason === "intelligenceUpdated" || reason === "dayAdvanced" || reason === "segmentResolved") {
