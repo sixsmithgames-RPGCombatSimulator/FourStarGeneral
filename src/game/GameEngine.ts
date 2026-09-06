@@ -57,6 +57,7 @@ import {
 } from "../core/Supply";
 import { axialKey, hexDistance, neighbors, type Axial } from "../core/Hex";
 import { ensureDeploymentState, type ReserveBlueprint } from "../state/DeploymentState";
+import { resolveUnitAllocationKey } from "../data/unitAllocationIdentity";
 import {
   planHeuristicBotTurn,
   getDifficultyModifiers,
@@ -7323,29 +7324,19 @@ private automateSupplyConvoys(
   }
 
   /**
-   * Finds the first reserve index whose scenario type matches the provided UI allocation key using DeploymentState aliasing.
+   * Resolves the complete queue before selecting exact allocation identity, then legacy identity.
    */
   private findReserveIndexByUnitKey(unitKey: string): number {
     const deploymentState = ensureDeploymentState();
     const scenarioType = deploymentState.getScenarioTypeForUnitKey(unitKey);
 
-    // Try to find a matching reserve
-    const index = this.reserves.findIndex((reserve) => {
-      // First, try exact allocationKey match
-      if (reserve.allocationKey === unitKey) {
-        return true;
-      }
-      // Then try scenario type lookup
-      if (scenarioType && reserve.unit.type === scenarioType) {
-        return true;
-      }
-      // Finally, try reverse lookup - if the reserve's scenario type maps back to this unitKey
-      const reserveUnitKey = deploymentState.getUnitKeyForScenarioType(reserve.unit.type);
-      if (reserveUnitKey === unitKey) {
-        return true;
-      }
-      return false;
-    });
+    const requestedKey = scenarioType ? unitKey : deploymentState.getUnitKeyForScenarioType(unitKey) ?? unitKey;
+    const identities = this.reserves.map((reserve) => resolveUnitAllocationKey(
+      reserve.unit, reserve.allocationKey, deploymentState.getUnitKeyForScenarioType(reserve.unit.type)
+    ));
+    // An earlier same-type unit cannot shadow a later exact match or satisfy an exhausted other role.
+    const exactIndex = this.reserves.findIndex((reserve, index) => reserve.allocationKey === requestedKey && identities[index] === requestedKey);
+    const index = exactIndex >= 0 ? exactIndex : identities.findIndex((identity) => identity === requestedKey);
 
     // If not found, log details for debugging
     if (index < 0) {
@@ -7356,7 +7347,7 @@ private automateSupplyConvoys(
           index: i,
           allocationKey: r.allocationKey,
           scenarioType: r.unit.type,
-          mappedKey: deploymentState.getUnitKeyForScenarioType(r.unit.type)
+          mappedKey: identities[i]
         }))
       });
     }
@@ -7368,6 +7359,8 @@ private automateSupplyConvoys(
    * Shared deployment write-path used by deployUnit() and deployUnitByKey() once the reserve entry has been resolved.
    */
   private commitDeployment(hex: Axial, entry: ReserveUnit): void {
+    const deploymentState = ensureDeploymentState();
+    const allocationKey = resolveUnitAllocationKey(entry.unit, entry.allocationKey, deploymentState.getUnitKeyForScenarioType(entry.unit.type));
     const key = axialKey(hex);
     const clone = structuredClone(entry.unit);
     clone.hex = structuredClone(hex);
@@ -7375,8 +7368,6 @@ private automateSupplyConvoys(
     if (!this.canFactionEnterHex(clone, "Player", hex)) {
       throw new Error(`Hex ${this.formatAxial(hex)} cannot accept another deployed unit.`);
     }
-    const deploymentState = ensureDeploymentState();
-    const allocationKey = entry.allocationKey ?? deploymentState.getUnitKeyForScenarioType(clone.type as string);
     if (allocationKey) {
       const sprite = entry.sprite ?? deploymentState.getSpritePath(allocationKey);
       if (sprite) {
@@ -9385,6 +9376,11 @@ private automateSupplyConvoys(
    */
   beginDeployment(): void {
     this.assertPhase("deployment", "Deployment can only begin in the deployment phase.");
+    const deploymentState = ensureDeploymentState();
+    const reserveBlueprints = deploymentState.toReserveBlueprints();
+    // Reject inconsistent source identity before clearing the previous deployment or its queues.
+    reserveBlueprints.forEach((blueprint) => resolveUnitAllocationKey(blueprint.unit, blueprint.unitKey, deploymentState.getUnitKeyForScenarioType(blueprint.unit.type)));
+    (this.playerSide.units ?? []).forEach((unit) => resolveUnitAllocationKey(unit, undefined, deploymentState.getUnitKeyForScenarioType(unit.type)));
     this.playerPlacements.clear();
     this.playerPlacementOverflow.clear();
     this.reserves.length = 0;
@@ -9398,8 +9394,6 @@ private automateSupplyConvoys(
     this.airMissionRefitTimers.clear();
     this.resetCounterIntelState();
     this.playerEnemyContactStates.clear();
-    const deploymentState = ensureDeploymentState();
-    const reserveBlueprints = deploymentState.toReserveBlueprints();
     // Capture scenario-authored units (including any preDeployed flags) before allocations overwrite the roster.
     const scenarioUnits: ScenarioUnit[] = (this.playerSide.units ?? []).map((unit) => structuredClone(unit));
 
@@ -9451,13 +9445,15 @@ private automateSupplyConvoys(
    */
   populateReservesFromPlayerUnits(): void {
     const deploymentState = ensureDeploymentState();
+    // Validate the complete source before adding any placement or reserve to the live engine.
+    (this.playerSide.units ?? []).forEach((unit) => resolveUnitAllocationKey(unit, undefined, deploymentState.getUnitKeyForScenarioType(unit.type)));
     (this.playerSide.units ?? []).forEach((unit) => {
       const clone = structuredClone(unit);
       // Assign a stable unique ID to each unit if missing so air squadrons can be distinguished.
       this.normalizeScenarioUnitState(clone);
       const definition = this.getUnitDefinition(clone.type);
       const scenarioType = clone.type as string;
-      const allocationKey = deploymentState.getUnitKeyForScenarioType(scenarioType) ?? scenarioType;
+      const allocationKey = resolveUnitAllocationKey(clone, undefined, deploymentState.getUnitKeyForScenarioType(scenarioType)) ?? scenarioType;
       // Maintain alias tables even when the engine falls back to scenario defaults so DeploymentState can aggregate counts reliably.
       deploymentState.registerScenarioAlias(allocationKey, scenarioType);
       const sprite = deploymentState.getSpritePath(allocationKey);
@@ -9578,12 +9574,12 @@ private automateSupplyConvoys(
     if (!unit) {
       return;
     }
-    this.playerPlacements.delete(key);
-    this.removeSupplyEntryFor(hex);
     const definition = this.getUnitDefinition(unit.type);
     const deploymentState = ensureDeploymentState();
-    const allocationKey = deploymentState.getUnitKeyForScenarioType(unit.type as string) ?? unit.type;
+    const allocationKey = resolveUnitAllocationKey(unit, undefined, deploymentState.getUnitKeyForScenarioType(unit.type)) ?? unit.type;
     const sprite = deploymentState.getSpritePath(allocationKey);
+    this.playerPlacements.delete(key);
+    this.removeSupplyEntryFor(hex);
     this.reserves.push({ unit: structuredClone(unit), definition, allocationKey, sprite });
     // Unit returns to reserve pool; clear roster cache so reserve counts rise immediately in the UI.
     this.invalidateRosterCache();
@@ -9605,12 +9601,22 @@ private automateSupplyConvoys(
       .filter((unit) => (unit as { preDeployed?: boolean }).preDeployed === true)
       .map((unit) => structuredClone(unit));
 
-    this.playerSide.units = units.map((unit) => structuredClone(unit));
-
+    const nextPlayerUnits = units.map((unit) => structuredClone(unit));
     // Append preserved predeployed units so beginDeployment can detect and place them.
-    if (scenarioPredeployed.length > 0) {
-      this.playerSide.units.push(...scenarioPredeployed);
-    }
+    nextPlayerUnits.push(...scenarioPredeployed);
+
+    const deploymentState = ensureDeploymentState();
+    const reserveBlueprints = deploymentState.toReserveBlueprints();
+    // Validate both allocation sources before replacing the scenario roster. beginDeployment repeats
+    // this guard at its own mutation boundary for callers that do not use initializeFromAllocations.
+    reserveBlueprints.forEach((blueprint) => resolveUnitAllocationKey(
+      blueprint.unit, blueprint.unitKey, deploymentState.getUnitKeyForScenarioType(blueprint.unit.type)
+    ));
+    nextPlayerUnits.forEach((unit) => resolveUnitAllocationKey(
+      unit, undefined, deploymentState.getUnitKeyForScenarioType(unit.type)
+    ));
+
+    this.playerSide.units = nextPlayerUnits;
 
     this.beginDeployment();
   }
@@ -16840,7 +16846,7 @@ private automateSupplyConvoys(
     const frontline: RosterUnitSummary[] = this.getAllUnitsForFaction("Player").map((unit) => {
       const statusUnit = this.normalizedCombatStatusSnapshot(unit);
       const definition = this.getUnitDefinition(unit.type);
-      const unitKey = deploymentState.getUnitKeyForScenarioType(unit.type as string);
+      const unitKey = resolveUnitAllocationKey(unit, undefined, deploymentState.getUnitKeyForScenarioType(unit.type));
       const label = unitKey ? deploymentState.getLabelForUnitKey(unitKey) : unit.type;
       const sprite = unitKey ? deploymentState.getSpritePath(unitKey) : undefined;
       const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * statusUnit.strength) / 10));
@@ -16906,8 +16912,7 @@ private automateSupplyConvoys(
     const reserves: RosterUnitSummary[] = this.reserves.map((reserve, index) => {
       const statusUnit = this.normalizedCombatStatusSnapshot(reserve.unit);
       const definition = this.getUnitDefinition(reserve.unit.type);
-      const unitKey = reserve.allocationKey
-        ?? deploymentState.getUnitKeyForScenarioType(reserve.unit.type as string);
+      const unitKey = resolveUnitAllocationKey(reserve.unit, reserve.allocationKey, deploymentState.getUnitKeyForScenarioType(reserve.unit.type));
       const label = unitKey ? deploymentState.getLabelForUnitKey(unitKey) : reserve.unit.type;
       const sprite = reserve.sprite ?? (unitKey ? deploymentState.getSpritePath(unitKey) : undefined);
       const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * statusUnit.strength) / 10));

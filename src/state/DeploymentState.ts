@@ -3,6 +3,7 @@ import type { ScenarioUnit } from "../core/types";
 import { createScenarioUnitFromTemplate, deploymentTemplates, findTemplateForUnitKey } from "../game/adapters";
 import { getSpriteForAllocationKey, getSpriteForScenarioType } from "../data/unitSpriteCatalog";
 import { getAllocationOption } from "../data/unitAllocation";
+import { resolveUnitAllocationKey } from "../data/unitAllocationIdentity";
 import type { GameEngineAPI, ReserveUnit } from "../game/GameEngine";
 import unitTypesSource from "../data/unitSystem/derivedUnitTypes";
 
@@ -408,7 +409,7 @@ export class DeploymentState {
   }
 
   getUnitKeyForScenarioType(scenarioType: string): string | null {
-    return this.ensureScenarioAliasForType(scenarioType);
+    return resolveUnitAllocationKey({ type: scenarioType }, undefined, this.ensureScenarioAliasForType(scenarioType));
   }
 
   /**
@@ -526,13 +527,17 @@ export class DeploymentState {
    * Call immediately after engine deployment actions (deploy, recall, finalize) so UI mirrors stay accurate.
    */
   mirrorEngineState(engine: GameEngineAPI, options: DeploymentMirrorOptions = {}): void {
+    const playerPlacements = engine.getPlayerPlacementsSnapshot();
+    const reserveSnapshot = engine.getReserveSnapshot();
+    // Validate every explicit identity before clearing or changing the existing player mirror.
+    playerPlacements.forEach((unit) => resolveUnitAllocationKey(unit, undefined, this.scenarioTypeAlias.get(unit.type)));
+    reserveSnapshot.forEach((entry) => resolveUnitAllocationKey(entry.unit, entry.allocationKey, this.scenarioTypeAlias.get(entry.unit.type)));
     this.initialized = true;
 
     const previousPlacements = new Map(this.placements);
 
     this.placements.clear();
 
-    const playerPlacements = engine.getPlayerPlacementsSnapshot();
     const placementCounts = new Map<string, number>();
     playerPlacements.forEach((unit) => {
       const axialHexKey = axialKey(unit.hex);
@@ -542,15 +547,14 @@ export class DeploymentState {
         ?? options.placementHints?.get(axialHexKey)
         ?? previousPlacements.get(hexKey)
         ?? previousPlacements.get(axialHexKey);
-      const unitKey = this.resolveUnitKeyFromScenario(unit, hint?.unitKey);
-      const sprite = hint?.sprite ?? this.resolveSpriteForUnit(unitKey);
+      const unitKey = this.resolveUnitKeyFromScenario(unit);
+      const sprite = (hint?.unitKey === unitKey ? hint.sprite : undefined) ?? this.resolveSpriteForUnit(unitKey);
       this.placements.set(hexKey, { hexKey, unitKey, faction: "Player", sprite });
       placementCounts.set(unitKey, (placementCounts.get(unitKey) ?? 0) + 1);
     });
 
     this.baseCampKey = engine.baseCamp ? axialToOffsetKey(engine.baseCamp.hex) : null;
 
-    const reserveSnapshot = engine.getReserveSnapshot();
     const aggregated = this.aggregateReserves(reserveSnapshot);
 
     // Adopt the engine's reserve counts as the authoritative source so deploy-by-key aligns with the queue.
@@ -566,7 +570,7 @@ export class DeploymentState {
         index,
         allocationKey: reserve.allocationKey ?? null,
         scenarioType: reserve.unit.type,
-        inferredKey: reserve.allocationKey ?? this.resolveUnitKeyFromScenario(reserve.unit)
+        inferredKey: this.resolveUnitKeyFromScenario(reserve.unit, reserve.allocationKey)
       }))
     });
 
@@ -595,7 +599,7 @@ export class DeploymentState {
         }
       });
       this.pool = restoredPool;
-    } else if (this.pool.length === 0 && aggregated.snapshots.length > 0) {
+    } else if (this.pool.length === 0 && (aggregated.snapshots.length > 0 || placementCounts.size > 0)) {
       // No precombat data exists; blend engine reserves with already deployed counts so totals stay accurate for status copy.
       const aggregatedByKey = new Map(aggregated.snapshots.map((snapshot) => [snapshot.unitKey, snapshot] as const));
       const rosterKeys = new Set<string>([...aggregatedByKey.keys(), ...placementCounts.keys()]);
@@ -903,18 +907,11 @@ export class DeploymentState {
   /**
    * Looks up the allocation key associated with a ScenarioUnit.
    */
-  private resolveUnitKeyFromScenario(unit: ScenarioUnit, fallback?: string): string {
+  private resolveUnitKeyFromScenario(unit: ScenarioUnit, allocationKey?: string): string {
     const scenarioType = unit.type as string;
-    const alias = this.ensureScenarioAliasForType(scenarioType);
+    const alias = resolveUnitAllocationKey(unit, allocationKey, this.ensureScenarioAliasForType(scenarioType));
     if (alias) {
       return alias;
-    }
-    if (fallback) {
-      console.error("[DeploymentState] Falling back to provided unit key alias", {
-        scenarioType,
-        fallback
-      });
-      throw new Error(`Scenario type '${unit.type as string}' is not registered. Refusing fallback alias '${fallback}'.`);
     }
     throw new Error(`Scenario type '${unit.type as string}' is not registered with DeploymentState.`);
   }
@@ -961,7 +958,7 @@ export class DeploymentState {
       if (moveType === "air") {
         return;
       }
-      const unitKey = entry.allocationKey ?? this.resolveUnitKeyFromScenario(entry.unit);
+      const unitKey = this.resolveUnitKeyFromScenario(entry.unit, entry.allocationKey);
       counts.set(unitKey, (counts.get(unitKey) ?? 0) + 1);
 
       // Preserve the association between allocation key and scenario type so deploy-by-key lookups

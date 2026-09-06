@@ -112,6 +112,7 @@ import {
   type DeploymentState,
   type ReserveBlueprint
 } from "../../state/DeploymentState";
+import { resolveUnitAllocationKey } from "../../data/unitAllocationIdentity";
 import type { BattleAnimationMode, MissionKey, UIState } from "../../state/UIState";
 import { type ScenarioSource } from "../../data/scenarioRegistry";
 import { resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
@@ -6640,7 +6641,7 @@ export class BattleScreen {
     const deploymentState = ensureDeploymentState();
     report.outOfSupply.forEach((unit) => {
       const scenarioType = unit.type as string;
-      const unitKey = deploymentState.getUnitKeyForScenarioType(scenarioType) ?? scenarioType;
+      const unitKey = resolveUnitAllocationKey(unit, undefined, deploymentState.getUnitKeyForScenarioType(scenarioType)) ?? scenarioType;
       const label = this.resolveUnitLabel(unitKey);
       const displayLabel = label === unitKey ? this.toTitleCase(label) : label;
       counts.set(displayLabel, (counts.get(displayLabel) ?? 0) + 1);
@@ -9918,19 +9919,11 @@ export class BattleScreen {
    */
   private countLiveReservesForUnitKey(engine: GameEngine, unitKey: string): number {
     const deploymentState = ensureDeploymentState();
-    const scenarioType = deploymentState.getScenarioTypeForUnitKey(unitKey);
-    return engine.getReserveSnapshot().filter((reserve) => {
-      if (reserve.allocationKey === unitKey) {
-        return true;
-      }
-      if (scenarioType && reserve.unit.type === scenarioType) {
-        return true;
-      }
-      if (!reserve.allocationKey) {
-        return false;
-      }
-      return deploymentState.getUnitKeyForScenarioType(reserve.unit.type as string) === unitKey;
-    }).length;
+    const requestedKey = deploymentState.getScenarioTypeForUnitKey(unitKey)
+      ? unitKey : deploymentState.getUnitKeyForScenarioType(unitKey) ?? unitKey;
+    return engine.getReserveSnapshot().filter((reserve) => resolveUnitAllocationKey(
+      reserve.unit, reserve.allocationKey, deploymentState.getUnitKeyForScenarioType(reserve.unit.type)
+    ) === requestedKey).length;
   }
 
   /**
@@ -9956,10 +9949,10 @@ export class BattleScreen {
    */
   private summarizeLiveReserveQueue(engine: GameEngine): string {
     const summary = new Map<string, number>();
+    const deploymentState = ensureDeploymentState();
     engine.getReserveSnapshot().forEach((reserve) => {
-      const label = reserve.allocationKey
-        ? this.resolveUnitLabel(reserve.allocationKey)
-        : String(reserve.unit.type);
+      const unitKey = resolveUnitAllocationKey(reserve.unit, reserve.allocationKey, deploymentState.getUnitKeyForScenarioType(reserve.unit.type));
+      const label = unitKey ? this.resolveUnitLabel(unitKey) : String(reserve.unit.type);
       summary.set(label, (summary.get(label) ?? 0) + 1);
     });
     return Array.from(summary.entries(), ([label, count]) => `${label} x${count}`).join(", ");
@@ -14912,7 +14905,7 @@ export class BattleScreen {
     }
     const scenarioType = unit.type as string;
     const deploymentState = ensureDeploymentState();
-    const unitKey = deploymentState.getUnitKeyForScenarioType(scenarioType);
+    const unitKey = resolveUnitAllocationKey(unit, undefined, deploymentState.getUnitKeyForScenarioType(scenarioType));
     if (!unitKey) {
       const error = new Error(`[BattleScreen] Missing unit key alias for scenario type '${scenarioType}'.`);
       console.error(error);
