@@ -1857,7 +1857,7 @@ export class BattleScreen {
       this.renderEngineUnits();
       const summary = impact.hit
         ? `${impact.label} struck ${targetHexKey}, dealing ${impact.damage} damage${impact.destroyed ? " and destroying the target" : ""}.`
-        : `${impact.label} landed on ${targetHexKey}, but the target had already moved.`;
+        : `${impact.label} landed on ${targetHexKey}, but no target remained at impact.`;
       this.announceBattleUpdate(summary);
       this.publishActivityEvent({
         category: "player",
@@ -14615,12 +14615,10 @@ export class BattleScreen {
     ammoStatusMessage: string | null
   ): string {
     if (moveOptions === 0 && attackOptions === 0) {
-      return ammoStatusMessage
-        ? " No immediate attack options are available."
-        : " This unit has already moved and attacked this turn.";
+      return " No legal movement or attack options are currently available.";
     }
     if (moveOptions === 0) {
-      return ` Unit has moved. ${attackOptions} attack targets available.`;
+      return ` No legal movement options. ${attackOptions} attack targets available.`;
     }
     if (attackOptions === 0) {
       return ammoStatusMessage

@@ -1,8 +1,9 @@
 import "./domEnvironment.js";
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import type { TestFn } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
-import type { AirEngagementEvent, AirMissionArrival, BotTurnSummary } from "../src/game/GameEngine";
+import type { AirEngagementEvent, AirMissionArrival, BotTurnSummary, SupportImpactEvent } from "../src/game/GameEngine";
 import type { AttackResult } from "../src/core/Combat";
 import type { Axial, ScenarioUnit } from "../src/core/types";
 import type { AirShowPlaybackCallbacks, HexMapRenderer, ResolvedAirShowScene } from "../src/rendering/HexMapRenderer";
@@ -426,6 +427,71 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
   // Restore timeout behavior for subsequent tests
   window.setTimeout = originalSetTimeout;
 });
+
+registerTest("BATTLESCREEN_SUPPORT_EVENT_CONSUMER_REPORTS_EMPTY_IMPACT_WITHOUT_INVENTING_MOVEMENT", requireCleanPlayback(async ({ When, Then }) => {
+  const emptyImpact: SupportImpactEvent = {
+    assetId: "western-naval-force",
+    label: "Western Naval Force naval gunfire",
+    targetHex: { q: 2, r: 9 },
+    targetFaction: "Bot", hit: false, damage: 0, destroyed: false
+  };
+  const impacts: SupportImpactEvent[] = [
+    emptyImpact,
+    { ...emptyImpact, hit: true, damage: 22, targetUnitType: "Infantry_42" },
+    { ...emptyImpact, hit: true, damage: 7.5, destroyed: true, targetUnitType: "Infantry_42" }
+  ];
+  const originalImpacts = structuredClone(impacts);
+  const pending = [...impacts];
+  const announcements: string[] = [];
+  const activity: Array<{ category: string; type: string; summary: string }> = [];
+  const aftermath: string[] = [];
+  const barrages: string[] = [];
+  let consumeCalls = 0;
+  const engine = {
+    botUnits: [],
+    consumeSupportImpactEvents: (): SupportImpactEvent[] => {
+      consumeCalls += 1;
+      return pending.splice(0);
+    }
+  };
+  // Retain the actual event consumer and playback; replace only unrelated UI
+  // wiring and the renderer boundary so no test-local message producer exists.
+  const screen = Object.assign(Object.create(BattleScreen.prototype), {
+    battleState: { ensureGameEngine: () => engine },
+    unitTypes: { Infantry_42: { class: "infantry" } },
+    hexMapRenderer: {
+      playArtillerySupportImpact: async (hexKey: string) => { barrages.push(hexKey); },
+      markHexDamaged: (hexKey: string) => { aftermath.push(`damaged:${hexKey}`); },
+      markHexWrecked: (hexKey: string) => { aftermath.push(`wrecked:${hexKey}`); }
+    },
+    closeSelectionIntelForAnimation: () => {},
+    freezeCamera: () => {},
+    unfreezeCamera: () => {},
+    focusCameraOnHex: async () => {},
+    renderEngineUnits: () => {},
+    announceBattleUpdate: (message: string) => { announcements.push(message); },
+    publishActivityEvent: (event: { category: string; type: string; summary: string }) => { activity.push(event); }
+  }) as { triggerSupportImpacts: () => Promise<void> };
+
+  await When("the actual consumer drains empty, damaging and destroying support-impact events", async () => {
+    await screen.triggerSupportImpacts();
+    await screen.triggerSupportImpacts();
+  });
+
+  await Then("hit messages and effects remain intact while an empty impact states only its outcome", async () => {
+    assert.equal(consumeCalls, 2);
+    assert.equal(pending.length, 0);
+    assert.deepEqual(impacts, originalImpacts);
+    assert.deepEqual(barrages, ["2,10", "2,10", "2,10"]);
+    assert.deepEqual(aftermath, ["damaged:2,10", "wrecked:2,10"]);
+    assert.deepEqual(announcements.slice(1), [
+      "Western Naval Force naval gunfire struck 2,10, dealing 22 damage.",
+      "Western Naval Force naval gunfire struck 2,10, dealing 7.5 damage and destroying the target."
+    ]);
+    assert.deepEqual(activity, announcements.map((summary) => ({ category: "player", type: "log", summary })));
+    assert.equal(announcements[0], "Western Naval Force naval gunfire landed on 2,10, but no target remained at impact.");
+  });
+}));
 
 registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARRAGE", async ({ Given, When, Then }) => {
   const root = document.getElementById("battleScreen") ?? document.createElement("div");

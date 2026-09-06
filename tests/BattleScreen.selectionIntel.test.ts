@@ -1,7 +1,132 @@
 import "./domEnvironment.js";
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
+import { neighbors } from "../src/core/Hex";
+import type { ScenarioData, ScenarioSide, ScenarioUnit, TerrainDictionary, UnitTypeDictionary } from "../src/core/types";
+import terrainData from "../src/data/terrain.json";
+import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
+import { GameEngine } from "../src/game/GameEngine";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
+import type { SelectionIntel } from "../src/ui/announcements/AnnouncementTypes";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
+
+registerTest("BATTLE_SCREEN_BLOCKED_FRESH_SELECTION_REPORTS_LEGAL_OPTIONS_WITHOUT_SPENDING_ACTIONS", async ({ Given, When, Then }) => {
+  const selectedHex = { q: 1, r: 1 };
+  const selectedId = "blocked-16th-infantry";
+  const unit = (unitId: string, hex: ScenarioUnit["hex"]): ScenarioUnit => ({
+    unitId, hex, type: "Infantry_42", strength: 100, experience: 0,
+    ammo: 6, fuel: 0, entrench: 0, facing: "NE", preDeployed: true,
+    controlledBy: "Player"
+  });
+  const selectedUnit: ScenarioUnit = {
+    ...unit(selectedId, selectedHex),
+    campaignProvenance: {
+      campaignId: "blocked-selection-fixture", formationId: selectedId,
+      engagementId: "blocked-selection", sourceRevision: 1, sourceSegment: 0,
+      faction: "Player", ownership: "core", formationName: "16th Infantry",
+      campaignUnitType: "Infantry_42"
+    }
+  };
+  const adjacentHexes = neighbors(selectedHex);
+  const side = (units: ScenarioUnit[]): ScenarioSide => ({
+    hq: { q: 0, r: 0 },
+    general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
+    units
+  });
+  const scenario: ScenarioData = {
+    name: "Fresh infantry surrounded by full friendly stacks",
+    size: { cols: 3, rows: 3 },
+    tilePalette: {
+      plain: { terrain: "plains", terrainType: "rural", density: "average", features: [], recon: "intel" }
+    },
+    tiles: Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => ({ tile: "plain" }))),
+    objectives: [], turnLimit: 0,
+    sides: {
+      Player: side([selectedUnit, ...adjacentHexes.flatMap((hex, index) => [
+        unit(`neighbor-${index}-a`, hex), unit(`neighbor-${index}-b`, hex)
+      ])]),
+      Bot: side([])
+    }
+  };
+  const unitTypes = unitTypesData as UnitTypeDictionary;
+  const engine = new GameEngine({
+    scenario, unitTypes, terrain: terrainData as TerrainDictionary,
+    playerSide: scenario.sides.Player, botSide: scenario.sides.Bot,
+    botStrategyMode: "Simple"
+  });
+  engine.beginDeployment();
+  engine.setBaseCamp({ q: 0, r: 0 });
+  engine.finalizeDeployment();
+  engine.startPlayerTurnPhase();
+  const { col, row } = CoordinateSystem.axialToOffset(selectedHex.q, selectedHex.r);
+  const selectedKey = CoordinateSystem.makeHexKey(col, row);
+  const published: NonNullable<SelectionIntel>[] = [];
+  const announcements: string[] = [];
+  // Skip unrelated constructor/UI wiring, retaining the real selection caller,
+  // exact-ID resolution, engine queries, action summary and intel projection.
+  const screen = Object.assign(Object.create(BattleScreen.prototype), {
+    battleState: { ensureGameEngine: () => engine },
+    unitTypes, selectedHexKey: selectedKey, selectedPlayerUnitId: selectedId,
+    isInitiativeSystemEnabled: false, initiativeMethods: null,
+    playerMoveHexes: new Set<string>(), playerAttackHexes: new Set<string>(),
+    hexMapRenderer: null, baseCampStatus: document.createElement("div"),
+    syncQueuedTargetMarkers: () => {},
+    announceBattleUpdate: (message: string) => { announcements.push(message); },
+    completeGuidedTutorialSelectionFromClick: () => {},
+    syncTutorialPhaseWithCurrentContext: () => {},
+    publishSelectionIntel: (intel: SelectionIntel | null) => { if (intel) published.push(intel); },
+    lookupTerrainName: () => "Plains",
+    canUnitDigIn: () => false,
+    buildTowToggle: () => null,
+    buildBattleIntelStatusChips: () => [],
+    buildBattleIntelActions: () => [],
+    buildBattleIntelDetailSections: () => [],
+    buildBattleIntelNotes: () => []
+  }) as {
+    updateSelectionFeedback: (key: string) => void;
+    selectedPlayerUnitId: string | null;
+  };
+
+  await Given("fresh 16th Infantry has 3/3 movement but all six neighboring stacks are full", async () => {
+    assert.equal(engine.getTurnSummary().phase, "playerTurn");
+    assert.deepEqual(engine.getHexStackMembers(selectedHex, "Player").map((member) => member.unitId), [selectedId]);
+    for (const hex of adjacentHexes) assert.equal(engine.getHexStackMembers(hex, "Player").length, 2);
+    assert.deepEqual(engine.getMovementBudget(selectedHex, selectedId), { max: 3, remaining: 3 });
+    assert.deepEqual(engine.getReachableHexes(selectedHex, selectedId), []);
+    assert.deepEqual(engine.getAttackableTargets(selectedHex, selectedId), []);
+  });
+  const before = engine.serialize();
+  const beforeCommand = engine.getUnitCommandState(selectedHex, selectedId);
+  // Fresh units use the engine's default unspent flags; no entry is persisted
+  // until an action changes them. Sentry eligibility also requires no actions spent.
+  assert.deepEqual(before.actionFlags?.Player, []);
+  assert.equal(beforeCommand?.unitId, selectedId);
+  assert.equal(beforeCommand?.canEnterSentry, true);
+
+  await When("the actual selection-feedback caller publishes the blocked unit's intel", async () => {
+    screen.updateSelectionFeedback(selectedKey);
+  });
+
+  await Then("selection preserves the exact unit, allowance, action flags and serialized state", async () => {
+    assert.equal(screen.selectedPlayerUnitId, selectedId);
+    assert.deepEqual(engine.getMovementBudget(selectedHex, selectedId), { max: 3, remaining: 3 });
+    assert.deepEqual(engine.getUnitCommandState(selectedHex, selectedId), beforeCommand);
+    assert.deepEqual(engine.serialize().actionFlags, before.actionFlags);
+    assert.deepEqual(engine.serialize(), before);
+    assert.equal(published.length, 1);
+    const intel = published[0];
+    assert.equal(intel.kind, "battle");
+    if (intel.kind !== "battle") throw new Error("Expected battle selection intel.");
+    assert.equal(intel.unitLabel, "16th Infantry");
+    assert.equal(intel.movementRemaining, 3);
+    assert.equal(intel.movementMax, 3);
+    assert.equal(intel.moveOptions, 0);
+    assert.equal(intel.attackOptions, 0);
+    assert.deepEqual(announcements, [intel.statusMessage]);
+    assert.doesNotMatch(intel.statusMessage, /already moved|attacked this turn|unit has moved/i);
+    assert.match(intel.statusMessage, /No legal movement or attack options are currently available\./);
+  });
+});
 
 registerTest("BATTLE_SCREEN_SELECTION_INTEL_NOTES_SKIP_REDUNDANT_SENTRY_AND_FORTIFICATION_COPY", async ({ Then }) => {
   const fakeScreen = {
@@ -124,6 +249,8 @@ registerTest("BATTLE_SCREEN_AMMO_HELPERS_DISTINGUISH_LOW_AMMO_FROM_ALREADY_ATTAC
     { moveType: "towed", class: "artillery", traits: [] }
   );
   const actionSummary = helpers.buildBattleActionSummary(3, 0, lowAmmoMessage);
+  const blockedMovementSummary = helpers.buildBattleActionSummary(0, 2, null);
+  const blockedLowAmmoSummary = helpers.buildBattleActionSummary(0, 0, lowAmmoMessage);
 
   await Then("one ammo is still enough for a one-cost attack while higher-cost attacks explain the real blocker", async () => {
     if (standardAmmoMessage !== null) {
@@ -138,6 +265,9 @@ registerTest("BATTLE_SCREEN_AMMO_HELPERS_DISTINGUISH_LOW_AMMO_FROM_ALREADY_ATTAC
     if (!actionSummary.includes("No attack options are available until the unit is resupplied.")) {
       throw new Error(`Expected low-ammo summary to direct the player toward resupply, received '${actionSummary}'.`);
     }
+    assert.doesNotMatch(blockedMovementSummary, /unit has moved/i);
+    assert.match(blockedMovementSummary, /No legal movement options\. 2 attack targets available\./);
+    assert.match(blockedLowAmmoSummary, /No legal movement or attack options are currently available\./);
   });
 });
 

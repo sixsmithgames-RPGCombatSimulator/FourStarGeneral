@@ -7508,15 +7508,11 @@ private automateSupplyConvoys(
   }
 
   /**
-   * Returns the latest cached supply snapshot for the requested faction.
-   * The snapshot is cloned to protect internal history arrays from mutation by UI layers.
+   * Returns current faction supply without appending or rewriting recorded history.
+   * Refreshes the newest observation, retaining its comparison with the preceding sample.
    */
   getSupplySnapshot(faction: TurnFaction = "Player"): SupplySnapshot {
-    const history = this.supplyHistoryByFaction[faction];
-    if (history.length === 0) {
-      return structuredClone(this.computeSupplySnapshot(faction));
-    }
-    return structuredClone(history[history.length - 1]);
+    return structuredClone(this.computeSupplySnapshot(faction, "current"));
   }
 
   /**
@@ -16414,11 +16410,13 @@ private automateSupplyConvoys(
     }
   }
 
-  private computeSupplySnapshot(faction: TurnFaction): SupplySnapshot {
-    const history = this.supplyHistoryByFaction[faction];
-    const frontlineUnits = faction === "Player"
-      ? Array.from(this.playerPlacements.values())
-      : Array.from(this.botPlacements.values());
+  private computeSupplySnapshot(faction: TurnFaction, observation: "record" | "current" = "record"): SupplySnapshot {
+    const recordedHistory = this.supplyHistoryByFaction[faction];
+    // Recording appends an observation; a current read refreshes the newest one in place in the view.
+    // Keep its preceding baseline so unchanged totals retain recorded burn, depletion and alerts,
+    // and unrecorded resource changes refresh that same interval without adding a trend point.
+    const history = observation === "current" ? recordedHistory.slice(0, -1) : recordedHistory;
+    const frontlineUnits = this.getAllUnitsForFaction(faction);
     const reserveUnits = faction === "Player"
       ? this.reserves.map((reserve) => reserve.unit)
       : [] as ScenarioUnit[];
@@ -16839,7 +16837,7 @@ private automateSupplyConvoys(
     const deploymentState = ensureDeploymentState();
     const updatedAt = new Date().toISOString();
 
-    const frontline: RosterUnitSummary[] = Array.from(this.playerPlacements.values()).map((unit) => {
+    const frontline: RosterUnitSummary[] = this.getAllUnitsForFaction("Player").map((unit) => {
       const statusUnit = this.normalizedCombatStatusSnapshot(unit);
       const definition = this.getUnitDefinition(unit.type);
       const unitKey = deploymentState.getUnitKeyForScenarioType(unit.type as string);
@@ -16850,7 +16848,7 @@ private automateSupplyConvoys(
       const fuel = this.resolveRosterFuel(statusUnit, definition);
 
       return {
-        unitId: `${unit.type}_${axialKey(unit.hex)}`,
+        unitId: this.getSquadronId(unit),
         ...(unit.campaignProvenance?.formationId ? { campaignFormationId: unit.campaignProvenance.formationId } : {}),
         unitKey,
         label,

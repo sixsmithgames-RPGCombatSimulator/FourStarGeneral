@@ -1777,3 +1777,36 @@ This work removes unused imports/types, marks intentionally unused parameters/bi
 - Run the existing full repository replay/regression suite and all six mandatory release commands again from a clean worktree; run the six-viewport production browser matrix for actual map/inspector/action operation.
 - Confirm zero ESLint warnings without ignores or suppressions and preserve the original warning report for traceability.
 - During the separately authorized live run, inspect map rendering, battle handoff, long tactical play, animation, and console/request errors. Local replay and browser checks are not live certification.
+
+---
+
+## Live campaign stacked-formation reporting — 2026-09-05
+
+### Observed and intended behavior
+
+Live Omaha-Gold deployment places eight infantry, two engineers and one convoy across six occupied hexes. The engine and tactical serialization retain all eleven exact identities, but the Army Roster displays six, Logistics reports 30 carried ammunition instead of 60, and its retained supply sample still says Deployment during player turn one. A formation with its full movement allowance and no actions spent is also described as having already moved and attacked when neighboring stacks leave it no legal destinations.
+
+The roster and current supply read models must include every canonical formation, preserve stable unit and campaign identity across stacks and movement, and report the current phase. Lack of a legal option must not be described as an action already spent.
+
+### High-risk impact analysis before editing
+
+- Responsible high-risk files: `src/game/GameEngine.ts` (roster/current-supply read projections only) and `src/ui/screens/BattleScreen.ts` (selection-summary wording only). No combat-resolution, coordinate, deployment, movement, AI, resource-debit, naval-charge or save-schema algorithms may change.
+- Roster consumers: Army Roster, reserve/support presentation, War Room counts and combat-power/readiness summaries. Use the existing all-faction-unit iterator and stable identity helper; do not create a second registry or infer identities from type and hex.
+- Supply consumers: Logistics current stock/alerts and War Room statistics. Current reads must compute from canonical units and current phase without appending or rewriting historical samples, spending stock, changing action flags, or mutating the ledger. Preserve Player/Bot/Ally isolation and unchanged historical persistence.
+- Selection feedback: zero legal moves/attacks can result from occupied neighbors or terrain, not only spent actions. Describe the available options honestly without changing legal-option generation or routing.
+- Save compatibility: existing turn-one checkpoints can contain old historical samples. Their current views must become correct after load while serialized units, action flags, stock and historical records remain intact.
+- Visual effects: only list row count, current totals/phase and one selection sentence change. No renderer, map transform, animation or timing edits.
+- Scope discipline: separate bounded commits for these defect corrections; no general engine cleanup or wholesale replacement of legacy map reads.
+
+### Regression and manual checklist
+
+- Reproduce the live eleven-formation/six-hex stack with same-type members; require eleven unique stable roster identities, every exact campaign ID, 60 carried ammunition and unchanged naval charges.
+- Move one member, then serialize/restore: only its location changes; count, identities, resources and unrelated members remain conserved.
+- Check conventional and initiative turn starts. Repeated current-supply reads must not alter history, units, stock, ledger or action flags; test all three factions.
+- Exercise the actual selection-summary caller with a fresh formation blocked by full neighboring stacks. It must retain its allowance and never claim spent actions merely because zero options exist.
+- Run focused failing-then-passing regressions, independent review, all six required release commands from a clean commit and zero-warning lint.
+- In the deployed external browser, resume this audit's own named turn-one checkpoint, reconcile all eleven roster identities and supply/phase values, then continue support targeting, long battle, natural outcome/AAR and campaign return. Preserve every pre-existing player save.
+
+### Naval empty-impact feedback — 2026-09-06, before editing
+
+The live turn13 event reports an empty impact hex but the BattleScreen subscriber invents movement as its cause. The authorized high-risk edit is one event-consumer sentence in BattleScreen.ts, plus an actual subscriber regression for hit:false and retained hit:true copy. Report only that no target remained at impact. Do not modify GameEngine resolution, enemy visibility, naval charge/timing mechanics, renderer, or other combat logs. Preserve exact support name and displayed hex. Focused RED/GREEN, scoped checks, independent review and the consolidated full release gates precede the live retest.
