@@ -12,3 +12,4 @@ import "./CampaignStackedReporting.test.js";
 import "./CampaignSupplyAccess.test.js";
 import "./CampaignFrontInitiative.test.js";
 import "./CampaignFormationRecovery.test.js";
+import "./CampaignReportInteraction.test.js";

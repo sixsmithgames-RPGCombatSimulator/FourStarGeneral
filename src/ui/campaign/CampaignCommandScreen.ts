@@ -200,6 +200,7 @@ export class CampaignCommandScreen {
   }
 
   public destroy(): void {
+    this.shell.dispose();
     this.unsubscribeState?.();
     this.unsubscribeFocus?.();
     this.unsubscribeState = null;
@@ -247,6 +248,12 @@ export class CampaignCommandScreen {
 
   private findByDataset(key: string, value: string): HTMLElement | null {
     return Array.from(this.root.querySelectorAll<HTMLElement>(`[data-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}]`))
-      .find((element) => element.dataset[key] === value) ?? null;
+      .find((element) => {
+        if (element.dataset[key] !== value || !element.isConnected || element.matches(":disabled")) return false;
+        for (let owner: HTMLElement | null = element; owner; owner = owner.parentElement) {
+          if (owner.hidden || owner.inert || owner.classList.contains("hidden") || owner.getAttribute("aria-hidden") === "true") return false;
+        }
+        return true;
+      }) ?? null;
   }
 }

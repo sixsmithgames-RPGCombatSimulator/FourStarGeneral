@@ -187,14 +187,14 @@ registerTest("FSG_CAM_084_ZERO_PROGRESS_OMITS_FORECAST_WITHOUT_REGRADING_CAMPAIG
   await When("the commander reads the opening score", () => {
     const situation = root.querySelector("#campaignSituationWorkspace");
     assert.match(situation?.textContent ?? "", /0 \/ 875 · 0%/);
-    assert.doesNotMatch(situation?.textContent ?? "", /Projected Decisive victory/);
+    assert.doesNotMatch(situation?.textContent ?? "", /(?:Projected|Best available outcome:) Decisive victory/);
     assert.equal(view.objectiveScore?.projectedGrade, "Decisive victory");
   });
-  await Then("earned score or objective progress preserves the exact supplied forecast without calculating a new grade", () => {
+  await Then("earned score or objective progress preserves the exact supplied attainable outcome without calculating a new grade", () => {
     shell.render({ ...view, objectiveScore: { earned: 75, available: 875, percent: 9, projectedGrade: "Costly victory" } });
     assert.match(root.querySelector("#campaignSituationWorkspace")?.textContent ?? "", /75 \/ 875 · 9%/);
-    assert.match(root.querySelector("#campaignSituationWorkspace")?.textContent ?? "", /Projected Costly victory/);
+    assert.match(root.querySelector("#campaignSituationWorkspace")?.textContent ?? "", /Best available outcome: Costly victory/);
     shell.render({ ...view, objectives: view.objectives.map((objective) => objective.key === "lodgment" ? { ...objective, progress: 0.5 } : objective) });
-    assert.match(root.querySelector("#campaignSituationWorkspace")?.textContent ?? "", /Projected Decisive victory/);
+    assert.match(root.querySelector("#campaignSituationWorkspace")?.textContent ?? "", /Best available outcome: Decisive victory/);
   });
 });

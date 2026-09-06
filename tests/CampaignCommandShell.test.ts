@@ -12,7 +12,7 @@ import "./CampaignSituationFirstFrame.test.js";
 import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import campaignScenarioData from "../src/data/campaign01.json";
-import type { CampaignScenarioData } from "../src/core/campaignTypes";
+import { CAMPAIGN_SEGMENT_HOURS, type CampaignScenarioData } from "../src/core/campaignTypes";
 import { computeCampaignContentHash } from "../src/game/campaign/runtime/CampaignCanonical";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import { CAMPAIGN_LEGACY_SAVE_KEY, CAMPAIGN_PRIMARY_SAVE_SLOT_ID, CampaignState, ensureCampaignState, type CampaignStatePersistenceRequest } from "../src/state/CampaignState";
@@ -20,6 +20,12 @@ import { UnlockState } from "../src/state/UnlockState";
 import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
 import { buildCampaignSaveCanonicalScenario, buildLegacyCampaignSaveV2Raw } from "./fixtures/CampaignSaveLegacy.fixtures.js";
 import { buildCompleteActiveBattleSave } from "./TacticalSaveCompleteness.test.js";
+import { scenarioFixture, contextFixture, tacticalStateFixture, missionStatus } from "./CampaignBattleResultExtraction.test.js";
+import { extractCampaignBattleResultPackage } from "../src/game/campaign/results/CampaignBattleResultExtractor";
+import { createCampaignFormationBattleSeed } from "../src/game/campaign/formations/CampaignFormationBattleAdapter";
+import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
+import { createCampaignSaveEnvelope, validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
+import unitTypes from "../src/data/unitSystem/derivedUnitTypes";
 import { CampaignCommandShell } from "../src/ui/campaign/CampaignCommandShell";
 import {
   CampaignScreen,
@@ -59,7 +65,7 @@ function mountCommandShellFixture(includeDeveloperTemplates = false): HTMLElemen
 }
 
 /** Mounts the real Screen producer with isolated state before it captures subscriptions and callbacks. */
-function mountIsolatedCampaignScreen(state: CampaignState): { root: HTMLElement; screen: CampaignScreen } {
+function mountIsolatedCampaignScreen(state: CampaignState): { root: HTMLElement; screen: CampaignScreen; unlock: UnlockState } {
   const root = mountCommandShellFixture();
   const renderer = {
     render() {}, setTerrainOverlayVisible() {}, setIntelCoverageVisible() {}, setIntelContactsVisible() {},
@@ -77,7 +83,7 @@ function mountIsolatedCampaignScreen(state: CampaignState): { root: HTMLElement;
   Object.defineProperty(screen, "unlockState", { value: unlock });
   screen.initialize();
   assert.equal(document.getElementById("campaignLockOverlay"), null);
-  return { root, screen };
+  return { root, screen, unlock };
 }
 
 /** Uses the shipped popup structure, outside the campaign root that becomes inert while it is open. */
@@ -1544,6 +1550,7 @@ registerTest("FSG_CAM_079_LOAD_RECOVERY_CANCEL_PRESERVES_STATE_ACCEPT_RESUMES_EX
       load.focus();
       load.click();
       assert.equal(load.disabled, true);
+      await chooseCampaignCheckpoint(CAMPAIGN_PRIMARY_SAVE_SLOT_ID);
       await waitForCampaignDom(() => !layer.classList.contains("hidden") || !load.disabled);
       assert.equal(layer.classList.contains("hidden"), false, "The actual Load control must present recovery before applying the older record.");
       assert.equal(layer.querySelector("[data-popup-title]")?.textContent, "Recover earlier campaign");
@@ -1568,6 +1575,7 @@ registerTest("FSG_CAM_079_LOAD_RECOVERY_CANCEL_PRESERVES_STATE_ACCEPT_RESUMES_EX
 
     await Then("accepting recovery on a fresh Load request restores and dispatches the exact earlier active battle once", async () => {
       load.click();
+      await chooseCampaignCheckpoint(CAMPAIGN_PRIMARY_SAVE_SLOT_ID);
       await waitForCampaignDom(() => !layer.classList.contains("hidden") || !load.disabled);
       assert.equal(layer.classList.contains("hidden"), false);
       assert.equal(computeCampaignContentHash(state.getRuntimeSnapshot()), beforeLoad);
@@ -1590,6 +1598,778 @@ registerTest("FSG_CAM_079_LOAD_RECOVERY_CANCEL_PRESERVES_STATE_ACCEPT_RESUMES_EX
   } finally {
     document.removeEventListener("campaign:battle:resume", onResume);
   }
+});
+
+const postBattleRequest: CampaignStatePersistenceRequest = {
+  timestamp: "2026-09-06T12:00:00.000Z", label: "Before Omaha", playTimeSeconds: 0,
+  difficulty: "Normal", commanderRosterLink: null,
+  uiResumeContext: { workspace: "theater", selectedEntityId: null, mapCenter: null, mapZoom: null }
+};
+
+/** Real battle accounting at the reported offset hex, with authored geography retained separately. */
+async function prepareCampaignPostBattle(backend: InMemoryCampaignSaveBackend, frontCase?: "rekey" | "frozenOnly" | "ambiguous" | "namedPlace", recoverable: boolean | "workshop" = false) {
+  const scenario = scenarioFixture();
+  scenario.title = "Operation Overlord - Normandy Campaign";
+  scenario.dimensions = { cols: 58, rows: 50 };
+  scenario.tiles[0].hex = { q: 24, r: 11 };
+  scenario.tiles[0].forces![0].count = 2;
+  if (recoverable) scenario.tiles[0].forces![0].unitType = "Engineer";
+  scenario.tiles[1].hex = { q: 24, r: 12 };
+  scenario.fronts = [{ key: "omaha_gold", label: "Omaha-Gold Sector", hexKeys: ["24,23"],
+    edges: [{ friendlyHexKey: "24,23", opposingHexKey: "24,24" }], initiative: "Player" }];
+  if (frontCase === "frozenOnly") scenario.fronts[0].edges = [];
+  if (frontCase === "ambiguous") scenario.fronts.push({ ...structuredClone(scenario.fronts[0]), key: "another-sector", label: "Another sector" });
+  if (frontCase === "namedPlace") scenario.tilePalette.bot.mapLabel = "Beach exit";
+  const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
+  state.setScenario(scenario);
+  await state.savePrimaryCampaign(postBattleRequest);
+  if (frontCase && frontCase !== "namedPlace") {
+    const stored = backend.exportState();
+    const validation = validateCampaignSaveEnvelope(stored.saves[stored.slots[CAMPAIGN_PRIMARY_SAVE_SLOT_ID].currentSaveId]);
+    assert.ok(validation.ok, validation.ok ? "" : validation.error.message);
+    const runtime = structuredClone(validation.envelope.payload.runtime);
+    runtime.compatibility.initialFronts.splice(0, runtime.compatibility.initialFronts.length,
+      { key: "rebuilt-front", label: "Frozen beachhead", hexKeys: ["24,23"],
+        edges: [{ friendlyHexKey: "24,23", opposingHexKey: "24,24" }], initiative: "Player" });
+    const envelope = createCampaignSaveEnvelope({ ...validation.envelope, saveId: `${validation.envelope.saveId}:rebuilt`,
+      updatedAt: "2026-09-06T12:00:01.000Z", payload: { ...validation.envelope.payload, runtime } });
+    await new CampaignSaveRepository(backend).saveSlot({ slotId: CAMPAIGN_PRIMARY_SAVE_SLOT_ID, label: "Rebuilt operational front", envelope });
+    const loaded = await state.loadPrimaryCampaign(postBattleRequest);
+    assert.ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+  }
+  const context = contextFixture();
+  context.battleHexKey = "24,24";
+  context.frontKey = frontCase && frontCase !== "namedPlace" ? "rebuilt-front" : "omaha_gold";
+  context.availableForces[0].hexKey = "24,23";
+  context.availableForces[0].count = 2;
+  context.allocationCaps.infantry = 2;
+  if (recoverable) { context.availableForces[0].unitType = "Engineer"; context.allocationCaps = { engineer: 2 }; }
+  context.enemyForces[0].hexKey = "24,24";
+  state.setPendingEngagements([{ id: context.engagementId, frontKey: context.frontKey, objectiveKey: null,
+    attacker: context.attacker, defender: context.defender, hexKeys: [context.battleHexKey], tags: [], context }]);
+  state.setActiveEngagementId(context.engagementId);
+  const committed = state.commitCampaignEngagement({ engagementId: context.engagementId,
+    expectedRevision: state.getRuntimeSnapshot()!.revision,
+    selections: [{ allocationKey: recoverable ? "engineer" : "infantry", category: "units", quantity: 2, unitRpCost: 50 },
+      { allocationKey: "ammo", category: "supplies", quantity: 1, unitRpCost: 30 }] });
+  assert.ok(committed.ok, committed.ok ? "" : committed.reason);
+  const runtime = state.getRuntimeSnapshot()!;
+  const tacticalState = tacticalStateFixture(runtime, committed.package);
+  if (recoverable) {
+    const casualty = tacticalState.playerPlacements[0];
+    assert.ok(casualty.status);
+    Object.assign(Object.values(casualty.status.personnel)[0], { fit: 0, injured: 100, wounded: 35, severelyWounded: 15, killed: 10 });
+    Object.assign(Object.values(casualty.status.equipment)[0], { operational: 7, damaged: 2, disabled: 1, destroyed: 2 });
+    if (recoverable === "workshop") {
+      Object.assign(Object.values(casualty.status.personnel)[0], { fit: 148, injured: 2, wounded: 0, severelyWounded: 0, killed: 10 });
+      Object.assign(Object.values(casualty.status.equipment)[0], { operational: 9, damaged: 0, disabled: 1, destroyed: 2 });
+    }
+    casualty.strength = 0;
+    tacticalState.playerPlacements = [];
+    tacticalState.casualtyLog!.push({ unit: casualty, definition: structuredClone(unitTypes[casualty.type]),
+      unitKey: casualty.formationKey ?? null, label: "Engineer survivors", recordedAt: "battle:4:2" });
+  }
+  const second = committed.package.formationCommitments.filter((entry) => entry.role === "attacker")[1];
+  assert.ok(second, "Two distinct committed survivors distinguish battle history from the occupier's subsequent movement.");
+  const seed = createCampaignFormationBattleSeed(runtime.formations[second.formationId], {
+    campaignId: committed.package.campaignId, engagementId: committed.package.engagementId,
+    sourceRevision: committed.package.sourceRevision, sourceSegment: committed.package.committedSegment, hex: { q: 0, r: 1 }
+  });
+  assert.ok(seed);
+  tacticalState.playerPlacements.push(seed.unit);
+  const result = extractCampaignBattleResultPackage({ battlePackage: committed.package,
+    tacticalState, missionStatus, result: "attackerVictory" });
+  const applied = state.applyCampaignBattleResult(result);
+  assert.ok(applied.applied && !applied.duplicate);
+  const slot = await state.savePostBattleAutosave(context.engagementId, { ...postBattleRequest, timestamp: "2026-09-06T12:01:00.000Z" });
+  return { state, scenario, slot, pkg: committed.package, result };
+}
+
+/** Selects and explicitly loads through the real HQ dialog; opening alone must never restore. */
+async function chooseCampaignCheckpoint(slotId: string): Promise<void> {
+  await waitForCampaignDom(() => !!document.querySelector("#campaignCheckpointPicker") || !document.querySelector<HTMLButtonElement>("#campaignLoad")?.disabled);
+  const dialog = document.querySelector<HTMLElement>("#campaignCheckpointPicker");
+  assert.ok(dialog, "HQ Load must open a campaign checkpoint choice before loading anything.");
+  const option = Array.from(dialog.querySelectorAll<HTMLButtonElement>("[data-campaign-checkpoint-id]"))
+    .find((button) => button.dataset.campaignCheckpointId === slotId);
+  assert.ok(option, `The checkpoint ${slotId} must be offered.`);
+  option.click();
+  const load = dialog.querySelector<HTMLButtonElement>("[data-campaign-checkpoint-load]");
+  assert.ok(load && !load.disabled);
+  load.click();
+}
+
+registerTest("FSG_CAM_091_ACTUAL_SCREEN_AAR_AND_HISTORY_RETAIN_NAMED_SECTOR_AFTER_CAPTURE", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { state, result } = await prepareCampaignPostBattle(backend);
+  const before = state.getRuntimeSnapshot();
+  assert.ok(before);
+  assert.equal(state.getCampaignMapView("Player")!.scenario.fronts.length, 0, "Real capture must remove the active front.");
+  assert.equal(state.getCampaignAfterActionReport(result.engagementId)!.battleHexKey, "24,12");
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  try {
+    const report = root.querySelector<HTMLElement>("#campaignAfterActionPanel");
+    assert.ok(report && !report.hidden);
+    assert.equal(report.querySelector("h3")?.textContent, "After action: Omaha-Gold Sector");
+    const focus = report.querySelector<HTMLButtonElement>("[data-campaign-map-hex-target='24,24']");
+    assert.equal(focus?.textContent, "Focus Omaha-Gold Sector · Grid 24,24");
+    focus!.click();
+    assert.equal(root.querySelector("#campaignContextInspector")?.getAttribute("data-selection-kind"), "hex");
+    const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.battleHistory[entry.battleHistory.length - 1]?.type === "statusChanged");
+    assert.ok(formation, "A held survivor must retain the real battle-linked status history.");
+    root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='forces']")!.click();
+    root.querySelector<HTMLElement>("#campaignForcesTheater > summary")!.click();
+    const formationControl = root.querySelector<HTMLButtonElement>(`[data-force-id='${formation.id}']`);
+    assert.ok(formationControl, "The real Forces list must expose the surviving formation.");
+    formationControl.click();
+    const inspector = root.querySelector("#campaignContextInspector")?.textContent ?? "";
+    assert.match(inspector, /Omaha-Gold Sector.*Grid 24,24/);
+    assert.doesNotMatch(inspector, new RegExp(result.engagementId));
+    assert.deepEqual(state.getRuntimeSnapshot(), before, "Rendering and focusing historical geography must preserve all reports, formations and stocks.");
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_091_AUTHORED_GEOGRAPHY_SURVIVES_PRIOR_REKEY_WITH_FROZEN_AND_AMBIGUITY_CONTROLS", async () => {
+  for (const [frontCase, expected] of [
+    ["rekey", "Omaha-Gold Sector"], ["frozenOnly", "Frozen beachhead"],
+    ["ambiguous", "Operation Overlord - Normandy Campaign"], ["namedPlace", "Beach exit"]
+  ] as const) {
+    const backend = new InMemoryCampaignSaveBackend();
+    const { state, scenario, slot } = await prepareCampaignPostBattle(backend, frontCase);
+    const before = state.getRuntimeSnapshot();
+    const restored = new CampaignState({ saveBackend: backend, legacyStorage: null });
+    restored.setScenario(scenario);
+    const loaded = await restored.loadCampaignSlot(slot.slotId, postBattleRequest);
+    assert.ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+    const { root, screen } = mountIsolatedCampaignScreen(restored);
+    try {
+      assert.equal(root.querySelector("#campaignAfterActionPanel h3")?.textContent, `After action: ${expected}`, frontCase);
+      assert.equal(root.querySelector("#campaignAfterActionPanel [data-campaign-map-hex-target='24,24']")?.textContent, `Focus ${expected} · Grid 24,24`);
+      assert.deepEqual(restored.getRuntimeSnapshot(), before);
+    } finally { screen.disposeCampaignAccessGate(); }
+  }
+});
+
+registerTest("FSG_CAM_092_ACTUAL_HQ_PICKER_LOADS_POST_BATTLE_WITHOUT_TOUCHING_PRIMARY", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { state: saved, scenario, slot } = await prepareCampaignPostBattle(backend);
+  const expected = saved.getRuntimeSnapshot();
+  const beforeStorage = backend.exportState();
+  const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
+  state.setScenario(scenario);
+  const before = state.getRuntimeSnapshot();
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+  try {
+    load.focus(); load.click();
+    await waitForCampaignDom(() => !!document.querySelector("#campaignCheckpointPicker") || !load.disabled);
+    assert.ok(document.querySelector("#campaignCheckpointPicker"), "HQ Load must offer saved campaign checkpoints.");
+    assert.deepEqual(state.getRuntimeSnapshot(), before, "Opening the picker must not load Primary.");
+    assert.deepEqual(backend.exportState(), beforeStorage);
+    await chooseCampaignCheckpoint(slot.slotId);
+    await waitForCampaignDom(() => !load.disabled);
+    assert.deepEqual(state.getRuntimeSnapshot(), expected, "The selected checkpoint restores exact stocks, formations and immutable AAR history.");
+    assert.deepEqual(backend.exportState(), beforeStorage, "Loading a post-battle slot must not rewrite Primary or any save.");
+    assert.equal(document.querySelector("#campaignCheckpointPicker"), null);
+    assert.equal(root.inert, false);
+    const openedReport = root.querySelector<HTMLElement>("#campaignAfterActionPanel");
+    assert.ok(openedReport && !openedReport.hidden && openedReport.contains(document.activeElement), "The newly opened AAR owns focus after restoration; HQ Load regains it on cancellation.");
+    assert.equal(root.querySelector("#campaignAfterActionPanel h3")?.textContent, "After action: Omaha-Gold Sector");
+    assert.equal(root.querySelector("[data-campaign-map-hex-target='24,24']")?.textContent, "Focus Omaha-Gold Sector · Grid 24,24");
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_092_PICKER_CANCEL_KEYBOARD_AND_DISPOSAL_RELEASE_MODAL_OWNERSHIP", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { scenario } = await prepareCampaignPostBattle(backend);
+  const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
+  state.setScenario(scenario);
+  const before = state.getRuntimeSnapshot();
+  const storage = backend.exportState();
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  const background = document.createElement("aside");
+  background.inert = true; background.setAttribute("aria-hidden", "false");
+  document.body.append(background);
+  const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+  try {
+    for (const cancellation of ["Escape", "Cancel", "dispose"] as const) {
+      load.focus(); load.click();
+      await waitForCampaignDom(() => !!document.querySelector("#campaignCheckpointPicker"));
+      const dialog = document.querySelector<HTMLElement>("#campaignCheckpointPicker")!;
+      assert.equal(dialog.getAttribute("role"), "dialog");
+      assert.equal(dialog.getAttribute("aria-modal"), "true");
+      assert.equal(dialog.querySelector("h2")?.textContent, "Load campaign checkpoint");
+      assert.equal(root.inert, true);
+      assert.equal(root.getAttribute("aria-hidden"), "true");
+      assert.equal(load.disabled, true);
+      assert.equal(dialog.querySelector<HTMLButtonElement>("[data-campaign-checkpoint-load]")!.disabled, true);
+      const options = dialog.querySelectorAll<HTMLButtonElement>("[role='option']");
+      assert.equal(options.length, 2);
+      assert.equal(document.activeElement, options[0]);
+      options[0].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+      assert.equal(document.activeElement, options[1]);
+      assert.equal(options[1].getAttribute("aria-selected"), "true");
+      const cancel = dialog.querySelectorAll<HTMLButtonElement>("[data-campaign-checkpoint-cancel]")[1];
+      cancel.focus();
+      cancel.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+      assert.equal(document.activeElement, dialog.querySelector("[data-campaign-checkpoint-cancel]"));
+      document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+      assert.equal(document.activeElement, cancel);
+      if (cancellation === "Escape") cancel.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      else if (cancellation === "Cancel") cancel.click();
+      else screen.disposeCampaignAccessGate();
+      await waitForCampaignDom(() => !load.disabled);
+      assert.equal(document.querySelector("#campaignCheckpointPicker"), null);
+      assert.equal(root.inert, false);
+      assert.equal(root.getAttribute("aria-hidden"), null);
+      assert.equal(background.inert, true);
+      assert.equal(background.getAttribute("aria-hidden"), "false");
+      if (cancellation !== "dispose") assert.equal(document.activeElement, load, "Busy HQ Load regains focus only after it is enabled.");
+      assert.deepEqual(state.getRuntimeSnapshot(), before);
+      assert.deepEqual(backend.exportState(), storage);
+    }
+    const outside = document.createElement("button"); document.body.append(outside); outside.focus();
+    assert.equal(document.activeElement, outside, "Closed pickers must leave no focus guard behind.");
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_092_DEFERRED_LIST_CANNOT_OPEN_PICKER_AFTER_SCREEN_DISPOSAL_OR_EXIT", async () => {
+  for (const exit of ["dispose", "screen"] as const) {
+    const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+    state.setScenario(scenarioFixture());
+    const before = state.getRuntimeSnapshot();
+    let release!: (slots: Awaited<ReturnType<CampaignState["listCampaignSaveSlots"]>>) => void;
+    const delayed = new Promise<Awaited<ReturnType<CampaignState["listCampaignSaveSlots"]>>>((resolve) => { release = resolve; });
+    state.listCampaignSaveSlots = () => delayed;
+    const { root, screen } = mountIsolatedCampaignScreen(state);
+    const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+    load.click();
+    assert.ok(load.disabled);
+    if (exit === "dispose") screen.disposeCampaignAccessGate();
+    else document.dispatchEvent(new CustomEvent("screen:shown", { detail: { id: "landing" } }));
+    release([]);
+    await waitForCampaignDom(() => !load.disabled || !!document.querySelector("#campaignCheckpointPicker"));
+    assert.equal(document.querySelector("#campaignCheckpointPicker"), null, "A completed stale listing must not mount or isolate the new screen.");
+    assert.equal(Boolean(root.inert), false);
+    assert.equal(root.getAttribute("aria-hidden"), null);
+    assert.deepEqual(state.getRuntimeSnapshot(), before);
+    screen.disposeCampaignAccessGate();
+  }
+});
+
+/** Stores two complete tactical primaries so delayed reads exercise real verification and recovery. */
+async function prepareCampaignLoadLifecycleFixture(corrupt: boolean) {
+  const backend = new InMemoryCampaignSaveBackend();
+  const source = new CampaignState({ saveBackend: backend, legacyStorage: {
+    getItem: (key) => key === CAMPAIGN_LEGACY_SAVE_KEY ? buildLegacyCampaignSaveV2Raw() : null,
+    setItem() {}
+  } });
+  const scenario = buildCampaignSaveCanonicalScenario();
+  source.setScenario(scenario);
+  const migrated = await source.loadPrimaryCampaign(postBattleRequest);
+  assert.ok(migrated.ok, migrated.ok ? "" : migrated.error.message);
+  const runtime = source.getRuntimeSnapshot()!;
+  assert.ok(runtime.activeEngagementId);
+  const binding = { campaignId: runtime.campaignId, campaignRevision: runtime.revision,
+    scenarioKey: runtime.scenarioKey, engagementId: runtime.activeEngagementId };
+  source.setActiveBattleSave(buildCompleteActiveBattleSave({ ...binding, focusedElementId: "battleLoadButton" }));
+  await source.savePrimaryCampaign({ ...postBattleRequest, timestamp: "2026-09-06T12:02:00.000Z" });
+  source.setActiveBattleSave(buildCompleteActiveBattleSave({ ...binding, focusedElementId: "endTurn" }));
+  await source.savePrimaryCampaign({ ...postBattleRequest, timestamp: "2026-09-06T12:03:00.000Z" });
+  const stored = backend.exportState();
+  const saves = structuredClone(stored.saves) as Record<string, unknown>;
+  if (corrupt) {
+    const saveId = stored.slots[CAMPAIGN_PRIMARY_SAVE_SLOT_ID].currentSaveId;
+    saves[saveId] = { ...(saves[saveId] as Record<string, unknown>), checksum: "fsg-save-v1-fnv1a32-deadbeef" };
+  }
+  const storage = new InMemoryCampaignSaveBackend({ ...stored, saves });
+  const state = new CampaignState({ saveBackend: storage, legacyStorage: null });
+  state.setScenario(scenario);
+  return { state, storage, expectedRuntime: source.getRuntimeSnapshot(), expectedBattle: source.getActiveBattleSave() };
+}
+
+registerTest("FSG_CAM_092_DEFERRED_SELECTED_LOAD_CANNOT_OPEN_RECOVERY_OR_HANDOFF_AFTER_EXIT", async () => {
+  for (const corrupt of [true, false]) for (const exit of ["dispose", "screen"] as const) {
+    const { state, storage, expectedRuntime, expectedBattle } = await prepareCampaignLoadLifecycleFixture(corrupt);
+    const before = state.getRuntimeSnapshot();
+    const { root, screen } = mountIsolatedCampaignScreen(state);
+    const layer = appendCampaignPopupFixture();
+    const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+    let release!: () => void;
+    const delayed = new Promise<void>((resolve) => { release = resolve; });
+    const readSave = storage.getSave.bind(storage);
+    let started!: () => void;
+    const reading = new Promise<void>((resolve) => { started = resolve; });
+    storage.getSave = async (saveId) => { started(); await delayed; return readSave(saveId); };
+    const resumes: unknown[] = [];
+    const onResume = (event: Event): void => { resumes.push((event as CustomEvent).detail); };
+    document.addEventListener("campaign:battle:resume", onResume);
+    try {
+      load.click(); await chooseCampaignCheckpoint(CAMPAIGN_PRIMARY_SAVE_SLOT_ID);
+      await reading;
+      if (exit === "dispose") screen.disposeCampaignAccessGate();
+      else document.dispatchEvent(new CustomEvent("screen:shown", { detail: { id: "landing" } }));
+      release();
+      await waitForCampaignDom(() => !load.disabled || !layer.classList.contains("hidden"));
+      assert.equal(layer.classList.contains("hidden"), true, "A late corrupt read cannot mount recovery after its Screen request ended.");
+      assert.equal(resumes.length, 0, "An accepted load may finish in State but cannot navigate a Screen that has left.");
+      assert.equal(document.querySelector("#campaignCheckpointPicker"), null);
+      assert.equal(root.inert, false);
+      assert.deepEqual(state.getRuntimeSnapshot(), corrupt ? before : expectedRuntime);
+      assert.deepEqual(state.getActiveBattleSave(), corrupt ? null : expectedBattle);
+    } finally {
+      release(); screen.disposeCampaignAccessGate();
+      document.removeEventListener("campaign:battle:resume", onResume);
+    }
+  }
+});
+
+registerTest("FSG_CAM_092_PENDING_RECOVERY_CANNOT_APPLY_AFTER_REQUEST_EXIT", async () => {
+  for (const acceptedBeforeExit of [false, true]) {
+    const { state } = await prepareCampaignLoadLifecycleFixture(true);
+    const before = state.getRuntimeSnapshot();
+    const { root, screen } = mountIsolatedCampaignScreen(state);
+    const layer = appendCampaignPopupFixture();
+    const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+    try {
+      load.click(); await chooseCampaignCheckpoint(CAMPAIGN_PRIMARY_SAVE_SLOT_ID);
+      await waitForCampaignDom(() => !layer.classList.contains("hidden"));
+      const accept = layer.querySelector<HTMLButtonElement>("[data-confirm-campaign-action]")!;
+      if (acceptedBeforeExit) accept.click();
+      document.dispatchEvent(new CustomEvent("screen:shown", { detail: { id: "landing" } }));
+      assert.equal(layer.classList.contains("hidden"), true, "Leaving must dismiss the pending recovery confirmation.");
+      await waitForCampaignDom(() => !load.disabled);
+      accept.click();
+      assert.deepEqual(state.getRuntimeSnapshot(), before, "Neither a queued acceptance nor a stale detached button may restore after exit.");
+      assert.equal(state.getActiveBattleSave(), null);
+      assert.equal(root.inert, false);
+    } finally { screen.disposeCampaignAccessGate(); }
+  }
+});
+
+registerTest("FSG_CAM_092_ACCESS_REVOCATION_CANCELS_PICKER_BEFORE_GATE_OWNS_FOCUS", async () => {
+  const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+  state.setScenario(scenarioFixture());
+  const before = state.getRuntimeSnapshot();
+  const { root, screen, unlock } = mountIsolatedCampaignScreen(state);
+  const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+  try {
+    load.focus(); load.click();
+    await waitForCampaignDom(() => !!document.querySelector("#campaignCheckpointPicker"));
+    unlock.hydrate({ ...unlock.getSnapshot(), isPrivileged: false });
+    assert.equal(document.querySelector("#campaignCheckpointPicker"), null, "The access gate must not compete with the picker focus/key guards.");
+    const gate = document.querySelector<HTMLElement>("#campaignLockOverlay")!;
+    assert.ok(gate?.contains(document.activeElement));
+    await waitForCampaignDom(() => !load.disabled);
+    assert.equal(root.inert, true);
+    document.activeElement!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    assert.equal(document.activeElement, gate.querySelector("[data-lock-return]"));
+    assert.deepEqual(state.getRuntimeSnapshot(), before);
+    unlock.hydrate({ ...unlock.getSnapshot(), isPrivileged: true });
+    assert.equal(document.querySelector("#campaignLockOverlay"), null);
+    assert.equal(root.inert, false);
+    assert.equal(root.getAttribute("aria-hidden"), null);
+    load.focus();
+    assert.equal(document.activeElement, load, "Regranting access must leave no picker trap or isolation behind.");
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_092_SELECTED_CORRUPT_POST_BATTLE_REQUIRES_EXPLICIT_RECOVERY", async () => {
+  const original = new InMemoryCampaignSaveBackend();
+  const { state: saved, scenario, slot, result } = await prepareCampaignPostBattle(original);
+  const expected = saved.getRuntimeSnapshot();
+  saved.advanceSegment();
+  await saved.savePostBattleAutosave(result.engagementId, { ...postBattleRequest, timestamp: "2026-09-06T12:03:00.000Z" });
+  const exported = original.exportState();
+  const currentId = exported.slots[slot.slotId].currentSaveId;
+  const saves = structuredClone(exported.saves) as Record<string, unknown>;
+  saves[currentId] = { ...(saves[currentId] as Record<string, unknown>), checksum: "fsg-save-v1-fnv1a32-deadbeef" };
+  const backend = new InMemoryCampaignSaveBackend({ ...exported, saves });
+  const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
+  state.setScenario(scenario);
+  const before = state.getRuntimeSnapshot();
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  const layer = appendCampaignPopupFixture();
+  const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+  try {
+    for (const acceptRecovery of [false, true]) {
+      load.focus(); load.click();
+      await chooseCampaignCheckpoint(slot.slotId);
+      await waitForCampaignDom(() => !layer.classList.contains("hidden") || !load.disabled);
+      assert.equal(layer.classList.contains("hidden"), false);
+      assert.equal(layer.querySelector("[data-popup-title]")?.textContent, "Recover earlier campaign");
+      assert.deepEqual(state.getRuntimeSnapshot(), before, "Even the verified earlier record waits for explicit acceptance.");
+      const accept = layer.querySelector<HTMLButtonElement>("[data-confirm-campaign-action]")!;
+      if (acceptRecovery) { accept.click(); accept.click(); }
+      else accept.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      await waitForCampaignDom(() => !load.disabled);
+      assert.deepEqual(state.getRuntimeSnapshot(), acceptRecovery ? expected : before);
+      assert.deepEqual(backend.exportState().slots, exported.slots, "Recovery must not advance Primary or the damaged post-battle pointer.");
+      assert.deepEqual(backend.exportState().saves, saves);
+      assert.equal(root.inert, false);
+    }
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_092_WRONG_CONTENT_SELECTION_FAILS_CLOSED_AND_PRIMARY_LEGACY_REMAINS_AVAILABLE", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { slot } = await prepareCampaignPostBattle(backend);
+  const legacyValues = new Map([[CAMPAIGN_LEGACY_SAVE_KEY, buildLegacyCampaignSaveV2Raw()]]);
+  const exported = backend.exportState();
+  const slots = { ...exported.slots };
+  delete slots[CAMPAIGN_PRIMARY_SAVE_SLOT_ID];
+  const storage = new InMemoryCampaignSaveBackend({ ...exported, slots });
+  const state = new CampaignState({ saveBackend: storage, legacyStorage: {
+    getItem: (key) => legacyValues.get(key) ?? null, setItem: (key, value) => { legacyValues.set(key, value); }
+  } });
+  state.setScenario(buildCampaignSaveCanonicalScenario());
+  const before = state.getRuntimeSnapshot();
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+  try {
+    load.click(); await chooseCampaignCheckpoint(slot.slotId);
+    await waitForCampaignDom(() => !load.disabled);
+    assert.match(root.textContent ?? "", /Campaign load failed/);
+    assert.deepEqual(state.getRuntimeSnapshot(), before);
+    assert.deepEqual(storage.exportState().slots, slots);
+    assert.equal(storage.exportState().slots[CAMPAIGN_PRIMARY_SAVE_SLOT_ID], undefined);
+    load.click(); await chooseCampaignCheckpoint(CAMPAIGN_PRIMARY_SAVE_SLOT_ID);
+    await waitForCampaignDom(() => !load.disabled);
+    assert.match(root.textContent ?? "", /Campaign migrated and restored/);
+    assert.ok(storage.exportState().slots[CAMPAIGN_PRIMARY_SAVE_SLOT_ID], "Only the existing explicit primary migration path may create Primary.");
+    assert.equal(legacyValues.get(CAMPAIGN_LEGACY_SAVE_KEY), buildLegacyCampaignSaveV2Raw());
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+/** Opens an exact roster identity through the real Forces controls after closing the report. */
+function inspectCampaignFormation(root: HTMLElement, formationId: string): void {
+  root.querySelector<HTMLButtonElement>("#campaignAfterActionPanel [data-continue-campaign-aar]")?.click();
+  root.querySelector<HTMLButtonElement>("[data-campaign-workspace-tab='forces']")!.click();
+  const theater = root.querySelector<HTMLDetailsElement>("#campaignForcesTheater")!;
+  if (!theater.open) theater.querySelector<HTMLElement>("summary")!.click();
+  const control = root.querySelector<HTMLButtonElement>(`[data-force-id='${formationId}']`);
+  assert.ok(control, "The actual Forces roster must expose the exact selected formation.");
+  control.click();
+}
+
+registerTest("FSG_CAM_093_SCREEN_RECOVERY_QUOTES_AND_DRAFTS_EXACT_SHATTERED_SURVIVORS", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { state, scenario } = await prepareCampaignPostBattle(backend, undefined, true);
+  const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.status === "shattered");
+  assert.ok(formation);
+  const preview = state.getCampaignFormationRecoveryPreview(formation.id);
+  assert.equal(preview.availability, "available", preview.reason ?? "");
+  assert.ok(preview.quote);
+  const quote = preview.quote;
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  try {
+    inspectCampaignFormation(root, formation.id);
+    const before = state.getRuntimeSnapshot()!;
+    const panel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]");
+    assert.ok(panel, "The selected shattered formation needs a supported recovery quote/action.");
+    assert.equal(panel.closest("[hidden], .hidden"), null, "Recovery cannot be hidden by the ordinary-order posture gate.");
+    assert.ok(panel.textContent?.includes(`${quote.suppliesCost} supply`));
+    assert.ok(panel.textContent?.includes(`${quote.personnelToFit} surviving personnel`));
+    assert.ok(panel.textContent?.includes(`${quote.equipmentToOperational} equipment`));
+    assert.ok(panel.textContent?.includes(state.segmentToTimeDisplay(quote.completeSegment)));
+    assert.match(panel.textContent ?? "", /10 killed.*2 destroyed.*remain losses/);
+    assert.deepEqual(state.getRuntimeSnapshot(), before, "Reading the quote must not spend or heal.");
+    const add = panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]");
+    assert.ok(add && !add.disabled);
+    add.click(); add.click();
+    const order = state.getCampaignOrders().find((entry) => entry.kind === "formationRecovery");
+    assert.ok(order?.kind === "formationRecovery" && order.status === "draft");
+    assert.equal(state.getCampaignOrders().filter((entry) => entry.kind === "formationRecovery").length, 1);
+    assert.equal(order.payload.formationId, formation.id);
+    assert.equal(order.payload.suppliesCost, quote.suppliesCost);
+    assert.equal(order.payload.completeSegment, quote.completeSegment);
+    assert.deepEqual(state.getRuntimeSnapshot()!.formations, before.formations, "Drafting must not heal any exact formation.");
+    assert.deepEqual(state.getRuntimeSnapshot()!.factions, before.factions, "Draft holds do not spend stock.");
+    assert.equal(root.querySelector("[data-draft-formation-recovery]"), null);
+    root.querySelector<HTMLButtonElement>("#campaignCommitOrders")!.click();
+    const committed = state.getCampaignOrders().find((entry) => entry.id === order.id)!;
+    assert.equal(committed.status, "committed");
+    assert.equal(state.getCampaignFormationSnapshot(formation.id)?.status, "refitting");
+    const committedCopy = root.querySelector("#campaignContextInspector")?.textContent ?? "";
+    assert.match(committedCopy, /Formation recovery/);
+    assert.ok(committedCopy.includes(state.segmentToTimeDisplay(quote.completeSegment)));
+    await state.saveCampaignSlot({ ...postBattleRequest, timestamp: "2026-09-06T12:05:00.000Z", slotId: "test-recovery-committed", slotType: "manual" });
+    const restored = new CampaignState({ saveBackend: backend, legacyStorage: null });
+    restored.setScenario(scenario);
+    const loaded = await restored.loadCampaignSlot("test-recovery-committed", postBattleRequest);
+    assert.ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+    assert.deepEqual(restored.getRuntimeSnapshot(), state.getRuntimeSnapshot());
+    const checkpoint = restored.getRuntimeSnapshot()!;
+    const resumed = mountIsolatedCampaignScreen(restored);
+    inspectCampaignFormation(resumed.root, formation.id);
+    assert.match(resumed.root.querySelector("#campaignContextInspector")?.textContent ?? "", /Formation recovery/);
+    assert.ok(resumed.root.querySelector("#campaignContextInspector")?.textContent?.includes(restored.segmentToTimeDisplay(quote.completeSegment)));
+    try {
+      restored.advanceSegment();
+      const executing = restored.getCampaignOrders().find((entry) => entry.id === order.id);
+      assert.ok(executing?.kind === "formationRecovery" && executing.status === "executing");
+      assert.equal(executing.payload.progress.completedSegments, 1);
+      assert.match(resumed.root.querySelector("[data-campaign-formation-recovery]")?.textContent ?? "", /1\/\d+ recovery segments complete/);
+      while (restored.getRuntimeSnapshot()!.currentSegment < quote.completeSegment) restored.advanceSegment();
+      const completedPanel = resumed.root.querySelector("[data-campaign-formation-recovery]");
+      assert.equal(completedPanel?.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]")?.disabled, true);
+      assert.match(completedPanel?.textContent ?? "", /no surviving casualties|no .*recover/i);
+    } finally { resumed.screen.disposeCampaignAccessGate(); }
+    const after = restored.getCampaignFormationSnapshot(formation.id)!;
+    assert.equal(after.status, "ready");
+    assert.equal(Object.values(after.personnel).reduce((sum, pool) => sum + pool.fit, 0), 150);
+    assert.equal(Object.values(after.personnel).reduce((sum, pool) => sum + pool.killed, 0), 10);
+    assert.equal(Object.values(after.equipment).reduce((sum, pool) => sum + pool.destroyed, 0), 2);
+    assert.equal(restored.getCampaignOrders().find((entry) => entry.id === order.id)?.status, "completed");
+    assert.equal(restored.getRuntimeSnapshot()!.formationOrder.join(), checkpoint.formationOrder.join());
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_093_SCREEN_RECOVERY_SHOWS_REAL_BLOCKERS_AND_REVALIDATES_STALE_CLICK", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { state } = await prepareCampaignPostBattle(backend, undefined, true);
+  const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.status === "shattered")!;
+  const healthy = state.getCampaignFormationRoster("Player").find((entry) => entry.status === "ready")!;
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  try {
+    inspectCampaignFormation(root, healthy.id);
+    const healthyPreview = state.getCampaignFormationRecoveryPreview(healthy.id);
+    assert.equal(healthyPreview.availability, "blocked");
+    let panel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]")!;
+    assert.ok(panel.textContent?.includes(healthyPreview.reason!));
+    assert.ok(panel.textContent?.includes(healthyPreview.correctiveAction!));
+    assert.equal(panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]")?.disabled, true);
+    inspectCampaignFormation(root, formation.id);
+    panel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]")!;
+    const add = panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]")!;
+    const formations = state.getRuntimeSnapshot()!.formations;
+    // Another real command changes the revision between displayed quote and the
+    // bubbling Add click. The owning State must reject the stale displayed revision.
+    const concurrent = (): void => {
+      const result = state.createProductionDraft({ supplies: 100, fuel: 0, ammo: 0, manpower: 0 });
+      assert.ok(result.ok, result.ok ? "" : result.reason);
+    };
+    add.addEventListener("click", concurrent, { once: true, capture: true });
+    add.click();
+    assert.equal(state.getCampaignOrders().filter((entry) => entry.kind === "formationRecovery").length, 0);
+    assert.deepEqual(state.getRuntimeSnapshot()!.formations, formations);
+    assert.match(root.textContent ?? "", /campaign changed after this quote/);
+    assert.match(root.textContent ?? "", /Recovery draft not added/);
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_093_SCREEN_INSUFFICIENT_SUPPLIES_SHOWS_QUOTE_WITH_BLOCKED_REASON", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { state, slot } = await prepareCampaignPostBattle(backend, undefined, true);
+  const stored = backend.exportState();
+  const validation = validateCampaignSaveEnvelope(stored.saves[slot.currentSaveId]);
+  assert.ok(validation.ok, validation.ok ? "" : validation.error.message);
+  const runtime = structuredClone(validation.envelope.payload.runtime);
+  runtime.factions.Player.economy.supplies = 0;
+  const envelope = createCampaignSaveEnvelope({ ...validation.envelope, saveId: `${validation.envelope.saveId}:no-supply`,
+    updatedAt: "2026-09-06T12:06:00.000Z", payload: { ...validation.envelope.payload, runtime } });
+  await new CampaignSaveRepository(backend).saveSlot({ slotId: slot.slotId, label: "No supplies remaining", envelope });
+  const loaded = await state.loadCampaignSlot(slot.slotId, postBattleRequest);
+  assert.ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+  const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.status === "shattered")!;
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  try {
+    inspectCampaignFormation(root, formation.id);
+    const before = state.getRuntimeSnapshot();
+    const preview = state.getCampaignFormationRecoveryPreview(formation.id);
+    assert.equal(preview.availability, "blocked");
+    assert.equal(preview.reasonCode, "ORDER_RESOURCE_INSUFFICIENT");
+    assert.ok(preview.quote);
+    const panel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]")!;
+    assert.ok(panel.textContent?.includes(`${preview.quote.suppliesCost} supply`));
+    assert.ok(panel.textContent?.includes(preview.reason!));
+    assert.ok(panel.textContent?.includes(preview.correctiveAction!));
+    panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]")!.click();
+    assert.deepEqual(state.getRuntimeSnapshot(), before);
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_093_SCREEN_INTERRUPTED_WORKSHOP_OFFERS_ZERO_COST_CONTINUATION_AND_SHOWS_NEW_ACTIVE_ORDER", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const { state } = await prepareCampaignPostBattle(backend, undefined, "workshop");
+  const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.status === "shattered")!;
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  // Supply-control fixtures enter through validated persistence. Recovery work,
+  // interruption, quotes, drafting and commitment all use the actual State API.
+  const loadSupplyControl = async (controller: "Neutral" | "Player"): Promise<void> => {
+    const slotId = `test-workshop-supply-${controller}`;
+    const slot = await state.saveCampaignSlot({ ...postBattleRequest, slotId, slotType: "manual" });
+    const validation = validateCampaignSaveEnvelope(backend.exportState().saves[slot.currentSaveId]);
+    assert.ok(validation.ok, validation.ok ? "" : validation.error.message);
+    const runtime = structuredClone(validation.envelope.payload.runtime);
+    runtime.tiles[formation.locationHexKey!].controller = controller;
+    const envelope = createCampaignSaveEnvelope({ ...validation.envelope,
+      saveId: `${validation.envelope.saveId}:supply-${controller}`,
+      payload: { ...validation.envelope.payload, runtime } });
+    await new CampaignSaveRepository(backend).saveSlot({ slotId, label: "Workshop supply boundary", envelope });
+    const loaded = await state.loadCampaignSlot(slotId, postBattleRequest);
+    assert.ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+    inspectCampaignFormation(root, formation.id);
+  };
+  try {
+    inspectCampaignFormation(root, formation.id);
+    root.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]")!.click();
+    root.querySelector<HTMLButtonElement>("#campaignCommitOrders")!.click();
+    const first = state.getCampaignOrders().find((entry) => entry.kind === "formationRecovery")!;
+    assert.ok(first.kind === "formationRecovery" && first.status === "committed");
+    assert.equal(first.payload.durationSegments, 8);
+    assert.equal(first.payload.suppliesCost, 4);
+    const step = state.advanceSegment();
+    assert.ok(step.ok, step.ok ? "" : step.error.message);
+    const treated = state.getCampaignFormationSnapshot(formation.id)!;
+    assert.equal(Object.values(treated.personnel).reduce((sum, pool) => sum + pool.fit, 0), 150);
+    assert.equal(Object.values(treated.equipment).reduce((sum, pool) => sum + pool.operational, 0), 10);
+
+    await loadSupplyControl("Neutral");
+    const interruptedStep = state.advanceSegment();
+    assert.ok(interruptedStep.ok, interruptedStep.ok ? "" : interruptedStep.error.message);
+    const interrupted = state.getCampaignOrders().find((entry) => entry.id === first.id)!;
+    assert.ok(interrupted.kind === "formationRecovery" && interrupted.status === "blocked");
+    assert.equal(interrupted.payload.progress.completedSegments, 1);
+    assert.equal(state.getCampaignFormationSnapshot(formation.id)!.currentOrderId, null);
+    const blockedPreview = state.getCampaignFormationRecoveryPreview(formation.id);
+    assert.equal(blockedPreview.availability, "blocked");
+    const blockedPanel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]")!;
+    assert.ok(blockedPanel.textContent?.includes(blockedPreview.reason!));
+    assert.ok(blockedPanel.textContent?.includes(blockedPreview.correctiveAction!));
+    assert.equal(blockedPanel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]")?.disabled, true);
+
+    await loadSupplyControl("Player");
+    const preview = state.getCampaignFormationRecoveryPreview(formation.id);
+    assert.equal(preview.availability, "available", preview.reason ?? "");
+    assert.ok(preview.quote);
+    const quote = preview.quote;
+    assert.equal(quote.resumedFromOrderId, first.id);
+    assert.equal(quote.suppliesCost, 0);
+    assert.equal(quote.durationSegments, 7);
+    assert.equal(quote.personnelToFit + quote.equipmentToOperational, 0);
+    const beforeDraft = state.getRuntimeSnapshot()!;
+    const panel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]")!;
+    const add = panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]");
+    assert.ok(add && !add.disabled, "A blocked historical order must not hide State's available zero-cost continuation.");
+    assert.ok(panel.textContent?.includes(`0 supply · ${quote.durationSegments * CAMPAIGN_SEGMENT_HOURS} hours`));
+    assert.ok(panel.textContent?.includes(state.segmentToTimeDisplay(quote.completeSegment)));
+    assert.match(panel.textContent ?? "", /Completed treatment and repair are retained/);
+    assert.deepEqual(state.getRuntimeSnapshot(), beforeDraft, "Displaying continuation cannot replay treatment or debit stock.");
+    add.click();
+    const resumed = state.getCampaignOrders().find((entry) => entry.kind === "formationRecovery" && entry.status === "draft");
+    assert.ok(resumed?.kind === "formationRecovery");
+    assert.notEqual(resumed.id, first.id);
+    assert.equal(resumed.payload.resumedFromOrderId, first.id);
+    assert.equal(resumed.payload.suppliesCost, 0);
+    assert.equal(resumed.payload.durationSegments, quote.durationSegments);
+    assert.deepEqual(state.getRuntimeSnapshot()!.formations, beforeDraft.formations);
+    assert.deepEqual(state.getRuntimeSnapshot()!.factions, beforeDraft.factions);
+    const assertResumedVisible = (status: string, completedSegments: number): void => {
+      const activePanel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]")!;
+      assert.equal(activePanel.querySelector<HTMLElement>("[data-campaign-recovery-order-id]")?.dataset.campaignRecoveryOrderId, resumed.id,
+        "The resumed active order must win over the older blocked record.");
+      assert.equal(activePanel.querySelector("[data-draft-formation-recovery]"), null);
+      assert.ok(activePanel.textContent?.includes(`${status} · ${completedSegments}/${quote.durationSegments} recovery segments complete`));
+      assert.ok(activePanel.textContent?.includes(`0 supply · ${quote.durationSegments * CAMPAIGN_SEGMENT_HOURS} hours`));
+    };
+    assertResumedVisible("Draft", 0);
+    root.querySelector<HTMLButtonElement>("#campaignCommitOrders")!.click();
+    assertResumedVisible("Committed", 0);
+    assert.equal(state.getCampaignFormationSnapshot(formation.id)!.currentOrderId, resumed.id);
+    assert.equal(state.getRuntimeSnapshot()!.factions.Player.economy.supplies, beforeDraft.factions.Player.economy.supplies);
+    root.querySelector<HTMLButtonElement>("[data-campaign-recovery-order-id]")!.click();
+    assert.match(root.querySelector("#campaignContextInspector")?.textContent ?? "", /Formation recovery continuation/);
+    inspectCampaignFormation(root, formation.id);
+    const continuationStep = state.advanceSegment();
+    assert.ok(continuationStep.ok, continuationStep.ok ? "" : continuationStep.error.message);
+    assertResumedVisible("Executing", 1);
+    const after = state.getCampaignFormationSnapshot(formation.id)!;
+    assert.deepEqual(after.personnel, treated.personnel);
+    assert.deepEqual(after.equipment, treated.equipment);
+    assert.equal(state.getCampaignOrders().find((entry) => entry.id === first.id)!.status, "blocked");
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_097_SCREEN_HISTORICAL_INTELLIGENCE_COPY_RETAINS_RECORD_AND_REVIEWS_MOVED_CONTACT", async () => {
+  const backend = new InMemoryCampaignSaveBackend();
+  const scenario = scenarioFixture();
+  scenario.dimensions = { cols: 58, rows: 50 };
+  scenario.fronts = [];
+  scenario.tiles[0].hex = { q: 25, r: 10 };
+  scenario.tiles[1].hex = { q: 26, r: 10 };
+  scenario.tilePalette.later = { ...scenario.tilePalette.bot, mapLabel: "Later observation" };
+  scenario.tiles.push({ tile: "later", factionControl: "Bot", hex: { q: 27, r: 10 }, forces: [] });
+  const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
+  state.setScenario(scenario);
+  let boundary = 0;
+  const loadHistoricalFixture = async (change: (runtime: NonNullable<ReturnType<CampaignState["getRuntimeSnapshot"]>>) => void): Promise<void> => {
+    boundary += 1;
+    const slotId = `test-historical-intelligence-${boundary}`;
+    const slot = await state.saveCampaignSlot({ ...postBattleRequest, slotId, slotType: "manual",
+      timestamp: `2026-09-06T12:0${boundary}:00.000Z` });
+    const validation = validateCampaignSaveEnvelope(backend.exportState().saves[slot.currentSaveId]);
+    assert.ok(validation.ok, validation.ok ? "" : validation.error.message);
+    const runtime = structuredClone(validation.envelope.payload.runtime);
+    change(runtime);
+    const envelope = createCampaignSaveEnvelope({ ...validation.envelope, saveId: `${validation.envelope.saveId}:historical-fixture`,
+      payload: { ...validation.envelope.payload, runtime } });
+    await new CampaignSaveRepository(backend).saveSlot({ slotId, label: "Historical intelligence boundary", envelope });
+    const loaded = await state.loadCampaignSlot(slotId, postBattleRequest);
+    assert.ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
+  };
+  // The real next segment discovers the observed contact and authors its alert;
+  // the saved legacy fixture starts without an opening contact assessment.
+  await loadHistoricalFixture((runtime) => {
+    runtime.knowledgeByFaction.Player.contacts = [];
+    runtime.knowledgeByFaction.Player.sourceReports = [];
+    runtime.knowledgeByFaction.Player.briefEvents = [];
+  });
+  const step = state.advanceSegment();
+  assert.ok(step.ok, step.ok ? "" : step.error.message);
+  const record = state.getCampaignAdvanceTimeline()[0];
+  const alert = record.alerts.find((entry) => entry.targetKind === "intelligence" && entry.targetId);
+  assert.ok(alert?.targetId, "Ordinary resolution must author a real contact-linked intelligence alert.");
+  assert.equal(alert.title, "New enemy contact");
+  assert.ok(alert.detail.includes("26,23"));
+  const serializedAlert = JSON.stringify(alert);
+  const nextStep = state.advanceSegment();
+  assert.ok(nextStep.ok, nextStep.ok ? "" : nextStep.error.message);
+  // A later current assessment may move. Historical alerts and source reports
+  // retain their original bytes; only the current-contact fixture is updated.
+  await loadHistoricalFixture((runtime) => {
+    const contact = runtime.knowledgeByFaction.Player.contacts.find((entry) => entry.id === alert.targetId)!;
+    contact.locationHexKey = "27,23";
+    contact.lastObservedSegment = runtime.currentSegment;
+    contact.lastUpdatedSegment = runtime.currentSegment;
+  });
+  const before = state.getRuntimeSnapshot()!;
+  const stored = backend.exportState();
+  assert.equal(JSON.stringify(before.advanceRecords[record.id].alerts.find((entry) => entry.id === alert.id)), serializedAlert);
+  const current = state.getCampaignMapView("Player")!.enemyContacts.find((entry) => entry.id === alert.targetId)!;
+  assert.equal(current.locationHexKey, "27,23");
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  try {
+    root.querySelector<HTMLButtonElement>("#campaignCommandReports")!.click();
+    const row = Array.from(root.querySelectorAll<HTMLElement>("#campaignSituationRecent article"))
+      .find((entry) => entry.querySelector("strong")?.textContent === alert.title
+        && entry.querySelector("span")?.textContent === state.segmentToTimeDisplay(record.toSegment));
+    assert.ok(row && !row.closest("[hidden], .hidden"));
+    const detail = row.querySelector("p")!.textContent!;
+    assert.ok(detail.includes("An intelligence update was reported. Review Intelligence for the current assessment."),
+      "Historical contact prose must not assert a location that was never frozen as structured metadata.");
+    assert.doesNotMatch(detail, /26,23|27,23|Later observation/);
+    assert.equal(row.dataset.alertSeverity, alert.severity);
+    assert.deepEqual(state.getRuntimeSnapshot(), before);
+    row.querySelector<HTMLButtonElement>("button")!.click();
+    assert.equal(root.querySelector("[data-campaign-workspace-tab='intelligence']")?.getAttribute("aria-selected"), "true");
+    assert.equal(root.querySelector<HTMLElement>("#campaignContextInspector")?.dataset.selectionKind, "contact");
+    assert.ok(root.querySelector("#campaignContextInspectorRoute")?.textContent?.includes("27,23"),
+      "The existing review route must inspect the exact contact's current assessment after movement.");
+    assert.deepEqual(state.getRuntimeSnapshot(), before, "Reviewing cannot change alert identity, time, severity, read flags, contacts or resources.");
+    assert.equal(JSON.stringify(state.getRuntimeSnapshot()!.advanceRecords[record.id].alerts.find((entry) => entry.id === alert.id)), serializedAlert);
+    assert.deepEqual(backend.exportState(), stored, "Rendering and navigation must leave the original serialized history untouched.");
+  } finally { screen.disposeCampaignAccessGate(); }
 });
 
 registerTest("CAMPAIGN_OPENING_CAMERA_FRAMES_THE_PRIMARY_NORMANDY_OBJECTIVE", async ({ Given, When, Then }) => {

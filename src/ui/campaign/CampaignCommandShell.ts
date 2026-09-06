@@ -133,6 +133,8 @@ export interface CampaignCommandFormationView {
   readonly statusLabel: string;
   readonly postureKey?: "ready" | "assigned" | "committed" | "inTransit" | "scheduledArrival" | "recovering" | "unavailable";
   readonly canReceiveOrders?: boolean;
+  /** A State-authorized recovery action may remain visible when ordinary orders are unavailable. */
+  readonly recoveryActionVisible?: boolean;
   readonly blockingReason?: string | null;
   readonly availabilityLabel?: string | null;
   readonly readiness: string;
@@ -226,7 +228,7 @@ export interface CampaignCommandOutcomeView {
 /** Player-safe typed order projection for the persistent tray and timeline. */
 export interface CampaignCommandOrderView {
   readonly id: string;
-  readonly kind: "redeploy" | "production" | "reconnaissance" | "counterIntelligence" | "infrastructureRepair";
+  readonly kind: "redeploy" | "production" | "reconnaissance" | "counterIntelligence" | "infrastructureRepair" | "formationRecovery";
   readonly label: string;
   readonly detail: string;
   readonly status: "draft" | "conflict" | "committed" | "executing" | "completed" | "blocked" | "cancelled";
@@ -488,6 +490,9 @@ export class CampaignCommandShell {
   private afterActionExpanded = false;
   private selectedAfterActionReportId: string | null = null;
   private afterActionReports: readonly CampaignCommandAfterActionReportView[] = [];
+  private afterActionInvoker: HTMLElement | null = null;
+  private releaseAfterActionBoundary: (() => void) | null = null;
+  private afterActionRenderKey = "";
   private currentView: CampaignCommandShellView | null = null;
   private activeSelection: CampaignCommandSelection = null;
   private readonly sheetInvokers = new Map<"workspace" | "inspector" | "timeline" | "orders", HTMLElement>();
@@ -584,6 +589,11 @@ export class CampaignCommandShell {
     this.renderInspectorRoute();
   }
 
+  /** Releases the report's temporary document listeners and background ownership. */
+  public dispose(): void {
+    this.setAfterActionExpanded(false, false);
+  }
+
   /** Makes the inspector visible as a narrow-screen sheet after a map selection. */
   public revealInspector(): void {
     this.inspectorExpanded = true;
@@ -639,7 +649,7 @@ export class CampaignCommandShell {
     panel.setAttribute("aria-modal", "true");
     panel.setAttribute("aria-labelledby", "campaignAarTitle");
     panel.innerHTML = `
-      <button class="campaign-aar-panel__backdrop" type="button" data-close-campaign-aar aria-label="Close after-action reports"></button>
+      <button class="campaign-aar-panel__backdrop" type="button" tabindex="-1" data-close-campaign-aar aria-label="Close after-action reports"></button>
       <div class="campaign-aar-card">
         <header class="campaign-aar-card__header">
           <div><span>Headquarters archive</span><h2 id="campaignAarTitle">After-action reports</h2></div>
@@ -803,7 +813,7 @@ export class CampaignCommandShell {
       }
       const location = target.closest<HTMLButtonElement>("[data-campaign-map-hex-target]");
       if (location?.dataset.campaignMapHexTarget) {
-        this.setAfterActionExpanded(false);
+        this.setAfterActionExpanded(false, false);
         this.requestSelection({ kind: "hex", id: location.dataset.campaignMapHexTarget }, true);
         return;
       }
@@ -814,21 +824,21 @@ export class CampaignCommandShell {
       }
       const decision = target.closest<HTMLButtonElement>("[data-aar-target-kind]");
       if (decision?.dataset.aarTargetKind) {
+        this.setAfterActionExpanded(false, false);
         this.callbacks.onAfterActionTargetSelected?.(
           decision.dataset.aarTargetKind as CampaignCommandAfterActionDecisionView["targetKind"],
           decision.dataset.aarTargetId ?? null
         );
-        this.setAfterActionExpanded(false);
         return;
       }
       if (target.closest("[data-continue-campaign-aar]")) {
         const report = this.afterActionReports.find((entry) => entry.id === this.selectedAfterActionReportId);
         const nextDecision = report?.decisions[0];
         if (nextDecision) {
+          this.setAfterActionExpanded(false, false);
           this.callbacks.onAfterActionTargetSelected?.(nextDecision.targetKind, nextDecision.targetId);
-          this.setAfterActionExpanded(false);
         } else {
-          this.setAfterActionExpanded(false);
+          this.setAfterActionExpanded(false, false);
           this.selectWorkspace("situation", true);
         }
       }
@@ -904,6 +914,7 @@ export class CampaignCommandShell {
 
   private handleRootKeydown(event: KeyboardEvent): void {
     if (event.defaultPrevented) return;
+    if (this.afterActionExpanded) return;
     if (event.key === "Escape") {
       const orders = this.root.querySelector<HTMLElement>("#campaignOrdersDrawer");
       if (orders && !orders.hidden) {
@@ -987,16 +998,103 @@ export class CampaignCommandShell {
     }));
   }
 
-  private setAfterActionExpanded(expanded: boolean): void {
-    this.afterActionExpanded = expanded && this.afterActionReports.length > 0;
+  private setAfterActionExpanded(expanded: boolean, restoreFocus = true): void {
+    const next = expanded && this.afterActionReports.length > 0;
+    if (next === this.afterActionExpanded) return;
+    if (next) {
+      const active = document.activeElement;
+      this.afterActionInvoker = active instanceof HTMLElement && this.root.contains(active) && active.tabIndex >= 0 ? active : null;
+    }
+    this.afterActionExpanded = next;
     const panel = this.root.querySelector<HTMLElement>("#campaignAfterActionPanel");
     if (panel) panel.hidden = !this.afterActionExpanded;
-    if (this.afterActionExpanded) {
-      this.root.querySelector<HTMLButtonElement>("#campaignAfterActionPanel [data-close-campaign-aar]")?.focus();
-    } else {
-      this.root.querySelector<HTMLButtonElement>("#campaignCommandReports")?.focus();
-    }
+    this.releaseAfterActionBoundary?.();
+    this.releaseAfterActionBoundary = null;
     this.callbacks.onAfterActionExpandedChanged?.(this.afterActionExpanded);
+    if (this.afterActionExpanded) {
+      if (panel) this.ownAfterActionBoundary(panel);
+    } else if (restoreFocus) {
+      const invoker = this.afterActionInvoker;
+      if (invoker?.isConnected && invoker.closest("#campaignWorkspacePanel") && this.isAvailable(this.root)) {
+        this.setWorkspaceExpanded(true);
+      }
+      if (invoker && this.isAvailable(invoker)) invoker.focus({ preventScroll: true });
+      else this.root.querySelector<HTMLButtonElement>("#campaignCommandReports")?.focus();
+    }
+  }
+
+  /** DOM availability follows the owning screen and any newer modal's inert boundary. */
+  private isAvailable(element: HTMLElement): boolean {
+    if (!element.isConnected || element.matches(":disabled")) return false;
+    for (let owner: HTMLElement | null = element; owner; owner = owner.parentElement) {
+      if (owner.hidden || owner.inert || owner.classList.contains("hidden") || owner.getAttribute("aria-hidden") === "true") return false;
+    }
+    return true;
+  }
+
+  /** One temporary boundary; a newer external dialog can suspend it by making the campaign inert. */
+  private ownAfterActionBoundary(panel: HTMLElement): void {
+    const background = new Map<HTMLElement, boolean>();
+    let wasVisible = false;
+    const focusEntry = (): void => panel.querySelector<HTMLButtonElement>(".campaign-aar-card__header [data-close-campaign-aar]")?.focus({ preventScroll: true });
+    const synchronize = (): void => {
+      const screenHidden = this.root.hidden || this.root.classList.contains("hidden") || this.root.getAttribute("aria-hidden") === "true";
+      if (!this.root.isConnected || (wasVisible && screenHidden)) { this.setAfterActionExpanded(false, false); return; }
+      if (!this.isAvailable(panel)) return;
+      wasVisible = true;
+      // Inert only siblings on the ancestor path, never the dialog or its own ancestors.
+      for (let branch: HTMLElement | null = panel; branch?.parentElement; branch = branch.parentElement) {
+        for (const sibling of Array.from(branch.parentElement.children)) {
+          if (!(sibling instanceof HTMLElement) || sibling === branch) continue;
+          if (!background.has(sibling)) background.set(sibling, Boolean(sibling.inert));
+          if (!sibling.inert) sibling.inert = true;
+        }
+        if (branch.parentElement === document.body) break;
+      }
+      if (!panel.contains(document.activeElement)) focusEntry();
+    };
+    const onFocus = (event: FocusEvent): void => {
+      if (this.isAvailable(panel) && event.target instanceof Node && !panel.contains(event.target)) focusEntry();
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (!this.isAvailable(panel) || event.defaultPrevented) return;
+      // Keep other global command listeners out, while ordinary native button keys still execute.
+      event.stopPropagation();
+      if (event.key === "Escape") { event.preventDefault(); this.setAfterActionExpanded(false); return; }
+      if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
+      const targets = Array.from(panel.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary, [tabindex]"))
+        .filter((target) => {
+          if (target.tabIndex < 0 || !this.isAvailable(target)) return false;
+          for (let owner = target.parentElement; owner && owner !== panel; owner = owner.parentElement) {
+            if (owner.tagName !== "DETAILS" || owner.hasAttribute("open")) continue;
+            const summary = Array.from(owner.children).find((child) => child.tagName === "SUMMARY");
+            if (!summary?.contains(target)) return false;
+          }
+          return true;
+        });
+      const index = targets.indexOf(document.activeElement as HTMLElement);
+      if (index < 0 || (event.shiftKey ? index === 0 : index === targets.length - 1)) {
+        event.preventDefault();
+        (event.shiftKey ? targets[targets.length - 1] : targets[0])?.focus();
+      }
+    };
+    const onScreen = (event: Event): void => {
+      if ((event as CustomEvent<{ id?: string }>).detail?.id !== "campaign") this.setAfterActionExpanded(false, false);
+      else synchronize();
+    };
+    const observer = new window.MutationObserver(synchronize);
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("focusin", onFocus, true);
+    document.addEventListener("screen:shown", onScreen);
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "class", "inert", "aria-hidden"] });
+    this.releaseAfterActionBoundary = () => {
+      observer.disconnect();
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("focusin", onFocus, true);
+      document.removeEventListener("screen:shown", onScreen);
+      background.forEach((inert, element) => { element.inert = inert; });
+    };
+    synchronize();
   }
 
   private createAfterActionTextList(className: string, entries: readonly string[], empty: string): HTMLElement {
@@ -1016,6 +1114,7 @@ export class CampaignCommandShell {
     const detail = this.root.querySelector<HTMLElement>("#campaignAarDetail");
     if (!archive || !detail) return;
     if (reports.length === 0) {
+      this.afterActionRenderKey = "";
       archive.replaceChildren(createTextElement("p", "campaign-aar-empty", "No completed campaign battles are on file."));
       detail.replaceChildren(createTextElement("p", "campaign-aar-empty", "Complete a campaign engagement to create an after-action report."));
       this.selectedAfterActionReportId = null;
@@ -1032,6 +1131,16 @@ export class CampaignCommandShell {
       this.automaticallyPresentedReportIds.add(newestUnread.id);
       this.setAfterActionExpanded(true);
     }
+
+    const renderKey = JSON.stringify([this.selectedAfterActionReportId, reports]);
+    if (renderKey === this.afterActionRenderKey) return;
+    this.afterActionRenderKey = renderKey;
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusInReport = !!focused && (archive.contains(focused) || detail.contains(focused));
+    const focusAttributes = focused ? Array.from(focused.attributes).filter((attribute) => attribute.name.startsWith("data-")) : [];
+    const sameReport = detail.dataset.renderedReportId === this.selectedAfterActionReportId;
+    const detailScroll = sameReport ? detail.scrollTop : 0;
+    const openDisclosures = sameReport ? new Set(Array.from(detail.querySelectorAll("details[open] > summary"), (summary) => summary.textContent)) : new Set();
 
     archive.replaceChildren(...reports.map((report) => {
       const button = document.createElement("button");
@@ -1207,6 +1316,18 @@ export class CampaignCommandShell {
     continueAction.dataset.continueCampaignAar = "true";
     actions.append(continueAction);
     detail.replaceChildren(header, metrics, operational, formations, objectives, decisions, actions);
+    detail.dataset.renderedReportId = selected.id;
+    detail.querySelectorAll<HTMLDetailsElement>("details").forEach((disclosure) => {
+      disclosure.open = openDisclosures.has(disclosure.querySelector("summary")?.textContent ?? null);
+    });
+    detail.scrollTop = detailScroll;
+    if (focusInReport && this.afterActionExpanded) {
+      const controls = Array.from(archive.parentElement!.querySelectorAll<HTMLElement>("button, summary, [tabindex]"));
+      const replacement = focusAttributes.length > 0
+        ? controls.find((control) => focusAttributes.every((attribute) => control.getAttribute(attribute.name) === attribute.value))
+        : controls.find((control) => control.tagName === focused?.tagName && control.textContent === focused?.textContent);
+      (replacement ?? continueAction).focus();
+    }
   }
 
   private renderSituation(view: CampaignCommandShellView): void {
@@ -1308,7 +1429,7 @@ export class CampaignCommandShell {
       // The opening zero-progress projection is not evidence of an achieved
       // result. Keep score visible without predicting victory before progress.
       if (score.earned > 0 || objectives.some((objective) => (objective.progress ?? 0) > 0)) {
-        scoreCard.append(createTextElement("small", "", `Projected ${score.projectedGrade}`));
+        scoreCard.append(createTextElement("small", "", `Best available outcome: ${score.projectedGrade} — if remaining objectives succeed.`));
       }
     }
     const rows = objectives.filter((objective) => objective.key !== priorityObjectiveKey).map((objective) => {
@@ -1440,16 +1561,17 @@ export class CampaignCommandShell {
       this.selectWorkspace("intelligence", true);
       this.callbacks.onOpenIntelligence?.();
     });
-    const battle = document.createElement("button");
+    const battle = sources.querySelector<HTMLButtonElement>("[data-open-campaign-aar]") ?? document.createElement("button");
     battle.type = "button";
+    battle.dataset.openCampaignAar = "true";
     battle.className = "campaign-situation-report-source";
     battle.disabled = this.afterActionReports.length === 0;
-    battle.append(
+    battle.replaceChildren(
       createTextElement("span", "", "Battle reports"),
       createTextElement("strong", "", `${situation.afterActionUnread} unread`),
       createTextElement("small", "", this.afterActionReports.length > 0 ? `${this.afterActionReports.length} after-action reports archived` : "No battles resolved yet")
     );
-    battle.addEventListener("click", () => this.setAfterActionExpanded(true));
+    battle.onclick = () => this.setAfterActionExpanded(true);
     sources.replaceChildren(intelligence, battle);
   }
 

@@ -2012,6 +2012,7 @@
   inset: 0;
   z-index: 2400;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: clamp(0.6rem, 2vw, 1.5rem);
 }
@@ -2027,6 +2028,7 @@
 .campaign-aar-card {
   position: relative;
   width: min(1120px, 96vw);
+  max-width: 100%;
   max-height: min(820px, 92vh);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -2059,7 +2061,7 @@
 .campaign-aar-archive__time { color: #aa9b76; font-size: 0.58rem; text-transform: uppercase; }
 .campaign-aar-archive__entry strong { font-size: 0.72rem; }
 .campaign-aar-archive__entry small { color: #cdb676; font-size: 0.6rem; }
-.campaign-aar-detail { min-height: 0; display: grid; align-content: start; gap: 0.75rem; padding: 0.9rem 1rem 1.1rem; overflow-y: auto; }
+.campaign-aar-detail { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); container: campaign-aar-detail / inline-size; align-content: start; gap: 0.75rem; padding: 0.9rem 1rem 1.1rem; overflow-y: auto; }
 .campaign-aar-detail__header { display: grid; gap: 0.24rem; padding-bottom: 0.7rem; border-bottom: 1px solid rgba(215, 190, 128, 0.15); }
 .campaign-aar-detail__result { width: fit-content; padding: 0.18rem 0.42rem; border: 1px solid rgba(108, 174, 119, 0.46); border-radius: 999px; color: #a7d7ae; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 .campaign-aar-detail__header[data-aar-result="defeat"] .campaign-aar-detail__result { border-color: rgba(189, 94, 79, 0.55); color: #e5a195; }
@@ -2079,6 +2081,11 @@
 .campaign-aar-formations strong { color: #ece0c1; font-size: 0.68rem; }
 .campaign-aar-formations span { color: rgba(225,217,194,0.72); font-size: 0.62rem; }
 .campaign-aar-formations small { grid-column: 1 / -1; color: #aa9b76; font-size: 0.58rem; text-transform: capitalize; }
+/* Reflow against the report pane, which can be narrow even on a wider viewport. */
+@container campaign-aar-detail (max-width: 540px) {
+  .campaign-aar-formations article { grid-template-columns: minmax(0, 1fr); }
+  .campaign-aar-formations small { grid-column: auto; }
+}
 .campaign-aar-decisions button { display: grid; grid-template-columns: minmax(160px, 0.5fr) minmax(0, 1fr) auto; gap: 0.65rem; align-items: center; padding: 0.62rem; border: 1px solid rgba(214, 164, 73, 0.25); border-left: 3px solid #c99b47; background: rgba(196, 142, 46, 0.055); color: #e8ddbf; text-align: left; cursor: pointer; }
 .campaign-aar-decisions button[data-severity="critical"] { border-left-color: #c86656; }
 .campaign-aar-decisions button strong { font-size: 0.68rem; }
@@ -2825,5 +2832,62 @@
 @media (max-height: 430px) and (max-width: 860px) {
   #campaignScreen {
     padding: 0;
+  }
+}
+
+/* Campaign checkpoints have four rows and text-only choices, unlike tactical save cards. */
+#campaignCheckpointPicker {
+  --campaign-checkpoint-gutter: clamp(0.75rem, 3vw, 2rem);
+  padding: var(--campaign-checkpoint-gutter);
+}
+#campaignCheckpointPicker .tactical-save-center__surface {
+  box-sizing: border-box;
+  width: min(58rem, 100%);
+  max-height: min(50rem, calc(100dvh - 2 * var(--campaign-checkpoint-gutter)));
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+#campaignCheckpointPicker .tactical-save-center__body {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+#campaignCheckpointPicker .tactical-save-center__slots,
+#campaignCheckpointPicker .tactical-save-center__slot-list {
+  margin: 0;
+}
+#campaignCheckpointPicker .tactical-save-slot {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 44px;
+}
+#campaignCheckpointPicker .tactical-save-slot__copy strong,
+#campaignCheckpointPicker .tactical-save-slot__copy small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#campaignCheckpointPicker .tactical-save-center__close,
+#campaignCheckpointPicker .tactical-save-center__footer button {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+#campaignCheckpointPicker .tactical-save-center__footer > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-height: 540px) {
+  #campaignCheckpointPicker .tactical-save-center__header,
+  #campaignCheckpointPicker .tactical-save-center__footer {
+    padding: 0.5rem 1rem;
+  }
+  #campaignCheckpointPicker .tactical-save-center__availability {
+    margin: 0;
+    padding: 0.5rem 1rem;
+  }
+  #campaignCheckpointPicker .tactical-save-center__body {
+    padding: 0.5rem 1rem;
   }
 }

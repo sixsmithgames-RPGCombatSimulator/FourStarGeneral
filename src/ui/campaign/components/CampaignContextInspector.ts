@@ -528,7 +528,8 @@ function resolveInspectorRoute(
         ...(location && rosterFormation.locationHexKey ? {
           parentRoute: { hexKey: rosterFormation.locationHexKey, label: `Back to ${location.location?.primaryLabel ?? namedLocationLabel(location.displayLabel) ?? "base"}` },
           mode: "projectedWithActions" as const,
-          showSelectionActions: rosterFormation.canReceiveOrders !== false && (location.showSelectionActions ?? location.hasContextActions === true),
+          showSelectionActions: rosterFormation.recoveryActionVisible === true
+            || (rosterFormation.canReceiveOrders !== false && (location.showSelectionActions ?? location.hasContextActions === true)),
           showEngagementAction: rosterFormation.canReceiveOrders !== false && location.showEngagementAction === true,
           actionSummary: rosterFormation.blockingReason ?? location.actionSummary
         } : {})

@@ -137,6 +137,7 @@ export interface CampaignOrderReasonExplanation {
 }
 
 const CORRECTIVE_ACTIONS: Readonly<Record<CampaignOrderValidationCode, string>> = {
+  ORDER_RECOVERY_INVALID: "Review this formation’s condition and supply connection, then request a new recovery quote.",
   ORDER_FACTION_INVALID: "Return to the current campaign and issue the order for a friendly command.",
   ORDER_SOURCE_INVALID: "Select a current friendly origin and review the route again.",
   ORDER_TARGET_INVALID: "Choose a legal target from the current Player-visible operational picture.",

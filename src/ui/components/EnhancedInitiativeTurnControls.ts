@@ -368,6 +368,11 @@ export class EnhancedInitiativeTurnControls {
    */
   private attachKeyboardListeners(): void {
     const keyHandler = (event: KeyboardEvent) => {
+      // Mounted controls retain their listener across screen changes; hidden battlefields own no keys.
+      if (!this.container.isConnected) return;
+      for (let owner: HTMLElement | null = this.container; owner; owner = owner.parentElement) {
+        if (owner.hidden || owner.inert || owner.classList.contains('hidden') || owner.getAttribute('aria-hidden') === 'true') return;
+      }
       if (event.defaultPrevented) {
         return;
       }

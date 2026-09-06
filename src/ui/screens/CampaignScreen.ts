@@ -1,12 +1,12 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
-import type { CampaignHexGeography, CampaignPendingEngagement, CampaignScenarioData, ProductionAllocation } from "../../core/campaignTypes";
+import { CAMPAIGN_SEGMENT_HOURS, type CampaignHexGeography, type CampaignPendingEngagement, type CampaignScenarioData, type ProductionAllocation } from "../../core/campaignTypes";
 import type { CampaignIntelOperationType, CampaignIntelOperationView, CampaignMapViewModel } from "../../core/campaignIntelTypes";
 import type {
   CampaignOrder,
   CampaignOrderActionPreview,
   CampaignReservation
 } from "../../game/campaign/orders/CampaignOrderTypes";
-import type { CampaignAdvanceAlert, CampaignAdvanceStopReason } from "../../game/campaign/runtime/campaignRuntimeTypes";
+import type { CampaignAdvanceAlert, CampaignAdvanceStopReason, CampaignRuntimeState, CampaignScenarioDefinition } from "../../game/campaign/runtime/campaignRuntimeTypes";
 import { MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
@@ -14,7 +14,8 @@ import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
 import { TRANSPORT_MODES, getDefaultTransportMode } from "../../data/transportModes";
 import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
 import { MapViewport } from "../controls/MapViewport";
-import { computeDailyProduction, ensureCampaignState } from "../../state/CampaignState";
+import { CAMPAIGN_POST_BATTLE_AUTOSAVE_SLOT_PREFIX, CAMPAIGN_PRIMARY_SAVE_SLOT_ID, computeDailyProduction, ensureCampaignState } from "../../state/CampaignState";
+import { CampaignCheckpointPicker, type CampaignCheckpointChoice } from "../components/CampaignCheckpointPicker";
 import { ensureUnlockState } from "../../state/UnlockState";
 import { buildSignInUrl } from "../../utils/guestMode";
 import {
@@ -57,7 +58,7 @@ import {
   resolveCampaignFormationRecordPresentation
 } from "../../game/campaign/formations/CampaignFormationPresentation";
 import { projectCampaignFormationPosture } from "../../game/campaign/formations/CampaignFormationPosture";
-import type { CampaignFormationHistoryEntry } from "../../game/campaign/formations/campaignFormationTypes";
+import type { CampaignFormationHistoryEntry, CampaignFormationRecord } from "../../game/campaign/formations/campaignFormationTypes";
 import { projectLegacyForceGroupAsSupportCapacity } from "../../game/campaign/logistics/CampaignSupportCapacityAdapter";
 import {
   projectCampaignAssociatedLocations,
@@ -112,6 +113,12 @@ export function resolveCampaignCounterattackStageLabel(options: {
     return `Enemy counterattack expected in ${(cadence - options.currentSegment) * 3} hours${options.timeLabel ? ` · ${options.timeLabel}` : ""}.`;
   }
   return "Enemy counterattack will interrupt the next campaign resolution.";
+}
+
+/** One render's bound, defensive historical snapshots; never a second source of campaign state. */
+interface CampaignHistoricalLocationContext {
+  readonly runtime: CampaignRuntimeState | null;
+  readonly definition: CampaignScenarioDefinition | null;
 }
 
 function formatCampaignAfterActionEquipmentLabel(storageKey: string): string {
@@ -191,6 +198,9 @@ export class CampaignScreen {
   private loadButton: HTMLButtonElement | null = null;
   private battleSavesButton: HTMLButtonElement | null = null;
   private saveLoadBusy = false;
+  private checkpointPicker: CampaignCheckpointPicker | null = null;
+  private checkpointRequestGeneration = 0;
+  private checkpointRequestAbort: AbortController | null = null;
   private exitButton: HTMLButtonElement | null = null;
   private selectedHexKey: string | null = null;
   private selectedFrontKey: string | null = null;
@@ -894,8 +904,10 @@ export class CampaignScreen {
    */
   private syncCampaignLockState(): void {
     if (!this.element.isConnected || this.element.closest(".hidden, [hidden]")) {
+      this.cancelCampaignCheckpointRequest();
       this.removeCampaignLockedOverlay(false);
     } else if (this.unlockState.isCampaignLocked("campaign")) {
+      this.cancelCampaignCheckpointRequest();
       this.showCampaignLockedOverlay();
     } else {
       this.removeCampaignLockedOverlay();
@@ -1048,6 +1060,7 @@ export class CampaignScreen {
 
   /** Releases this screen's access-only subscriptions and modal handlers before disposal. */
   public disposeCampaignAccessGate(): void {
+    this.cancelCampaignCheckpointRequest();
     this.lockAuthUnsubscribe?.();
     this.lockAuthUnsubscribe = null;
     if (this.lockScreenHandler) document.removeEventListener("screen:shown", this.lockScreenHandler);
@@ -1058,6 +1071,15 @@ export class CampaignScreen {
     this.lockEntryFocusHandler = null;
     this.lockLastAvailableFocus = null;
     this.removeCampaignLockedOverlay(false);
+  }
+
+  /** Releases checkpoint UI ownership; an already accepted State load retains its own transaction semantics. */
+  private cancelCampaignCheckpointRequest(): void {
+    this.checkpointRequestGeneration += 1;
+    this.checkpointRequestAbort?.abort();
+    this.checkpointRequestAbort = null;
+    this.checkpointPicker?.dispose();
+    this.checkpointPicker = null;
   }
 
   /**
@@ -2006,7 +2028,59 @@ export class CampaignScreen {
         this.campaignPopupInvoker = target.closest<HTMLElement>("[data-draft-infrastructure-repair]");
         this.openInfrastructureRepairModal(this.selectedHexKey);
       }
+      const recovery = target.closest<HTMLButtonElement>("[data-draft-formation-recovery]");
+      if (recovery && !recovery.disabled && this.selectedFormationId
+        && recovery.dataset.formationId === this.selectedFormationId) {
+        const result = this.campaignState.createFormationRecoveryDraft({
+          formationId: this.selectedFormationId,
+          expectedRevision: Number(recovery.dataset.recoveryRevision),
+          faction: "Player"
+        });
+        this.setCampaignStatusMessage(result.ok ? {
+          title: "Recovery draft added.", detail: "The exact formation and supply hold are reserved; treatment begins after commit.",
+          action: "Review the order's cost and completion time, then commit the order.", tone: "success"
+        } : {
+          title: "Recovery draft not added.", detail: result.reason,
+          action: "Review the refreshed quote and resolve its listed blocker before trying again.", tone: "warning"
+        });
+        this.renderCommandShell();
+        return;
+      }
+      const recoveryOrder = target.closest<HTMLButtonElement>("[data-campaign-recovery-order-id]");
+      if (recoveryOrder?.dataset.campaignRecoveryOrderId) {
+        this.commandInterface?.navigate({ kind: "order", id: recoveryOrder.dataset.campaignRecoveryOrderId, focus: true });
+      }
     });
+  }
+
+  /** Displays State's survivor-recovery quote or its current order, without owning pricing or eligibility. */
+  private renderFormationRecovery(formation: CampaignFormationRecord): string {
+    const recoveryOrders = this.campaignState.getCampaignOrders().filter((order) => order.kind === "formationRecovery"
+      && order.faction === "Player" && order.payload.formationId === formation.id);
+    const current = recoveryOrders.find((order) => ["draft", "committed", "executing"].includes(order.status));
+    const latest = [...recoveryOrders].reverse().find((order) => order.status !== "cancelled");
+    const interrupted = !current && latest?.status === "blocked" ? latest : null;
+    const preview = this.campaignState.getCampaignFormationRecoveryPreview(formation.id, "Player");
+    const quote = current?.kind === "formationRecovery" ? current.payload : preview.quote;
+    // A blocked record explains history; only State's current preview can authorize continuation.
+    const interruptionDetail = interrupted
+      ? `<p>Previous recovery interrupted.</p>${interrupted.validation.issues.map((issue) => `<p>${this.escapeHtml(issue.message)}</p>`).join("")}
+         <button type="button" data-campaign-recovery-order-id="${this.escapeHtml(interrupted.id)}">Review interrupted recovery order</button>`
+      : "";
+    const exactQuote = quote
+      ? `${quote.resumedFromOrderId ? "<p>Continue interrupted recovery. Completed treatment and repair are retained; this quote covers the remaining work and workshop time.</p>" : ""}
+         <p>${quote.suppliesCost} supply · ${quote.durationSegments * CAMPAIGN_SEGMENT_HOURS} hours · projected readiness ${Math.round(quote.projectedReadiness)}%</p>
+         <p>${quote.personnelToFit} surviving personnel can return to duty · ${quote.equipmentToOperational} equipment can return to service.</p>
+         <p>${quote.permanentPersonnelLosses} killed personnel and ${quote.permanentEquipmentLosses} destroyed equipment remain losses.</p>
+         <p>Starts ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(quote.startSegment))} · completes ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(quote.completeSegment))}.</p>`
+      : "";
+    const currentDetail = current?.kind === "formationRecovery"
+      ? `<p>${this.escapeHtml(this.formatCampaignLabel(current.status))} · ${current.payload.progress.completedSegments}/${current.payload.durationSegments} recovery segments complete.</p>
+         ${current.validation.issues.map((issue) => `<p>${this.escapeHtml(issue.message)}</p>`).join("")}
+         <button type="button" data-campaign-recovery-order-id="${this.escapeHtml(current.id)}">Review recovery order</button>`
+      : `${preview.reason ? `<p data-reason-code="${this.escapeHtml(preview.reasonCode ?? "")}">${this.escapeHtml(preview.reason)} ${this.escapeHtml(preview.correctiveAction ?? "")}</p>` : ""}
+         <button type="button" data-draft-formation-recovery data-formation-id="${this.escapeHtml(formation.id)}" data-recovery-revision="${preview.revision}" ${preview.availability === "available" ? "" : "disabled"}>Add recovery draft</button>`;
+    return `<section class="campaign-infrastructure-recovery" data-campaign-formation-recovery><strong>Formation recovery</strong>${interruptionDetail}${exactQuote}${currentDetail}</section>`;
   }
 
   /** Renders projected selection details, legal explicit actions, and engagement queue status. */
@@ -2037,6 +2111,7 @@ export class CampaignScreen {
       : null;
     const selectedFormationCanReceiveOrders = !this.selectedFormationId
       || Boolean(selectedFormation && projectCampaignFormationPosture(selectedFormation).canReceiveOrders);
+    if (selectedFormation?.faction === "Player") items.push(this.renderFormationRecovery(selectedFormation));
     let selectedIsFriendlyOccupied = false;
     let selectedCanRedeploy = false;
     let selectedRole: string | null = null;
@@ -2569,6 +2644,8 @@ export class CampaignScreen {
   /** Opens the owning composer with a draft's authoritative payload preselected. */
   private editDraftOrder(orderId: string): void {
     const order = this.campaignState.getCampaignOrders().find((entry) => entry.id === orderId && entry.faction === "Player");
+    // Recovery quotes are immutable; remove the draft and request a fresh State quote to change it.
+    if (order?.kind === "formationRecovery") return;
     if (!order || order.status !== "draft") {
       this.setCampaignStatusMessage({
         title: "Draft not editable.",
@@ -2926,6 +3003,15 @@ export class CampaignScreen {
       costSummary = `${order.payload.suppliesCost.toLocaleString()} supply · ${order.payload.manpowerCost.toLocaleString()} personnel`;
       riskSummary = "Supervising formation stays committed on site; control loss or interruption can block completion.";
       objectiveEffect = "Restored capacity can satisfy later infrastructure, supply, or control conditions; no score changes at commit.";
+    } else if (order.kind === "formationRecovery") {
+      const formation = this.campaignState.getCampaignFormationSnapshot(order.payload.formationId);
+      label = order.payload.resumedFromOrderId ? "Formation recovery continuation" : "Formation recovery";
+      detail = `${formation ? resolveCampaignFormationRecordPresentation(formation).formationName : "Assigned formation"} · ${order.payload.personnelToFit} surviving personnel · ${order.payload.equipmentToOperational} equipment · projected readiness ${Math.round(order.payload.projectedReadiness)}%`;
+      etaSegment = order.payload.completeSegment;
+      routeSummary = `${this.getCampaignLocationDisplayLabel(order.payload.sourceOffsetHexKey)} · Grid ${order.payload.sourceOffsetHexKey}`;
+      costSummary = `${order.payload.suppliesCost} supply · ${order.payload.durationSegments * CAMPAIGN_SEGMENT_HOURS} hours`;
+      riskSummary = `${order.payload.permanentPersonnelLosses} killed personnel and ${order.payload.permanentEquipmentLosses} destroyed equipment remain losses. Treatment requires the formation to stay supplied at its assigned location.`;
+      objectiveEffect = `${order.payload.progress.completedSegments}/${order.payload.durationSegments} recovery segments complete; no replacement personnel, replacement equipment or direct score awarded.`;
     } else {
       const rule = this.campaignState.getIntelOperationRules()[order.payload.operationType];
       label = rule.label;
@@ -2976,7 +3062,7 @@ export class CampaignScreen {
           ? `${cancellation.sunkCostSummary} Review is required before cancellation.`
           : cancellation.reason ?? "Cancellation is no longer available.",
       canRemove: order.status === "draft",
-      canEdit: order.status === "draft" && order.kind !== "infrastructureRepair",
+      canEdit: order.status === "draft" && order.kind !== "infrastructureRepair" && order.kind !== "formationRecovery",
       canMoveEarlier: order.status === "draft" && draftIndex > 0,
       canMoveLater: order.status === "draft" && draftIndex >= 0 && draftIndex < draftOrders.length - 1,
       canCancel: cancellation.canCancel,
@@ -2984,9 +3070,68 @@ export class CampaignScreen {
     };
   }
 
-  /** Presents structured movement history with the same named locations and player grids as the map. */
-  private projectFormationHistorySummary(history: CampaignFormationHistoryEntry | undefined, view: CampaignMapViewModel): string | null {
+  /** Names historical battles from their bound package, independently of the current front topology. */
+  private getCampaignBattleLocationPresentation(
+    engagementId: string,
+    offsetHexKey: string,
+    view: CampaignMapViewModel,
+    historical: CampaignHistoricalLocationContext
+  ): CampaignLocationPresentation {
+    const { runtime, definition } = historical;
+    const ledger = runtime?.engagementLedger[engagementId];
+    const pkg = ledger?.package;
+    const report = ledger?.afterActionReport;
+    const audit = ledger?.controlReport;
+    if (!runtime || !definition || !pkg || !report || !audit
+      || view.observerFaction !== "Player" || report.viewerFaction !== "Player"
+      || definition.key !== runtime.scenarioKey || view.scenario.key !== runtime.scenarioKey
+      || [pkg, report, audit].some((record) => record.campaignId !== runtime.campaignId
+        || record.scenarioKey !== runtime.scenarioKey || record.engagementId !== engagementId)
+      || report.controlIntegrityHash !== audit.integrityHash || report.battleHexKey !== audit.battleHexKey
+      || projectRuntimeHexKeyToCampaignOffset(report.battleHexKey) !== offsetHexKey
+      || pkg.context.battleHexKey !== offsetHexKey) {
+      return resolveCampaignMapLocationPresentation(null, offsetHexKey);
+    }
+    const matches = (front: CampaignScenarioDefinition["map"]["initialFronts"][number]): boolean =>
+      front.hexKeys.includes(offsetHexKey) || Boolean(front.edges?.some((edge) =>
+        edge.friendlyHexKey === offsetHexKey || edge.opposingHexKey === offsetHexKey));
+    const authored = definition.map.initialFronts.filter(matches);
+    const frozen = audit.frontsBefore.filter(matches);
+    const choose = (fronts: typeof authored): typeof authored[number] | undefined =>
+      fronts.find((front) => front.key === pkg.context.frontKey) ?? (fronts.length === 1 ? fronts[0] : undefined);
+    // Authored sector geometry survives earlier front rebuilds. Only an uncovered
+    // location may use the battle's frozen audit; ambiguity cannot select a nearby sector.
+    const front = authored.length > 0 ? choose(authored) : choose(frozen);
+    return resolveCampaignMapLocationPresentation({ ...view, scenario: { ...view.scenario,
+      fronts: front ? [{ ...front, hexKeys: [...front.hexKeys],
+        edges: front.edges?.map((edge) => ({ ...edge })),
+        modifiers: front.modifiers ? [...front.modifiers] : undefined }] : []
+    } }, offsetHexKey);
+  }
+
+  /** Presents structured movement/battle history without parsing or changing append-only prose. */
+  private projectFormationHistorySummary(
+    history: CampaignFormationHistoryEntry | undefined,
+    view: CampaignMapViewModel,
+    formation: CampaignFormationRecord,
+    historical: CampaignHistoricalLocationContext
+  ): string | null {
     if (!history) return null;
+    const prior = formation.battleHistory[formation.battleHistory.length - 2];
+    const battle = history.type === "battle" ? history
+      : history.type === "statusChanged" && prior?.type === "battle" && prior.segment === history.segment ? prior : null;
+    if (battle?.engagementId) {
+      const ledger = historical.runtime?.engagementLedger[battle.engagementId];
+      const report = ledger?.afterActionReport;
+      const pkg = ledger?.package;
+      const delta = report?.friendlyFormations.find((entry) => entry.formationId === formation.id);
+      if (pkg && report && delta && report.segment === battle.segment
+        && pkg.formationCommitments.some((entry) => entry.formationId === formation.id)) {
+        const location = this.getCampaignBattleLocationPresentation(battle.engagementId, pkg.context.battleHexKey, view, historical);
+        return `${MISSION_TYPE_LABELS[pkg.context.missionType]} at ${location.primaryLabel} (${location.secondaryGridReference}); ${delta.personnelLost} personnel lost, readiness ${Math.round(delta.readinessBefore)} to ${Math.round(delta.readinessAfter)}.`;
+      }
+      return "Battle history recorded; open the after-action archive to review the engagement.";
+    }
     if (history.type !== "moved") return history.summary;
     const originKey = projectRuntimeHexKeyToCampaignOffset(history.fromHexKey);
     const destinationKey = projectRuntimeHexKeyToCampaignOffset(history.toHexKey);
@@ -3004,6 +3149,8 @@ export class CampaignScreen {
   private renderCommandShell(): void {
     if (!this.commandInterface) return;
     const view = this.campaignState.getCampaignMapView("Player");
+    const runtime = this.campaignState.getRuntimeSnapshot();
+    const historical: CampaignHistoricalLocationContext = { runtime, definition: this.campaignState.getScenarioDefinitionSnapshot() };
     if (!view) {
       this.commandInterface.render({
         theaterTitle: "Campaign command",
@@ -3152,6 +3299,7 @@ export class CampaignScreen {
                 ? "unavailable" as const
                 : posture.posture,
         canReceiveOrders: posture.canReceiveOrders,
+        recoveryActionVisible: formation.locationHexKey !== null,
         blockingReason: posture.blockingReason,
         availabilityLabel,
         readiness: `${Math.round(formation.readiness)}%`,
@@ -3166,7 +3314,7 @@ export class CampaignScreen {
         currentOrderId: formation.currentOrderId,
         latestHistory: availabilityLabel
           ? `Scheduled to become available ${availabilityLabel}.`
-          : this.projectFormationHistorySummary(formation.battleHistory[formation.battleHistory.length - 1], view)
+          : this.projectFormationHistorySummary(formation.battleHistory[formation.battleHistory.length - 1], view, formation, historical)
       }];
     });
     const knownSites = (view.knownStrategicSites ?? []).map((site) => ({
@@ -3365,13 +3513,12 @@ export class CampaignScreen {
       projectedHexKeys.add(site.locationHexKey);
     });
     const engagements = this.campaignState.getPendingEngagements();
-    const runtime = this.campaignState.getRuntimeSnapshot();
     const postBattleAutosaveStatus = this.campaignState.getPostBattleAutosaveStatus();
     const afterActionReports = this.campaignState.getCampaignAfterActionReports().map((report) => {
       const infrastructureAudit = this.campaignState.getCampaignBattleInfrastructureReport(report.engagementId);
       const infrastructureAfter = infrastructureAudit?.infrastructureAfter ?? null;
       const locationHexKey = projectRuntimeHexKeyToCampaignOffset(report.battleHexKey) ?? report.battleHexKey;
-      const locationPresentation = this.getCampaignLocationPresentation(locationHexKey, view);
+      const locationPresentation = this.getCampaignBattleLocationPresentation(report.engagementId, locationHexKey, view, historical);
       const charged = [
         [report.economyCharged.supplies, "supply"],
         [report.economyCharged.fuel, "fuel"],
@@ -3479,6 +3626,10 @@ export class CampaignScreen {
     const severityRank = { routine: 0, notable: 1, critical: 2, decisionRequired: 3 } as const;
     const projectAlertDetail = (alert: CampaignAdvanceAlert | undefined, fallback: string): string => {
       if (!alert) return fallback;
+      // Contact-linked history has no frozen location; its current assessment may have moved.
+      if (alert.category === "intelligence" && alert.targetKind === "intelligence" && alert.targetId) {
+        return "An intelligence update was reported. Review Intelligence for the current assessment.";
+      }
       if (alert.targetKind !== "objective" || !alert.targetId) return alert.detail;
       const objective = objectives.find((entry) => entry.key === alert.targetId);
       const recordedStatus = /\bis now ([^.]+)/i.exec(alert.detail)?.[1]?.trim();
@@ -4673,7 +4824,8 @@ export class CampaignScreen {
   }
 
   /** Uses the game's existing dialog surface, with one focus owner and explicit acceptance. */
-  private confirmCampaignAction(titleText: string, detail: string, acceptLabel: string): Promise<boolean> {
+  private confirmCampaignAction(titleText: string, detail: string, acceptLabel: string, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) return Promise.resolve(false);
     const layer = document.getElementById("battlePopupLayer");
     const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
     const title = dialog?.querySelector<HTMLElement>("[data-popup-title]");
@@ -4702,15 +4854,25 @@ export class CampaignScreen {
     controls.append(cancel, accept);
     body.replaceChildren(summary, controls);
     return new Promise<boolean>((resolve) => {
+      const wasInert = this.element.inert === true;
+      let finished = false;
       const finish = (accepted: boolean): void => {
+        if (finished) return;
+        finished = true;
         layer.classList.add("hidden");
         layer.setAttribute("aria-hidden", "true");
         layer.removeEventListener("keydown", onKey);
+        signal?.removeEventListener("abort", onAbort);
+        cancel.onclick = null;
+        accept.onclick = null;
         close.onclick = null;
-        this.element.inert = false;
-        invoker?.focus({ preventScroll: true });
+        this.element.inert = wasInert;
+        if (!signal?.aborted && invoker?.isConnected && !invoker.closest(".hidden, [hidden], [inert]")) {
+          invoker.focus({ preventScroll: true });
+        }
         resolve(accepted);
       };
+      const onAbort = (): void => finish(false);
       const onKey = (event: KeyboardEvent): void => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish(false); }
         if (event.key === "Tab") {
@@ -4723,6 +4885,7 @@ export class CampaignScreen {
       cancel.onclick = () => finish(false);
       accept.onclick = () => finish(true);
       close.onclick = () => finish(false);
+      signal?.addEventListener("abort", onAbort, { once: true });
       layer.addEventListener("keydown", onKey);
       layer.classList.remove("hidden");
       layer.setAttribute("aria-hidden", "false");
@@ -4888,27 +5051,59 @@ export class CampaignScreen {
   /** Restores a verified Campaign 2.0 slot or explicitly accepted prior recovery candidate. */
   private async loadCampaignSession(): Promise<void> {
     if (this.saveLoadBusy) return;
-    this.commandSaveStatus = "Loading";
+    const generation = ++this.checkpointRequestGeneration;
+    const controller = new AbortController();
+    this.checkpointRequestAbort = controller;
+    const isCurrent = (): boolean => generation === this.checkpointRequestGeneration && !controller.signal.aborted
+      && this.element.isConnected && !this.element.closest(".hidden, [hidden]") && !this.unlockState.isCampaignLocked("campaign");
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : this.loadButton;
+    const onScreenChanged = (event: Event): void => {
+      if ((event as CustomEvent<{ id?: string }>).detail?.id !== "campaign") {
+        this.cancelCampaignCheckpointRequest();
+      }
+    };
+    document.addEventListener("screen:shown", onScreenChanged);
     this.setCampaignPersistenceBusy(true);
-    this.setCampaignStatusMessage({
-      title: "Loading campaign…",
-      detail: "Verifying save integrity, authored content, and runtime invariants.",
-      action: "Wait for verification to finish.",
-      tone: "info"
-    });
+    let resumedBattle = false;
     try {
-      const result = await this.campaignState.loadPrimaryCampaign(
-        this.buildCampaignPersistenceRequest(new Date().toISOString())
-      );
+      const slots = await this.campaignState.listCampaignSaveSlots();
+      if (!isCurrent()) return;
+      const primary = slots.find((slot) => slot.slotId === CAMPAIGN_PRIMARY_SAVE_SLOT_ID);
+      const describe = (slot: typeof slots[number]): string =>
+        `${slot.display.campaignTitle} · ${slot.display.phaseLabel} · ${this.campaignState.segmentToTimeDisplay(slot.display.segment)} · Saved ${new Date(slot.updatedAt).toLocaleString()}`;
+      const choices: CampaignCheckpointChoice[] = [{ slotId: CAMPAIGN_PRIMARY_SAVE_SLOT_ID,
+        label: "Primary campaign", detail: primary ? describe(primary) : "Check for a primary or earlier legacy campaign save." },
+      ...slots.filter((slot) => slot.slotId.startsWith(`${CAMPAIGN_POST_BATTLE_AUTOSAVE_SLOT_PREFIX}:`)
+        && !/^Tactical\b/i.test(slot.display.phaseLabel))
+        .map((slot) => ({ slotId: slot.slotId, label: "Post-battle campaign checkpoint", detail: describe(slot) }))];
+      this.checkpointPicker = new CampaignCheckpointPicker(choices);
+      const slotId = await this.checkpointPicker.choose(invoker);
+      this.checkpointPicker = null;
+      if (!slotId || !isCurrent()) return;
+      this.commandSaveStatus = "Loading";
+      this.setCampaignStatusMessage({
+        title: "Loading campaign…",
+        detail: "Verifying save integrity, authored content, and runtime invariants.",
+        action: "Wait for verification to finish.",
+        tone: "info"
+      });
+      const request = this.buildCampaignPersistenceRequest(new Date().toISOString());
+      const result = slotId === CAMPAIGN_PRIMARY_SAVE_SLOT_ID
+        ? await this.campaignState.loadPrimaryCampaign(request)
+        : await this.campaignState.loadCampaignSlot(slotId, request);
+      if (!isCurrent()) return;
       if (!result.ok) {
         if (result.recoveryCandidate) {
           const accepted = await this.confirmCampaignAction(
             "Recover earlier campaign",
             "The newest campaign save is damaged. A verified earlier save is available. Recover that earlier campaign to continue; the damaged record will remain quarantined.",
-            "Recover earlier save"
+            "Recover earlier save",
+            controller.signal
           );
+          if (!isCurrent()) return;
           if (accepted) {
-            this.campaignState.restorePrimaryCampaignRecovery(result.recoveryCandidate);
+            if (slotId === CAMPAIGN_PRIMARY_SAVE_SLOT_ID) this.campaignState.restorePrimaryCampaignRecovery(result.recoveryCandidate);
+            else this.campaignState.restoreCampaignRecovery(result.recoveryCandidate);
             this.commandSaveStatus = "Saved";
             this.renderTimeDisplay();
             this.setCampaignStatusMessage({
@@ -4917,7 +5112,7 @@ export class CampaignScreen {
               action: "Review the restored time and situation, then Save to create a new current checkpoint.",
               tone: "warning"
             });
-            this.resumeRestoredCampaignBattle();
+            resumedBattle = this.resumeRestoredCampaignBattle();
             return;
           }
         }
@@ -4935,7 +5130,8 @@ export class CampaignScreen {
       }
       this.renderTimeDisplay();
       this.commandSaveStatus = "Saved";
-      if (this.resumeRestoredCampaignBattle()) return;
+      resumedBattle = this.resumeRestoredCampaignBattle();
+      if (resumedBattle) return;
       this.setCampaignStatusMessage({
         title: result.source === "legacyMigration" ? "Campaign migrated and restored." : "Campaign restored.",
         detail: result.warning
@@ -4944,6 +5140,7 @@ export class CampaignScreen {
         tone: result.warning ? "warning" : "success"
       });
     } catch (error) {
+      if (!isCurrent()) return;
       this.commandSaveStatus = "Unsaved";
       const detail = error instanceof Error ? error.message : "The campaign save could not be loaded.";
       this.setCampaignStatusMessage({
@@ -4953,7 +5150,18 @@ export class CampaignScreen {
         tone: "warning"
       });
     } finally {
+      document.removeEventListener("screen:shown", onScreenChanged);
+      this.checkpointPicker?.dispose();
+      this.checkpointPicker = null;
+      if (this.checkpointRequestAbort === controller) this.checkpointRequestAbort = null;
       this.setCampaignPersistenceBusy(false);
+      // A restored AAR/tactical modal owns its own focus; cancellation returns to HQ Load.
+      const activeModal = document.activeElement instanceof HTMLElement
+        ? document.activeElement.closest("[role='dialog'][aria-modal='true']") : null;
+      if (isCurrent() && !resumedBattle && !activeModal
+        && invoker?.isConnected && !invoker.closest(".hidden, [hidden], [inert]")) {
+        invoker.focus({ preventScroll: true });
+      }
     }
   }
 
