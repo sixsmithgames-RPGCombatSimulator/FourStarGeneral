@@ -685,11 +685,13 @@ registerTest("CAMPAIGNSCREEN_INTELLIGENCE_OPERATIONS_START_NEUTRAL", async ({ Gi
 
   await When("the Operations tab first renders", () => {
     markup = (screen as any).composeIntelOperationsMarkup({
+      enemyContacts: [],
       capacity: { total: 3, committed: 0, available: 3 }
     }, []);
     (screen as any).intelOperationType = "groundRecon";
     (screen as any).selectedHexKey = null;
     selectedMarkup = (screen as any).composeIntelOperationsMarkup({
+      enemyContacts: [],
       capacity: { total: 3, committed: 0, available: 3 }
     }, []);
   });
