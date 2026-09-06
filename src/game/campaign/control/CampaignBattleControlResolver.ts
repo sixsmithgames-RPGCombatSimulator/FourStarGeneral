@@ -9,6 +9,7 @@ import type {
   CampaignFrontLine
 } from "../../../core/campaignTypes";
 import { hexDistance, neighbors } from "../../../core/Hex";
+import { getCampaignFriendlySupplyNetwork as friendlySupplyNetwork } from "../logistics/CampaignSupplyAccess";
 import type { Axial } from "../../../core/types";
 import type {
   CampaignDomainEventDraft,
@@ -49,7 +50,6 @@ import {
 } from "./CampaignBattleControlTypes";
 
 const TERMINAL_FORMATION_STATUSES = new Set<CampaignFormationStatus>(["destroyed", "captured"]);
-const SUPPLY_SOURCE_ROLES = new Set(["logisticsHub", "airbase", "navalBase"]);
 
 interface ControlBoundaryEdge {
   readonly leftHexKey: string;
@@ -230,34 +230,6 @@ export function computeCampaignControlStateHash(runtime: CampaignRuntimeState): 
     controller: runtime.tiles[hexKey]?.controller ?? null,
     controlSinceSegment: runtime.tiles[hexKey]?.controlSinceSegment ?? null
   })));
-}
-
-function tileIsSupplySource(runtime: CampaignRuntimeState, definition: CampaignScenarioDefinition, hexKey: string): boolean {
-  const tile = runtime.tiles[hexKey];
-  const palette = tile ? definition.map.tilePalette[tile.tileKey] : null;
-  return Boolean(palette && ((palette.supplyValue ?? 0) > 0 || SUPPLY_SOURCE_ROLES.has(palette.role)));
-}
-
-function friendlySupplyNetwork(
-  runtime: CampaignRuntimeState,
-  definition: CampaignScenarioDefinition,
-  faction: CampaignFactionKey
-): { sources: string[]; reachable: Set<string> } {
-  const sources = runtime.tileOrder.filter((hexKey) => (
-    runtime.tiles[hexKey]?.controller === faction && tileIsSupplySource(runtime, definition, hexKey)
-  ));
-  const reachable = new Set(sources);
-  const queue = [...sources];
-  while (queue.length > 0) {
-    const current = runtime.tiles[queue.shift()!];
-    neighbors(current.hex).forEach((hex) => {
-      const key = axialKey(hex);
-      if (reachable.has(key) || runtime.tiles[key]?.controller !== faction) return;
-      reachable.add(key);
-      queue.push(key);
-    });
-  }
-  return { sources, reachable };
 }
 
 function retreatOptions(

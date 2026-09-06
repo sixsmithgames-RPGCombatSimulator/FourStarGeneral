@@ -9,3 +9,4 @@ import "./CampaignAccessGate.test.js";
 import "./CampaignIntelVerification.test.js";
 import "./CampaignOrderArrivalPresentation.test.js";
 import "./CampaignStackedReporting.test.js";
+import "./CampaignSupplyAccess.test.js";
