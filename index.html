@@ -3494,7 +3494,7 @@
       display: none;
     }
     .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__stats {
-      grid-template-columns: repeat(var(--battle-intel-stat-count, 6), minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
       gap: 0.35rem;
     }
     .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__stat {
@@ -4386,12 +4386,42 @@
       .battle-map-pane {
         padding: 0.5rem 0.65rem;
         gap: 0.35rem;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
       }
 
       .battle-map-header {
+        flex-shrink: 0;
         padding-top: 0.25rem;
         padding-bottom: 0.25rem;
         gap: 0.35rem;
+      }
+
+      .battle-map-header__actions {
+        grid-template-columns: 8.5rem minmax(0, 1fr);
+      }
+
+      /* Scroll the commands and battlefield together instead of compressing selected intel to its title. */
+      .battle-map-pane > .map-viewport {
+        min-height: 18rem;
+        flex-shrink: 0;
+      }
+
+      .battle-intel-overlay[data-intel-kind="battle"],
+      .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] {
+        width: min(400px, calc(100% - 5rem));
+      }
+
+      .battle-intel-overlay__title {
+        white-space: normal;
+      }
+
+      .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__stats {
+        grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+      }
+
+      .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__actions {
+        grid-template-columns: minmax(0, 1fr);
       }
     }
 

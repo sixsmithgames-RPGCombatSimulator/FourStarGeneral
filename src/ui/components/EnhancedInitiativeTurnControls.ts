@@ -375,7 +375,7 @@ export class EnhancedInitiativeTurnControls {
       const target = event.target instanceof Element ? event.target : null;
       if (
         target?.closest(
-          "button, [role='button'], a, input, textarea, select, [contenteditable='true'], [aria-modal='true']"
+          "button, [role='button'], a, input, textarea, select, [contenteditable='true'], [role='dialog'], [aria-modal='true']"
         )
       ) {
         return;
@@ -403,6 +403,10 @@ export class EnhancedInitiativeTurnControls {
           }
           break;
         case 'Tab':
+          // Modified Tab belongs to native focus/browser navigation, including return after intel dismissal.
+          if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+            return;
+          }
           event.preventDefault();
           if (this.isControlEnabled('.next-activation-btn')) {
             this.events.onNextActivation();

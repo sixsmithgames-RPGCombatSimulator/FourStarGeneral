@@ -1,24 +1,104 @@
 /** Local CSS contract using shipped battle markup and the real initiative-control component; no game state. */
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { buildSync } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import type { EnhancedInitiativeTurnControls } from '../../src/ui/components/EnhancedInitiativeTurnControls';
+import type { SelectionIntelOverlay } from '../../src/ui/announcements/SelectionIntelOverlay';
+import type { BattleSelectionIntel } from '../../src/ui/announcements/AnnouncementTypes';
 
-const source = new JSDOM(readFileSync(resolve('index.html'), 'utf8')).window.document;
+const baselineRef = process.env.FSG_TACTICAL_GEOMETRY_BASELINE;
+const readSource = (path: string): string => baselineRef
+  ? execFileSync('git', ['show', `${baselineRef}:${path}`], { encoding: 'utf8' })
+  : readFileSync(resolve(path), 'utf8');
+const source = new JSDOM(readSource('index.html')).window.document;
 const battle = source.querySelector('#battleScreen');
 if (!battle) throw new Error('Shipped battle screen markup is missing.');
 const fixtureHtml = `<!doctype html><html><head><meta charset="utf-8">${Array.from(source.querySelectorAll('style')).map(style => style.outerHTML).join('\n')}</head><body><div id="app">${battle.outerHTML}</div></body></html>`;
 const component = buildSync({
-  entryPoints: [resolve('src/ui/components/EnhancedInitiativeTurnControls.ts')],
+  stdin: { contents: readSource('src/ui/components/EnhancedInitiativeTurnControls.ts'), loader: 'ts', resolveDir: resolve('src/ui/components') },
   bundle: true, write: false, platform: 'browser', format: 'iife', globalName: 'initiativeFixture'
 }).outputFiles[0].text;
+const intelComponent = buildSync({
+  stdin: { contents: readSource('src/ui/announcements/SelectionIntelOverlay.ts'), loader: 'ts', resolveDir: resolve('src/ui/announcements') },
+  bundle: true, write: false, platform: 'browser', format: 'iife', globalName: 'intelFixture'
+}).outputFiles[0].text;
+
+// Supplied presentation data reproduces the selected engineer's seven stats and long order descriptions.
+const selectedIntel: BattleSelectionIntel = {
+  kind: 'battle', hexKey: '0,12', terrainName: 'Forest', unitLabel: '6th Engineer Special Brigade',
+  unitStrength: 100, unitAmmo: 6, unitFuel: null, unitEntrenchment: 0, canEntrench: true,
+  movementRemaining: 4, movementMax: 4, rangeLabel: '1-4', facingLabel: 'NW',
+  moveOptions: 0, attackOptions: 0, unitTabs: [], statusMessage: '',
+  statusChips: [{ label: 'Engineer', tone: 'neutral' }], detailSections: [], notes: [],
+  actionCards: [
+    { id: 'naval', label: 'Call Western Naval Force naval gunfire', available: false, tone: 'denial',
+      detail: 'No observed enemy hex is close enough to adjust Western Naval Force naval gunfire.' },
+    { id: 'sentry', label: 'Sentry', available: true, tone: 'defense',
+      detail: 'Hold in place on alert. If attacked before the next activation and legal return fire exists, both sides fire simultaneously.' },
+    { id: 'dig-in', label: 'Dig In', available: false, tone: 'defense', detail: 'Only infantry formations can dig in.' },
+    { id: 'facing', label: 'Set Facing', available: true, tone: 'defense',
+      detail: 'Orient the formation toward a chosen hex edge. Facing affects defensive bonuses and retaliation arcs. Cannot reorient after firing.' },
+    { id: 'fortify', label: 'Fortify', available: true, tone: 'defense',
+      detail: 'Build directional defensive works along a chosen hex edge. The engineer must start fresh, and the five-minute build effort consumes the rest of the turn.' },
+    { id: 'traps', label: 'Lay Tank Traps', available: true, tone: 'denial',
+      detail: 'Emplace anti-vehicle obstacles along a chosen hex edge. The engineer must start fresh, and the edge work consumes the rest of the turn.' },
+    { id: 'clear-path', label: 'Clear Path', available: true, tone: 'mobility',
+      detail: 'Cut or widen an internal lane through the hex, improving it up to level 3 until movement approaches road quality. The engineer must start fresh, and each pass consumes the rest of the turn.' }
+  ]
+};
 
 interface FixtureWindow extends Window {
   initiativeFixture: { EnhancedInitiativeTurnControls: typeof EnhancedInitiativeTurnControls };
+  intelFixture: { SelectionIntelOverlay: typeof SelectionIntelOverlay };
   tacticalGeometryControls: EnhancedInitiativeTurnControls;
+  tacticalGeometryIntel: SelectionIntelOverlay;
   tacticalGeometryActions: string[];
+}
+
+async function settleIntel(page: Page): Promise<void> {
+  // Include the real overlay's scheduled position clamp before measuring its visible content.
+  await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+}
+
+async function saveIntelEvidence(page: Page, info: TestInfo, name: string): Promise<void> {
+  const selectors = ['.battle-map-pane', '.battle-map-header', '.map-viewport', '#battleIntelOverlay',
+    '#battleIntelOverlayBody', '#battleIntelOverlayTitle', '#battleIntelOverlayToggle', '#battleIntelOverlayDismiss',
+    '.battle-intel-overlay__stats', '[data-selection-action="clear-path"]', '.group-advance-btn'];
+  const geometry = Object.fromEntries(await Promise.all(selectors.map(async selector => {
+    const locator = page.locator(`#battleScreen ${selector}`);
+    return [selector, { ...await bounds(locator), ...await locator.evaluate(element => ({
+      scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+      overflowY: getComputedStyle(element).overflowY, font: getComputedStyle(element).font
+    })) }];
+  })));
+  const path = info.outputPath(`${name}-geometry.json`);
+  writeFileSync(path, JSON.stringify({ source: baselineRef ?? 'working-tree', viewport: page.viewportSize(),
+    browser: await page.evaluate(() => ({ dpr: devicePixelRatio, focus: document.activeElement?.id || document.activeElement?.tagName,
+      actions: (window as unknown as FixtureWindow).tacticalGeometryActions })), geometry }, null, 2));
+  await info.attach(`${name}-geometry.json`, { path, contentType: 'application/json' });
+  await page.screenshot({ path: info.outputPath(`${name}.png`), scale: 'css' });
+}
+
+async function expectReadable(locator: Locator, containers: Locator[]): Promise<void> {
+  const box = await bounds(locator);
+  expect(box.width, 'Content has visible width').toBeGreaterThan(0);
+  expect(box.height, 'Content has visible height').toBeGreaterThan(0);
+  expect(box.scrollWidth, 'Text fits without horizontal clipping').toBeLessThanOrEqual(box.clientWidth + 1);
+  for (const container of containers) {
+    const frame = await bounds(container);
+    expect(box.x, 'Content fits its visible frame').toBeGreaterThanOrEqual(frame.x - 1);
+    expect(box.right, 'Content fits its visible frame').toBeLessThanOrEqual(frame.right + 1);
+    expect(box.y, 'Content is not clipped above').toBeGreaterThanOrEqual(frame.y - 1);
+    expect(box.bottom, 'Content is not clipped below').toBeLessThanOrEqual(frame.bottom + 1);
+  }
+  expect(await locator.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return hit === element || element.contains(hit);
+  }), 'Visible content is not covered').toBe(true);
 }
 
 async function mountBattleHeader(page: Page): Promise<void> {
@@ -55,7 +135,7 @@ async function mountBattleHeader(page: Page): Promise<void> {
     runtime.tacticalGeometryActions = [];
     runtime.tacticalGeometryControls = new runtime.initiativeFixture.EnhancedInitiativeTurnControls(container, {
       onSkipTurn() {}, onEndTurn: () => runtime.tacticalGeometryActions.push('end-turn'),
-      onNextGroup: () => runtime.tacticalGeometryActions.push('next-group'), onNextActivation() {},
+      onNextGroup: () => runtime.tacticalGeometryActions.push('next-group'), onNextActivation: () => runtime.tacticalGeometryActions.push('next-activation'),
       onCompleteActivation() {}, onProceedToNext() {}, onSkipGroup() {}
     }, { showSkipTurn: true, showAdvanceButton: true, showProceedButton: false, enableKeyboardShortcuts: true });
     runtime.tacticalGeometryControls.updatePhase('initiativeTurn');
@@ -119,7 +199,7 @@ for (const viewport of [
         }
         expect(mapBox.height, 'Reflow leaves a positive map viewport').toBeGreaterThanOrEqual(48);
         expect(mapBox.y, 'The header does not overlap the map').toBeGreaterThanOrEqual(headerBox.bottom - 1);
-        expect(mapBox.bottom, 'The map stays inside the viewport').toBeLessThanOrEqual(viewport.height + 1);
+        expect(Math.min(mapBox.bottom, viewport.height) - Math.max(mapBox.y, 0), 'Map entry remains visible before scrolling').toBeGreaterThanOrEqual(48);
         expect(headerBox.scrollWidth, 'No hidden horizontal overflow in the header').toBeLessThanOrEqual(headerBox.clientWidth + 1);
 
         for (const button of await header.locator('button:visible').all()) {
@@ -146,5 +226,134 @@ for (const viewport of [
       }
       expect(await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryActions)).toEqual(['end-turn', 'next-group']);
     });
+
+    for (const ready of [true, false]) {
+      test(`FSG_CAM_089 selected intel remains readable and commands reachable (${ready ? 'end-turn' : 'active-group'})`, async ({ page }, info) => {
+        await mountBattleHeader(page);
+        await page.evaluate(roundReady => {
+          const controls = (window as unknown as FixtureWindow).tacticalGeometryControls;
+          controls.updateCurrentUnit(roundReady ? null : { unitId: 'geometry-only', ownerId: 'player', initiative: 6, isActivated: false, sortOrder: 0 });
+          controls.updateRoundAdvanceReady(roundReady);
+        }, ready);
+        await page.addScriptTag({ content: intelComponent });
+        await page.evaluate(intel => {
+          const runtime = window as unknown as FixtureWindow;
+          runtime.tacticalGeometryIntel = new runtime.intelFixture.SelectionIntelOverlay();
+          runtime.tacticalGeometryIntel.update(intel);
+        }, selectedIntel);
+        await settleIntel(page);
+        const pane = page.locator('.battle-map-pane');
+        const map = page.locator('#battleScreen .map-viewport');
+        const overlay = page.locator('#battleIntelOverlay');
+        const body = page.locator('#battleIntelOverlayBody');
+        const toggle = page.locator('#battleIntelOverlayToggle');
+        const dismiss = page.locator('#battleIntelOverlayDismiss');
+        const advance = page.locator('.enhanced-initiative-turn-controls .group-advance-btn');
+        await saveIntelEvidence(page, info, 'selected-initial');
+        // The overlay owns focus on selection. End must reach the map through the tactical pane.
+        await expect(overlay).toBeFocused();
+        await page.keyboard.press('End');
+        await expect.poll(async () => (await bounds(map)).bottom - (await bounds(pane)).bottom).toBeLessThanOrEqual(1);
+        await saveIntelEvidence(page, info, 'selected-compact');
+
+        for (const expanded of [false, true]) {
+          if (expanded) {
+            await toggle.click();
+            await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+            await settleIntel(page);
+            await saveIntelEvidence(page, info, 'selected-expanded');
+          }
+          expect((await bounds(body)).height, 'Intel retains room for readable stats').toBeGreaterThanOrEqual(viewport.height <= 480 ? 96 : 48);
+          await expect(overlay.locator('.battle-intel-overlay__stat-value')).toHaveText(['100%', '6', '—', '0/2', '4/4', '1-4', 'NW']);
+          for (const text of await overlay.locator('.battle-intel-overlay__stat-label, .battle-intel-overlay__stat-value').all()) {
+            await expectReadable(text, [text.locator('..'), body, overlay, map, pane]);
+          }
+          await expectReadable(toggle, [overlay, map, pane]);
+          await expectReadable(dismiss, [overlay, map, pane]);
+          // Reserve an actual hit-testable strip of battlefield beside the intel, not just a positive map box.
+          const mapBox = await bounds(map);
+          const cardBox = await bounds(overlay);
+          expect(mapBox.right - cardBox.right, 'Intel leaves an uncovered map strip').toBeGreaterThanOrEqual(48);
+          expect(mapBox.height, 'Map remains substantial enough to inspect').toBeGreaterThanOrEqual(240);
+          expect(await map.evaluate(element => {
+            const box = element.getBoundingClientRect();
+            const hit = document.elementFromPoint(box.right - 24, box.y + box.height / 2);
+            return element.contains(hit) && !hit?.closest('#battleIntelOverlay');
+          }), 'Uncovered map accepts pointer input').toBe(true);
+        }
+
+        const finalAction = body.locator('[data-selection-action="clear-path"]');
+        const bodyBox = await bounds(body);
+        await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2);
+        await page.mouse.wheel(0, 10000);
+        await expect.poll(async () => (await bounds(finalAction)).bottom - (await bounds(body)).bottom).toBeLessThanOrEqual(1);
+        await expectReadable(finalAction, [body, overlay, map, pane]);
+        await expectReadable(finalAction.locator('.battle-intel-overlay__action-detail'), [finalAction, body, pane]);
+        await saveIntelEvidence(page, info, 'selected-final-action');
+        // Tab traverses real enabled actions and scrolls each focused control into view.
+        await page.keyboard.press('Tab');
+        await expect(dismiss).toBeFocused();
+        const enabledActions = await body.locator('button:enabled').all();
+        for (const action of enabledActions) {
+          await page.keyboard.press('Tab');
+          await expect(action).toBeFocused();
+        }
+        await expectReadable(finalAction, [body, overlay, map, pane]);
+        for (const _action of enabledActions) await page.keyboard.press('Shift+Tab');
+        await expect(dismiss).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(overlay).toBeHidden();
+        await settleIntel(page);
+        await saveIntelEvidence(page, info, 'selected-closed');
+        await page.keyboard.press('Shift+Tab');
+        expect(await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryActions), 'Reverse Tab must not order another formation').toEqual([]);
+        await expect(advance).toBeFocused();
+        await page.keyboard.press('Home');
+        await expect.poll(() => pane.evaluate(element => element.scrollTop)).toBe(0);
+        await expectReadable(advance, [page.locator('.battle-map-header'), pane]);
+        // Transformed fractional coordinates can report 43.999992px for a 44px target.
+        expect((await bounds(advance)).height).toBeGreaterThanOrEqual(43.99);
+        await page.keyboard.press('Enter');
+        expect(await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryActions)).toEqual([ready ? 'end-turn' : 'next-group']);
+        await saveIntelEvidence(page, info, 'returned-to-commands');
+      });
+    }
+
+    if (viewport.width === 753) {
+      test('FSG_CAM_090 nonmodal selected intel accepts keyboard entry without selecting another formation', async ({ page }) => {
+        await mountBattleHeader(page);
+        await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryControls.updateCurrentUnit({
+          unitId: 'geometry-only', ownerId: 'player', initiative: 6, isActivated: false, sortOrder: 0
+        }));
+        await page.addScriptTag({ content: intelComponent });
+        await page.evaluate(intel => {
+          const runtime = window as unknown as FixtureWindow;
+          runtime.tacticalGeometryIntel = new runtime.intelFixture.SelectionIntelOverlay();
+          runtime.tacticalGeometryIntel.update(intel);
+        }, selectedIntel);
+        await settleIntel(page);
+        await expect(page.locator('#battleIntelOverlay')).toBeFocused();
+        await page.keyboard.press('Tab');
+        expect(await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryActions)).toEqual([]);
+        await expect(page.locator('#battleIntelOverlayToggle')).toBeFocused();
+        // Unlike fresh selection's dialog root, a clicked toggle already has the existing button guard.
+        await page.keyboard.press('Tab');
+        await expect(page.locator('#battleIntelOverlayDismiss')).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('#battleIntelOverlay')).toBeHidden();
+        await settleIntel(page);
+        await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('BODY');
+        // Preserve the deliberate, unmodified battlefield Tab shortcut without assigning focus in the test.
+        await page.keyboard.press('Tab');
+        expect(await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryActions)).toEqual(['next-activation']);
+        await page.keyboard.press('Shift+Tab');
+        await expect(page.locator('.enhanced-initiative-turn-controls .group-advance-btn')).toBeFocused();
+        await page.keyboard.press('Shift+Tab');
+        await expect(page.locator('.enhanced-initiative-turn-controls .next-activation-btn')).toBeFocused();
+        await page.keyboard.press('Tab');
+        await expect(page.locator('.enhanced-initiative-turn-controls .group-advance-btn')).toBeFocused();
+        expect(await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryActions)).toEqual(['next-activation']);
+      });
+    }
   });
 }
