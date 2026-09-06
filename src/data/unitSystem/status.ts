@@ -667,6 +667,13 @@ function spendCapacity(capacity: { remaining: number }, cost: number): boolean {
 
 export function applyMedicalRecoveryToUnit(unit: ScenarioUnit, capacityPoints: number): MedicalRecoveryResult {
   const status = ensureFormationStatus(unit, unit.formationKey);
+  const result = applyMedicalRecoveryToStatus(status, capacityPoints);
+  unit.strength = deriveStrengthFromStatus(status, unit.strength);
+  return result;
+}
+
+/** Treats existing personnel pools without reconciling them to a unit template. */
+export function applyMedicalRecoveryToStatus(status: FormationStatus, capacityPoints: number): MedicalRecoveryResult {
   const capacity = { remaining: Math.max(0, Math.round(capacityPoints)) };
   const result: MedicalRecoveryResult = { treated: 0, returnedToFit: 0, downgradedSeverity: 0 };
 
@@ -691,12 +698,18 @@ export function applyMedicalRecoveryToUnit(unit: ScenarioUnit, capacityPoints: n
     }
   });
 
-  unit.strength = deriveStrengthFromStatus(status, unit.strength);
   return result;
 }
 
 export function applyEquipmentRepairToUnit(unit: ScenarioUnit, capacityPoints: number): EquipmentRepairResult {
   const status = ensureFormationStatus(unit, unit.formationKey);
+  const result = applyEquipmentRepairToStatus(status, capacityPoints);
+  unit.strength = deriveStrengthFromStatus(status, unit.strength);
+  return result;
+}
+
+/** Repairs existing equipment pools without reconciling them to a unit template. */
+export function applyEquipmentRepairToStatus(status: FormationStatus, capacityPoints: number): EquipmentRepairResult {
   const capacity = { remaining: Math.max(0, Math.round(capacityPoints)) };
   const result: EquipmentRepairResult = { repaired: 0, returnedToOperational: 0, restoredFromDisabled: 0 };
 
@@ -715,6 +728,5 @@ export function applyEquipmentRepairToUnit(unit: ScenarioUnit, capacityPoints: n
     }
   });
 
-  unit.strength = deriveStrengthFromStatus(status, unit.strength);
   return result;
 }
