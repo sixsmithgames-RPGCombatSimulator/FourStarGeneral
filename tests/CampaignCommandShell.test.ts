@@ -2052,6 +2052,86 @@ function inspectCampaignFormation(root: HTMLElement, formationId: string): void 
   control.click();
 }
 
+for (const route of ["CONTINUE", "RECOVER"] as const) {
+  registerTest(`FSG_CAM_098_SCREEN_LOADED_AAR_${route}_SYNCS_EXACT_RECOVERY_QUOTE_AND_DRAFT`, async () => {
+    for (const priorSelection of ["none", "sibling"] as const) {
+      const backend = new InMemoryCampaignSaveBackend();
+      const { state: saved, scenario, slot } = await prepareCampaignPostBattle(backend, undefined, true);
+      const formation = saved.getCampaignFormationRoster("Player").find((entry) => entry.status === "shattered")!;
+      const sibling = saved.getCampaignFormationRoster("Player").find((entry) => entry.status === "ready")!;
+      const expected = saved.getRuntimeSnapshot();
+      const storageBefore = backend.exportState();
+      const state = new CampaignState({ saveBackend: backend, legacyStorage: null });
+      state.setScenario(scenario);
+      const { root, screen } = mountIsolatedCampaignScreen(state);
+      try {
+        if (priorSelection === "sibling") inspectCampaignFormation(root, sibling.id);
+        const load = root.querySelector<HTMLButtonElement>("#campaignLoad")!;
+        load.focus(); load.click();
+        await chooseCampaignCheckpoint(slot.slotId);
+        await waitForCampaignDom(() => !load.disabled);
+        assert.deepEqual(state.getRuntimeSnapshot(), expected, "The actual HQ selection must load the exact post-battle checkpoint.");
+        assert.deepEqual(backend.exportState(), storageBefore, "Loading must leave Primary and the post-battle save untouched.");
+        const reportPanel = root.querySelector<HTMLElement>("#campaignAfterActionPanel")!;
+        assert.ok(!reportPanel.hidden && reportPanel.contains(document.activeElement));
+        const report = state.getCampaignAfterActionReports()[0];
+        reportPanel.querySelector<HTMLButtonElement>("[data-acknowledge-aar]")!.click();
+        assert.deepEqual(state.getCampaignAfterActionReports()[0], { ...report, acknowledged: true },
+          "Acknowledgement may change only the projected read flag, preserving every frozen report field.");
+        const beforeNavigation = state.getRuntimeSnapshot()!;
+        const preview = state.getCampaignFormationRecoveryPreview(formation.id);
+        assert.equal(preview.availability, "available", preview.reason ?? "");
+        assert.ok(preview.quote);
+        const quote = preview.quote;
+        const recover = reportPanel.querySelector<HTMLButtonElement>(`[data-aar-target-kind='formation'][data-aar-target-id='${formation.id}']`);
+        assert.ok(recover, "The actual AAR must offer recovery for the exact shattered survivor.");
+        assert.equal(reportPanel.querySelector("[data-aar-target-kind]"), recover, "Continue must route to the same first required formation decision.");
+        const action = route === "CONTINUE"
+          ? reportPanel.querySelector<HTMLButtonElement>("[data-continue-campaign-aar]")! : recover;
+        action.focus(); action.click();
+        assert.equal(reportPanel.hidden, true);
+        assert.equal(root.querySelector("[data-campaign-workspace-tab='forces']")?.getAttribute("aria-selected"), "true");
+        const inspector = root.querySelector<HTMLElement>("#campaignContextInspector")!;
+        assert.equal(inspector.dataset.routeIdentity, `formation:${formation.id}`);
+        const panel = inspector.querySelector<HTMLElement>("[data-campaign-formation-recovery]");
+        assert.ok(panel && !panel.closest("[hidden], .hidden, [inert]"),
+          `Loaded AAR ${route} must render the selected formation's visible recovery content with prior selection ${priorSelection}.`);
+        const add = panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]");
+        assert.ok(add && !add.disabled);
+        assert.equal(add.dataset.formationId, formation.id, "An earlier sibling selection must never supply the AAR recovery identity.");
+        assert.equal(Number(add.dataset.recoveryRevision), preview.revision);
+        assert.ok(panel.textContent?.includes(`${quote.suppliesCost} supply · ${quote.durationSegments * CAMPAIGN_SEGMENT_HOURS} hours`));
+        assert.ok(panel.textContent?.includes(`projected readiness ${Math.round(quote.projectedReadiness)}%`));
+        assert.ok(panel.textContent?.includes(state.segmentToTimeDisplay(quote.completeSegment)));
+        assert.equal(inspector.querySelector("[data-plan-campaign-redeploy]"), null, "The shattered formation must not inherit generic or sibling redeployment.");
+        assert.deepEqual(state.getRuntimeSnapshot(), beforeNavigation, "AAR navigation and quoting must not heal, spend, assign or acknowledge anything else.");
+        assert.deepEqual(backend.exportState(), storageBefore);
+        const requests: Parameters<CampaignState["createFormationRecoveryDraft"]>[0][] = [];
+        const create = state.createFormationRecoveryDraft.bind(state);
+        // Observe the exact request while retaining the real State validation/transaction.
+        state.createFormationRecoveryDraft = (request) => { requests.push(structuredClone(request)); return create(request); };
+        add.focus(); add.click();
+        assert.deepEqual(requests, [{ formationId: formation.id, expectedRevision: preview.revision, faction: "Player" }]);
+        const orders = state.getCampaignOrders().filter((entry) => entry.kind === "formationRecovery");
+        assert.equal(orders.length, 1);
+        const draft = orders[0];
+        assert.ok(draft.kind === "formationRecovery" && draft.status === "draft");
+        assert.equal(draft.payload.formationId, formation.id);
+        assert.notEqual(draft.payload.formationId, sibling.id);
+        assert.equal(draft.payload.sourceFingerprint, quote.sourceFingerprint);
+        assert.equal(draft.payload.suppliesCost, quote.suppliesCost);
+        assert.equal(draft.payload.completeSegment, quote.completeSegment);
+        const review = inspector.querySelector<HTMLButtonElement>(`[data-campaign-recovery-order-id='${draft.id}']`);
+        assert.ok(review);
+        assert.equal(document.activeElement, review, "The focused Add action must continue on the exact newly created order's Review control.");
+        assert.deepEqual(state.getRuntimeSnapshot()!.formations, beforeNavigation.formations);
+        assert.deepEqual(state.getRuntimeSnapshot()!.factions, beforeNavigation.factions);
+        assert.deepEqual(backend.exportState(), storageBefore, "Drafting never writes Primary or another checkpoint.");
+      } finally { screen.disposeCampaignAccessGate(); }
+    }
+  });
+}
+
 registerTest("FSG_CAM_093_SCREEN_RECOVERY_QUOTES_AND_DRAFTS_EXACT_SHATTERED_SURVIVORS", async () => {
   const backend = new InMemoryCampaignSaveBackend();
   const { state, scenario } = await prepareCampaignPostBattle(backend, undefined, true);
@@ -2076,13 +2156,16 @@ registerTest("FSG_CAM_093_SCREEN_RECOVERY_QUOTES_AND_DRAFTS_EXACT_SHATTERED_SURV
     assert.deepEqual(state.getRuntimeSnapshot(), before, "Reading the quote must not spend or heal.");
     const add = panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]");
     assert.ok(add && !add.disabled);
-    add.click(); add.click();
+    add.focus(); add.click(); add.click();
     const order = state.getCampaignOrders().find((entry) => entry.kind === "formationRecovery");
     assert.ok(order?.kind === "formationRecovery" && order.status === "draft");
     assert.equal(state.getCampaignOrders().filter((entry) => entry.kind === "formationRecovery").length, 1);
     assert.equal(order.payload.formationId, formation.id);
     assert.equal(order.payload.suppliesCost, quote.suppliesCost);
     assert.equal(order.payload.completeSegment, quote.completeSegment);
+    const review = root.querySelector<HTMLButtonElement>(`[data-campaign-formation-recovery] [data-campaign-recovery-order-id='${order.id}']`);
+    assert.ok(review);
+    assert.equal(document.activeElement, review, "Draft creation must carry focus from the removed Add action to its exact Review control.");
     assert.deepEqual(state.getRuntimeSnapshot()!.formations, before.formations, "Drafting must not heal any exact formation.");
     assert.deepEqual(state.getRuntimeSnapshot()!.factions, before.factions, "Draft holds do not spend stock.");
     assert.equal(root.querySelector("[data-draft-formation-recovery]"), null);
@@ -2150,11 +2233,45 @@ registerTest("FSG_CAM_093_SCREEN_RECOVERY_SHOWS_REAL_BLOCKERS_AND_REVALIDATES_ST
       assert.ok(result.ok, result.ok ? "" : result.reason);
     };
     add.addEventListener("click", concurrent, { once: true, capture: true });
-    add.click();
+    add.focus(); add.click();
     assert.equal(state.getCampaignOrders().filter((entry) => entry.kind === "formationRecovery").length, 0);
     assert.deepEqual(state.getRuntimeSnapshot()!.formations, formations);
     assert.match(root.textContent ?? "", /campaign changed after this quote/);
     assert.match(root.textContent ?? "", /Recovery draft not added/);
+    const refreshed = root.querySelector<HTMLButtonElement>("[data-campaign-formation-recovery] [data-draft-formation-recovery]");
+    assert.ok(refreshed && !refreshed.disabled);
+    assert.equal(document.activeElement, refreshed, "A rejected stale draft must keep focus on the refreshed actionable quote.");
+  } finally { screen.disposeCampaignAccessGate(); }
+});
+
+registerTest("FSG_CAM_099_SCREEN_RECOVERY_REJECTION_RETAINS_CURRENT_ORDER_CONTEXT", async () => {
+  const { state } = await prepareCampaignPostBattle(new InMemoryCampaignSaveBackend(), undefined, true);
+  const formation = state.getCampaignFormationRoster("Player").find((entry) => entry.status === "shattered")!;
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  try {
+    inspectCampaignFormation(root, formation.id);
+    const add = root.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]")!;
+    let acceptedOrderId = "";
+    let acceptedState: ReturnType<CampaignState["getRuntimeSnapshot"]> = null;
+    add.addEventListener("click", () => {
+      const preview = state.getCampaignFormationRecoveryPreview(formation.id);
+      const created = state.createFormationRecoveryDraft({ formationId: formation.id, expectedRevision: preview.revision });
+      assert.ok(created.ok, created.ok ? "" : created.reason);
+      acceptedOrderId = created.order.id;
+      const committed = state.commitCampaignOrders([acceptedOrderId]);
+      assert.ok(committed.ok, committed.ok ? "" : committed.reason);
+      acceptedState = state.getRuntimeSnapshot();
+    }, { capture: true, once: true });
+    add.focus(); add.click();
+    assert.ok(acceptedState);
+    assert.deepEqual(state.getRuntimeSnapshot(), acceptedState, "The stale UI request must not duplicate the already accepted order or its debit.");
+    assert.match(root.textContent ?? "", /Recovery draft not added/);
+    const panel = root.querySelector<HTMLElement>("[data-campaign-formation-recovery]")!;
+    assert.ok(panel.contains(document.activeElement), "A rejection with no fresh Add control must retain focus in the current recovery context.");
+    assert.equal(panel.querySelector("[data-draft-formation-recovery]"), null);
+    const review = panel.querySelector<HTMLButtonElement>("[data-campaign-recovery-order-id]")!;
+    assert.equal(review.dataset.campaignRecoveryOrderId, acceptedOrderId);
+    assert.equal(state.getCampaignFormationSnapshot(formation.id)!.currentOrderId, acceptedOrderId);
   } finally { screen.disposeCampaignAccessGate(); }
 });
 

@@ -1190,11 +1190,11 @@ export class CampaignScreen {
       },
       onAfterActionTargetSelected: (targetKind, targetId) => {
         this.commandInterface?.navigate({ kind: targetKind, id: targetId, focus: true });
-        const runtime = this.campaignState.getRuntimeSnapshot();
-        let selectedHexKey = targetKind === "infrastructure" ? targetId : null;
-        if (targetKind === "formation" && targetId) {
-          selectedHexKey = projectRuntimeHexKeyToCampaignOffset(runtime?.formations[targetId]?.locationHexKey ?? null);
+        if (targetKind === "formation") {
+          this.syncCampaignSelection();
+          return;
         }
+        let selectedHexKey = targetKind === "infrastructure" ? targetId : null;
         if (targetKind === "engagement" && targetId) {
           selectedHexKey = projectRuntimeHexKeyToCampaignOffset(
             this.campaignState.getCampaignAfterActionReport(targetId)?.battleHexKey ?? null
@@ -2044,6 +2044,18 @@ export class CampaignScreen {
           action: "Review the refreshed quote and resolve its listed blocker before trying again.", tone: "warning"
         });
         this.renderCommandShell();
+        const panel = this.selectionContainer?.querySelector<HTMLElement>("[data-campaign-formation-recovery]");
+        if (panel && !panel.closest("[hidden], .hidden, [inert]")) {
+          const nextControl = result.ok
+            ? Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-campaign-recovery-order-id]"))
+              .find((button) => button.dataset.campaignRecoveryOrderId === result.order.id)
+            : panel.querySelector<HTMLButtonElement>("[data-draft-formation-recovery]:not(:disabled)");
+          if (nextControl) nextControl.focus();
+          else if (!result.ok) {
+            panel.tabIndex = -1;
+            panel.focus();
+          }
+        }
         return;
       }
       const recoveryOrder = target.closest<HTMLButtonElement>("[data-campaign-recovery-order-id]");
@@ -2065,7 +2077,7 @@ export class CampaignScreen {
     // A blocked record explains history; only State's current preview can authorize continuation.
     const interruptionDetail = interrupted
       ? `<p>Previous recovery interrupted.</p>${interrupted.validation.issues.map((issue) => `<p>${this.escapeHtml(issue.message)}</p>`).join("")}
-         <button type="button" data-campaign-recovery-order-id="${this.escapeHtml(interrupted.id)}">Review interrupted recovery order</button>`
+         <div class="campaign-context-actions"><button type="button" data-campaign-recovery-order-id="${this.escapeHtml(interrupted.id)}">Review interrupted recovery order</button></div>`
       : "";
     const exactQuote = quote
       ? `${quote.resumedFromOrderId ? "<p>Continue interrupted recovery. Completed treatment and repair are retained; this quote covers the remaining work and workshop time.</p>" : ""}
@@ -2077,9 +2089,9 @@ export class CampaignScreen {
     const currentDetail = current?.kind === "formationRecovery"
       ? `<p>${this.escapeHtml(this.formatCampaignLabel(current.status))} · ${current.payload.progress.completedSegments}/${current.payload.durationSegments} recovery segments complete.</p>
          ${current.validation.issues.map((issue) => `<p>${this.escapeHtml(issue.message)}</p>`).join("")}
-         <button type="button" data-campaign-recovery-order-id="${this.escapeHtml(current.id)}">Review recovery order</button>`
+         <div class="campaign-context-actions"><button type="button" data-campaign-recovery-order-id="${this.escapeHtml(current.id)}">Review recovery order</button></div>`
       : `${preview.reason ? `<p data-reason-code="${this.escapeHtml(preview.reasonCode ?? "")}">${this.escapeHtml(preview.reason)} ${this.escapeHtml(preview.correctiveAction ?? "")}</p>` : ""}
-         <button type="button" data-draft-formation-recovery data-formation-id="${this.escapeHtml(formation.id)}" data-recovery-revision="${preview.revision}" ${preview.availability === "available" ? "" : "disabled"}>Add recovery draft</button>`;
+         <div class="campaign-context-actions"><button type="button" data-draft-formation-recovery data-formation-id="${this.escapeHtml(formation.id)}" data-recovery-revision="${preview.revision}" ${preview.availability === "available" ? "" : "disabled"}>Add recovery draft</button></div>`;
     return `<section class="campaign-infrastructure-recovery" data-campaign-formation-recovery><strong>Formation recovery</strong>${interruptionDetail}${exactQuote}${currentDetail}</section>`;
   }
 
