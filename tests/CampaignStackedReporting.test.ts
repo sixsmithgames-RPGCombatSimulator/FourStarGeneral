@@ -1,7 +1,7 @@
 /** Live-shaped stacked roster/current-supply regressions; no tactical rules are replaced by fixtures. */
 import "./domEnvironment.js";
 import assert from "node:assert/strict";
-import { registerTest } from "./harness.js";
+import { registerTest as registerHarnessTest, type TestFn } from "./harness.js";
 import type { Axial, ScenarioData, ScenarioSide, ScenarioUnit } from "../src/core/types";
 import unitTypes from "../src/data/unitSystem/derivedUnitTypes";
 import terrain from "../src/data/terrain.json";
@@ -10,6 +10,18 @@ import { GameEngineInitiativeMethods } from "../src/game/GameEngineInitiativeInt
 import { createScenarioUnitFromTemplate, findTemplateForUnitKey } from "../src/game/adapters";
 import { createOffMapSupportAsset } from "../src/game/support/SupportAssetFactory";
 import { ensureDeploymentState, resetDeploymentState } from "../src/state/DeploymentState";
+
+/** Own deployment singleton setup and teardown for every case, including fixture or assertion failures. */
+function registerTest(id: string, spec: TestFn): void {
+  registerHarnessTest(id, async (context) => {
+    resetDeploymentState();
+    try {
+      await spec(context);
+    } finally {
+      resetDeploymentState();
+    }
+  });
+}
 
 const HEXES: readonly Axial[] = [{ q: 1, r: 1 }, { q: 0, r: 1 }, { q: 1, r: 0 }, { q: 2, r: 0 }, { q: 2, r: 1 }, { q: 1, r: 2 }];
 const FACTIONS: readonly TurnFaction[] = ["Player", "Bot", "Ally"];
@@ -45,7 +57,6 @@ function side(units: ScenarioUnit[], hq: Axial = HEXES[0]): ScenarioSide {
 
 /** Uses real template units and public deployment boundaries to reproduce eleven formations on six hexes. */
 function fixture(otherFactions = false, isolatedSupply = false): { engine: GameEngine; config: GameEngineConfig } {
-  resetDeploymentState();
   ensureDeploymentState().initialize([
     { key: "infantry", label: "Infantry Battalion", remaining: 8 },
     { key: "engineer", label: "Engineering Corps", remaining: 2 },
