@@ -40,6 +40,7 @@ function playerOrderLabel(kind: CampaignRuntimeState["orders"][string]["kind"]):
   if (kind === "redeploy") return "Redeployment";
   if (kind === "production") return "Support allocation";
   if (kind === "infrastructureRepair") return "Reconstruction order";
+  if (kind === "formationRecovery") return "Formation recovery";
   if (kind === "counterIntelligence") return "Counterintelligence operation";
   return "Reconnaissance operation";
 }
@@ -81,12 +82,12 @@ function classifyPlayerOrderChanges(source: CampaignRuntimeState, candidate: Cam
       if (order.kind === "reconnaissance" || order.kind === "counterIntelligence") return;
       alerts.push({
         severity: "notable",
-        category: order.kind === "production" || order.kind === "infrastructureRepair"
+        category: order.kind === "production" || order.kind === "infrastructureRepair" || order.kind === "formationRecovery"
           ? "logistics" : order.kind === "redeploy" ? "movement" : "intelligence",
         title: `${label} complete`,
         detail: "The order completed and its result is available in the relevant command workspace.",
         targetKind: order.kind === "production" ? "campaign"
-          : order.kind === "redeploy" || order.kind === "infrastructureRepair" ? "order" : "intelligence",
+          : order.kind === "redeploy" || order.kind === "infrastructureRepair" || order.kind === "formationRecovery" ? "order" : "intelligence",
         targetId: id,
         requiresStop: false
       });

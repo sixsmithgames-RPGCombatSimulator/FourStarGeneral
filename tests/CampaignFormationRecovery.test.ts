@@ -11,6 +11,7 @@ import { computeCampaignContentHash } from "../src/game/campaign/runtime/Campaig
 import { calculateFormationReadiness } from "../src/data/unitSystem/status";
 import type { CampaignFormationRecoveryOrder } from "../src/game/campaign/orders/CampaignOrderTypes";
 import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
+import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
 import { createCampaignSaveEnvelope, computeCampaignSaveChecksum, validateCampaignSaveEnvelope } from "../src/game/campaign/persistence/CampaignSaveEnvelope";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
 import type { CampaignRuntimeState } from "../src/game/campaign/runtime/campaignRuntimeTypes";
@@ -614,5 +615,75 @@ registerTest("FSG_CAM_093_DOMAIN_INTERRUPTION_PRESERVES_TERMINAL_CONTROL_AND_CON
       assert.equal(after.currentOrderId, null);
       assert.equal(resolved.state.factions.Player.economy.supplies, started.factions.Player.economy.supplies);
     }
+  });
+});
+
+registerTest("FSG_CAM_093_DOMAIN_COMPLETION_ALERT_ROUTES_TO_RECOVERY_ORDER", async ({ When, Then }) => {
+  for (const mode of ["segment", "nextReport"] as const) {
+    const { campaign, formationId } = consequenceFixture("field");
+    const order = committedRecovery(campaign, formationId);
+    await When(`the real State ${mode} command completes the recovery order`, () => {
+      const advanced = campaign.advanceCampaign({ mode });
+      if (!advanced.ok) throw advanced.error;
+      assert.equal(advanced.report.elapsedSegments, 1);
+      assert.equal(advanced.report.stopReason, mode === "segment" ? "segmentComplete" : "nextReport");
+      assert.equal(campaign.getRuntimeSnapshot()!.orders[order.id].status, "completed");
+    });
+    await Then("the retained advance record has exactly one logistics completion routed to the exact order, without changing stop severity", () => {
+      const records = campaign.getCampaignAdvanceTimeline();
+      const alerts = records.flatMap((record) => record.alerts).filter((alert) => alert.targetId === order.id);
+      assert.equal(alerts.length, 1);
+      assert.deepEqual({ title: alerts[0].title, category: alerts[0].category, targetKind: alerts[0].targetKind,
+        targetId: alerts[0].targetId, severity: alerts[0].severity, requiresStop: alerts[0].requiresStop }, {
+        title: "Formation recovery complete", category: "logistics", targetKind: "order", targetId: order.id,
+        severity: "notable", requiresStop: false
+      });
+      assert.equal(records[0].toSegment, order.payload.completeSegment);
+      const retained = structuredClone(alerts[0]);
+      advance(campaign);
+      assert.deepEqual(campaign.getCampaignAdvanceTimeline().flatMap((record) => record.alerts)
+        .filter((alert) => alert.targetId === order.id), [retained]);
+    });
+  }
+});
+
+registerTest("FSG_CAM_093_DOMAIN_INTERRUPTION_ALERT_ROUTES_TO_RECOVERY_ORDER", async ({ When, Then }) => {
+  const { campaign, formationId, backend, scenario } = consequenceFixture("workshop");
+  const order = committedRecovery(campaign, formationId);
+  advance(campaign);
+  const started = campaign.getRuntimeSnapshot()!;
+  const cut = runCampaignRuntimeTransaction(started, "test:recovery-alert-supply-cut", (candidate) => {
+    candidate.tiles[order.payload.sourceRuntimeHexKey].controller = "Neutral";
+    return [];
+  });
+  if (!cut.ok) throw cut.error;
+  await new CampaignSaveRepository(backend).saveSlot({
+    slotId: "recovery-alert:supply-cut", label: "Interrupted recovery alert fixture", envelope: envelopeFor(cut.state)
+  });
+  const restored = new CampaignState({ legacyStorage: null, saveBackend: backend });
+  restored.setScenario(scenario);
+  const loaded = await restored.loadCampaignSlot("recovery-alert:supply-cut", saveRequest);
+  if (!loaded.ok) throw loaded.error;
+  await When("the real State day advance encounters the recovery supply interruption after a validated checkpoint load", () => {
+    const advanced = restored.advanceCampaign({ mode: "day" });
+    if (!advanced.ok) throw advanced.error;
+    assert.equal(advanced.report.elapsedSegments, 1);
+    assert.equal(advanced.report.stopReason, "blockedOrder");
+    assert.equal(restored.getRuntimeSnapshot()!.orders[order.id].status, "blocked");
+  });
+  await Then("one decision-required order alert uses recovery wording and the exact order route, retaining the mandatory stop and deduplication", () => {
+    const records = restored.getCampaignAdvanceTimeline();
+    const alerts = records.flatMap((record) => record.alerts).filter((alert) => alert.targetId === order.id);
+    assert.equal(alerts.length, 1);
+    assert.deepEqual({ title: alerts[0].title, category: alerts[0].category, targetKind: alerts[0].targetKind,
+      targetId: alerts[0].targetId, severity: alerts[0].severity, requiresStop: alerts[0].requiresStop }, {
+      title: "Formation recovery blocked", category: "orders", targetKind: "order", targetId: order.id,
+      severity: "decisionRequired", requiresStop: true
+    });
+    assert.equal(records[0].stopReason, "blockedOrder");
+    const retained = structuredClone(alerts[0]);
+    advance(restored);
+    assert.deepEqual(restored.getCampaignAdvanceTimeline().flatMap((record) => record.alerts)
+      .filter((alert) => alert.targetId === order.id), [retained]);
   });
 });
