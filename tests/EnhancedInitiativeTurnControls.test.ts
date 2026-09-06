@@ -102,12 +102,15 @@ registerTest("ENHANCED_INITIATIVE_CONTROLS_OPTIONAL_PROGRESS_CLEARS_COUNTS_ON_OW
   const friendly = frozenGroup("player", 1, true);
   const enemy = frozenGroup("bot", 19);
   try {
+    controls.updatePhase("initiativeTurn");
+    controls.updatePlayerTurn(true);
     controls.updateCurrentGroup(friendly);
     controls.updateCurrentUnit(friendly.units[0]);
     assert.equal(container.querySelector(".progress-text")?.textContent, "18/19");
     assert.notEqual(container.querySelector<HTMLElement>(".progress-fill")?.style.width, "");
 
     // BattleScreen supplies the new current activation before replacing its group.
+    controls.updatePlayerTurn(false);
     controls.updateCurrentUnit(enemy.units[0]);
     assertNoEnemyCardinality(container);
     for (const remaining of [19, 18, 1, 0]) {
@@ -120,6 +123,8 @@ registerTest("ENHANCED_INITIATIVE_CONTROLS_OPTIONAL_PROGRESS_CLEARS_COUNTS_ON_OW
     controls.updateCurrentUnit(friendly.units[0]);
     assertNoEnemyCardinality(container);
     controls.updateCurrentGroup(friendly);
+    assertNoEnemyCardinality(container);
+    controls.updatePlayerTurn(true);
     assert.equal(container.querySelector(".progress-text")?.textContent, "18/19", "Friendly progress returns after the supplied roster is friendly again.");
     controls.updateCurrentUnit(null);
     controls.updateCurrentGroup(null);

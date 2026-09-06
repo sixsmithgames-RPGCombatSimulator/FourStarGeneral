@@ -156,6 +156,7 @@ export class EnhancedInitiativeTurnControls {
   public updatePlayerTurn(isPlayerTurn: boolean): void {
     this.isPlayerTurn = isPlayerTurn;
     this.updateControlStates();
+    this.updateGroupDisplay();
     this.updateStatusSummary();
   }
 
