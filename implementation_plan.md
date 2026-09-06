@@ -1867,3 +1867,6 @@ Live Recent resolution renders Activity reported near26,23 as primary prose. The
 
 
 The corrected outer track now fits; the same retained800 case reaches a second intrinsic grid inside campaignAarDetail (541px scroll width in514px client width). The same bounded AAR containment scope includes a shrinkable detail grid column and min-width constraint where measured, so real summary text stays within its existing padded scroll owner. Preserve all populated text, fonts, native key assertions and screenshots.
+
+### R4 integration regression — committed formation affordances
+The clean ec41704 professional UI gate fails unchanged FSG_CAM_045_FIELD_FORMATION_SELECTION: the new recoveryActionVisible flag admits every placed formation, exposing the selection section for an already committed combat formation. Parent takes sole ownership of one Screen projection expression: the exceptional recovery affordance requires the existing posture authority's presentAtLocation and shattered/refitting posture. Ordinary ready actions continue through existing canReceiveOrders; committed/transit/scheduled/retired behavior stays unchanged. Preserve all existing assertions, rerun045 with093actualrecovery, then independent review and a new clean R5 full sequence. R4 failed logs remain intact.

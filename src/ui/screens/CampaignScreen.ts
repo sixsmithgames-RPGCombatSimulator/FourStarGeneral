@@ -3299,7 +3299,8 @@ export class CampaignScreen {
                 ? "unavailable" as const
                 : posture.posture,
         canReceiveOrders: posture.canReceiveOrders,
-        recoveryActionVisible: formation.locationHexKey !== null,
+        recoveryActionVisible: posture.presentAtLocation
+          && (posture.posture === "shattered" || posture.posture === "refitting"),
         blockingReason: posture.blockingReason,
         availabilityLabel,
         readiness: `${Math.round(formation.readiness)}%`,
