@@ -7,6 +7,7 @@ import { buildSync } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import type { EnhancedInitiativeTurnControls } from '../../src/ui/components/EnhancedInitiativeTurnControls';
 import type { SelectionIntelOverlay } from '../../src/ui/announcements/SelectionIntelOverlay';
+import type { BattleActivityLog } from '../../src/ui/announcements/BattleActivityLog';
 import type { BattleSelectionIntel } from '../../src/ui/announcements/AnnouncementTypes';
 
 const baselineRef = process.env.FSG_TACTICAL_GEOMETRY_BASELINE;
@@ -25,6 +26,12 @@ const intelComponent = buildSync({
   stdin: { contents: readSource('src/ui/announcements/SelectionIntelOverlay.ts'), loader: 'ts', resolveDir: resolve('src/ui/announcements') },
   bundle: true, write: false, platform: 'browser', format: 'iife', globalName: 'intelFixture'
 }).outputFiles[0].text;
+const logComponent = buildSync({
+  stdin: { contents: readSource('src/ui/announcements/BattleActivityLog.ts'), loader: 'ts', resolveDir: resolve('src/ui/announcements') },
+  bundle: true, write: false, platform: 'browser', format: 'iife', globalName: 'logFixture'
+}).outputFiles[0].text;
+const defenderTitle = '8th (Midlands) Infantry Division — 2nd Battalion';
+const objectiveProgress = 'Secured 0/4 · Friendly control 4/4. Move a friendly formation onto each point and retain control.';
 
 // Supplied presentation data reproduces the selected engineer's seven stats and long order descriptions.
 const selectedIntel: BattleSelectionIntel = {
@@ -53,12 +60,18 @@ const selectedIntel: BattleSelectionIntel = {
 interface FixtureWindow extends Window {
   initiativeFixture: { EnhancedInitiativeTurnControls: typeof EnhancedInitiativeTurnControls };
   intelFixture: { SelectionIntelOverlay: typeof SelectionIntelOverlay };
+  logFixture: { BattleActivityLog: typeof BattleActivityLog };
+  tacticalGeometryLog: BattleActivityLog;
   tacticalGeometryControls: EnhancedInitiativeTurnControls;
   tacticalGeometryIntel: SelectionIntelOverlay;
   tacticalGeometryActions: string[];
 }
 
 async function settleIntel(page: Page): Promise<void> {
+  // Actual log toggling animates the outer grid; measure the settled layout, not an intermediate track width.
+  await page.locator('.battle-main').evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  });
   // Include the real overlay's scheduled position clamp before measuring its visible content.
   await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
 }
@@ -87,6 +100,21 @@ async function expectReadable(locator: Locator, containers: Locator[]): Promise<
   expect(box.width, 'Content has visible width').toBeGreaterThan(0);
   expect(box.height, 'Content has visible height').toBeGreaterThan(0);
   expect(box.scrollWidth, 'Text fits without horizontal clipping').toBeLessThanOrEqual(box.clientWidth + 1);
+  const clipping = await locator.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    const failures: string[] = [];
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      const rect = parent.getBoundingClientRect();
+      const left = rect.left + parent.clientLeft;
+      const top = rect.top + parent.clientTop;
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowX) && (box.left < left - 1 || box.right > left + parent.clientWidth + 1)) failures.push(`${parent.id || parent.className}: horizontal`);
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY) && (box.top < top - 1 || box.bottom > top + parent.clientHeight + 1)) failures.push(`${parent.id || parent.className}: vertical`);
+    }
+    if (box.top < -1 || box.bottom > innerHeight + 1 || box.left < -1 || box.right > innerWidth + 1) failures.push('viewport');
+    return failures;
+  });
+  expect(clipping, 'Content fits every clipping ancestor, before browser focus/scroll can reveal it').toEqual([]);
   for (const container of containers) {
     const frame = await bounds(container);
     expect(box.x, 'Content fits its visible frame').toBeGreaterThanOrEqual(frame.x - 1);
@@ -101,7 +129,7 @@ async function expectReadable(locator: Locator, containers: Locator[]): Promise<
   }), 'Visible content is not covered').toBe(true);
 }
 
-async function mountBattleHeader(page: Page): Promise<void> {
+async function mountBattleHeader(page: Page, defense = false): Promise<void> {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.route('**/*', route => route.abort());
   await page.setContent(fixtureHtml);
@@ -113,8 +141,6 @@ async function mountBattleHeader(page: Page): Promise<void> {
     };
     required('#battleScreen').classList.remove('hidden');
     required('.battle-main').dataset.panelCollapsed = 'true';
-    required('.battle-main').dataset.activityCollapsed = 'true';
-    required('#battleActivityLog').dataset.activityCollapsed = 'true';
     required('#battleCampaignTitle').textContent = 'Operation Overlord - Normandy Campaign';
     required('#battleMissionTitle').textContent = 'Fortified Assault — Omaha-Gold Sector';
     required('#battleObjectiveIndex').textContent = 'Tactical Objective 1 of 4';
@@ -126,6 +152,29 @@ async function mountBattleHeader(page: Page): Promise<void> {
     required('.battle-map-header').classList.add('initiative-controls-active');
     required('.battle-map-header__command-group').classList.add('initiative-controls-active');
   });
+  await page.addScriptTag({ content: logComponent });
+  await page.evaluate(isDefense => {
+    const runtime = window as unknown as FixtureWindow;
+    runtime.tacticalGeometryLog = new runtime.logFixture.BattleActivityLog();
+    // Match BattleScreen.reflectActivityLogState: expanded removes the attribute; it never writes "false".
+    runtime.tacticalGeometryLog.registerCollapsedChangeListener(collapsed => {
+      const main = document.querySelector('.battle-main')!;
+      if (collapsed) main.setAttribute('data-activity-collapsed', 'true');
+      else main.removeAttribute('data-activity-collapsed');
+    });
+    runtime.tacticalGeometryLog.sync(Array.from({ length: 18 }, (_, index) => ({
+      id: `defender-${index}`, timestamp: '06:00', category: 'system', type: 'deployment',
+      summary: `Defending formation ${index + 1} is deployed and ready.`
+    })));
+    runtime.tacticalGeometryLog.show();
+    if (isDefense) {
+      document.querySelector('#battleMissionTitle')!.textContent = 'Defensive Engagement — Caen-Orne Sector';
+      const progress = document.querySelector('#battleObjectiveProgress')!;
+      progress.textContent = 'Secured 0/4 · Friendly control 4/4. Move a friendly formation onto each point and retain control.';
+      progress.classList.remove('hidden');
+      document.querySelector('#battleObjectiveStatus')!.textContent = 'Friendly-held; needs securing';
+    }
+  }, defense);
   await page.addScriptTag({ content: component });
   await page.evaluate(() => {
     const runtime = window as unknown as FixtureWindow;
@@ -140,7 +189,51 @@ async function mountBattleHeader(page: Page): Promise<void> {
     }, { showSkipTurn: true, showAdvanceButton: true, showProceedButton: false, enableKeyboardShortcuts: true });
     runtime.tacticalGeometryControls.updatePhase('initiativeTurn');
     runtime.tacticalGeometryControls.updatePlayerTurn(true);
+    runtime.tacticalGeometryControls.updateCurrentGroup({ initiative: 6, isCompleted: false, currentUnitIndex: 3,
+      units: Array.from({ length: 18 }, (_, index) => ({ unitId: `defender-${index}`, ownerId: 'player', initiative: 6,
+        isActivated: index < 3, sortOrder: index })) });
   });
+  const log = page.locator('#battleActivityLog');
+  const logToggle = page.locator('#battleActivityLogToggle');
+  await expect(log).not.toHaveAttribute('data-activity-collapsed');
+  await expect(logToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(log.locator('li')).toHaveCount(18);
+  if (defense) {
+    await expectReadable(log.locator('.battle-activity-log__title'), [log]);
+    await expectReadable(logToggle, [page.locator('.battle-main')]);
+    expect((await bounds(logToggle)).height).toBeGreaterThanOrEqual(44);
+    // Opening the compact drawer must not shrink the underlying map/header track.
+    const expandedPaneWidth = (await bounds(page.locator('.battle-map-pane'))).width;
+    await logToggle.click();
+    await settleIntel(page);
+    if (page.viewportSize()!.width <= 980) {
+      expect((await bounds(page.locator('.battle-map-pane'))).width).toBeCloseTo(expandedPaneWidth, 0);
+    }
+    await logToggle.click();
+    await expect(logToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(log).not.toHaveAttribute('data-activity-collapsed');
+  }
+  // The user closes the drawer to inspect the map. Never synthesize collapsed state in the fixture.
+  await logToggle.click();
+  await expect(log).toHaveAttribute('data-activity-collapsed', 'true');
+  await expect(logToggle).toHaveAttribute('aria-expanded', 'false');
+  await settleIntel(page);
+}
+
+async function expectInitialIntel(page: Page, label: string): Promise<void> {
+  const overlay = page.locator('#battleIntelOverlay');
+  const body = page.locator('#battleIntelOverlayBody');
+  await expect(page.locator('#battleIntelOverlayTitle')).toHaveText(label);
+  for (const text of await overlay.locator('#battleIntelOverlayTitle, .battle-intel-overlay__stat-label, .battle-intel-overlay__stat-value, .battle-intel-overlay__chip').all()) {
+    await expectReadable(text, [overlay]);
+  }
+  expect(await body.evaluate(element => element.scrollTop), 'Initial stats must not require body scrolling').toBe(0);
+  for (const id of ['battleIntelOverlayToggle', 'battleIntelOverlayDismiss']) {
+    const control = page.locator(`#${id}`);
+    await expectReadable(control, [overlay]);
+    expect((await bounds(control)).height, `${id} has a 44px target`).toBeGreaterThanOrEqual(43.99);
+    expect((await bounds(control)).width, `${id} has a 44px target`).toBeGreaterThanOrEqual(43.99);
+  }
 }
 
 async function bounds(locator: Locator) {
@@ -151,15 +244,18 @@ async function bounds(locator: Locator) {
   });
 }
 
+for (const defense of [false, true]) {
 for (const viewport of [
+  { width: 600, height: 900 },
   { width: 640, height: 360 }, { width: 753, height: 356 }, { width: 800, height: 900 },
   { width: 1280, height: 720 }, { width: 1506, height: 768 }, { width: 1920, height: 1080 }
 ]) {
-  test.describe(`${viewport.width}x${viewport.height}`, () => {
+  test.describe(`${viewport.width}x${viewport.height} ${defense ? 'expanded-log defense' : 'collapsed-log assault'}`, () => {
     // This reproduces the measured CSS viewport/DPR, not a claim of native Chrome zoom certification.
     test.use({ viewport, deviceScaleFactor: viewport.width === 753 ? 2.5 : 1 });
     test('FSG_CAM_088 tactical status and initiative actions reflow inside the visible header', async ({ page }, info) => {
-      await mountBattleHeader(page);
+      await mountBattleHeader(page, defense);
+      if (defense) await expect(page.locator('#battleObjectiveProgress')).toHaveText(objectiveProgress);
       for (const ready of [true, false]) {
         await page.evaluate(roundReady => {
           const controls = (window as unknown as FixtureWindow).tacticalGeometryControls;
@@ -168,6 +264,28 @@ for (const viewport of [
         }, ready);
         const name = ready ? 'end-turn' : 'active-group';
         const header = page.locator('.battle-map-header');
+        if (defense) {
+          const drawerToggle = page.locator('#battleActivityLogToggle');
+          await drawerToggle.click();
+          await settleIntel(page);
+          await expect(drawerToggle).toHaveAttribute('aria-expanded', 'true');
+          await expect(page.locator('#battleActivityLog')).not.toHaveAttribute('data-activity-collapsed');
+          await expectReadable(drawerToggle, [page.locator('.battle-main')]);
+          await expectReadable(page.locator('.battle-activity-log__title'), [page.locator('#battleActivityLog')]);
+          const frame = await bounds(header);
+          for (const selector of ['#battleScreenHeading', '.group-advance-btn', '.skip-group-btn', '.next-activation-btn']) {
+            const box = await bounds(header.locator(selector));
+            expect(box.scrollWidth, `${selector} stays uncompressed behind the open drawer`).toBeLessThanOrEqual(box.clientWidth + 1);
+            expect(box.right).toBeLessThanOrEqual(frame.right + 1);
+          }
+          await page.screenshot({ path: info.outputPath(`${name}-log-expanded.png`), scale: 'css' });
+          await drawerToggle.click();
+          await settleIntel(page);
+          await expect(page.locator('#battleActivityLog')).toHaveCSS('visibility', 'hidden');
+          await expectReadable(page.locator('#battleObjectiveProgress'), [header]);
+          await expectReadable(page.locator('#battleObjectiveStatus'), [header]);
+          if (!ready) await expect(header.locator('.initiative-status__detail')).toHaveText('15 formations ready');
+        }
         const controls = header.locator('.enhanced-initiative-turn-controls');
         const selectors = ['.group-advance-btn', '.battle-operation-identity', '#battleCycleObjective', '.turn-status', '#battleSettingsToggle',
           '#battleSaveButton', '#battleLoadButton', '#battleSaveStatus', '.initiative-status',
@@ -204,7 +322,8 @@ for (const viewport of [
 
         for (const button of await header.locator('button:visible').all()) {
           const box = await bounds(button);
-          expect(box.height, `${await button.textContent()} retains a 44px target`).toBeGreaterThanOrEqual(44);
+          // Fractional transformed bounds can be 43.999992px for a computed 44px target.
+          expect(box.height, `${await button.textContent()} retains a 44px target`).toBeGreaterThanOrEqual(43.99);
           expect(await button.evaluate(element => {
             const rect = element.getBoundingClientRect();
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
@@ -229,7 +348,7 @@ for (const viewport of [
 
     for (const ready of [true, false]) {
       test(`FSG_CAM_089 selected intel remains readable and commands reachable (${ready ? 'end-turn' : 'active-group'})`, async ({ page }, info) => {
-        await mountBattleHeader(page);
+        await mountBattleHeader(page, defense);
         await page.evaluate(roundReady => {
           const controls = (window as unknown as FixtureWindow).tacticalGeometryControls;
           controls.updateCurrentUnit(roundReady ? null : { unitId: 'geometry-only', ownerId: 'player', initiative: 6, isActivated: false, sortOrder: 0 });
@@ -240,7 +359,7 @@ for (const viewport of [
           const runtime = window as unknown as FixtureWindow;
           runtime.tacticalGeometryIntel = new runtime.intelFixture.SelectionIntelOverlay();
           runtime.tacticalGeometryIntel.update(intel);
-        }, selectedIntel);
+        }, defense ? { ...selectedIntel, unitLabel: defenderTitle } : selectedIntel);
         await settleIntel(page);
         const pane = page.locator('.battle-map-pane');
         const map = page.locator('#battleScreen .map-viewport');
@@ -250,6 +369,7 @@ for (const viewport of [
         const dismiss = page.locator('#battleIntelOverlayDismiss');
         const advance = page.locator('.enhanced-initiative-turn-controls .group-advance-btn');
         await saveIntelEvidence(page, info, 'selected-initial');
+        await expectInitialIntel(page, defense ? defenderTitle : selectedIntel.unitLabel!);
         // The overlay owns focus on selection. End must reach the map through the tactical pane.
         await expect(overlay).toBeFocused();
         await page.keyboard.press('End');
@@ -262,6 +382,7 @@ for (const viewport of [
             await expect(toggle).toHaveAttribute('aria-expanded', 'true');
             await settleIntel(page);
             await saveIntelEvidence(page, info, 'selected-expanded');
+            await expectInitialIntel(page, defense ? defenderTitle : selectedIntel.unitLabel!);
           }
           expect((await bounds(body)).height, 'Intel retains room for readable stats').toBeGreaterThanOrEqual(viewport.height <= 480 ? 96 : 48);
           await expect(overlay.locator('.battle-intel-overlay__stat-value')).toHaveText(['100%', '6', '—', '0/2', '4/4', '1-4', 'NW']);
@@ -321,7 +442,7 @@ for (const viewport of [
 
     if (viewport.width === 753) {
       test('FSG_CAM_090 nonmodal selected intel accepts keyboard entry without selecting another formation', async ({ page }) => {
-        await mountBattleHeader(page);
+        await mountBattleHeader(page, defense);
         await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryControls.updateCurrentUnit({
           unitId: 'geometry-only', ownerId: 'player', initiative: 6, isActivated: false, sortOrder: 0
         }));
@@ -356,4 +477,5 @@ for (const viewport of [
       });
     }
   });
+}
 }

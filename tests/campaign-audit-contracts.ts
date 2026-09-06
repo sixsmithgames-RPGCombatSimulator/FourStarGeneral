@@ -14,3 +14,4 @@ import "./CampaignFrontInitiative.test.js";
 import "./CampaignFormationRecovery.test.js";
 import "./CampaignReportInteraction.test.js";
 import "./CampaignPrecombatIntelligence.test.js";
+import "./BattleScreen.objectiveMarkers.test.js";

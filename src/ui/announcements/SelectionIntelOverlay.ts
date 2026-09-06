@@ -137,6 +137,7 @@ export class SelectionIntelOverlay {
     this.root.setAttribute("aria-hidden", "false");
     window.requestAnimationFrame(() => {
       this.clampWithinViewport();
+      this.revealWithinPane();
       this.root?.focus({ preventScroll: true });
     });
   }
@@ -234,7 +235,10 @@ export class SelectionIntelOverlay {
         this.notesElement.textContent = "";
       }
     }
-    window.requestAnimationFrame(() => this.clampWithinViewport());
+    window.requestAnimationFrame(() => {
+      this.clampWithinViewport();
+      this.revealWithinPane();
+    });
   }
 
   private syncCollapsedState(): void {
@@ -287,6 +291,19 @@ export class SelectionIntelOverlay {
     const clampedTop = Math.min(Math.max(16, top), Math.max(16, parent.clientHeight - rootHeight - 16));
     this.root.style.left = `${clampedLeft}px`;
     this.root.style.top = `${clampedTop}px`;
+  }
+
+  /** Reveal selected intel in the existing command/map scroll owner, without moving the world view. */
+  private revealWithinPane(): void {
+    if (!this.root || this.root.classList.contains("hidden") || this.activeIntel?.kind !== "battle") return;
+    const pane = this.root.closest<HTMLElement>(".battle-map-pane");
+    if (!pane || pane.scrollHeight <= pane.clientHeight) return;
+    const frame = pane.getBoundingClientRect();
+    const card = this.root.getBoundingClientRect();
+    const top = Math.max(0, frame.top + pane.clientTop);
+    const bottom = Math.min(window.innerHeight, frame.top + pane.clientTop + pane.clientHeight);
+    if (card.bottom > bottom) pane.scrollTop += Math.min(card.bottom - bottom, card.top - top);
+    else if (card.top < top) pane.scrollTop -= top - card.top;
   }
 
   private handlePointerUp(event: PointerEvent): void {

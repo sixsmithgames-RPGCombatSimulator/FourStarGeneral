@@ -19,6 +19,8 @@ export interface ObjectiveProgress {
 export interface ObjectiveMarkerProgress {
   readonly hex: Axial;
   readonly status: "unoccupied" | "player" | "enemy";
+  /** Campaign defense only: a recorded friendly visit, independent of current territorial control. */
+  readonly secured?: boolean;
   readonly counter?: string;
   readonly tooltip?: string;
 }
@@ -1883,10 +1885,15 @@ function createCampaignBattleController(scenario: ScenarioData): MissionRulesCon
     .map((objective, index) => {
       const occupant = occupancy.get(objective.key);
       const status = isFriendlyOccupant(occupant) ? "player" : occupant === "Bot" ? "enemy" : "unoccupied";
+      const secured = securedFriendlyObjectives.has(objective.key);
+      const defenseDetail = status === "player"
+        ? secured ? "friendly-held; secured" : "friendly-held; needs securing. Move a friendly formation onto this point"
+        : status === "enemy" ? "opposing-held; recapture required" : "unoccupied; needs securing";
       return {
         hex: objective.hex,
         status,
-        tooltip: `Tactical objective ${index + 1} — ${status === "player" ? "friendly-held" : status === "enemy" ? "opposing-held" : "unoccupied"}.`
+        ...(playerRole === "defender" ? { secured } : {}),
+        tooltip: `Tactical objective ${index + 1} — ${playerRole === "defender" ? defenseDetail : status === "player" ? "friendly-held" : status === "enemy" ? "opposing-held" : "unoccupied"}.`
       } satisfies ObjectiveMarkerProgress;
     });
 

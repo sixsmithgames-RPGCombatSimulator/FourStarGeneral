@@ -4403,7 +4403,7 @@
 
       /* Scroll the commands and battlefield together instead of compressing selected intel to its title. */
       .battle-map-pane > .map-viewport {
-        min-height: 18rem;
+        min-height: min(20rem, calc(100dvh - 3rem));
         flex-shrink: 0;
       }
 
@@ -8876,6 +8876,106 @@
       }
     }
 
+    /* Battle drawers preserve their real open state without taxing the compact map track. */
+    #battleScreen #battleActivityLogToggle {
+      width: 44px;
+      height: 44px;
+    }
+    #battleScreen .battle-map-header button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    #battleScreen #battleActivityLog[data-activity-collapsed="true"] {
+      visibility: hidden;
+    }
+    #battleScreen .battle-objective-progress {
+      font-size: 0.72rem;
+      line-height: 1.35;
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: normal;
+      white-space: normal;
+    }
+    #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__header {
+      padding: 3rem 0 0;
+    }
+    #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      text-overflow: clip;
+    }
+    #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__toggle {
+      right: calc(44px + 1rem);
+      min-width: 44px;
+      min-height: 44px;
+    }
+    #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__dismiss {
+      width: 44px;
+      height: 44px;
+    }
+    @media (max-width: 980px) {
+      #battleScreen .battle-main[data-panel-collapsed="true"] {
+        grid-template-columns: minmax(0, 1fr) 0;
+      }
+      #battleScreen .battle-main[data-panel-collapsed="true"] #battleActivityLog {
+        position: absolute;
+        inset: 0.5rem 0.5rem 0.5rem auto;
+        width: min(320px, calc(100% - 1rem));
+        z-index: 60;
+        transform: none;
+        background: rgba(8, 11, 19, 0.98);
+      }
+      #battleScreen .battle-main[data-panel-collapsed="true"] #battleActivityLog:not([data-activity-collapsed="true"]) {
+        visibility: visible;
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #battleScreen .battle-main[data-panel-collapsed="true"] .battle-activity-log__header {
+        padding-right: 44px;
+      }
+      #battleScreen .battle-main[data-panel-collapsed="true"] #battleActivityLogToggle:not(.hidden) {
+        display: grid !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+        right: 0.5rem;
+        top: auto;
+        bottom: 0.5rem;
+        z-index: 61;
+      }
+      #battleScreen .battle-main[data-panel-collapsed="true"]:not([data-activity-collapsed="true"]) #battleActivityLogToggle:not(.hidden) {
+        top: 0.5rem;
+        bottom: auto;
+      }
+      #battleScreen .battle-intel-overlay[data-intel-kind="battle"],
+      #battleScreen .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] {
+        width: min(400px, calc(100% - 5rem));
+        max-height: calc(100% - 2rem);
+        overflow: hidden;
+      }
+      #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__stats {
+        grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+      }
+      #battleScreen .battle-objective-card:has(.battle-objective-progress:not(.hidden)) {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 10rem);
+      }
+      #battleScreen .battle-objective-card:has(.battle-objective-progress:not(.hidden)) .battle-objective-card__copy {
+        display: contents;
+      }
+      #battleScreen .battle-objective-card:has(.battle-objective-progress:not(.hidden)) .battle-objective-card__status {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+      }
+      #battleScreen .battle-objective-progress {
+        grid-column: 1 / -1;
+      }
+      #battleScreen .battle-objective-card__status {
+        white-space: normal;
+      }
+      #battleScreen .battle-map-title {
+        white-space: normal;
+      }
+    }
+
     /* Mission End Modal - Professional, spacious design for victory/defeat announcements */
     .mission-end-modal {
       position: fixed;
@@ -9597,6 +9697,7 @@
                       <span class="battle-objective-card__copy">
                         <span id="battleObjectiveIndex" class="battle-objective-card__label">Primary Objective</span>
                         <strong id="battleObjectiveTitle" class="battle-objective-card__title">Awaiting orders</strong>
+                        <span id="battleObjectiveProgress" class="battle-objective-progress hidden"></span>
                       </span>
                       <span id="battleObjectiveStatus" class="battle-objective-card__status" data-state="pending">Pending</span>
                     </button>

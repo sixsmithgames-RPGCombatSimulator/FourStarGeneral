@@ -464,6 +464,7 @@ export class BattleScreen {
   private missionTurnLimitElement: HTMLElement | null = null;
   private missionSuppliesList: HTMLUListElement | null = null;
   private objectiveSummaryButton: HTMLButtonElement | null = null;
+  private objectiveProgressElement: HTMLElement | null = null;
   private objectiveIndexElement: HTMLElement | null = null;
   private objectiveTitleElement: HTMLElement | null = null;
   private objectiveStatusElement: HTMLElement | null = null;
@@ -4744,6 +4745,17 @@ export class BattleScreen {
       return;
     }
 
+    // Visited progress comes from the controller; territorial marker ownership alone is not securing.
+    const markers = this.missionStatus?.markers ?? [];
+    const hasDefenderProgress = markers.length > 0 && markers.every((marker) => typeof marker.secured === "boolean");
+    const progressText = hasDefenderProgress
+      ? `Secured ${markers.filter((marker) => marker.secured).length}/${markers.length} · Friendly control ${markers.filter((marker) => marker.status === "player").length}/${markers.length}. Move a friendly formation onto each point and retain control.`
+      : "";
+    if (this.objectiveProgressElement) {
+      this.objectiveProgressElement.textContent = progressText;
+      this.objectiveProgressElement.classList.toggle("hidden", !hasDefenderProgress);
+    }
+
     const missionInfo = this.battleState.getPrecombatMissionInfo();
     const trackedObjectives = this.missionStatus?.objectives ?? [];
     const briefingObjectives = missionInfo?.objectives ?? [];
@@ -4775,13 +4787,14 @@ export class BattleScreen {
     let stateLabel = stateLabels[state] ?? state;
 
     if (presentsTacticalPoints) {
-      const markerStatus = this.missionStatus?.markers?.[displayIndex]?.status;
+      const marker = markers[displayIndex];
+      const markerStatus = marker?.status;
       if (markerStatus === "player") {
-        state = "completed";
-        stateLabel = "Secured";
+        state = marker.secured === false ? "inProgress" : "completed";
+        stateLabel = marker.secured === false ? "Friendly-held; needs securing" : "Secured";
       } else if (markerStatus === "enemy") {
         state = "inProgress";
-        stateLabel = "Enemy Held";
+        stateLabel = hasDefenderProgress ? "Enemy-held; recapture required" : "Enemy Held";
       } else {
         state = "inProgress";
         stateLabel = "Open";
@@ -4799,9 +4812,9 @@ export class BattleScreen {
     this.objectiveSummaryButton.disabled = this.scenario.objectives.length === 0;
     this.objectiveSummaryButton.setAttribute(
       "aria-label",
-      `${title}. Status: ${stateLabel}. Focus this objective on the map.`
+      `${title}. Status: ${stateLabel}. ${progressText ? `${progressText} ` : ""}Focus this objective on the map.`
     );
-    this.objectiveSummaryButton.title = `${title}. Status: ${stateLabel}. Select to focus it on the map.`;
+    this.objectiveSummaryButton.title = `${title}. Status: ${stateLabel}. ${progressText ? `${progressText} ` : ""}Select to focus it on the map.`;
   }
 
   private renderMissionStatus(): void {
@@ -8542,6 +8555,7 @@ export class BattleScreen {
     this.missionTurnLimitElement = this.element.querySelector("#battleMissionTurnLimit");
     this.missionSuppliesList = this.element.querySelector("#battleMissionSupplies");
     this.objectiveSummaryButton = this.element.querySelector("#battleCycleObjective");
+    this.objectiveProgressElement = this.element.querySelector("#battleObjectiveProgress");
     this.objectiveIndexElement = this.element.querySelector("#battleObjectiveIndex");
     this.objectiveTitleElement = this.element.querySelector("#battleObjectiveTitle");
     this.objectiveStatusElement = this.element.querySelector("#battleObjectiveStatus");
