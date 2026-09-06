@@ -1,0 +1,99 @@
+import "./domEnvironment.js";
+import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import campaignScenarioData from "../src/data/campaign01.json";
+import type { CampaignScenarioData } from "../src/core/campaignTypes";
+import type { SerializedBattleState } from "../src/game/GameEngine";
+import type { CampaignBattlePackage } from "../src/game/campaign/engagements/CampaignEngagementLedgerTypes";
+import { createCampaignFormationBattleSeed } from "../src/game/campaign/formations/CampaignFormationBattleAdapter";
+import { extractCampaignBattleResultPackage } from "../src/game/campaign/results/CampaignBattleResultExtractor";
+import type { CampaignBattleResultOutcome } from "../src/game/campaign/results/CampaignBattleResultTypes";
+import type { CampaignRuntimeState } from "../src/game/campaign/runtime/campaignRuntimeTypes";
+import { InMemoryCampaignSaveBackend } from "../src/game/campaign/persistence/CampaignSaveBackend";
+import { CampaignSaveRepository } from "../src/game/campaign/persistence/CampaignSaveRepository";
+import { CampaignState } from "../src/state/CampaignState";
+
+function terminalResult(runtime: CampaignRuntimeState, pkg: CampaignBattlePackage, outcome: CampaignBattleResultOutcome) {
+  const units = pkg.formationCommitments.map((entry, index) => {
+    const seed = createCampaignFormationBattleSeed(runtime.formations[entry.formationId], {
+      campaignId: pkg.campaignId, engagementId: pkg.engagementId,
+      sourceRevision: pkg.sourceRevision, sourceSegment: pkg.committedSegment, hex: { q: index, r: 0 }
+    });
+    assert.ok(seed);
+    return { faction: entry.faction, unit: seed.unit };
+  });
+  const supplyState = () => ({
+    inventory: {
+      ammo: { current: 0, baseline: 0, bonus: 0 }, fuel: { current: 0, baseline: 0, bonus: 0 },
+      rations: { current: 0, baseline: 0, bonus: 0 }, parts: { current: 0, baseline: 0, bonus: 0 }
+    }, pending: [], productionRate: { ammo: 0, fuel: 0, rations: 0, parts: 0 }, ledger: [], lastUpdatedTurn: 35
+  });
+  const tacticalState: SerializedBattleState = {
+    completeStateVersion: 1, phase: "completed", activeFaction: "Player", turnNumber: 35, baseCamp: null,
+    playerPlacements: units.filter(entry => entry.faction === "Player").map(entry => entry.unit),
+    botPlacements: units.filter(entry => entry.faction === "Bot").map(entry => entry.unit), allyPlacements: [],
+    reserves: [], airborneReserves: [], casualtyLog: [], battleRequisitionPointsSpent: 0,
+    enemyContactStates: [], hexModifications: [], supplyStates: { Player: supplyState(), Bot: supplyState(), Ally: supplyState() }
+  };
+  return extractCampaignBattleResultPackage({ battlePackage: pkg, tacticalState, missionStatus: null, result: outcome });
+}
+
+async function produce(priorCounterattack: boolean) {
+  const backend = new InMemoryCampaignSaveBackend();
+  const state = new CampaignState({ legacyStorage: null, saveBackend: backend });
+  state.setScenario(structuredClone(campaignScenarioData) as CampaignScenarioData);
+  const first = state.advanceCampaign({ mode: "segment" });
+  assert.ok(first.ok);
+  if (priorCounterattack) {
+    const second = state.advanceCampaign({ mode: "segment" });
+    assert.ok(second.ok && second.state.activeEngagementId);
+    const pkg = second.state.engagementLedger[second.state.activeEngagementId].package;
+    assert.ok(pkg);
+    state.applyCampaignBattleResult(terminalResult(second.state, pkg, "stalemate"));
+  }
+  const prepared = state.prepareCampaignFrontEngagement({
+    engagementId: "fsg-014-omaha", frontKey: "omaha_gold", attacker: "Player", requestedTargetHexKey: "24,24"
+  });
+  assert.ok(prepared.ok);
+  state.setPendingEngagements([prepared.engagement]);
+  state.setActiveEngagementId(prepared.engagement.id);
+  const planned = state.getRuntimeSnapshot();
+  assert.ok(planned);
+  const committed = state.commitCampaignEngagement({ engagementId: prepared.engagement.id, expectedRevision: planned.revision,
+    selections: [{ allocationKey: "infantry", category: "units", quantity: 1, unitRpCost: 50 }] });
+  assert.ok(committed.ok);
+  const runtime = state.getRuntimeSnapshot();
+  assert.ok(runtime);
+  state.applyCampaignBattleResult(terminalResult(runtime, committed.package, "attackerVictory"));
+  const after = state.getRuntimeSnapshot();
+  assert.ok(after);
+  assert.equal(after.compatibility.initialFronts.find(front => front.key === "caen_airborne_flank")?.initiative, "Player");
+  if (!priorCounterattack) {
+    // Reproduce the already-persisted live defect, including the missed due window.
+    const missed = state.advanceCampaign({ mode: "segment" });
+    assert.ok(missed.ok);
+    assert.equal(missed.state.currentSegment, 2);
+    assert.equal(missed.state.activeEngagementId, null);
+    assert.equal(missed.state.compatibility.initialFronts.find(front => front.key === "caen_airborne_flank")?.initiative, "Player");
+  }
+  const request = { timestamp: "2026-09-06T07:00:00.000Z", buildVersion: "99a3df1", contentVersion: "campaign-content-1",
+    label: "FSG-CAM-014 old-writer post-battle fixture", commanderRosterLink: null,
+    playTimeSeconds: 0, difficulty: "Normal", uiResumeContext: { workspace: "theater" as const, selectedEntityId: null, mapCenter: null, mapZoom: null } };
+  const slot = await state.savePostBattleAutosave(prepared.engagement.id, request);
+  const loaded = await new CampaignSaveRepository(backend).loadSlot(slot.slotId, { observedAt: request.timestamp });
+  assert.ok(loaded.ok);
+  return { slot, envelope: loaded.envelope };
+}
+
+const commit = '99a3df14a050c461ed98b8cc8cd94ffc3e7d3ae9';
+const artifact = {
+  sourceCommit: commit,
+  sourceControlBlob: execFileSync('git', ['rev-parse', `${commit}:src/game/campaign/control/CampaignBattleControlResolver.ts`], { encoding: 'utf8' }).trim(),
+  provenance: 'Unmodified production source. Ordinary campaign advances including a missed due counterattack window, canonical commitment/result extraction and real result application, savePostBattleAutosave, verified repository load. No audit/hash edits.',
+  beforeCounterattack: await produce(false),
+  afterResolvedCounterattack: await produce(true)
+};
+writeFileSync('tests/fixtures/CampaignFrontInitiative.99a3df1.json', JSON.stringify(artifact) + '\n');
+console.log(JSON.stringify({ sourceCommit: artifact.sourceCommit, sourceControlBlob: artifact.sourceControlBlob,
+  bytes: JSON.stringify(artifact).length, saves: 2 }));

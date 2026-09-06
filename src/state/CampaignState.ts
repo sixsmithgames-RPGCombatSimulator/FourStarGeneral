@@ -180,6 +180,7 @@ import type { CampaignBattleResultPackage } from "../game/campaign/results/Campa
 import { applyCampaignBattleConsequences } from "../game/campaign/consequences/CampaignBattleConsequenceResolver";
 import type { CampaignBattleConsequenceReport } from "../game/campaign/consequences/CampaignBattleConsequenceTypes";
 import { applyCampaignBattleControl } from "../game/campaign/control/CampaignBattleControlResolver";
+import { repairCampaignFrontInitiativeFromControlHistory } from "../game/campaign/control/CampaignFrontInitiativeCompatibility";
 import type { CampaignBattleControlReport } from "../game/campaign/control/CampaignBattleControlTypes";
 import { applyCampaignBattleInfrastructure } from "../game/campaign/infrastructure/CampaignBattleInfrastructureResolver";
 import type { CampaignBattleInfrastructureReport } from "../game/campaign/infrastructure/CampaignBattleInfrastructureTypes";
@@ -1820,8 +1821,10 @@ export class CampaignState {
     const validation = validateCampaignSaveEnvelope(envelope);
     if (!validation.ok) throw validation.error;
     const content = migrateCampaignRuntimeContent(validation.envelope.payload.runtime, this.scenarioDefinition);
-    const candidate = migrateCampaignNavalSupport(content.runtime);
-    assertCampaignRuntimeState(candidate, this.scenarioDefinition);
+    const migrated = migrateCampaignNavalSupport(content.runtime);
+    assertCampaignRuntimeState(migrated, this.scenarioDefinition);
+    // Only an exact verified historical corruption signature may change initiative on load.
+    const candidate = repairCampaignFrontInitiativeFromControlHistory(migrated, this.scenarioDefinition).runtime;
     reconcileCampaignInfrastructure(candidate, this.scenarioDefinition.map.tilePalette);
     reconcileCampaignObjectiveRuntime(candidate, this.scenarioDefinition);
     this.runtime = candidate;

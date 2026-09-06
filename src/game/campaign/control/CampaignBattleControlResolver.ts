@@ -163,10 +163,17 @@ function frontOverlap(front: CampaignFrontLine, component: readonly ControlBound
   return front.hexKeys.reduce((sum, key) => sum + (offsets.has(key) ? 1 : 0), 0);
 }
 
-/** Derives every current front from exact adjacency between opposing non-neutral tile controllers. */
+/** A battle winner may change only its own front or the boundary touching its exact battle tile. */
+export interface CampaignBattleFrontInitiative {
+  readonly faction: CampaignFactionKey;
+  readonly frontKey: string | null;
+  readonly battleRuntimeHexKey: string;
+}
+
+/** Derives current opposing-control boundaries while preserving unrelated fronts' initiative and cadence. */
 export function deriveCampaignFrontsFromControl(
   runtime: CampaignRuntimeState,
-  preferredInitiative: CampaignFactionKey | null = null
+  battleInitiative: CampaignBattleFrontInitiative | null = null
 ): CampaignFrontLine[] {
   const grouped = new Map<string, ControlBoundaryEdge[]>();
   boundaryEdges(runtime).forEach((edge) => {
@@ -188,8 +195,13 @@ export function deriveCampaignFrontsFromControl(
         .filter((entry) => entry.overlap > 0)
         .sort((left, right) => right.overlap - left.overlap || left.front.key.localeCompare(right.front.key))[0]?.front ?? null;
       if (prior) usedPriorKeys.add(prior.key);
-      const initiative = preferredInitiative && controllers.includes(preferredInitiative)
-        ? preferredInitiative
+      const affectedByBattle = battleInitiative && (
+        (prior !== null && prior.key === battleInitiative.frontKey)
+        || component.some((edge) => edge.leftHexKey === battleInitiative.battleRuntimeHexKey
+          || edge.rightHexKey === battleInitiative.battleRuntimeHexKey)
+      );
+      const initiative = affectedByBattle && controllers.includes(battleInitiative.faction)
+        ? battleInitiative.faction
         : prior?.initiative && controllers.includes(prior.initiative)
           ? prior.initiative
           : controllers.includes("Player") ? "Player" : [...controllers].sort()[0];
@@ -733,7 +745,11 @@ export function applyCampaignBattleControl(
   const preferredInitiative = result.result === "attackerVictory"
     ? attacker
     : result.result === "defenderVictory" || result.result === "withdrawal" ? defender : null;
-  const frontsAfter = deriveCampaignFrontsFromControl(runtime, preferredInitiative);
+  const frontsAfter = deriveCampaignFrontsFromControl(runtime, preferredInitiative ? {
+    faction: preferredInitiative,
+    frontKey: ledger.package.engagement.frontKey,
+    battleRuntimeHexKey: battleHexKey
+  } : null);
   assertDerivedFronts(frontsAfter);
   runtime.compatibility.initialFronts.splice(0, runtime.compatibility.initialFronts.length, ...structuredClone(frontsAfter));
   const controlStateHashAfter = computeCampaignControlStateHash(runtime);
