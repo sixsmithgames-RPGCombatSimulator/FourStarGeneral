@@ -1882,7 +1882,14 @@ export class PrecombatScreen {
     const intelligenceLine = briefing
       ? `${briefing.resistanceBand.charAt(0).toUpperCase()}${briefing.resistanceBand.slice(1)} resistance · ${briefing.confidenceBand} confidence · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"}`
       : legacyRatio.label;
-    const unknowns = briefing?.explicitUnknowns ?? [];
+    // Saved briefings retain attacker-era wording; present uncertainty relative to the observer without rewriting the package.
+    const enemyUnknownLabels = new Map([
+      ["Defender strength", "Enemy strength"],
+      ["Defender strength and number of formations", "Enemy strength and number of formations"],
+      ["Defender readiness", "Enemy readiness"],
+      ["Defender supply state", "Enemy supply state"]
+    ]);
+    const unknowns = (briefing?.explicitUnknowns ?? []).map((unknown) => enemyUnknownLabels.get(unknown) ?? unknown);
     banner.innerHTML = playerDefense ? `
       <span style="display:block;"><strong>Committed defense</strong> · ${committedDefenseLine}</span>
       <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}"><strong>Enemy estimate</strong> · ${intelligenceLine}</span>
