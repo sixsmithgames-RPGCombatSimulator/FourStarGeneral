@@ -16,7 +16,8 @@ export type CampaignOrderKind =
   | "production"
   | "reconnaissance"
   | "counterIntelligence"
-  | "infrastructureRepair";
+  | "infrastructureRepair"
+  | "formationRecovery";
 
 /** Complete persisted lifecycle shared by every campaign order. */
 export type CampaignOrderStatus = "draft" | "committed" | "executing" | "blocked" | "completed" | "cancelled";
@@ -31,6 +32,7 @@ export type CampaignOrderValidationCode =
   | "ORDER_ALLOCATION_INVALID"
   | "ORDER_OPERATION_INVALID"
   | "ORDER_INFRASTRUCTURE_INVALID"
+  | "ORDER_RECOVERY_INVALID"
   | "ORDER_RESERVATION_CONFLICT"
   | "ORDER_RESOURCE_INSUFFICIENT"
   | "ORDER_CAPACITY_INSUFFICIENT"
@@ -220,13 +222,70 @@ export interface CampaignInfrastructureRepairOrder extends CampaignOrderBase {
   readonly payload: CampaignInfrastructureRepairOrderPayload;
 }
 
+/** Explicit campaign-v1 treatment/repair quote; no replacement personnel or equipment is included. */
+export interface CampaignFormationRecoveryQuote {
+  readonly policyVersion: 1;
+  readonly formationId: string;
+  readonly sourceRuntimeHexKey: string;
+  readonly sourceOffsetHexKey: string;
+  readonly sourceStatus: "ready" | "shattered";
+  readonly sourceFingerprint: string;
+  /** Last interrupted order whose unchanged condition and remaining minimum time this quote continues. */
+  readonly resumedFromOrderId: string | null;
+  readonly minimumDurationSegments: number;
+  readonly medicalWorkPoints: number;
+  readonly equipmentWorkPoints: number;
+  readonly damagedEquipment: number;
+  readonly disabledEquipment: number;
+  readonly personnelToFit: number;
+  readonly equipmentToOperational: number;
+  readonly permanentPersonnelLosses: number;
+  readonly permanentEquipmentLosses: number;
+  readonly suppliesCost: number;
+  readonly durationSegments: number;
+  readonly startSegment: number;
+  readonly completeSegment: number;
+  readonly projectedReadiness: number;
+}
+
+/** Authoritative quote or actionable blocker, consumed without UI-side recovery arithmetic. */
+export interface CampaignFormationRecoveryPreview extends CampaignOrderActionPreview {
+  readonly revision: number;
+  readonly formationId: string;
+  readonly quote: CampaignFormationRecoveryQuote | null;
+}
+
+/** Only progress metadata is stored beside the quote; condition pools stay on the exact formation. */
+export interface CampaignFormationRecoveryOrderPayload extends CampaignFormationRecoveryQuote {
+  readonly progress: {
+    completedSegments: number;
+    lastProcessedSegment: number | null;
+    personnelReturnedToFit: number;
+    equipmentReturnedToOperational: number;
+    conditionHash: string;
+  };
+}
+
+export interface CampaignFormationRecoveryOrder extends CampaignOrderBase {
+  readonly kind: "formationRecovery";
+  readonly payload: CampaignFormationRecoveryOrderPayload;
+}
+
+/** State entry point accepts identity/revision, never caller-authored costs or pool changes. */
+export interface CampaignFormationRecoveryDraftRequest {
+  readonly formationId: string;
+  readonly expectedRevision: number;
+  readonly faction?: CampaignFactionKey;
+}
+
 /** Authoritative discriminated order union. */
 export type CampaignOrder =
   | CampaignRedeployOrder
   | CampaignProductionOrder
   | CampaignReconnaissanceOrder
   | CampaignCounterIntelligenceOrder
-  | CampaignInfrastructureRepairOrder;
+  | CampaignInfrastructureRepairOrder
+  | CampaignFormationRecoveryOrder;
 
 /** Redeployment draft input after exact rule preview. */
 export interface CampaignRedeployDraftInput {

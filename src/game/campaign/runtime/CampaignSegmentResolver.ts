@@ -47,6 +47,9 @@ import {
   refreshCampaignInfrastructureState
 } from "../infrastructure/CampaignInfrastructureRules";
 import { computeCampaignContentHash } from "./CampaignCanonical";
+import {
+  advanceCampaignFormationRecovery, campaignFormationRecoveryInterruption, releaseCampaignFormationRecovery
+} from "../formations/CampaignFormationRecoveryService";
 import { deriveCampaignFrontsFromControl } from "../control/CampaignBattleControlResolver";
 import { evaluateCampaignObjectives, projectCampaignObjectives } from "../objectives/CampaignObjectiveEvaluator";
 import { appendCampaignAdvanceStepRecord, type CampaignAdvanceContext } from "./CampaignAdvanceRules";
@@ -888,6 +891,40 @@ function resolveInfrastructureRepairs(
   return stableUnique(affected);
 }
 
+/** Recovery shares the consequences transaction and never advances from reads or compatibility hydration. */
+function resolveFormationRecoveries(
+  candidate: CampaignRuntimeState, definition: CampaignScenarioDefinition, targetSegment: number,
+  events: CampaignDomainEventDraft[]
+): string[] {
+  const affected: string[] = [];
+  candidate.orderOrder.forEach((id) => {
+    const order = candidate.orders[id];
+    if (!order || order.kind !== "formationRecovery" || (order.status !== "committed" && order.status !== "executing")
+      || targetSegment < order.payload.startSegment) return;
+    const reason = campaignFormationRecoveryInterruption(candidate, definition, order);
+    if (reason) {
+      order.status = "blocked";
+      order.validation = { valid: false, validatedRevision: candidate.revision,
+        issues: [{ code: "ORDER_RECOVERY_INVALID", message: reason, reservationId: null }] };
+      releaseCampaignFormationRecovery(candidate, order);
+      releaseCompletedReservationKinds(candidate, order);
+    } else {
+      const complete = advanceCampaignFormationRecovery(candidate, order, targetSegment);
+      order.status = complete ? "completed" : "executing";
+      if (complete) releaseCompletedReservationKinds(candidate, order);
+    }
+    affected.push(order.id, order.payload.formationId, order.payload.sourceRuntimeHexKey);
+    events.push({
+      type: "stateChanged", category: "logistics",
+      summary: reason ?? (order.status === "completed" ? "Formation recovery completed." : "Formation recovery progressed."),
+      details: { orderId: id, formationId: order.payload.formationId, hexKey: order.payload.sourceRuntimeHexKey,
+        completedSegments: order.payload.progress.completedSegments, status: order.status }
+    });
+  });
+  synchronizeCampaignFormationForceProjection(candidate);
+  return stableUnique(affected);
+}
+
 function releaseCompletedReservationKinds(candidate: CampaignRuntimeState, order: CampaignOrder): void {
   order.reservationIds.forEach((reservationId) => {
     const reservation = candidate.reservations[reservationId];
@@ -897,7 +934,7 @@ function releaseCompletedReservationKinds(candidate: CampaignRuntimeState, order
 }
 
 /** Mirrors execution adapters into typed lifecycle and releases only reusable committed pools. */
-function synchronizeTypedOrders(candidate: CampaignRuntimeState): string[] {
+function synchronizeTypedOrders(candidate: CampaignRuntimeState, definition: CampaignScenarioDefinition): string[] {
   const affected: string[] = [];
   candidate.orderOrder.forEach((orderId) => {
     const order = candidate.orders[orderId];
@@ -911,7 +948,7 @@ function synchronizeTypedOrders(candidate: CampaignRuntimeState): string[] {
       if (status === "blocked") order.status = "blocked";
     } else if (order.kind === "production") {
       if (candidate.currentSegment >= order.payload.effectiveSegment) order.status = "completed";
-    } else if (order.kind === "infrastructureRepair") {
+    } else if (order.kind === "infrastructureRepair" || order.kind === "formationRecovery") {
       // Repair progress and terminal status are resolved in the consequences phase.
     } else {
       const operation = candidate.knowledgeByFaction[String(order.faction)]?.operations
@@ -923,7 +960,7 @@ function synchronizeTypedOrders(candidate: CampaignRuntimeState): string[] {
     if (order.status !== before) affected.push(order.id);
     if (order.status === "completed" || order.status === "blocked") releaseCompletedReservationKinds(candidate, order);
   });
-  revalidateCampaignOrderBook(candidate);
+  revalidateCampaignOrderBook(candidate, definition);
   return affected;
 }
 
@@ -1017,7 +1054,10 @@ export function resolveCampaignSegment(
       ...resolveAIAssessments(candidate, frozenViews, targetSegment, events)
     ]);
     phase("engagements", () => resolveCampaignAIEngagements(candidate, definition, events, frozenScenario));
-    phase("consequences", () => resolveInfrastructureRepairs(candidate, targetSegment, events));
+    phase("consequences", () => [
+      ...resolveInfrastructureRepairs(candidate, targetSegment, events),
+      ...resolveFormationRecoveries(candidate, definition, targetSegment, events)
+    ]);
     phase("control", () => resolveFrontControl(candidate, targetSegment, events));
     phase("objectives", () => {
       const evaluation = evaluateCampaignObjectives(candidate, definition);
@@ -1025,7 +1065,7 @@ export function resolveCampaignSegment(
       return evaluation.affectedObjectiveKeys;
     });
     phase("finalize", () => {
-      const affected = [...updateDerivedPower(candidate, definition), ...synchronizeTypedOrders(candidate)];
+      const affected = [...updateDerivedPower(candidate, definition), ...synchronizeTypedOrders(candidate, definition)];
       if (candidate.status !== "victory" && candidate.status !== "defeat") {
         candidate.status = candidate.activeEngagementId ? "engagement" : "planning";
       }

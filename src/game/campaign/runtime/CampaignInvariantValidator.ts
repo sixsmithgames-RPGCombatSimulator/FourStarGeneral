@@ -41,13 +41,14 @@ import { CAMPAIGN_AI_PLANNING_VERSION, type CampaignAIPlanResources } from "../a
 import { computeCampaignAIBehaviorIntegrity } from "../ai/CampaignAIBehaviorService";
 import { CAMPAIGN_AI_BEHAVIOR_VERSION } from "../ai/CampaignAIBehaviorTypes";
 import { isCampaignFormationPresentAtLocation } from "../formations/FormationLifecycleService";
+import { CAMPAIGN_FORMATION_RECOVERY_POLICY, campaignFormationRecoverySupplyCost } from "../formations/CampaignFormationRecoveryService";
 
 /** Valid runtime status values kept in one validator-owned set. */
 const CAMPAIGN_RUNTIME_STATUSES = new Set(["planning", "resolving", "engagement", "victory", "defeat"]);
 const CAMPAIGN_OBJECTIVE_STATUSES = new Set(["locked", "active", "completed", "failed"]);
 const CAMPAIGN_OUTCOME_GRADES = new Set(["decisiveVictory", "victory", "costlyVictory", "defeat"]);
 const CAMPAIGN_ORDER_STATUSES = new Set(["draft", "committed", "executing", "blocked", "completed", "cancelled"]);
-const CAMPAIGN_ORDER_KINDS = new Set(["redeploy", "production", "reconnaissance", "counterIntelligence", "infrastructureRepair"]);
+const CAMPAIGN_ORDER_KINDS = new Set(["redeploy", "production", "reconnaissance", "counterIntelligence", "infrastructureRepair", "formationRecovery"]);
 const CAMPAIGN_RESERVATION_STATUSES = new Set(["proposed", "held", "consumed", "released"]);
 const CAMPAIGN_RESERVATION_KINDS = new Set(["resource", "transport", "intelligenceCapacity", "formation", "asset", "productionSlot"]);
 const CAMPAIGN_ADVANCE_MODES = new Set(["segment", "nextReport", "dawn", "dusk", "day"]);
@@ -1342,6 +1343,72 @@ export function validateCampaignRuntimeState(runtime: CampaignRuntimeState, defi
         || !isNonNegativeFinite(allocation.ammo)
         || !isNonNegativeFinite(allocation.manpower)
         || !Number.isInteger(payload.effectiveSegment);
+    } else if (!invalidPayload && order.kind === "formationRecovery") {
+      const progress = payload.progress as Record<string, unknown> | undefined;
+      const numericKeys = ["medicalWorkPoints", "equipmentWorkPoints", "damagedEquipment", "disabledEquipment",
+        "personnelToFit", "equipmentToOperational", "permanentPersonnelLosses", "permanentEquipmentLosses",
+        "suppliesCost", "minimumDurationSegments", "durationSegments", "startSegment", "completeSegment"];
+      invalidPayload = payload.policyVersion !== CAMPAIGN_FORMATION_RECOVERY_POLICY.version
+        || typeof payload.formationId !== "string" || !runtime.formations[String(payload.formationId)]
+        || order.formationIds.length !== 1 || order.formationIds[0] !== payload.formationId
+        || typeof payload.sourceRuntimeHexKey !== "string" || !runtime.tiles[String(payload.sourceRuntimeHexKey)]
+        || typeof payload.sourceOffsetHexKey !== "string"
+        || order.targetHexKeys.length !== 1 || order.targetHexKeys[0] !== payload.sourceOffsetHexKey
+        || (payload.sourceStatus !== "ready" && payload.sourceStatus !== "shattered")
+        || typeof payload.sourceFingerprint !== "string" || payload.sourceFingerprint.length === 0
+        || (payload.resumedFromOrderId !== null && typeof payload.resumedFromOrderId !== "string")
+        || numericKeys.some((key) => !Number.isSafeInteger(payload[key]) || Number(payload[key]) < 0)
+        || !validBoundedPercent(payload.projectedReadiness)
+        || !progress || typeof progress.conditionHash !== "string" || progress.conditionHash.length === 0
+        || ["completedSegments", "personnelReturnedToFit", "equipmentReturnedToOperational"].some((key) =>
+          !Number.isSafeInteger(progress?.[key]) || Number(progress?.[key]) < 0);
+      if (!invalidPayload) {
+        const q = order.payload;
+        const p = q.progress;
+        const tile = runtime.tiles[q.sourceRuntimeHexKey];
+        const claim = order.reservationIds.map((key) => runtime.reservations[key]);
+        const prior = q.resumedFromOrderId ? runtime.orders[q.resumedFromOrderId] : null;
+        const validPrior = prior?.kind === "formationRecovery" && prior.status === "blocked"
+          && prior.faction === order.faction && prior.payload.formationId === q.formationId
+          && prior.payload.sourceRuntimeHexKey === q.sourceRuntimeHexKey
+          && prior.issuedSegment < order.issuedSegment && prior.payload.progress.conditionHash === q.sourceFingerprint;
+        const minimum = validPrior
+          ? Math.max(1, prior.payload.minimumDurationSegments - prior.payload.progress.completedSegments)
+          : q.disabledEquipment > 0 ? CAMPAIGN_FORMATION_RECOVERY_POLICY.workshopMinimumSegments : 1;
+        invalidPayload = q.sourceOffsetHexKey !== `${tile.hex.q},${tile.hex.r + Math.floor(tile.hex.q / 2)}`
+          || runtime.formations[q.formationId].faction !== order.faction
+          || q.durationSegments < 1 || q.startSegment !== order.issuedSegment + 1
+          || order.earliestStartSegment !== q.startSegment || q.completeSegment !== order.issuedSegment + q.durationSegments
+          || (q.resumedFromOrderId !== null && !validPrior)
+          || q.minimumDurationSegments !== minimum || q.durationSegments < minimum
+          || q.durationSegments > Math.max(minimum, q.medicalWorkPoints, q.equipmentWorkPoints)
+          || (q.medicalWorkPoints + q.equipmentWorkPoints <= 0 && !(validPrior
+            && prior.payload.minimumDurationSegments > prior.payload.progress.completedSegments))
+          || q.medicalWorkPoints < q.personnelToFit || q.medicalWorkPoints > q.personnelToFit * 6
+          || q.equipmentWorkPoints !== 2 * q.damagedEquipment + 5 * q.disabledEquipment
+          || q.equipmentToOperational !== q.damagedEquipment + q.disabledEquipment
+          || q.suppliesCost !== campaignFormationRecoverySupplyCost(q.medicalWorkPoints, q.damagedEquipment, q.disabledEquipment)
+          || q.durationSegments < Math.ceil(q.medicalWorkPoints / CAMPAIGN_FORMATION_RECOVERY_POLICY.medicalCapacity)
+          || q.durationSegments < Math.ceil(q.equipmentWorkPoints / CAMPAIGN_FORMATION_RECOVERY_POLICY.equipmentCapacity)
+          || q.projectedReadiness <= 0 || q.projectedReadiness > 100
+          || p.completedSegments > q.durationSegments
+          || p.personnelReturnedToFit > q.personnelToFit || p.equipmentReturnedToOperational > q.equipmentToOperational
+          || (p.completedSegments === 0
+            ? p.lastProcessedSegment !== null || p.personnelReturnedToFit !== 0 || p.equipmentReturnedToOperational !== 0 || p.conditionHash !== q.sourceFingerprint
+            : p.lastProcessedSegment !== q.startSegment + p.completedSegments - 1 || p.lastProcessedSegment > runtime.currentSegment)
+          || (["draft", "committed", "cancelled"].includes(order.status) && p.completedSegments !== 0)
+          || (order.status === "committed" && runtime.currentSegment !== order.issuedSegment
+            && !(runtime.status === "resolving" && runtime.currentSegment === order.issuedSegment + 1))
+          || (order.status === "executing" && (p.completedSegments === 0 || p.completedSegments >= q.durationSegments))
+          || (order.status === "executing" && runtime.currentSegment !== p.lastProcessedSegment
+            && !(runtime.status === "resolving" && runtime.currentSegment === Number(p.lastProcessedSegment) + 1))
+          || (order.status === "draft" ? order.executionRefId !== null : order.executionRefId !== order.id)
+          || (order.status === "completed" && (p.completedSegments !== q.durationSegments
+            || p.personnelReturnedToFit !== q.personnelToFit || p.equipmentReturnedToOperational !== q.equipmentToOperational))
+          || claim.length !== (q.suppliesCost > 0 ? 2 : 1)
+          || (q.suppliesCost > 0 && !claim.some((entry) => entry?.kind === "resource" && entry.poolKey === "supplies" && entry.amount === q.suppliesCost))
+          || !claim.some((entry) => entry?.kind === "formation" && entry.poolKey === `formation-id:${q.formationId}` && entry.amount === 1);
+      }
     } else if (!invalidPayload && order.kind === "infrastructureRepair") {
       invalidPayload = typeof payload.targetOffsetHexKey !== "string"
         || typeof payload.targetRuntimeHexKey !== "string"

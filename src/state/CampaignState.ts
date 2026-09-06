@@ -69,6 +69,7 @@ import {
   campaignOffsetKeyToRuntimeHexKey,
   commitCampaignOrderDrafts,
   createInfrastructureRepairOrderDraft,
+  createFormationRecoveryOrderDraft,
   createIntelligenceOrderDraft,
   createProductionOrderDraft,
   createRedeployOrderDraft,
@@ -80,6 +81,8 @@ import {
 } from "../game/campaign/orders/CampaignOrderService";
 import type {
   CampaignInfrastructureRepairOrderPayload,
+  CampaignFormationRecoveryPreview,
+  CampaignFormationRecoveryDraftRequest,
   CampaignIntelligenceOrderPayload,
   CampaignOrder,
   CampaignOrderActionPreview,
@@ -96,6 +99,9 @@ import {
   type CampaignObjectivePresentation
 } from "../game/campaign/objectives/CampaignObjectiveEvaluator";
 import { calculateCampaignRedeploymentCosts } from "../game/campaign/orders/CampaignRedeployRules";
+import {
+  previewCampaignFormationRecovery, releaseCampaignFormationRecovery
+} from "../game/campaign/formations/CampaignFormationRecoveryService";
 import {
   campaignInfrastructureRepairCosts,
   campaignInfrastructureRepairRate
@@ -560,7 +566,7 @@ export class CampaignState {
         draft.knowledgeByFaction = structuredClone(candidate.knowledgeByFaction);
         draft.compatibility = structuredClone(candidate.compatibility);
         this.synchronizeTypedOrderExecution(draft);
-        revalidateCampaignOrderBook(draft);
+        revalidateCampaignOrderBook(draft, this.scenarioDefinition ?? undefined);
         return [{
           type: "stateChanged",
           category: reason === "intelligenceUpdated" ? "intelligence" : "system",
@@ -591,6 +597,7 @@ export class CampaignState {
     if (!this.runtime || !this.scenarioDefinition) return { ok: false, reason: "No campaign runtime is loaded." };
     const result = runCampaignRuntimeTransaction(this.runtime, label, (draft) => {
       mutator(draft);
+      revalidateCampaignOrderBook(draft, this.scenarioDefinition ?? undefined);
       return [{
         type: "stateChanged",
         category: "orders",
@@ -641,7 +648,7 @@ export class CampaignState {
         if (status === "completed") order.status = "completed";
       } else if (order.kind === "production") {
         if (runtime.currentSegment >= order.payload.effectiveSegment) order.status = "completed";
-      } else if (order.kind === "infrastructureRepair") {
+      } else if (order.kind === "infrastructureRepair" || order.kind === "formationRecovery") {
         // The segment resolver owns repair progress and terminal status.
       } else {
         const operation = runtime.knowledgeByFaction[String(order.faction)]?.operations
@@ -1371,6 +1378,45 @@ export class CampaignState {
     };
   }
 
+  /** Pure recovery quote with exact identity and shared draft/resource arbitration. */
+  getCampaignFormationRecoveryPreview(formationId: string, faction: CampaignFactionKey = "Player"): CampaignFormationRecoveryPreview {
+    if (!this.runtime || !this.scenarioDefinition) return {
+      formationId, revision: -1, quote: null, availability: "blocked", reasonCode: "ORDER_RECOVERY_INVALID",
+      reason: "No campaign is loaded.", correctiveAction: "Load a campaign before arranging recovery.", mapHexKeys: []
+    };
+    const preview = previewCampaignFormationRecovery(this.runtime, this.scenarioDefinition, formationId, faction);
+    if (preview.availability !== "available" || !preview.quote) return preview;
+    const candidate = structuredClone(this.runtime);
+    const draft = createFormationRecoveryOrderDraft(candidate, faction, preview.quote, this.scenarioDefinition);
+    const blocker = draft.validation.issues[0];
+    return blocker ? {
+      ...preview, availability: "blocked", reasonCode: blocker.code, reason: blocker.message,
+      correctiveAction: "Remove or revise competing drafts, then review recovery again."
+    } : preview;
+  }
+
+  /** Creates a recovery draft from a current authoritative quote; callers cannot supply costs or condition changes. */
+  createFormationRecoveryDraft(request: CampaignFormationRecoveryDraftRequest): { ok: true; order: CampaignOrder } | { ok: false; reason: string } {
+    if (!this.runtime || !this.scenarioDefinition) return { ok: false, reason: "Load a campaign before arranging recovery." };
+    if (request.expectedRevision !== this.runtime.revision) return {
+      ok: false, reason: "The campaign changed after this quote. Review recovery again before creating the draft."
+    };
+    const faction = request.faction ?? "Player";
+    const preview = this.getCampaignFormationRecoveryPreview(request.formationId, faction);
+    if (preview.availability !== "available" || !preview.quote) return { ok: false, reason: preview.reason ?? "Recovery is unavailable." };
+    const quote = preview.quote;
+    const definition = this.scenarioDefinition;
+    let createdId: string | null = null;
+    const result = this.transactCampaignOrders("orders:create-formation-recovery-draft", "Formation recovery draft added.", (draft) => {
+      const created = createFormationRecoveryOrderDraft(draft, faction, quote, definition);
+      if (!created.validation.valid) throw new Error(created.validation.issues[0]?.message ?? "Recovery could not reserve its resources.");
+      createdId = created.id;
+    }, { kind: "formationRecovery", formationId: request.formationId });
+    if (!result.ok) return result;
+    const order = createdId && this.runtime?.orders[createdId];
+    return order ? { ok: true, order: structuredClone(order) } : { ok: false, reason: "The recovery draft was not retained." };
+  }
+
   /** Builds a fully costed facility-repair draft supervised by a ready formation on the selected hex. */
   createInfrastructureRepairDraft(
     targetOffsetHexKey: string,
@@ -1506,7 +1552,7 @@ export class CampaignState {
   getCampaignOrderCommitPreview(orderIds?: readonly string[]): CampaignOrderCommitPreview {
     if (!this.runtime) return { canCommit: false, draftIds: [], validDraftCount: 0, blockers: [] };
     const candidate = structuredClone(this.runtime);
-    revalidateCampaignOrderBook(candidate);
+    revalidateCampaignOrderBook(candidate, this.scenarioDefinition ?? undefined);
     const draftIds = orderIds
       ? [...new Set(orderIds)].filter((id) => candidate.orders[id]?.status === "draft")
       : candidate.orderOrder.filter((id) => candidate.orders[id]?.status === "draft" && candidate.orders[id]?.faction === "Player");
@@ -1575,11 +1621,15 @@ export class CampaignState {
       : `${reservations.length} resource, capacity, formation, or asset reservation${reservations.length === 1 ? "" : "s"} will be released.`;
     const delaySummary = order.kind === "redeploy"
       ? "The force remains at its origin; any replacement movement starts on a later command boundary."
+      : order.kind === "formationRecovery"
+        ? "Treatment and repairs will not begin until a replacement recovery order is committed."
       : order.kind === "infrastructureRepair"
         ? "Reconstruction will not begin; facility recovery is delayed until a replacement order is committed."
         : "Collection will not begin; intelligence coverage and any expected report are delayed.";
     const exposureSummary = order.kind === "redeploy"
       ? "The force remains available at its current location but does not reinforce the planned destination."
+      : order.kind === "formationRecovery"
+        ? "The formation retains its current casualties, damaged equipment and previous posture."
       : order.kind === "infrastructureRepair"
         ? "The damaged facility continues operating at its present reduced effectiveness."
         : "The target remains at its current uncertainty and the assigned asset returns to the available pool.";
@@ -1633,7 +1683,7 @@ export class CampaignState {
       "orders:commit",
       `${requested.length} campaign order${requested.length === 1 ? "" : "s"} committed atomically.`,
       (draft) => {
-        commitCampaignOrderDrafts(draft, requested);
+        commitCampaignOrderDrafts(draft, requested, this.scenarioDefinition ?? undefined);
       },
       { orderCount: requested.length }
     );
@@ -1677,6 +1727,14 @@ export class CampaignState {
           });
           synchronizeCampaignFormationForceProjection(draft);
           draft.compatibility.queuedDecisions.splice(index, 1);
+        } else if (candidate.kind === "formationRecovery") {
+          if (candidate.payload.progress.completedSegments !== 0) throw new Error("Recovery has already begun.");
+          const formation = draft.formations[candidate.payload.formationId];
+          if (formation?.currentOrderId !== candidate.id || formation.status !== "refitting") {
+            throw new Error("Recovery assignment changed. Review the formation's current order.");
+          }
+          economy.supplies += candidate.payload.suppliesCost;
+          releaseCampaignFormationRecovery(draft, candidate);
         } else if (candidate.kind === "infrastructureRepair") {
           const tile = draft.tiles[candidate.payload.targetRuntimeHexKey];
           const infrastructure = tile?.infrastructure;
@@ -1700,7 +1758,7 @@ export class CampaignState {
         }
         candidate.status = "cancelled";
         setCampaignOrderReservationStatus(draft, candidate, "released");
-        revalidateCampaignOrderBook(draft);
+        revalidateCampaignOrderBook(draft, this.scenarioDefinition ?? undefined);
       },
       { orderId, kind: order.kind }
     );

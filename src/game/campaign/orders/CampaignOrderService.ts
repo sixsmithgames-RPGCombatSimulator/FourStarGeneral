@@ -7,14 +7,16 @@
  * EXPORTS: Draft factories, order-book revalidation, reservation transitions, and draft removal.
  */
 
-import { createStableCampaignRecordId } from "../runtime/CampaignCanonical";
+import { computeCampaignContentHash, createStableCampaignRecordId } from "../runtime/CampaignCanonical";
 import { getTransportMode } from "../../../data/transportModes";
 import { createIntelOperation, INTEL_OPERATION_RULES } from "../../../state/CampaignIntelligence";
-import type { CampaignRuntimeState } from "../runtime/campaignRuntimeTypes";
+import type { CampaignRuntimeState, CampaignScenarioDefinition } from "../runtime/campaignRuntimeTypes";
 import { synchronizeCampaignFormationForceProjection } from "../formations/FormationLifecycleService";
 import { calculateCampaignRedeploymentCosts } from "./CampaignRedeployRules";
 import { campaignInfrastructureRepairCosts } from "../infrastructure/CampaignInfrastructureRules";
+import { previewCampaignFormationRecovery } from "../formations/CampaignFormationRecoveryService";
 import type {
+  CampaignFormationRecoveryQuote,
   CampaignInfrastructureRepairDraftInput,
   CampaignIntelligenceDraftInput,
   CampaignOrder,
@@ -73,7 +75,7 @@ function createReservation(
   };
 }
 
-function appendOrder(runtime: CampaignRuntimeState, order: CampaignOrder, reservations: CampaignReservation[]): CampaignOrder {
+function appendOrder(runtime: CampaignRuntimeState, order: CampaignOrder, reservations: CampaignReservation[], definition?: CampaignScenarioDefinition): CampaignOrder {
   runtime.orderOrder.push(order.id);
   runtime.orders[order.id] = order;
   reservations.forEach((reservation) => {
@@ -81,7 +83,7 @@ function appendOrder(runtime: CampaignRuntimeState, order: CampaignOrder, reserv
     runtime.reservations[reservation.id] = reservation;
     order.reservationIds.push(reservation.id);
   });
-  revalidateCampaignOrderBook(runtime);
+  revalidateCampaignOrderBook(runtime, definition);
   return runtime.orders[order.id];
 }
 
@@ -218,13 +220,43 @@ function issue(code: CampaignOrderValidationIssue["code"], message: string, rese
   return { code, message, reservationId };
 }
 
-function validateStaticOrder(runtime: CampaignRuntimeState, order: CampaignOrder): CampaignOrderValidationIssue[] {
+/** Builds an exact-identity recovery draft from a State-validated deterministic quote. */
+export function createFormationRecoveryOrderDraft(
+  runtime: CampaignRuntimeState, faction: CampaignOrder["faction"], quote: CampaignFormationRecoveryQuote,
+  definition: CampaignScenarioDefinition
+): CampaignOrder {
+  const id = createOrderId(runtime, "formationRecovery", quote);
+  const order: CampaignOrder = {
+    id, faction, kind: "formationRecovery", status: "draft", issuedSegment: runtime.currentSegment,
+    earliestStartSegment: quote.startSegment, targetHexKeys: [quote.sourceOffsetHexKey], formationIds: [quote.formationId],
+    dependencies: [], reservationIds: [], acknowledgementKeys: [], executionRefId: null,
+    validation: blankValidation(runtime.revision),
+    payload: { ...structuredClone(quote), progress: { completedSegments: 0, lastProcessedSegment: null,
+      personnelReturnedToFit: 0, equipmentReturnedToOperational: 0, conditionHash: quote.sourceFingerprint } }
+  };
+  const reservations = [createReservation(runtime, id, faction, "formation", `formation-id:${quote.formationId}`, 1, 0)];
+  if (quote.suppliesCost > 0) reservations.push(createReservation(runtime, id, faction, "resource", "supplies", quote.suppliesCost, 1));
+  return appendOrder(runtime, order, reservations, definition);
+}
+
+function validateStaticOrder(runtime: CampaignRuntimeState, order: CampaignOrder, definition?: CampaignScenarioDefinition): CampaignOrderValidationIssue[] {
   const issues: CampaignOrderValidationIssue[] = [];
   if (!runtime.factions[String(order.faction)]) {
     issues.push(issue("ORDER_FACTION_INVALID", "The issuing faction is no longer part of this campaign."));
     return issues;
   }
-  if (order.kind === "redeploy") {
+  if (order.kind === "formationRecovery") {
+    const preview = previewCampaignFormationRecovery(runtime, definition, order.payload.formationId, order.faction);
+    if (preview.availability !== "available" || !preview.quote) {
+      issues.push(issue(preview.reasonCode ?? "ORDER_RECOVERY_INVALID", preview.reason ?? "Recovery is unavailable."));
+    } else {
+      const { progress, ...quote } = order.payload;
+      if (computeCampaignContentHash(quote) !== computeCampaignContentHash(preview.quote)
+        || order.issuedSegment !== runtime.currentSegment || progress.completedSegments !== 0) {
+        issues.push(issue("ORDER_RECOVERY_INVALID", "This recovery quote is out of date. Remove the draft and review a new quote before committing."));
+      }
+    }
+  } else if (order.kind === "redeploy") {
     const origin = runtime.tiles[order.payload.originRuntimeHexKey];
     const destination = runtime.tiles[order.payload.destinationRuntimeHexKey];
     const transport = getTransportMode(order.payload.transportModeKey);
@@ -372,7 +404,7 @@ function reservationCapacity(runtime: CampaignRuntimeState, reservation: Campaig
       const formation = runtime.formations[formationId];
       return formation
         && formation.faction === reservation.faction
-        && formation.status === "ready"
+        && (formation.status === "ready" || (runtime.orders[reservation.orderId]?.kind === "formationRecovery" && formation.status === "shattered"))
         && formation.currentOrderId === null
         ? 1
         : 0;
@@ -442,8 +474,9 @@ function reservationIssue(
  * Revalidates every draft and arbitrates proposed holds in stable order.
  * Earlier valid drafts reserve first; invalid drafts retain diagnostics but hold nothing.
  */
-export function revalidateCampaignOrderBook(runtime: CampaignRuntimeState): void {
+export function revalidateCampaignOrderBook(runtime: CampaignRuntimeState, definition?: CampaignScenarioDefinition): void {
   const usedByPool = new Map<string, number>();
+  const usedFormationIds = new Map<string, CampaignOrder>();
   runtime.orderOrder.forEach((orderId) => {
     const order = runtime.orders[orderId];
     if (!order || order.status !== "draft") return;
@@ -451,7 +484,14 @@ export function revalidateCampaignOrderBook(runtime: CampaignRuntimeState): void
       .map((reservationId) => runtime.reservations[reservationId])
       .filter((reservation): reservation is CampaignReservation => Boolean(reservation));
     reservations.forEach((reservation) => { reservation.status = "proposed"; });
-    const issues = validateStaticOrder(runtime, order);
+    const issues = validateStaticOrder(runtime, order, definition);
+    // Engineering uses an asset claim, so recovery must also arbitrate exact identities across claim kinds.
+    order.formationIds.forEach((formationId) => {
+      const earlier = usedFormationIds.get(formationId);
+      if (earlier && (earlier.kind === "formationRecovery" || order.kind === "formationRecovery")) {
+        issues.push(issue("ORDER_RESERVATION_CONFLICT", "Another draft already assigns this formation. Remove that draft or choose a different formation."));
+      }
+    });
     if (issues.length === 0) {
       reservations.forEach((reservation) => {
         const poolIdentity = `${reservation.faction}|${reservation.kind}|${reservation.poolKey}`;
@@ -462,6 +502,7 @@ export function revalidateCampaignOrderBook(runtime: CampaignRuntimeState): void
     }
     order.validation = { valid: issues.length === 0, issues, validatedRevision: runtime.revision };
     if (issues.length === 0) {
+      order.formationIds.forEach((formationId) => usedFormationIds.set(formationId, order));
       reservations.forEach((reservation) => {
         reservation.status = "held";
         const poolIdentity = `${reservation.faction}|${reservation.kind}|${reservation.poolKey}`;
@@ -524,10 +565,10 @@ export function setCampaignOrderReservationStatus(
  * Commits validated drafts through the same resource, capacity, formation, and execution adapters for Player and AI.
  * The caller owns the surrounding runtime transaction, so any thrown error rolls the complete portfolio back.
  */
-export function commitCampaignOrderDrafts(runtime: CampaignRuntimeState, orderIds: readonly string[]): CampaignOrder[] {
+export function commitCampaignOrderDrafts(runtime: CampaignRuntimeState, orderIds: readonly string[], definition?: CampaignScenarioDefinition): CampaignOrder[] {
   const requested = [...new Set(orderIds)];
   if (requested.length === 0) return [];
-  revalidateCampaignOrderBook(runtime);
+  revalidateCampaignOrderBook(runtime, definition);
   const orders = requested.map((orderId) => runtime.orders[orderId]);
   const missing = orders.findIndex((order) => !order || order.status !== "draft");
   if (missing >= 0) throw new Error(`Order ${requested[missing]} is missing or no longer a draft.`);
@@ -537,7 +578,15 @@ export function commitCampaignOrderDrafts(runtime: CampaignRuntimeState, orderId
   orders.forEach((order) => {
     const faction = runtime.factions[String(order.faction)];
     if (!faction) throw new Error(`Issuing faction ${order.faction} is unavailable.`);
-    if (order.kind === "redeploy") {
+    if (order.kind === "formationRecovery") {
+      const preview = previewCampaignFormationRecovery(runtime, definition, order.payload.formationId, order.faction);
+      if (preview.availability !== "available") throw new Error(preview.reason ?? "Recovery changed before commitment.");
+      const formation = runtime.formations[order.payload.formationId];
+      faction.economy.supplies -= order.payload.suppliesCost;
+      formation.currentOrderId = order.id;
+      formation.status = "refitting";
+      order.executionRefId = order.id;
+    } else if (order.kind === "redeploy") {
       const economy = faction.economy;
       if (economy.fuel < order.payload.fuelCost || economy.supplies < order.payload.suppliesCost || economy.manpower < order.payload.manpowerCost) {
         throw new Error("Redeployment resources changed before commit.");
@@ -635,7 +684,7 @@ export function commitCampaignOrderDrafts(runtime: CampaignRuntimeState, orderId
   if (orders.some((order) => order.kind === "redeploy")) {
     synchronizeCampaignFormationForceProjection(runtime);
   }
-  revalidateCampaignOrderBook(runtime);
+  revalidateCampaignOrderBook(runtime, definition);
   return orders;
 }
 

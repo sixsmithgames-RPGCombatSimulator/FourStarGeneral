@@ -88,7 +88,7 @@ export function projectCampaignFormationPosture(
         "This formation is refitting and cannot receive a new order.");
     case "shattered":
       return projection(formation, "shattered", "Shattered", placed, false,
-        "This formation must recover or reconstitute before receiving orders.");
+        "This formation must recover or reconstitute before receiving combat or redeployment orders.");
     case "destroyed":
       return projection(formation, "retired", "Destroyed", false, false,
         "This formation has been destroyed.");
