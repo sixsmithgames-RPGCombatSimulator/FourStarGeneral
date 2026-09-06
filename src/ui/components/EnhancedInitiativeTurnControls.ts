@@ -120,6 +120,7 @@ export class EnhancedInitiativeTurnControls {
     this.currentUnit = activation;
     this.updateControlStates();
     this.updateCurrentUnitDisplay();
+    this.updateGroupDisplay();
     this.updateStatusSummary();
   }
 
@@ -568,16 +569,40 @@ export class EnhancedInitiativeTurnControls {
     if (this.currentGroup) {
       groupInfo.style.display = 'block';
       groupInitiative.textContent = `Initiative ${this.currentGroup.initiative}`;
+
+      if (this.isEnemyGroupActivity()) {
+        progressFill.style.removeProperty('width');
+        progressText.textContent = 'Enemy orders resolving';
+        return;
+      }
       
       const completedUnits = this.currentGroup.units.filter(u => u.isActivated).length;
       const totalUnits = this.currentGroup.units.length;
+      if (totalUnits === 0) {
+        progressFill.style.removeProperty('width');
+        progressText.textContent = '';
+        return;
+      }
       const progressPercent = (completedUnits / totalUnits) * 100;
       
       progressFill.style.width = `${progressPercent}%`;
       progressText.textContent = `${completedUnits}/${totalUnits}`;
     } else {
       groupInfo.style.display = 'none';
+      progressFill.style.removeProperty('width');
+      progressText.textContent = '';
     }
+  }
+
+  /**
+   * The initiative queue may update its group and current activation in separate calls. Treat
+   * either enemy-owned value as private during that handoff, and cover the empty-group tail of
+   * an enemy initiative without retaining the just-completed roster cardinality.
+   */
+  private isEnemyGroupActivity(): boolean {
+    return this.currentUnit?.ownerId === 'bot'
+      || Boolean(this.currentGroup?.units.some((unit) => unit.ownerId === 'bot'))
+      || Boolean(this.currentGroup && this.currentPhase === 'initiativeTurn' && !this.isPlayerTurn);
   }
 
   /**
@@ -622,18 +647,22 @@ export class EnhancedInitiativeTurnControls {
 
     if (this.currentGroup) {
       const remaining = this.currentGroup.units.filter((unit) => !unit.isActivated).length;
-      const ownerLabel = this.currentUnit?.ownerId === 'bot'
+      const enemyActivity = this.isEnemyGroupActivity();
+      const hasKnownOwner = Boolean(this.currentUnit) || this.currentGroup.units.length > 0;
+      const ownerLabel = enemyActivity
         ? "Enemy group"
         : this.currentUnit?.ownerId === 'player'
           ? "Your group"
-          : this.isPlayerTurn
+          : hasKnownOwner && this.isPlayerTurn
             ? "Your group"
             : "Active group";
       statusElement.dataset.currentInitiativeGroup = String(this.currentGroup.initiative);
       labelElement.textContent = `Initiative ${this.currentGroup.initiative}`;
       valueElement.textContent = ownerLabel;
-      detailElement.textContent = this.currentUnit?.ownerId === 'bot'
-        ? `${remaining} formation${remaining === 1 ? "" : "s"} acting`
+      detailElement.textContent = enemyActivity
+        ? "Enemy orders resolving"
+        : !hasKnownOwner
+          ? "Orders resolving"
         : `${remaining} formation${remaining === 1 ? "" : "s"} ready`;
       return;
     }

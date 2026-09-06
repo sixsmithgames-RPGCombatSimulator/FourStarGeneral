@@ -1,6 +1,9 @@
 import "./domEnvironment.js";
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import { EnhancedInitiativeTurnControls } from "../src/ui/components/EnhancedInitiativeTurnControls";
+import type { InitiativeGroup } from "../src/core/GroupedInitiativeQueue";
+import type { UnitActivation } from "../src/core/InitiativeQueue";
 
 const expect = (condition: boolean, message: string): void => {
   if (!condition) {
@@ -17,6 +20,148 @@ const noopEvents = {
   onProceedToNext: () => {},
   onSkipGroup: () => {}
 };
+
+function frozenGroup(ownerId: UnitActivation["ownerId"], remaining: number, retainCompleted = false): InitiativeGroup {
+  const group: InitiativeGroup = {
+    initiative: 5,
+    isCompleted: false,
+    currentUnitIndex: 0,
+    units: Array.from({ length: retainCompleted ? 19 : remaining }, (_, index) => Object.freeze({
+      unitId: `${ownerId}-formation-${index}`,
+      ownerId,
+      initiative: 5,
+      isActivated: index >= remaining,
+      sortOrder: index
+    }))
+  };
+  Object.freeze(group.units);
+  return Object.freeze(group);
+}
+
+function assertNoEnemyCardinality(container: HTMLElement): void {
+  const surfaces = [container.textContent ?? ""];
+  for (const element of [container, ...container.querySelectorAll<HTMLElement>("*")]) {
+    for (const attribute of element.attributes) {
+      if (attribute.name === "data-current-initiative-group") {
+        assert.ok(attribute.value === "5" || attribute.value === "", "Only the initiative band may be exposed as numeric group data.");
+      } else if (attribute.name === "title" || attribute.name.startsWith("aria-") || attribute.name.startsWith("data-")) {
+        surfaces.push(attribute.value);
+      }
+    }
+    assert.equal(element.style.width, "", "Enemy progress must not survive as a numeric width, including on hidden nodes.");
+  }
+  assert.doesNotMatch(surfaces.join("\n").replace(/Initiative 5/g, ""), /\d/, "Enemy cardinality must not appear in text, titles, accessibility metadata or data attributes.");
+}
+
+// These legacy nodes are deliberately supplied here. initializeControls does not
+// ship them; this contract guards the optional writer, not the observed live DOM.
+function appendLegacyProgress(container: HTMLElement): void {
+  container.insertAdjacentHTML("beforeend", `<div class="current-group-info">
+    <span class="group-initiative"></span><span class="progress-fill"></span><span class="progress-text"></span>
+  </div>`);
+}
+
+registerTest("ENHANCED_INITIATIVE_CONTROLS_ENEMY_COUNTS_STAY_PRIVATE_DURING_GROUP_TRANSITIONS", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const controls = new EnhancedInitiativeTurnControls(container, noopEvents);
+  const enemy = Object.freeze({ unitId: "enemy-current", ownerId: "bot", initiative: 5, isActivated: false, sortOrder: 0 } satisfies UnitActivation);
+  try {
+    controls.updatePhase("initiativeTurn");
+    controls.updatePlayerTurn(false);
+    for (const retainCompleted of [false, true]) {
+      for (const remaining of [19, 18, 1, 0]) {
+        const group = frozenGroup("bot", remaining, retainCompleted);
+        const before = JSON.stringify(group);
+        controls.updateCurrentUnit(enemy);
+        controls.updateCurrentGroup(group);
+        assert.equal(container.querySelector(".initiative-status__value")?.textContent, "Enemy group");
+        assert.equal(container.querySelector(".initiative-status__detail")?.textContent, "Enemy orders resolving");
+        assertNoEnemyCardinality(container);
+        controls.updateCurrentUnit(null);
+        assertNoEnemyCardinality(container);
+        if (group.units.length) {
+          assert.equal(container.querySelector(".initiative-status__value")?.textContent, "Enemy group", "The supplied enemy roster still establishes ownership when the current activation is absent.");
+          assert.equal(container.querySelector(".initiative-status__detail")?.textContent, "Enemy orders resolving");
+        }
+        assert.ok([...container.querySelectorAll<HTMLButtonElement>("button")].every(button => button.disabled), "Enemy activity must not enable a player command.");
+        assert.equal(JSON.stringify(group), before, "Rendering must not alter supplied activation state.");
+      }
+    }
+  } finally {
+    controls.dispose();
+    container.remove();
+  }
+});
+
+registerTest("ENHANCED_INITIATIVE_CONTROLS_OPTIONAL_PROGRESS_CLEARS_COUNTS_ON_OWNER_CHANGE", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const controls = new EnhancedInitiativeTurnControls(container, noopEvents);
+  appendLegacyProgress(container);
+  const friendly = frozenGroup("player", 1, true);
+  const enemy = frozenGroup("bot", 19);
+  try {
+    controls.updateCurrentGroup(friendly);
+    controls.updateCurrentUnit(friendly.units[0]);
+    assert.equal(container.querySelector(".progress-text")?.textContent, "18/19");
+    assert.notEqual(container.querySelector<HTMLElement>(".progress-fill")?.style.width, "");
+
+    // BattleScreen supplies the new current activation before replacing its group.
+    controls.updateCurrentUnit(enemy.units[0]);
+    assertNoEnemyCardinality(container);
+    for (const remaining of [19, 18, 1, 0]) {
+      controls.updateCurrentGroup(frozenGroup("bot", remaining));
+      assertNoEnemyCardinality(container);
+      controls.updateCurrentUnit(null);
+      assertNoEnemyCardinality(container);
+    }
+    controls.updateCurrentGroup(enemy);
+    controls.updateCurrentUnit(friendly.units[0]);
+    assertNoEnemyCardinality(container);
+    controls.updateCurrentGroup(friendly);
+    assert.equal(container.querySelector(".progress-text")?.textContent, "18/19", "Friendly progress returns after the supplied roster is friendly again.");
+    controls.updateCurrentUnit(null);
+    controls.updateCurrentGroup(null);
+    assertNoEnemyCardinality(container);
+  } finally {
+    controls.dispose();
+    container.remove();
+  }
+});
+
+registerTest("ENHANCED_INITIATIVE_CONTROLS_RETAIN_PLAYER_COUNTS_AND_COMPLETED_ROUND", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const controls = new EnhancedInitiativeTurnControls(container, noopEvents);
+  appendLegacyProgress(container);
+  try {
+    controls.updatePhase("initiativeTurn");
+    controls.updatePlayerTurn(true);
+    for (const remaining of [19, 18, 1, 0]) {
+      const group = frozenGroup("player", remaining, true);
+      const before = JSON.stringify(group);
+      controls.updateCurrentUnit(group.units[0]);
+      controls.updateCurrentGroup(group);
+      assert.equal(container.querySelector(".initiative-status__value")?.textContent, "Your group");
+      assert.equal(container.querySelector(".initiative-status__detail")?.textContent, `${remaining} formation${remaining === 1 ? "" : "s"} ready`);
+      assert.equal(container.querySelector(".progress-text")?.textContent, `${19 - remaining}/19`);
+      assert.ok(Math.abs(parseFloat(container.querySelector<HTMLElement>(".progress-fill")!.style.width) - (19 - remaining) / 19 * 100) < 0.001);
+      controls.updateCurrentUnit(null);
+      assert.equal(container.querySelector(".initiative-status__detail")?.textContent, `${remaining} formation${remaining === 1 ? "" : "s"} ready`);
+      assert.equal(JSON.stringify(group), before);
+    }
+    controls.updateCurrentGroup(null);
+    controls.updateRoundAdvanceReady(true);
+    assert.equal(container.querySelector(".initiative-status__label")?.textContent, "Initiative Complete");
+    assert.equal(container.querySelector(".initiative-status__value")?.textContent, "Turn ready");
+    assert.equal(container.querySelector(".initiative-status__detail")?.textContent, "All formations ordered");
+    assert.equal(container.querySelector(".group-advance-btn")?.textContent, "End Turn");
+  } finally {
+    controls.dispose();
+    container.remove();
+  }
+});
 
 registerTest("ENHANCED_INITIATIVE_CONTROLS_SURFACE_TUTORIAL_STATUS", async ({ Given, When, Then }) => {
   let controls: EnhancedInitiativeTurnControls;
