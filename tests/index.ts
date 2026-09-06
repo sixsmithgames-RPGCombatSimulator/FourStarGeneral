@@ -67,6 +67,7 @@ import "./CampaignAfterActionReport.test.js";
 import "./CampaignAI.assessment.test.js";
 import "./CampaignAI.planning.test.js";
 import "./CampaignAI.engagements.test.js";
+import "./precombatAllocs.test.js";
 import "./ScreenManager.transition.test.js";
 import "./LandingScreen.campaignRoute.test.js";
 import "./FirstClassUiGlyphs.test.js";

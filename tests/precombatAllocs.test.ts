@@ -3,7 +3,8 @@
  * This keeps UI expectations stable without requiring factories to defensively clone or clamp values.
  */
 import "./domEnvironment.js";
-import { registerTest } from "./harness.js";
+import { registerTest as registerHarnessTest, type TestFn } from "./harness.js";
+import assert from "node:assert/strict";
 import {
   allocationOptions,
   ALLOCATION_BY_KEY,
@@ -16,7 +17,96 @@ import {
 import { PrecombatScreen } from "../src/ui/screens/PrecombatScreen";
 import type { IScreenManager } from "../src/contracts/IScreenManager";
 import { BattleState } from "../src/state/BattleState";
+import { ensureDeploymentState } from "../src/state/DeploymentState";
+import { ensureTutorialState } from "../src/state/TutorialState";
+import { ensureUnlockState } from "../src/state/UnlockState";
 import { getMissionBriefing, getMissionProfile, getMissionSummaryPackage, getMissionTitle } from "../src/data/missions";
+
+const screenCleanups: Array<() => void> = [];
+
+/** Restore only these fixtures' singleton writes, retaining earlier tests' objects and subscriptions. */
+function preserveFixtureState(state: object): () => void {
+  const restore: Array<() => void> = [];
+  const visited = new WeakSet<object>();
+  const remember = (value: unknown): void => {
+    if (!value || typeof value !== "object" || visited.has(value)) return;
+    visited.add(value);
+    if (value instanceof Map) {
+      const entries = [...value.entries()];
+      entries.forEach(([key, entry]) => { remember(key); remember(entry); });
+      restore.push(() => { value.clear(); entries.forEach(([key, entry]) => value.set(key, entry)); });
+    } else if (value instanceof Set) {
+      const entries = [...value]; entries.forEach(remember);
+      restore.push(() => { value.clear(); entries.forEach(entry => value.add(entry)); });
+    } else if (value === state || Array.isArray(value) || Object.getPrototypeOf(value) === Object.prototype) {
+      // Capture original descriptors and nested values, including arrays changed in place; keep object identities.
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      Reflect.ownKeys(descriptors).forEach(key => remember(Reflect.get(descriptors, key).value));
+      restore.push(() => {
+        Reflect.ownKeys(value).filter(key => !Reflect.has(descriptors, key)).forEach(key => Reflect.deleteProperty(value, key));
+        Object.defineProperties(value, descriptors);
+      });
+    }
+  };
+  remember(state);
+  return () => restore.forEach(cleanup => cleanup());
+}
+
+/** The file is also run in the shared harness; cleanup must occur even when an assertion fails. */
+function registerTest(id: string, spec: TestFn): void {
+  registerHarnessTest(id, async context => {
+    const deployment = ensureDeploymentState();
+    const unlock = ensureUnlockState();
+    const states = [deployment, ensureTutorialState(), unlock];
+    const restorePriorTests = states.map(preserveFixtureState);
+    // Seed earlier-test data before real initialize/setup, which refreshes sprites in nested records.
+    const pool = [{ key: "infantry", label: "Prior pool", remaining: 2, sprite: "prior-pool.svg" }];
+    const reserves = [{ unitKey: "infantry", label: "Prior reserve", remaining: 2, sprite: "prior-reserve.svg", status: "ready" as const }];
+    const placement = { hexKey: "99,99", unitKey: "infantry", faction: "Player" as const, sprite: "prior-placement.svg" };
+    deployment.pool = pool; deployment.reserves = reserves; deployment.placements.set(placement.hexKey, placement);
+    const placementMap = deployment.placements;
+    const poolEntry = pool[0]; const reserveEntry = reserves[0];
+    const deploymentBefore = structuredClone(Object.fromEntries(Object.entries(deployment)));
+    const priorListener = () => {};
+    unlock.subscribe(priorListener);
+    const listeners = Reflect.get(unlock, "listeners") as Set<unknown>;
+    const listenersBefore = [...listeners];
+    const restores = states.map(preserveFixtureState);
+    try { await spec(context); }
+    finally {
+      screenCleanups.splice(0).reverse().forEach(cleanup => cleanup());
+      try {
+        restores.reverse().forEach(restore => restore());
+        assert.deepEqual(Object.fromEntries(Object.entries(deployment)), deploymentBefore, "Pre-existing deployment values survive real screen initialization.");
+        assert.equal(deployment.pool, pool); assert.equal(deployment.pool[0], poolEntry);
+        assert.equal(deployment.reserves, reserves); assert.equal(deployment.reserves[0], reserveEntry);
+        assert.equal(deployment.placements, placementMap); assert.equal(deployment.placements.get(placement.hexKey), placement);
+        assert.equal(Reflect.get(unlock, "listeners"), listeners); assert.deepEqual([...listeners], listenersBefore);
+        console.log(`[FIXTURE CLEANUP PASS] ${id}: nonempty deployment contents, identities and prior listener restored.`);
+      } finally {
+        restorePriorTests.reverse().forEach(restore => restore());
+        document.body.replaceChildren();
+      }
+    }
+  });
+}
+
+function createPrecombatScreen(manager: IScreenManager, battle: BattleState): PrecombatScreen {
+  const screen = new PrecombatScreen(manager, battle);
+  const lifecycle = screen as unknown as {
+    screenShownListener: EventListener;
+    resizeListener: EventListener;
+    miniMapRenderFrame: number | null;
+    miniMapRetryTimer: number | null;
+  };
+  screenCleanups.push(() => {
+    document.removeEventListener("screen:shown", lifecycle.screenShownListener);
+    window.removeEventListener("resize", lifecycle.resizeListener);
+    if (lifecycle.miniMapRenderFrame !== null) window.cancelAnimationFrame(lifecycle.miniMapRenderFrame);
+    if (lifecycle.miniMapRetryTimer !== null) window.clearTimeout(lifecycle.miniMapRetryTimer);
+  });
+  return screen;
+}
 
 const allowedCategories: ReadonlySet<AllocationCategory> = new Set<AllocationCategory>([
   "units",
@@ -139,7 +229,7 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
     };
 
     const battleState = new BattleState();
-    screen = new PrecombatScreen(fakeScreenManager, battleState);
+    screen = createPrecombatScreen(fakeScreenManager, battleState);
 
     // Replace expensive rendering hooks that rely on canvas/SVG layout with no-ops so tests run quickly under jsdom.
     // @ts-expect-error - overriding private helper purely for testing efficiency.
@@ -192,7 +282,7 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
   });
 });
 
-registerTest("PRECOMBAT_UNIMPLEMENTED_LOGISTICS_RENDER_AS_PENDING", async ({ Given, When, Then }) => {
+registerTest("PRECOMBAT_IMPLEMENTED_LOGISTICS_RESPECT_QUANTITIES_CAPS_AND_BUDGET", async ({ Given, When, Then }) => {
   document.body.innerHTML = `
     <section id="precombatScreen">
       <h1 id="precombatMissionTitle"></h1>
@@ -234,8 +324,20 @@ registerTest("PRECOMBAT_UNIMPLEMENTED_LOGISTICS_RENDER_AS_PENDING", async ({ Giv
     </section>
   `;
 
-  let medicCard: HTMLElement | null = null;
-  let maintenanceCard: HTMLElement | null = null;
+  const card = (key: string): HTMLElement => {
+    const element = document.querySelector<HTMLElement>(`#allocationLogisticsList .allocation-item[data-key="${key}"]`);
+    assert.ok(element, `Expected ${key} logistics card.`);
+    return element;
+  };
+  const control = (key: string, action: string): HTMLButtonElement => {
+    const button = card(key).querySelector<HTMLButtonElement>(`button[data-action="${action}"]`);
+    assert.ok(button, `Expected ${key} ${action} control.`);
+    return button;
+  };
+  const spent = (): number => Number(document.querySelector("#budgetSpent")!.textContent!.replace(/[^0-9]/g, ""));
+  const remaining = (): number => Number(document.querySelector("#budgetRemaining")!.textContent!.replace(/[^0-9]/g, ""));
+  let startingSpend = 0;
+  let budget = 0;
 
   await Given("a precombat screen rendering the logistics allocation list", async () => {
     const fakeScreenManager: IScreenManager = {
@@ -245,35 +347,57 @@ registerTest("PRECOMBAT_UNIMPLEMENTED_LOGISTICS_RENDER_AS_PENDING", async ({ Giv
     };
 
     const battleState = new BattleState();
-    const screen = new PrecombatScreen(fakeScreenManager, battleState);
+    const screen = createPrecombatScreen(fakeScreenManager, battleState);
     // @ts-expect-error - overriding private helper purely for testing efficiency.
     screen.renderMiniMap = () => {};
     screen.initialize();
     screen.setup("training", null, "Normal");
+    const infantry = document.querySelector<HTMLButtonElement>('#allocationUnitList [data-key="infantry"][data-action="increment"]');
+    assert.ok(infantry); infantry.click();
+    startingSpend = spent(); budget = startingSpend + remaining();
   });
 
-  await When("the logistics cards are queried for unavailable rows", async () => {
-    medicCard = document.querySelector<HTMLElement>('#allocationLogisticsList [data-key="medic"]');
-    maintenanceCard = document.querySelector<HTMLElement>('#allocationLogisticsList [data-key="maintenance"]');
+  await When("medical and repair sections are requisitioned through their actual quantity buttons", async () => {
+    for (const [key, cost, cap] of [["medic", 60, 15], ["maintenance", 55, 12]] as const) {
+      const option = getAllocationOption(key)!;
+      assert.equal(option.costPerUnit, cost); assert.equal(option.maxQuantity, cap);
+      assert.equal(card(key).dataset.unavailable, "false");
+      assert.doesNotMatch(card(key).textContent!, /Pending|Planned feature/);
+      assert.equal(control(key, "increment").disabled, false);
+      assert.equal(control(key, "decrement").disabled, true);
+      const before = spent();
+      control(key, "increment").click();
+      assert.equal(card(key).dataset.quantity, "1");
+      assert.equal(card(key).querySelector(".allocation-count")!.textContent, "1");
+      assert.equal(spent(), before + cost);
+      assert.equal(card(key).querySelector(".allocation-total")!.textContent, `${cost} RP`);
+      control(key, "decrement").click();
+      assert.equal(card(key).dataset.quantity, "0"); assert.equal(spent(), before);
+      control(key, "decrement").click();
+      assert.equal(card(key).dataset.quantity, "0"); assert.equal(spent(), before);
+      for (let quantity = 0; quantity < cap; quantity++) control(key, "increment").click();
+      assert.equal(card(key).dataset.quantity, String(cap));
+      assert.equal(control(key, "increment").disabled, true);
+      assert.equal(spent(), before + cap * cost);
+      control(key, "increment").click();
+      assert.equal(card(key).dataset.quantity, String(cap));
+      assert.equal(spent(), before + cap * cost);
+    }
   });
 
-  await Then("medical and recovery sections both render in the greyed pending state", async () => {
-    if (!medicCard || medicCard.dataset.unavailable !== "true") {
-      throw new Error("Expected Medical Detachment to render as an unavailable logistics card.");
+  await Then("caps prevent extra quantities and excessive logistics spend blocks battle until reduced", async () => {
+    const proceed = document.querySelector<HTMLButtonElement>("#proceedToBattle")!;
+    assert.equal(spent(), startingSpend + 15 * 60 + 12 * 55);
+    assert.ok(spent() > budget); assert.equal(remaining(), 0);
+    assert.equal(proceed.disabled, true);
+    assert.equal(document.querySelector<HTMLElement>("#precombatBudgetPanel")!.dataset.state, "over-budget");
+    assert.match(document.querySelector("#allocationFeedback")!.textContent!, /Over requisition budget/);
+    for (const [key, cap] of [["medic", 15], ["maintenance", 12]] as const) {
+      for (let quantity = 0; quantity < cap; quantity++) control(key, "decrement").click();
     }
-    if (!maintenanceCard || maintenanceCard.dataset.unavailable !== "true") {
-      throw new Error("Expected Recovery & Repair Section to render as an unavailable logistics card.");
-    }
-    if (!(medicCard.textContent ?? "").includes("Pending")) {
-      throw new Error("Expected Medical Detachment to show the pending unavailable label.");
-    }
-    if (!(maintenanceCard.textContent ?? "").includes("Pending")) {
-      throw new Error("Expected Recovery & Repair Section to show the pending unavailable label.");
-    }
-    if (!(maintenanceCard.textContent ?? "").includes("Planned feature")) {
-      throw new Error("Expected Recovery & Repair Section to show the planned feature badge.");
-    }
-    document.body.innerHTML = "";
+    assert.equal(spent(), startingSpend); assert.equal(remaining(), budget - startingSpend);
+    assert.equal(proceed.disabled, false);
+    assert.equal(document.querySelector<HTMLElement>("#precombatBudgetPanel")!.dataset.state, "within-budget");
   });
 });
 
@@ -331,7 +455,7 @@ registerTest("PRECOMBAT_SEEDS_LOW_COST_SUPPLY_CONVOYS_BUT_STILL_REQUIRES_COMBAT_
     };
 
     const battleState = new BattleState();
-    const screen = new PrecombatScreen(fakeScreenManager, battleState);
+    const screen = createPrecombatScreen(fakeScreenManager, battleState);
     // @ts-expect-error - overriding private helper purely for testing efficiency.
     screen.renderMiniMap = () => {};
     screen.initialize();
@@ -436,7 +560,7 @@ registerTest("PRECOMBAT_RIVER_WATCH_USES_AUTHORED_MISSION_PACKAGE", async ({ Giv
     };
 
     battleState = new BattleState();
-    screen = new PrecombatScreen(fakeScreenManager, battleState);
+    screen = createPrecombatScreen(fakeScreenManager, battleState);
     // @ts-expect-error - overriding private helper purely for testing efficiency.
     screen.renderMiniMap = () => {};
     screen.initialize();
@@ -565,7 +689,7 @@ registerTest("PRECOMBAT_RIVER_WATCH_HARD_DIFFICULTY_UPDATES_EXTRACTION_WINDOW", 
     };
 
     battleState = new BattleState();
-    screen = new PrecombatScreen(fakeScreenManager, battleState);
+    screen = createPrecombatScreen(fakeScreenManager, battleState);
     // @ts-expect-error - overriding private helper purely for testing efficiency.
     screen.renderMiniMap = () => {};
     screen.initialize();
@@ -659,8 +783,8 @@ registerTest("MISSION_PROFILE_EXPOSES_REUSABLE_CATEGORY_AND_DEPLOYMENT_DEFAULTS"
     if (trainingProfile.deployment.zoneDoctrine[0]?.zoneKey !== "zone-alpha") {
       throw new Error(`Expected training doctrine to target zone-alpha, received ${trainingProfile.deployment.zoneDoctrine[0]?.zoneKey}`);
     }
-    if (trainingProfile.deployment.validation.minimumPlayerZoneCapacityTotal !== 12) {
-      throw new Error(`Expected training doctrine to require 12 player slots, received ${trainingProfile.deployment.validation.minimumPlayerZoneCapacityTotal}`);
+    if (trainingProfile.deployment.validation.minimumPlayerZoneCapacityTotal !== 13) {
+      throw new Error(`Expected training doctrine to require 13 player slots, received ${trainingProfile.deployment.validation.minimumPlayerZoneCapacityTotal}`);
     }
   });
 });
