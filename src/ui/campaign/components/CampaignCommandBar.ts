@@ -29,7 +29,7 @@ export function createCampaignCommandBar(root: HTMLElement): HTMLElement {
       <span>Reports</span><strong id="campaignCommandUnread">0</strong>
     </button>
     <div class="campaign-command-save-state"><span>Save</span><strong id="campaignCommandSaveStatus">Unsaved</strong></div>
-    <div id="campaignCommandSession" class="campaign-command-session" aria-label="Campaign session controls"></div>
+    <div id="campaignCommandSession" class="campaign-command-session" role="group" aria-label="Campaign session controls"></div>
   `;
 
   const time = root.querySelector<HTMLElement>("#campaignTimeDisplay");

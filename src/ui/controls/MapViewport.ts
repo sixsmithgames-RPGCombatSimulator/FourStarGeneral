@@ -1,12 +1,8 @@
 import type { IMapViewport } from "../../contracts/IMapViewport";
-import {
-  CAMPAIGN_MAP_LABEL_ZOOM_CAP,
-  CAMPAIGN_MAP_SYMBOL_ZOOM_CAP
-} from "../../core/campaignMapPresentation";
+import { CAMPAIGN_MAP_LABEL_ZOOM_CAP } from "../../core/campaignMapPresentation";
 
-// Overview markers must shrink with the theater while disclosure cards remain
-// readable at a fixed physical size. These values keep the full painted badge
-// (including its non-scaling outline) inside the closest shipped site spacing.
+// Geographic artwork follows the camera; only interface text and pointer geometry
+// compensate for zoom so the map retains one spatial scale.
 
 /**
  * Manages map viewport transformations including zoom and pan.
@@ -594,19 +590,16 @@ export class MapViewport implements IMapViewport {
     // mismatches between viewport state and actual rendered transform
     const transformValue = `translate(${panX}, ${panY}) scale(${zoom})`;
     this.viewportRoot.setAttribute("transform", transformValue);
-    // Non-geographic strategic markers keep a bounded screen footprint. Registered hex artwork
-    // remains at scale 1 inside this root so it follows the same camera transform as its map cell.
+    // Geographic artwork, formations and contacts inherit this one camera transform. Only
+    // interface affordances (labels, disclosures and hit geometry) receive screen-space compensation.
     const inverseZoom = 1 / zoom;
-    const markerScale = Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.marker * inverseZoom);
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom", String(inverseZoom));
     this.viewportRoot.style.setProperty("--campaign-map-inverse-zoom-resting", String(inverseZoom * 0.92));
-    this.viewportRoot.style.setProperty("--campaign-map-marker-scale", String(markerScale));
     this.viewportRoot.style.setProperty("--campaign-map-hit-scale", String(inverseZoom));
-    this.viewportRoot.style.setProperty("--campaign-map-tile-symbol-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.tile * inverseZoom)));
-    // Each non-geographic visual has its own close-zoom cap because its authored footprint differs.
-    this.viewportRoot.style.setProperty("--campaign-map-force-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.force * inverseZoom)));
-    this.viewportRoot.style.setProperty("--campaign-map-contact-scale", String(Math.min(1, CAMPAIGN_MAP_SYMBOL_ZOOM_CAP.contact * inverseZoom)));
     this.viewportRoot.style.setProperty("--campaign-map-location-label-scale", String(Math.min(1, CAMPAIGN_MAP_LABEL_ZOOM_CAP * inverseZoom)));
+    this.mapElement.dataset.zoom = String(zoom);
+    const zoomOutput = this.mapElement.closest("#campaignScreen")?.querySelector<HTMLOutputElement>("#campaignZoomLevel");
+    if (zoomOutput) zoomOutput.textContent = `${Math.round(zoom * 100)}%`;
     this.viewportRoot.dataset.campaignMapDensity = zoom < 0.25
       ? "theater"
       : zoom < 0.55
@@ -621,7 +614,22 @@ export class MapViewport implements IMapViewport {
     const viewport = this.campaignMapViewport;
     if (!root || !viewport) return;
 
-    const frame = viewport.getBoundingClientRect();
+    const viewportFrame = viewport.getBoundingClientRect();
+    const frame = {
+      left: Math.max(0, viewportFrame.left),
+      top: Math.max(0, viewportFrame.top),
+      right: Math.min(window.innerWidth, viewportFrame.right),
+      bottom: Math.min(window.innerHeight, viewportFrame.bottom)
+    };
+    for (let ancestor = viewport.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const style = getComputedStyle(ancestor);
+      if (!/(auto|hidden|scroll|clip)/.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`)) continue;
+      const ancestorFrame = ancestor.getBoundingClientRect();
+      frame.left = Math.max(frame.left, ancestorFrame.left);
+      frame.top = Math.max(frame.top, ancestorFrame.top);
+      frame.right = Math.min(frame.right, ancestorFrame.right);
+      frame.bottom = Math.min(frame.bottom, ancestorFrame.bottom);
+    }
     const labels = Array.from(root.querySelectorAll<SVGGElement>(".campaign-map-location-label"));
     labels.forEach((label) => { label.style.visibility = "visible"; });
     labels.forEach((label) => {

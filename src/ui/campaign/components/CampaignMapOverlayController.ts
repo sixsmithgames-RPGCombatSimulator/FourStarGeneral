@@ -160,7 +160,7 @@ export class CampaignMapOverlayController {
     this.listToggle.className = "campaign-map-list-toggle";
     this.listToggle.setAttribute("aria-expanded", "false");
     this.listToggle.setAttribute("aria-controls", "campaignMapAccessibleList");
-    this.listToggle.textContent = "Map list";
+    this.listToggle.textContent = "Find location";
     toolbar.appendChild(this.listToggle);
 
     this.listPanel = this.createListPanel();
@@ -250,14 +250,14 @@ export class CampaignMapOverlayController {
     const header = document.createElement("header");
     const heading = document.createElement("div");
     heading.append(
-      createText("span", "campaign-map-accessible-list__eyebrow", "Map list"),
+      createText("span", "campaign-map-accessible-list__eyebrow", "Find location"),
       createText("h2", "campaign-map-accessible-list__title", "Operational entities")
     );
     this.listTitle = heading.querySelector("h2");
     const close = document.createElement("button");
     close.type = "button";
     close.dataset.closeMapList = "true";
-    close.setAttribute("aria-label", "Close map list");
+    close.setAttribute("aria-label", "Close location finder");
     close.textContent = "×";
     header.append(heading, close);
     this.listSummary = createText("p", "campaign-map-accessible-list__summary", "Choose an entity to inspect it.");
@@ -323,8 +323,13 @@ export class CampaignMapOverlayController {
           : noun === "map record" ? "map records"
             : `${noun}s`;
       const forceSummary = effective.id === "forces" && !this.targetPickOriginHexKey ? `${count} relevant` : `${count} ${nounLabel}`;
-      this.listToggle.textContent = `${this.targetPickOriginHexKey ? "Destinations" : "Map list"} (${count})`;
-      this.listToggle.setAttribute("aria-label", `${this.targetPickOriginHexKey ? "Redeployment destination" : effective.label} map list, ${forceSummary}`);
+      this.listToggle.textContent = `${this.targetPickOriginHexKey ? "Destinations" : "Find location"} (${count})`;
+      this.listToggle.setAttribute(
+        "aria-label",
+        this.targetPickOriginHexKey
+          ? `Redeployment destination finder, ${forceSummary}`
+          : `Find location, ${effective.label.toLowerCase()} layer, ${forceSummary}`
+      );
       if (requested.status === "featureGated") this.listToggle.textContent = `${requested.shortLabel} unavailable`;
     }
   }

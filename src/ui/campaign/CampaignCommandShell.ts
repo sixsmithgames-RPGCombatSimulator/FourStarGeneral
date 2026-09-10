@@ -723,10 +723,37 @@ export class CampaignCommandShell {
       modeGroup.appendChild(intelCoverage);
     }
     const viewportControls = toolbar.querySelector<HTMLElement>(".campaign-map-viewport-controls");
-    ["#campaignTheaterOverview", "#campaignActiveFrontView", "#campaignZoomOut", "#campaignZoomIn"].forEach((selector) => {
+    ["#campaignTheaterOverview", "#campaignActiveFrontView"].forEach((selector) => {
       const control = this.root.querySelector<HTMLElement>(selector);
       if (control && viewportControls) viewportControls.appendChild(control);
     });
+    const theaterOverview = viewportControls?.querySelector<HTMLButtonElement>("#campaignTheaterOverview");
+    const activeFront = viewportControls?.querySelector<HTMLButtonElement>("#campaignActiveFrontView");
+    if (theaterOverview) theaterOverview.title = "Reset the map to the full theater view";
+    if (activeFront) activeFront.title = "Reset the map to the active front";
+    const zoomControls = document.createElement("span");
+    zoomControls.className = "campaign-map-zoom-controls";
+    zoomControls.setAttribute("role", "group");
+    zoomControls.setAttribute("aria-label", "Map zoom");
+    const zoomLevel = document.createElement("output");
+    zoomLevel.id = "campaignZoomLevel";
+    zoomLevel.className = "campaign-map-zoom-level";
+    zoomLevel.setAttribute("aria-label", "Map zoom level");
+    zoomLevel.textContent = "100%";
+    const zoomOut = this.root.querySelector<HTMLButtonElement>("#campaignZoomOut");
+    const zoomIn = this.root.querySelector<HTMLButtonElement>("#campaignZoomIn");
+    if (zoomOut) {
+      zoomOut.title = "Zoom out";
+      zoomOut.setAttribute("aria-label", "Zoom out map");
+      zoomControls.appendChild(zoomOut);
+    }
+    zoomControls.appendChild(zoomLevel);
+    if (zoomIn) {
+      zoomIn.title = "Zoom in";
+      zoomIn.setAttribute("aria-label", "Zoom in map");
+      zoomControls.appendChild(zoomIn);
+    }
+    viewportControls?.appendChild(zoomControls);
     map.prepend(toolbar);
 
     const legacyMapControls = this.root.querySelector<HTMLElement>(".map-controls-section");

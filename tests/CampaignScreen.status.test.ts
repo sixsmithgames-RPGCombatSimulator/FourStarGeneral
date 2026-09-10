@@ -466,6 +466,7 @@ registerTest("CAMPAIGNSCREEN_MULTI_EDGE_TARGETS_ARE_VISIBLE_DIRECT_ACTIONS", asy
           }
         }
       }),
+      getCampaignInfrastructureStatus: () => null,
       getHeadquartersStatusMessage: () => null,
       getPendingEngagements: () => [],
       getActiveCampaignBattlePackage: () => null,

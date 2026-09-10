@@ -14,6 +14,12 @@ interface InspectorFact {
   readonly value: string;
 }
 
+interface InspectorFactGroup {
+  readonly key: "geography" | "status" | "operations" | "details";
+  readonly label: string;
+  readonly facts: readonly InspectorFact[];
+}
+
 interface InspectorFormationGroup {
   readonly key: "ready" | "committed" | "transit" | "arriving" | "recovering";
   readonly label: string;
@@ -60,7 +66,11 @@ export function createCampaignContextInspector(workspacePanel: HTMLElement): HTM
   inspector.setAttribute("aria-labelledby", "campaignInspectorTitle");
   inspector.innerHTML = `
     <header class="campaign-context-inspector__header">
-      <div><span>Field report</span><h2 id="campaignInspectorTitle" tabindex="-1">Selection</h2></div>
+      <div class="campaign-context-inspector__identity">
+        <span>Field report</span>
+        <h2 id="campaignInspectorTitle" tabindex="-1">Selection</h2>
+        <div id="campaignInspectorIdentityFacts" class="campaign-context-inspector__identity-facts" role="list" hidden></div>
+      </div>
       <button type="button" data-close-campaign-inspector aria-label="Close context inspector">×</button>
     </header>
     <p id="campaignInspectorStatus" class="campaign-context-inspector__status" role="status" aria-live="polite"></p>
@@ -69,7 +79,7 @@ export function createCampaignContextInspector(workspacePanel: HTMLElement): HTM
     </div>
     <footer class="campaign-context-inspector__action-footer" hidden>
       <h3 id="campaignInspectorActionsTitle">Orders</h3>
-      <p class="campaign-context-inspector__action-summary" hidden></p>
+      <p id="campaignInspectorActionSummary" class="campaign-context-inspector__action-summary" hidden></p>
     </footer>
   `;
   const selection = workspacePanel.querySelector<HTMLElement>(".selection-section");
@@ -96,6 +106,7 @@ export function renderCampaignContextInspector(
   inspector.dataset.presentation = route.presentation ?? "generic";
   const title = inspector.querySelector<HTMLElement>(".campaign-context-inspector__header h2");
   if (title) title.textContent = route.title;
+  renderIdentityFacts(inspector, route);
   const status = inspector.querySelector<HTMLElement>("#campaignInspectorStatus");
   if (status && routeChanged) status.textContent = `Selected ${route.title}.`;
   const body = inspector.querySelector<HTMLElement>(".campaign-context-inspector__body");
@@ -106,13 +117,27 @@ export function renderCampaignContextInspector(
   const actionSummary = inspector.querySelector<HTMLElement>(".campaign-context-inspector__action-summary");
   const showSelectionActions = route.showSelectionActions === true;
   const showEngagementAction = route.showEngagementAction === true;
+  const engagementButton = compatibilityActions?.querySelector<HTMLButtonElement>("#campaignQueueEngagement") ?? null;
+  const engagementReason = compatibilityActions?.querySelector<HTMLElement>("#campaignEngagementReason") ?? null;
+  const unavailableReason = showEngagementAction && engagementButton?.disabled
+    ? route.actionSummary ?? getUnavailableEngagementReason(route)
+    : undefined;
+  const summary = route.actionSummary ?? unavailableReason;
   if (actionSummary) {
-    actionSummary.textContent = route.actionSummary ?? "";
-    actionSummary.hidden = !route.actionSummary;
+    actionSummary.textContent = showEngagementAction ? "" : summary ?? "";
+    actionSummary.hidden = showEngagementAction || !summary;
+  }
+  if (engagementReason) {
+    engagementReason.textContent = summary ?? getUnavailableEngagementReason(route);
+    engagementReason.hidden = !showEngagementAction || (!summary && !engagementButton?.disabled);
+  }
+  if (engagementButton) {
+    if (showEngagementAction && !engagementReason?.hidden) engagementButton.setAttribute("aria-describedby", "campaignEngagementReason");
+    else engagementButton.removeAttribute("aria-describedby");
   }
   if (compatibilitySelection) compatibilitySelection.hidden = !showSelectionActions;
   if (compatibilityActions) compatibilityActions.hidden = !showEngagementAction;
-  if (actionFooter) actionFooter.hidden = !(showEngagementAction || route.actionSummary);
+  if (actionFooter) actionFooter.hidden = !(showEngagementAction || summary);
   if (!routeContainer) return;
   const useCompatibility = route.mode === "compatibility";
   routeContainer.hidden = useCompatibility;
@@ -150,6 +175,83 @@ function createFacts(facts: readonly InspectorFact[]): HTMLDListElement {
   return list;
 }
 
+const GEOGRAPHY_FACTS = new Set(["Location", "Assessed location", "Ground", "Waters", "Place", "Roads", "Rail", "Waterways", "Features"]);
+const STATUS_FACTS = new Set(["Status", "Control", "Type", "State", "Initiative", "Command status", "Result", "Available"]);
+const OPERATIONS_FACTS = new Set([
+  "Front", "Fronts", "Objectives", "Supports", "Current order", "Next action", "Next transition", "Target decision",
+  "Engagement", "Friendly posture", "Operational contribution", "Provides", "Timing", "Route", "Map route"
+]);
+
+/** Groups projected facts by player question while preserving their original order within each group. */
+function groupFacts(facts: readonly InspectorFact[]): InspectorFactGroup[] {
+  const groups: Record<InspectorFactGroup["key"], InspectorFact[]> = {
+    geography: [], status: [], operations: [], details: []
+  };
+  facts.forEach((fact) => {
+    const key: InspectorFactGroup["key"] = GEOGRAPHY_FACTS.has(fact.label)
+      ? "geography"
+      : STATUS_FACTS.has(fact.label)
+        ? "status"
+        : OPERATIONS_FACTS.has(fact.label)
+          ? "operations"
+          : "details";
+    groups[key].push(fact);
+  });
+  return ([
+    { key: "geography", label: "Terrain and access", facts: groups.geography },
+    { key: "status", label: "Operational status", facts: groups.status },
+    { key: "operations", label: "Campaign context", facts: groups.operations },
+    { key: "details", label: "Details", facts: groups.details }
+  ] satisfies InspectorFactGroup[]).filter((group) => group.facts.length > 0);
+}
+
+function createFactSections(facts: readonly InspectorFact[]): HTMLElement[] {
+  return groupFacts(facts).map((group) => {
+    const section = document.createElement("section");
+    section.className = "campaign-context-inspector__fact-group";
+    section.dataset.factGroup = group.key;
+    section.append(createText("h3", "", group.label), createFacts(group.facts));
+    return section;
+  });
+}
+
+function getIdentityFacts(route: CampaignInspectorRoute): readonly InspectorFact[] {
+  const isNavalTaskForce = route.facts.some((fact) => fact.label === "Type" && fact.value === "Naval task force");
+  const labels = new Set(route.kind === "contact"
+    ? ["State"]
+    : [
+        ...(route.presentation === "friendlyBase" ? ["Grid reference"] : []),
+        "Control", "Status", ...(isNavalTaskForce ? [] : ["Type"]), "Initiative", "Result", "Command status"
+      ]);
+  return route.facts.filter((fact) => labels.has(fact.label)).slice(0, 3);
+}
+
+/** Keeps each projected fact in one visible inspector region. */
+function getDetailFacts(route: CampaignInspectorRoute): readonly InspectorFact[] {
+  const identityFacts = new Set(getIdentityFacts(route));
+  return route.facts.filter((fact) => !identityFacts.has(fact));
+}
+
+function renderIdentityFacts(inspector: HTMLElement, route: CampaignInspectorRoute): void {
+  const container = inspector.querySelector<HTMLElement>("#campaignInspectorIdentityFacts");
+  if (!container) return;
+  const facts = getIdentityFacts(route);
+  container.replaceChildren(...facts.map((fact) => {
+    const item = document.createElement("span");
+    item.setAttribute("role", "listitem");
+    item.title = `${fact.label}: ${fact.value}`;
+    item.append(createText("small", "", fact.label), createText("strong", "", fact.value));
+    return item;
+  }));
+  container.hidden = facts.length === 0;
+}
+
+function getUnavailableEngagementReason(route: CampaignInspectorRoute): string {
+  if (route.kind === "front") return "Select an eligible opposing hex along this front to prepare an engagement order.";
+  if (route.kind === "formation") return "This formation cannot receive an engagement order in its current command state.";
+  return "Select a friendly position with a ready formation beside opposing control.";
+}
+
 /** Keeps the grid subordinate and avoids repeating a place already used as the heading. */
 function createLocationFacts(
   location: CampaignLocationPresentation | undefined,
@@ -179,10 +281,11 @@ function namedLocationLabel(label: string | undefined): string | undefined {
 function createStrategicGeographyFacts(
   geography: CampaignCommandStrategicGeographyView,
   selectedTitle?: string,
-  locationLabel?: string
+  locationLabel?: string,
+  surfaceLabel = "Ground"
 ): InspectorFact[] {
   return [
-    { label: "Ground", value: [geography.terrain, geography.landform].filter(Boolean).join(" · ") },
+    { label: surfaceLabel, value: [geography.terrain, geography.landform].filter(Boolean).join(" · ") },
     ...(geography.settlement && geography.settlement !== selectedTitle && geography.settlement !== locationLabel
       ? [{ label: "Place", value: geography.settlement }]
       : []),
@@ -227,7 +330,8 @@ function appendCommandPresentations(
 
 function renderGenericRoute(route: CampaignInspectorRoute): HTMLElement[] {
   const content: HTMLElement[] = [createText("p", "campaign-context-inspector__summary", route.summary)];
-  if (route.facts.length > 0) content.push(createFacts(route.facts));
+  const detailFacts = getDetailFacts(route);
+  if (detailFacts.length > 0) content.push(...createFactSections(detailFacts));
   if (route.formations && route.formations.length > 0) {
     const formationSection = document.createElement("section");
     formationSection.className = "campaign-context-inspector__formations";
@@ -249,7 +353,8 @@ function renderFriendlyBaseRoute(route: CampaignInspectorRoute): HTMLElement[] {
   const heading = createText("h3", "", route.identityHeading ?? "Position");
   heading.id = identityTitle;
   identity.append(heading, createText("p", "campaign-context-inspector__summary", route.summary));
-  if (route.facts.length > 0) identity.appendChild(createFacts(route.facts));
+  const detailFacts = getDetailFacts(route);
+  if (detailFacts.length > 0) identity.append(...createFactSections(detailFacts));
 
   const presence = document.createElement("section");
   presence.className = "campaign-context-inspector__section campaign-context-inspector__formations";
@@ -290,6 +395,7 @@ function createFormationButton(
   button.type = "button";
   button.className = "campaign-context-inspector__formation";
   button.dataset.campaignFormationId = formation.id;
+  button.dataset.formationState = group;
   const detail = group === "arriving" && formation.availabilityLabel
     ? `${formation.typeLabel} · Arrives ${formation.availabilityLabel}`
     : group === "ready"
@@ -328,7 +434,8 @@ function resolveInspectorRoute(
       } : undefined);
     const locatedFormations = view?.formations?.filter((formation) => formation.locationHexKey === selection.id) ?? [];
     const isFriendlyBase = hex?.presentation === "friendlyBase";
-    const showSelectionActions = hex?.showSelectionActions ?? hex?.hasContextActions === true;
+    const isNavalTaskForce = hex?.roleLabel === "Naval task force";
+    const showSelectionActions = isNavalTaskForce ? false : hex?.showSelectionActions ?? hex?.hasContextActions === true;
     const showEngagementAction = hex?.showEngagementAction === true;
     const formationGroups = isFriendlyBase ? groupBaseFormations(locatedFormations) : undefined;
     const displayLabel = namedLocationLabel(hex?.displayLabel);
@@ -362,7 +469,12 @@ function resolveInspectorRoute(
       ] : [
         ...createLocationFacts(hex?.location, title),
         ...(!hex?.location && !displayLabel ? [{ label: "Grid reference", value: `Grid ${selection.id}` }] : []),
-        ...(hex?.strategicGeography ? createStrategicGeographyFacts(hex.strategicGeography, title, hex.location?.primaryLabel) : []),
+        ...(hex?.strategicGeography ? createStrategicGeographyFacts(
+          hex.strategicGeography,
+          title,
+          hex.location?.primaryLabel,
+          isNavalTaskForce ? "Waters" : "Ground"
+        ) : []),
         ...(hex ? [
           { label: "Control", value: hex.controlLabel },
           { label: "Type", value: hex.roleLabel },

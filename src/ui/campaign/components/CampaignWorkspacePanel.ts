@@ -24,7 +24,7 @@ function createSituationWorkspace(): HTMLElement {
   const section = createWorkspaceOverview(
     "situation",
     "Situation",
-    "Your next decision, active objectives, and operational fronts.",
+    "Operational fronts, objectives, and command reports.",
     "campaignSituationWorkspace"
   );
   const body = section.querySelector<HTMLElement>("#campaignSituationWorkspace");

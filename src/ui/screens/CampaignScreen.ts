@@ -426,8 +426,8 @@ export class CampaignScreen {
       ? this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === this.selectedFrontKey)
       : null;
     if (front) {
-      front.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
       if (this.selectedFrontTargetHexKey) this.renderer.highlightHex(this.selectedFrontTargetHexKey, "selected");
+      else front.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
     } else if (this.selectedHexKey) {
       this.renderer.highlightHex(this.selectedHexKey, "selected");
     }
@@ -1163,7 +1163,8 @@ export class CampaignScreen {
     if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
     if (selection?.kind === "front") {
       const front = this.campaignState.getCampaignMapView("Player")?.scenario.fronts.find((entry) => entry.key === selection.id);
-      front?.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
+      if (this.selectedFrontTargetHexKey) this.renderer.highlightHex(this.selectedFrontTargetHexKey, "selected");
+      else front?.hexKeys.forEach((hexKey) => this.renderer.highlightHex(hexKey, "selected"));
     } else if (selectedHexKey) {
       this.renderer.highlightHex(selectedHexKey, "selected");
       const center = this.renderer.getHexCenter(selectedHexKey);
@@ -1991,6 +1992,10 @@ export class CampaignScreen {
       const frontTarget = target.closest<HTMLButtonElement>("[data-campaign-front-target-choice]");
       if (frontTarget && this.selectedFrontKey) {
         this.selectedFrontTargetHexKey = frontTarget.dataset.campaignFrontTargetChoice || null;
+        this.selectedHexKey = this.selectedFrontTargetHexKey;
+        const renderer = this.renderer as CampaignMapRenderer | undefined;
+        renderer?.clearAllHighlights("selected");
+        if (this.selectedFrontTargetHexKey) renderer?.highlightHex(this.selectedFrontTargetHexKey, "selected");
         this.renderSelection();
         this.renderCommandShell();
         const replacement = Array.from(this.selectionContainer?.querySelectorAll<HTMLButtonElement>("[data-campaign-front-target-choice]") ?? [])

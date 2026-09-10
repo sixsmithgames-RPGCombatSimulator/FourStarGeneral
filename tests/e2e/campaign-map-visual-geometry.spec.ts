@@ -179,31 +179,13 @@ async function assertHexRasterPaintClipped(page: Page, info: TestInfo): Promise<
 async function assertContainedTargets(page: Page): Promise<void> {
   const failures = await page.locator('.campaign-known-site, .campaign-intel-contact').evaluateAll(markers => {
     const failures: string[] = [];
-    const paintedHexPoints = (image: SVGGraphicsElement): DOMPoint[] => {
-      const x = Number(image.getAttribute('x')); const y = Number(image.getAttribute('y'));
-      const width = Number(image.getAttribute('width')); const height = Number(image.getAttribute('height'));
-      const cx = x + width / 2;
-      const halfPaintedWidth = width * Math.sqrt(3) / 4;
-      const matrix = image.getScreenCTM()!;
-      return [
-        new DOMPoint(cx, y),
-        new DOMPoint(cx + halfPaintedWidth, y + height / 4),
-        new DOMPoint(cx + halfPaintedWidth, y + height * 3 / 4),
-        new DOMPoint(cx, y + height),
-        new DOMPoint(cx - halfPaintedWidth, y + height * 3 / 4),
-        new DOMPoint(cx - halfPaintedWidth, y + height / 4)
-      ].map(point => point.matrixTransform(matrix));
-    };
     for (const marker of markers) {
       if (getComputedStyle(marker.parentElement!).display === 'none') continue;
       const hex = document.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${marker.getAttribute('data-hex')}"] polygon`)!;
       const matrix = hex.getScreenCTM()!.inverse();
-      for (const node of marker.querySelectorAll<SVGGraphicsElement>('image, .campaign-known-site__hit-target, circle:not(.campaign-intel-uncertainty):not(.campaign-known-site__focus-ring)')) {
+      for (const node of marker.querySelectorAll<SVGGraphicsElement>('.campaign-known-site__hit-target, circle:not(.campaign-intel-uncertainty):not(.campaign-known-site__focus-ring)')) {
         const box = node.getBoundingClientRect();
-        // Every corner of a square icon must fit; circular targets are sampled on their circumference.
-        const points = node.classList.contains('campaign-map-hex-art')
-          ? paintedHexPoints(node)
-          : node.tagName === 'circle'
+        const points = node.tagName === 'circle'
           ? Array.from({ length: 32 }, (_, i) => new DOMPoint(box.x + box.width / 2 + Math.cos(i * Math.PI / 16) * box.width / 2, box.y + box.height / 2 + Math.sin(i * Math.PI / 16) * box.height / 2))
           : [new DOMPoint(box.left, box.top), new DOMPoint(box.right, box.top), new DOMPoint(box.left, box.bottom), new DOMPoint(box.right, box.bottom)];
         if (points.some(point => !hex.isPointInFill(point.matrixTransform(matrix)))) failures.push(`${marker.getAttribute('data-hex')}: ${node.tagName}.${node.getAttribute('class')}`);
@@ -276,7 +258,10 @@ async function assertCompleteCollisionFreeLabels(page: Page): Promise<void> {
         top: box.top - padding, bottom: box.bottom + padding
       };
     };
-    const visibleLabelBoxes = labels.filter(visible).map(label => ({ label: label.textContent?.trim() ?? '', box: paintedLabelBox(label) }));
+    const visibleLabelBoxes = labels.filter(visible)
+      .map(label => ({ label: label.textContent?.trim() ?? '', box: paintedLabelBox(label) }))
+      .filter(({ box }) => box.right > clippingFrame.left && box.left < clippingFrame.right
+        && box.bottom > clippingFrame.top && box.top < clippingFrame.bottom);
     const leaderGaps = visibleLabelBoxes.flatMap(({ label, box }) => {
       const text = labels.find(candidate => candidate.textContent?.trim() === label);
       const labelId = text?.closest<SVGGElement>('.campaign-map-location-label')?.dataset.locationLabelId;
@@ -387,8 +372,14 @@ test('FSG_CAM_107 hex artwork aligns to flat-top cells and follows map zoom', as
     const tileHex = svg.querySelector<SVGPolygonElement>('.campaign-hex[data-hex="28,23"] polygon')!;
     const base = svg.querySelector<SVGImageElement>('.campaign-base-marker__sprite')!;
     const baseMarker = base.closest<SVGGElement>('.campaign-base-marker')!;
+    const knownSite = svg.querySelector<SVGImageElement>('.campaign-known-site__sprite.campaign-map-hex-art')!;
+    const knownSiteMarker = knownSite.closest<SVGGElement>('.campaign-known-site')!;
     const boundedTile = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-symbol-treatment="bounded-icon"]')!;
     const baseHex = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${baseMarker.dataset.hex}"] polygon`)!;
+    const knownSiteHex = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${knownSiteMarker.dataset.hex}"] polygon`)!;
+    const force = svg.querySelector<SVGCircleElement>('.campaign-force-stack__footprint')!;
+    const forceStack = force.closest<SVGGElement>('.campaign-force-stack')!;
+    const forceHex = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${forceStack.dataset.hex}"] polygon`)!;
     const selection = baseMarker.querySelector<SVGPolygonElement>('.campaign-map-selection-locator')!;
     const center = runtime.renderer.getHexCenter('28,23')!;
     const registrationFailures = Array.from(svg.querySelectorAll<SVGImageElement>('.campaign-map-hex-art')).flatMap(image => {
@@ -399,22 +390,55 @@ test('FSG_CAM_107 hex artwork aligns to flat-top cells and follows map zoom', as
       const clip = clipPath?.querySelector<SVGPolygonElement>('polygon') ?? null;
       const hexKey = frame?.dataset.hex;
       const cell = hexKey ? svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${hexKey}"] polygon`) : null;
+      const cellBox = cell?.getBBox();
+      const width = Number(image.getAttribute('width')); const height = Number(image.getAttribute('height'));
+      const x = Number(image.getAttribute('x')); const y = Number(image.getAttribute('y'));
+      const cellRelativeOwner = image.dataset.visualScale === 'cell-relative'
+        || image.closest('[data-visual-scale="cell-relative"]') !== null;
+      let counterScaleOwner: Element | null = null;
+      for (let parent: Element | null = image.parentElement; parent && parent.id !== 'viewportRoot'; parent = parent.parentElement) {
+        if (/scale\(/.test(parent.getAttribute('transform') ?? '')
+          || (parent instanceof SVGElement && /scale\(/.test(parent.style.transform) && parent.style.transform !== 'none')) {
+          counterScaleOwner = parent;
+          break;
+        }
+      }
       return frame && clipPath?.getAttribute('clipPathUnits') === 'userSpaceOnUse'
         && getComputedStyle(frame).clipPath !== 'none'
-        && clip && cell && clip.getAttribute('points') === cell.getAttribute('points')
+        && clip && cell && cellBox && clip.getAttribute('points') === cell.getAttribute('points')
+        && Math.abs(width - cellBox.width) < 0.001
+        && Math.abs(height - cellBox.width) < 0.001
+        && Math.abs(x + width / 2 - (cellBox.x + cellBox.width / 2)) < 0.001
+        && Math.abs(y + height / 2 - (cellBox.y + cellBox.height / 2)) < 0.001
+        && cellRelativeOwner
+        && !counterScaleOwner
         ? []
-        : [`${image.getAttribute('class')}:clip`];
+        : [`${image.getAttribute('class')}:extent-or-transform`];
     });
     const read = () => {
       const tileBox = tile.getBoundingClientRect();
       const tileHexBox = tileHex.getBoundingClientRect();
       const baseBox = base.getBoundingClientRect();
       const baseHexBox = baseHex.getBoundingClientRect();
+      const knownSiteBox = knownSite.getBoundingClientRect();
+      const knownSiteHexBox = knownSiteHex.getBoundingClientRect();
       const boundedBox = boundedTile.getBoundingClientRect();
+      const forceBox = force.getBoundingClientRect();
+      const forceHexBox = forceHex.getBoundingClientRect();
+      const forceToCell = forceHex.getScreenCTM()!.inverse();
+      const forceContained = Array.from({ length: 32 }, (_, index) => new DOMPoint(
+        forceBox.left + forceBox.width / 2 + Math.cos(index * Math.PI / 16) * forceBox.width / 2,
+        forceBox.top + forceBox.height / 2 + Math.sin(index * Math.PI / 16) * forceBox.height / 2
+      )).every(point => forceHex.isPointInFill(point.matrixTransform(forceToCell)));
       return {
         tileRatio: tileBox.width / tileHexBox.width,
         baseRatio: baseBox.width / baseHexBox.width,
+        knownSiteRatio: knownSiteBox.width / knownSiteHexBox.width,
         boundedWidth: boundedBox.width,
+        boundedRatio: boundedBox.width / tileHexBox.width,
+        forceWidth: forceBox.width,
+        forceRatio: forceBox.width / forceHexBox.width,
+        forceContained,
         centerDelta: Math.hypot(
           tileBox.left + tileBox.width / 2 - (tileHexBox.left + tileHexBox.width / 2),
           tileBox.top + tileBox.height / 2 - (tileHexBox.top + tileHexBox.height / 2)
@@ -439,6 +463,23 @@ test('FSG_CAM_107 hex artwork aligns to flat-top cells and follows map zoom', as
       tileParentTransform: getComputedStyle(tile.parentElement!).transform,
       baseTransform: base.getAttribute('transform'),
       baseInlineTransform: base.style.transform,
+      knownSiteTransform: knownSite.getAttribute('transform'),
+      categoryCounts: {
+        tiles: svg.querySelectorAll('#campaign-map-sprites .campaign-map-tile-symbol.campaign-map-hex-art').length,
+        bases: svg.querySelectorAll('.campaign-base-marker__sprite.campaign-map-hex-art').length,
+        knownSites: svg.querySelectorAll('.campaign-known-site__sprite.campaign-map-hex-art').length
+      },
+      cameraScaleOwners: Array.from(svg.querySelectorAll<SVGElement>('[transform*="scale("]'))
+        .map(element => element.id || element.getAttribute('class') || element.tagName),
+      gridRelativeCounterScales: Array.from(svg.querySelectorAll<SVGElement>('[data-visual-scale="cell-relative"]'))
+        .filter(element => {
+          for (let parent = element.parentElement; parent && parent.id !== 'viewportRoot'; parent = parent.parentElement) {
+            if (/scale\(/.test(parent.getAttribute('transform') ?? '')
+              || (parent instanceof SVGElement && /scale\(/.test(parent.style.transform))) return true;
+          }
+          return false;
+        })
+        .map(element => element.getAttribute('class') ?? element.tagName),
       registrationFailures,
       selectionPoints: selection.getAttribute('points'),
       baseHexPoints: baseHex.getAttribute('points')
@@ -447,8 +488,14 @@ test('FSG_CAM_107 hex artwork aligns to flat-top cells and follows map zoom', as
   expect(geometry.tileTreatment).toBe('grid-registered-hex');
   expect(geometry.tileTransform).toMatch(/^rotate\(30 /);
   expect(geometry.baseTransform).toMatch(/^rotate\(30 /);
+  expect(geometry.knownSiteTransform).toMatch(/^rotate\(30 /);
   expect(geometry.tileParentTransform).toBe('none');
   expect(geometry.baseInlineTransform).toBe('');
+  expect(geometry.categoryCounts.tiles).toBeGreaterThan(0);
+  expect(geometry.categoryCounts.bases).toBeGreaterThan(0);
+  expect(geometry.categoryCounts.knownSites).toBeGreaterThan(0);
+  expect(geometry.cameraScaleOwners).toEqual(['viewportRoot']);
+  expect(geometry.gridRelativeCounterScales).toEqual([]);
   expect(geometry.registrationFailures, 'Every hex raster keeps one flat-top rotation and an exact cell clip').toEqual([]);
   expect(geometry.tileWidth).toBeCloseTo(geometry.cellWidth, 4);
   expect(geometry.selectionPoints).toBe(geometry.baseHexPoints);
@@ -459,8 +506,19 @@ test('FSG_CAM_107 hex artwork aligns to flat-top cells and follows map zoom', as
   expect(geometry.maximum.tileRatio).toBeCloseTo(geometry.opening.tileRatio, 4);
   expect(geometry.detail.baseRatio).toBeCloseTo(geometry.opening.baseRatio, 4);
   expect(geometry.maximum.baseRatio).toBeCloseTo(geometry.opening.baseRatio, 4);
-  expect(geometry.detail.boundedWidth).toBeCloseTo(geometry.opening.boundedWidth * 2.9, 3);
-  expect(geometry.maximum.boundedWidth).toBeCloseTo(geometry.detail.boundedWidth, 3);
+  expect(geometry.detail.knownSiteRatio).toBeCloseTo(geometry.opening.knownSiteRatio, 4);
+  expect(geometry.maximum.knownSiteRatio).toBeCloseTo(geometry.opening.knownSiteRatio, 4);
+  expect(geometry.detail.boundedRatio).toBeCloseTo(geometry.opening.boundedRatio, 4);
+  expect(geometry.maximum.boundedRatio).toBeCloseTo(geometry.opening.boundedRatio, 4);
+  expect(geometry.detail.forceRatio).toBeCloseTo(geometry.opening.forceRatio, 4);
+  expect(geometry.maximum.forceRatio).toBeCloseTo(geometry.opening.forceRatio, 4);
+  expect(geometry.opening.forceContained).toBe(true);
+  expect(geometry.detail.forceContained).toBe(true);
+  expect(geometry.maximum.forceContained).toBe(true);
+  expect(geometry.detail.forceWidth, 'Formation footprint stays readable at detail zoom').toBeGreaterThanOrEqual(44);
+  expect(geometry.maximum.forceWidth, 'Formation footprint must not shrink at maximum zoom').toBeGreaterThanOrEqual(geometry.detail.forceWidth);
+  expect(geometry.detail.boundedWidth).toBeGreaterThan(geometry.opening.boundedWidth);
+  expect(geometry.maximum.boundedWidth).toBeGreaterThan(geometry.detail.boundedWidth);
   await evidence(page, info, 'grid-registered-hex-art');
   await assertHexRasterPaintClipped(page, info);
 });

@@ -1074,6 +1074,7 @@ registerTest("CAMPAIGN_EMPTY_STAGING_BASE_OMITS_GROUND_ACTIONS", async ({ Given,
   await Then("the base exposes scheduled formation identities and ETAs without an unusable redeployment action", () => {
     const route = document.getElementById("campaignContextInspectorRoute");
     const inspectorCopy = [
+      document.querySelector(".campaign-context-inspector__header")?.textContent,
       route?.textContent,
       document.getElementById("campaignSelectionInfo")?.textContent,
       document.querySelector(".campaign-context-inspector__action-footer")?.textContent
@@ -1143,7 +1144,10 @@ registerTest("CAMPAIGN_FRIENDLY_BASE_EXPLAINS_PLACE_PRESENCE_AND_RELEVANT_ACTION
 
   await Then("the inspector answers what it is, what is there, and the one relevant order without duplicate aggregates", () => {
     const route = document.getElementById("campaignContextInspectorRoute");
-    const routeCopy = route?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const routeCopy = [
+      document.querySelector(".campaign-context-inspector__header")?.textContent,
+      route?.textContent
+    ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
     const selection = document.querySelector<HTMLElement>(".campaign-context-inspector .selection-section");
     const engagement = document.querySelector<HTMLElement>(".campaign-context-inspector .action-section");
     if (!routeCopy.includes("Embarkation port")

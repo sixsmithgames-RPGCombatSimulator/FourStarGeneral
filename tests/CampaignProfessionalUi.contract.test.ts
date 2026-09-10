@@ -479,3 +479,39 @@ registerTest("FSG_CAM_044_BLOCKED_RECONSTRUCTION_REASON_OWNS_THE_BASE_ACTION_SUM
     }
   });
 });
+
+registerTest("FSG_CAM_112_CAMPAIGN_MAP_HAS_ONE_NAVIGATION_MODEL_AND_EXPLAINS_DISABLED_ORDERS", async ({ Given, When, Then }) => {
+  const shellMarkup = readWorkspaceSource("index.html");
+  const overlaySource = readWorkspaceSource("src/ui/campaign/components/CampaignMapOverlayController.ts");
+  const screenSource = readWorkspaceSource("src/ui/screens/CampaignScreen.ts");
+  await Given("the campaign command shell exposes map navigation and a contextual engagement order", () => {});
+  await When("the shipped map/search/action contract is inspected", () => {});
+  await Then("camera controls own navigation, location search is plainly named, and a blocker is visible and associated", () => {
+    const viewportRule = shellMarkup.match(/\.campaign-map-viewport\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const queueMarkup = shellMarkup.match(/<button[^>]+id="campaignQueueEngagement"[\s\S]*?<\/button>/)?.[0] ?? "";
+    const reasonId = queueMarkup.match(/aria-describedby="([^"]+)"/)?.[1] ?? "";
+    const reasonMarkup = reasonId
+      ? shellMarkup.match(new RegExp(`<[^>]+id="${reasonId}"[^>]*>[\\s\\S]*?<\\/[^>]+>`))?.[0] ?? ""
+      : "";
+    const writesPreciseReason = /Select an eligible opposing hex/i.test(`${screenSource} ${reasonMarkup}`);
+    const findLocationLabel = /Find location/.test(overlaySource)
+      && !/this\.listToggle\.textContent\s*=\s*`?\$\{[^}]*Map list/.test(overlaySource);
+    if (!/overflow\s*:\s*(?:hidden|clip)/.test(viewportRule)
+      || /campaign-map-viewport::-(?:webkit-)?scrollbar/.test(shellMarkup)
+      || /data-map-scroll="campaign"/.test(shellMarkup)
+      || !findLocationLabel
+      || !reasonId
+      || !reasonMarkup
+      || !writesPreciseReason) {
+      throw new Error(`Campaign command shell still exposes two navigation/action models: ${JSON.stringify({
+        viewportRule: viewportRule.trim(),
+        hasScrollbarStyling: /campaign-map-viewport::-(?:webkit-)?scrollbar/.test(shellMarkup),
+        hasLegacyScrollOwner: /data-map-scroll="campaign"/.test(shellMarkup),
+        findLocationLabel,
+        reasonId,
+        reasonMarkup,
+        writesPreciseReason
+      })}.`);
+    }
+  });
+});

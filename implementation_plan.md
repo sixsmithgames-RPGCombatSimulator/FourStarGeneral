@@ -1,3 +1,39 @@
+## 2026-09-09 — Campaign map visual-authority and command-surface repair
+
+### Intended behavior
+- The registered campaign hex lattice is the sole size, center, orientation and clipping authority for every hex-shaped raster, whether it is rendered as a tile, a friendly base or a known strategic site.
+- Map-bound symbols, force actors and intelligence contacts inherit exactly one camera transform. They keep a constant ratio to their owning cell through the full zoom range; only labels, disclosures and pointer/focus affordances may use screen-space compensation.
+- The command shell gives the map more room, exposes the current decision and action blockers clearly, identifies selection consistently, and presents map search, zoom and inspector information as one coherent command flow.
+
+### Current behavior
+- Ordinary hex art uses the full registered cell diameter, while friendly bases and known sites use a smaller 22 px marker contract. The same raster therefore changes size according to the renderer path that owns it.
+- `MapViewport` transforms the complete SVG and also publishes inverse/capped scale variables. Force stacks, contacts, ordinary non-hex symbols and some installation markers consume those variables, so their cell ratio falls as zoom increases.
+- The scrollable legacy map viewport remains active behind camera panning, producing a second navigation model and visible native scrollbars.
+- The current selection, disabled action reason and exact zoom state do not have sufficiently strong visual hierarchy in the command shell.
+
+### Expected change
+- Centralize the registered hex-art extent and use it for all three renderer paths, with the existing exact-cell clip and canonical flat-top rotation.
+- Remove counter-scaling from geographic/map-bound visuals. Keep bounded screen-space behavior only for text disclosures and hit/focus geometry whose purpose is interaction readability rather than geographic representation.
+- Make the camera transform the only visual transform owner for sprites, forces and contacts; publish a readable zoom percentage without introducing state outside `MapViewport`.
+- Hide native map overflow and retain wheel, button, keyboard, touch and captured-pointer panning as the supported camera controls.
+- Refine command-bar, workspace, map controls, selection and inspector hierarchy without changing campaign rules or player-safe projections.
+
+### High-risk impact analysis
+- Consumers: `CampaignScreen` camera presets and selection restoration, map overlay filtering, map-list selection, base/site pointer and keyboard interaction, formation rendering, intelligence contact rendering, label collision placement, and campaign geometry tests.
+- Events: existing campaign render/state events and direct camera input continue to drive repaint. No engine/state event or payload changes.
+- Visual risks: a full-cell marker can cover adjacent labels or markers; removing a close-zoom cap can make a force unreadably large if its authored local footprint is not actually contained; hiding overflow can expose a camera-clamping error; stronger selection styling can obscure terrain.
+- Interaction risks: screen-space hit targets must remain centered after map zoom, disclosure cards must remain viewport bounded, and single click must remain selection-only.
+- State risk: none. This is UI/rendering behavior only; scenario, orders, combat, persistence, RNG and fog-of-war truth are unchanged.
+
+### Regression and verification plan
+- Extend renderer/unit tests so all hex-art owner paths have full authoritative dimensions, exact clips and one camera-relative transform.
+- Measure force and contact cell ratios at opening, detail and maximum zoom and assert they do not shrink, remain centered and remain contained.
+- Verify pointer, keyboard, wheel, button and camera-preserving zoom behavior plus visible zoom status.
+- Run focused renderer/viewport/UI tests, campaign professional UI, complete campaign suite, browser geometry and command UI suites, production build, zero-warning lint and the full test suite.
+- Inspect the integrated diff, obtain independent expert review, deploy one clean release candidate, then reproduce the screenshot state and zoom/selection/action flows in the connected external browser.
+
+---
+
 ## 2026-09-05 — FSG-CAM-004 authoritative naval support: coordinate and persistence impact
 
 ### Intended behavior and scope

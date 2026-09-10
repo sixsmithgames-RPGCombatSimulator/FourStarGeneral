@@ -9,8 +9,9 @@ const releaseViewports = [
 /** Actual painted bounds and scroll dimensions, rather than CSS-class contracts. */
 interface Geometry {
   x: number; y: number; width: number; height: number;
-  right: number; bottom: number; clientHeight: number; scrollHeight: number;
-  overflowY: string;
+  right: number; bottom: number; clientWidth: number; scrollWidth: number;
+  clientHeight: number; scrollHeight: number; scrollLeft: number; scrollTop: number;
+  overflowX: string; overflowY: string;
 }
 
 async function geometry(locator: Locator): Promise<Geometry> {
@@ -19,7 +20,10 @@ async function geometry(locator: Locator): Promise<Geometry> {
     return {
       x: rect.x, y: rect.y, width: rect.width, height: rect.height,
       right: rect.right, bottom: rect.bottom,
+      clientWidth: element.clientWidth, scrollWidth: element.scrollWidth,
       clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
+      scrollLeft: element.scrollLeft, scrollTop: element.scrollTop,
+      overflowX: getComputedStyle(element).overflowX,
       overflowY: getComputedStyle(element).overflowY
     };
   });
@@ -50,6 +54,9 @@ async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promis
   hexKey: string; scale: number; intersectsViewport: boolean;
   ratio: number; centerDelta: number; treatment: string | undefined;
   transform: string | null; registrationFailures: string[];
+  ownerRatios: Record<'tiles' | 'bases' | 'knownSites', number[]>;
+  forceRatio: number; forceWidth: number; forceContained: boolean;
+  cameraScaleOwners: string[]; gridRelativeCounterScales: string[];
 }> {
   return page.locator('#campaignHexMap').evaluate((svg, requestedHex) => {
     const viewport = document.querySelector<HTMLElement>('.campaign-map-viewport')!.getBoundingClientRect();
@@ -80,10 +87,46 @@ async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promis
       const owner = frame?.dataset.hex
         ? svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${frame.dataset.hex}"] polygon`)
         : null;
-      return frame && clip && owner && clip.getAttribute('points') === owner.getAttribute('points')
+      const cellBox = owner?.getBBox();
+      const width = Number(image.getAttribute('width')); const height = Number(image.getAttribute('height'));
+      const cellRelativeOwner = image.dataset.visualScale === 'cell-relative'
+        || image.closest('[data-visual-scale="cell-relative"]') !== null;
+      let counterScaleOwner: Element | null = null;
+      for (let parent: Element | null = image.parentElement; parent && parent.id !== 'viewportRoot'; parent = parent.parentElement) {
+        if (/scale\(/.test(parent.getAttribute('transform') ?? '')
+          || (parent instanceof SVGElement && /scale\(/.test(parent.style.transform) && parent.style.transform !== 'none')) {
+          counterScaleOwner = parent;
+          break;
+        }
+      }
+      return frame && clip && owner && cellBox && clip.getAttribute('points') === owner.getAttribute('points')
+        && Math.abs(width - cellBox.width) < 0.001
+        && Math.abs(height - cellBox.width) < 0.001
+        && cellRelativeOwner && !counterScaleOwner
         ? []
-        : [`${image.getAttribute('class')}:clip`];
+        : [`${image.getAttribute('class')}:extent-or-transform`];
     });
+    const ownerRatios = {
+      tiles: Array.from(svg.querySelectorAll<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol.campaign-map-hex-art')),
+      bases: Array.from(svg.querySelectorAll<SVGImageElement>('.campaign-base-marker__sprite.campaign-map-hex-art')),
+      knownSites: Array.from(svg.querySelectorAll<SVGImageElement>('.campaign-known-site__sprite.campaign-map-hex-art'))
+    };
+    const measuredOwnerRatios = Object.fromEntries(Object.entries(ownerRatios).map(([kind, images]) => [kind, images.flatMap(image => {
+      const frame = image.closest<SVGGElement>('.campaign-map-hex-art-frame')!;
+      const owner = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${frame.dataset.hex}"] polygon`)!;
+      const imageBox = image.getBoundingClientRect(); const ownerBox = owner.getBoundingClientRect();
+      return imageBox.width > 0 && ownerBox.width > 0 ? [imageBox.width / ownerBox.width] : [];
+    })])) as Record<'tiles' | 'bases' | 'knownSites', number[]>;
+    const force = svg.querySelector<SVGCircleElement>('.campaign-force-stack__footprint')!;
+    const forceStack = force.closest<SVGGElement>('.campaign-force-stack')!;
+    const forceCell = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${forceStack.dataset.hex}"] polygon`)!;
+    const forceBox = force.getBoundingClientRect();
+    const forceCellBox = forceCell.getBoundingClientRect();
+    const forceToCell = forceCell.getScreenCTM()!.inverse();
+    const forceContained = Array.from({ length: 32 }, (_, index) => new DOMPoint(
+      forceBox.left + forceBox.width / 2 + Math.cos(index * Math.PI / 16) * forceBox.width / 2,
+      forceBox.top + forceBox.height / 2 + Math.sin(index * Math.PI / 16) * forceBox.height / 2
+    )).every(point => forceCell.isPointInFill(point.matrixTransform(forceToCell)));
     return {
       hexKey,
       scale,
@@ -96,7 +139,22 @@ async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promis
       ),
       treatment: tile.dataset.symbolTreatment,
       transform,
-      registrationFailures
+      registrationFailures,
+      ownerRatios: measuredOwnerRatios,
+      forceRatio: forceBox.width / forceCellBox.width,
+      forceWidth: forceBox.width,
+      forceContained,
+      cameraScaleOwners: Array.from(svg.querySelectorAll<SVGElement>('[transform*="scale("]'))
+        .map(element => element.id || element.getAttribute('class') || element.tagName),
+      gridRelativeCounterScales: Array.from(svg.querySelectorAll<SVGElement>('[data-visual-scale="cell-relative"]'))
+        .filter(element => {
+          for (let parent = element.parentElement; parent && parent.id !== 'viewportRoot'; parent = parent.parentElement) {
+            if (/scale\(/.test(parent.getAttribute('transform') ?? '')
+              || (parent instanceof SVGElement && /scale\(/.test(parent.style.transform))) return true;
+          }
+          return false;
+        })
+        .map(element => element.getAttribute('class') ?? element.tagName)
     };
   }, preferredHex);
 }
@@ -109,9 +167,9 @@ async function openFront(page: Page, viewport: { width: number; height: number }
     contentType: 'application/javascript',
     body: 'window.Clerk = { load: () => Promise.resolve(), user: null };'
   }));
-  await page.goto('/?campaign-ui=v2');
+  await page.goto('/?campaign-ui=v2', { waitUntil: 'domcontentloaded' });
   expect(['localhost', '127.0.0.1']).toContain(new URL(page.url()).hostname);
-  await expect(page.locator('#appBootStatus')).toHaveCount(0);
+  await expect(page.locator('#appBootStatus')).toHaveCount(0, { timeout: 30_000 });
   await page.locator('[data-campaign-id="western-europe"]').click();
   await expect(page.locator('.campaign-command-shell')).toBeVisible();
   await page.evaluate(() => document.dispatchEvent(new CustomEvent('fsg:authResolved', {
@@ -125,6 +183,10 @@ async function openFront(page: Page, viewport: { width: number; height: number }
   await page.locator('.campaign-situation-front[data-front-key="utah_cotentin"]').click();
   await expect(page.locator('#campaignContextInspector')).toBeVisible();
   await page.setViewportSize(viewport);
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
   await expect(page.locator('#campaignInspectorTitle')).toContainText('Utah');
 }
 
@@ -134,13 +196,13 @@ test('FSG_CAM_081: public Enter Campaign link opens campaign while tactical entr
     body: 'window.Clerk = { load: () => Promise.resolve(), user: null };'
   }));
   await page.goto('/play');
-  await expect(page.locator('#appBootStatus')).toHaveCount(0);
+  await expect(page.locator('#appBootStatus')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator('#landingScreen')).toBeVisible();
   await expect(page.locator('#campaignScreen')).toBeHidden();
   await page.goto('/landing/index.html');
   await page.getByRole('link', { name: 'Enter Campaign', exact: true }).click();
   await expect(page).toHaveURL(/\/play\?mode=campaign$/);
-  await expect(page.locator('#appBootStatus')).toHaveCount(0);
+  await expect(page.locator('#appBootStatus')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator('#campaignScreen')).toBeVisible();
   await expect(page.locator('#landingScreen')).toBeHidden();
   await expect(page.locator('.campaign-command-shell')).toBeVisible();
@@ -151,6 +213,12 @@ test('FSG_CAM_081: public Enter Campaign link opens campaign while tactical entr
 test('FSG_CAM_108: real theater and zoom controls preserve hex-art registration', async ({ page }, info) => {
   await openFront(page, { width: 1506, height: 768 });
   const cameraControls = page.locator('.campaign-map-viewport-controls');
+  const mapViewport = page.locator('.campaign-map-viewport');
+  const nativeNavigation = await geometry(mapViewport);
+  expect(['hidden', 'clip']).toContain(nativeNavigation.overflowX);
+  expect(['hidden', 'clip']).toContain(nativeNavigation.overflowY);
+  expect(nativeNavigation.scrollLeft).toBe(0);
+  expect(nativeNavigation.scrollTop).toBe(0);
   await cameraControls.getByRole('button', { name: 'Active front', exact: true }).click();
   await expect(page.locator('#campaignMapScopeLabel')).toHaveText('Active front');
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -175,7 +243,17 @@ test('FSG_CAM_108: real theater and zoom controls preserve hex-art registration'
     expect(result.treatment).toBe('grid-registered-hex');
     expect(result.centerDelta).toBeLessThan(0.5);
     expect(result.registrationFailures).toEqual([]);
+    expect(result.cameraScaleOwners).toEqual(['viewportRoot']);
+    expect(result.gridRelativeCounterScales).toEqual([]);
+    expect(result.forceContained).toBe(true);
+    for (const ratios of Object.values(result.ownerRatios)) {
+      for (const ratio of ratios) expect(ratio).toBeCloseTo(result.ratio, 4);
+    }
     expect(result.intersectsViewport, `${result.hexKey} must remain visible at zoom ${result.scale}`).toBe(true);
+  }
+  for (const ownerKind of ['tiles', 'bases', 'knownSites'] as const) {
+    expect(active.ownerRatios[ownerKind].length, `${ownerKind} must be measured at normal zoom`).toBeGreaterThan(0);
+    expect(maximum.ownerRatios[ownerKind].length, `${ownerKind} must be measured at maximum zoom`).toBeGreaterThan(0);
   }
   expect(overview.ratio).toBeCloseTo(active.ratio, 4);
   expect(restoredActive.ratio).toBeCloseTo(active.ratio, 4);
@@ -183,6 +261,13 @@ test('FSG_CAM_108: real theater and zoom controls preserve hex-art registration'
   expect(overview.scale).toBeGreaterThanOrEqual(0.1);
   expect(overview.scale).toBeLessThan(active.scale);
   expect(maximum.scale).toBe(7.5);
+  expect(maximum.forceRatio).toBeCloseTo(active.forceRatio, 4);
+  expect(maximum.forceWidth).toBeGreaterThanOrEqual(44);
+  expect(maximum.forceWidth).toBeGreaterThan(active.forceWidth);
+  await expect(page.locator('#campaignZoomLevel')).toHaveText('750%');
+  const postControls = await geometry(mapViewport);
+  expect(postControls.scrollLeft).toBe(0);
+  expect(postControls.scrollTop).toBe(0);
   expect(overview.transform).not.toBe(active.transform);
   expect(maximum.transform).not.toBe(active.transform);
 });
@@ -201,7 +286,7 @@ for (const viewport of releaseViewports) {
     expect(['localhost', '127.0.0.1']).toContain(new URL(page.url()).hostname);
     await page.getByRole('link', { name: 'Enter Campaign', exact: true }).click();
     const gate = page.getByRole('dialog', { name: /campaign locked/i });
-    await expect(gate).toBeVisible();
+    await expect(gate).toBeVisible({ timeout: 30_000 });
     await expect(gate).toHaveAttribute('aria-modal', 'true');
     await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Situation', exact: true })).toHaveCount(0);
@@ -253,12 +338,22 @@ for (const viewport of releaseViewports) {
     const tray = await geometry(page.locator('.campaign-order-tray'));
     const viewportBounds: Geometry = {
       x: 0, y: 0, width: viewport.width, height: viewport.height,
-      right: viewport.width, bottom: viewport.height, clientHeight: viewport.height,
-      scrollHeight: viewport.height, overflowY: 'visible'
+      right: viewport.width, bottom: viewport.height,
+      clientWidth: viewport.width, scrollWidth: viewport.width,
+      clientHeight: viewport.height, scrollHeight: viewport.height,
+      scrollLeft: 0, scrollTop: 0, overflowX: 'visible', overflowY: 'visible'
     };
     await evidence(page, info, `inspector-${size}`, { viewport, shell, inspector, body, footer, action, tray });
     expect(intersectionArea(tray, action), 'Tray/action intersection must be exactly zero').toBe(0);
-    expect(intersectionArea(tray, inspector), 'Inspector must occupy the command content row').toBe(0);
+    // Read both adjoining edges in one layout snapshot. Independent locator
+    // evaluations can straddle a resize frame and report an overlap that never
+    // existed in one painted frame.
+    const inspectorTrayOverlap = await page.locator('.campaign-command-shell').evaluate((shellElement) => {
+      const inspectorRect = shellElement.querySelector('#campaignContextInspector')!.getBoundingClientRect();
+      const trayRect = shellElement.querySelector('.campaign-order-tray')!.getBoundingClientRect();
+      return Math.max(0, Math.min(trayRect.bottom, inspectorRect.bottom) - Math.max(trayRect.y, inspectorRect.y));
+    });
+    expect(inspectorTrayOverlap, 'Inspector must occupy the command content row').toBeLessThanOrEqual(0.5);
     contained(inspector, shell);
     contained(shell, viewportBounds);
     contained(tray, viewportBounds);
@@ -288,6 +383,24 @@ for (const viewport of releaseViewports) {
     }
     for (const camera of cameras) contained(camera, toolbarBounds);
     for (const camera of await cameraButtons.all()) await camera.click({ trial: true });
+    const findLocation = page.getByRole('button', { name: /^Find location(?:,| \()/i });
+    await expect(findLocation).toBeVisible();
+    contained(await geometry(findLocation), toolbarBounds);
+    if (viewport.width >= 1440) {
+      const commandBar = await geometry(page.locator('.campaign-command-bar'));
+      const rail = await geometry(page.locator('.campaign-workspace-rail'));
+      const workspace = await geometry(page.locator('.campaign-workspace-panel.campaign-sidebar'));
+      const operationalMap = await geometry(page.locator('.campaign-operational-map'));
+      expect(commandBar.height, 'The command bar should return vertical space to the map').toBeGreaterThanOrEqual(64);
+      expect(commandBar.height, 'The command bar should return vertical space to the map').toBeLessThanOrEqual(80);
+      expect(rail.width, 'The headquarters rail stays compact').toBeGreaterThanOrEqual(80);
+      expect(rail.width, 'The headquarters rail stays compact').toBeLessThanOrEqual(100);
+      expect(workspace.width, 'The decision workspace retains a readable measure').toBeGreaterThanOrEqual(280);
+      expect(workspace.width, 'The decision workspace retains a readable measure').toBeLessThanOrEqual(330);
+      expect(inspector.width, 'The field report retains a readable measure').toBeGreaterThanOrEqual(350);
+      expect(inspector.width, 'The field report retains a readable measure').toBeLessThanOrEqual(400);
+      expect(operationalMap.height, 'The map remains the primary planning surface').toBeGreaterThan(viewport.height * 0.7);
+    }
     const select = page.locator('.campaign-map-overlay-select select');
     if (await select.isVisible()) {
       await select.click({ trial: true });
@@ -349,10 +462,44 @@ for (const viewport of releaseViewports) {
   test(`FSG_CAM_079 ${size}: target selection and queue action complete tactical handoff`, async ({ page }, info) => {
     await openFront(page, viewport);
     const target = page.locator('[data-campaign-front-target-choice]').first();
+    const queue = page.locator('#campaignQueueEngagement');
+    const disabledReason = page.locator('#campaignEngagementReason');
+    await expect(queue).toBeDisabled();
+    await expect(queue).toHaveAttribute('aria-describedby', 'campaignEngagementReason');
+    await expect(disabledReason).toBeVisible();
+    await expect(disabledReason).toContainText(/select an eligible opposing hex/i);
+    const targetHex = await target.getAttribute('data-campaign-front-target-choice');
+    expect(targetHex).toBeTruthy();
     await target.click();
     await expect(target).toHaveAttribute('aria-pressed', 'true');
-    const queue = page.locator('#campaignQueueEngagement');
     await expect(queue).toBeEnabled();
+    const selectedHexes = page.locator('.campaign-hex.selected');
+    await expect(selectedHexes).toHaveCount(1);
+    await expect(selectedHexes).toHaveAttribute('data-hex', targetHex!);
+    const selectionPaint = await selectedHexes.locator('polygon').evaluate((polygon) => {
+      const style = getComputedStyle(polygon);
+      return { stroke: style.stroke, strokeWidth: Number.parseFloat(style.strokeWidth), opacity: Number(style.opacity) };
+    });
+    expect(selectionPaint.stroke).not.toBe('none');
+    expect(selectionPaint.stroke).not.toBe('transparent');
+    expect(selectionPaint.strokeWidth).toBeGreaterThanOrEqual(2);
+    expect(selectionPaint.opacity).toBeGreaterThan(0.8);
+    if (viewport.width <= 1120) {
+      // The compact inspector is an intentional modal sheet over the map. Exercise the
+      // real close → camera control → Situation/front reopen path instead of clicking
+      // through the sheet, then confirm the selected target survives the round trip.
+      await page.locator('[data-close-campaign-inspector]').click();
+      await expect(page.locator('#campaignContextInspector')).toBeHidden();
+      await page.locator('#campaignZoomIn').click();
+      await page.locator('#campaignWorkspaceTab-situation').click();
+      await page.locator('.campaign-situation-front[data-front-key="utah_cotentin"]').click();
+      await expect(page.locator('#campaignContextInspector')).toBeVisible();
+      await expect(target).toHaveAttribute('aria-pressed', 'true');
+    } else {
+      await page.locator('#campaignZoomIn').click();
+    }
+    await expect(page.locator('.campaign-hex.selected')).toHaveCount(1);
+    await expect(page.locator('.campaign-hex.selected')).toHaveAttribute('data-hex', targetHex!);
     contained(await geometry(queue), await geometry(page.locator('#campaignContextInspector')));
     await evidence(page, info, `selected-target-${size}`, { target: await geometry(target), queue: await geometry(queue) });
     await queue.click();

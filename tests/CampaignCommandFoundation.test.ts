@@ -713,7 +713,7 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='theaterRegion']")?.click();
     const regionInspector = [
-      root.querySelector("#campaignInspectorTitle")?.textContent,
+      root.querySelector(".campaign-context-inspector__header")?.textContent,
       root.querySelector("#campaignContextInspectorRoute")?.textContent
     ].filter(Boolean).join(" ");
     if (!regionInspector.includes("Thames and Nore reinforcement ports")
@@ -725,7 +725,10 @@ registerTest("CAMPAIGN_MAP_OVERLAYS_ARE_STABLE_SAFE_AND_LIST_ACCESSIBLE", async 
     root.querySelector<HTMLButtonElement>("[data-close-campaign-inspector]")?.click();
     root.querySelector<HTMLButtonElement>(".campaign-map-list-toggle")?.click();
     root.querySelector<HTMLButtonElement>("[data-map-list-selection-kind='hex'][data-map-list-selection-id='6,5']")?.click();
-    const siteInspector = root.querySelector("#campaignContextInspectorRoute")?.textContent ?? "";
+    const siteInspector = [
+      root.querySelector(".campaign-context-inspector__header")?.textContent,
+      root.querySelector("#campaignContextInspectorRoute")?.textContent
+    ].filter(Boolean).join(" ");
     if (!siteInspector.includes("Current control unconfirmed")
       || !siteInspector.includes("The fixed relay location is known")
       || siteInspector.includes("Theater signals directory")

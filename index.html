@@ -2030,13 +2030,14 @@
       vector-effect: non-scaling-stroke;
     }
 
-    /* Campaign map viewport stays scrollable so the strategic illustration keeps its native scale
-       (10 km per hex) and commanders can pan to inspect the entire theater without shrinking art. */
+    /* The SVG camera owns campaign navigation. Clipping the native canvas prevents a second
+       browser-scroll camera from fighting the registered map transform. */
     .campaign-map-viewport {
       width: 100%;
       flex: 1;
       max-height: 80vh;
-      overflow: auto;
+      overflow: hidden;
+      overscroll-behavior: none;
       border-radius: 16px;
       border: 1px solid rgba(255, 255, 255, 0.08);
       background: rgba(4, 7, 14, 0.9);
@@ -2077,13 +2078,6 @@
     #viewportRoot[data-campaign-map-density="operational"] .campaign-known-site[data-density-tier="detail"]:not(.is-selected) {
       display: none;
       pointer-events: none;
-    }
-    .campaign-base-marker__strength,
-    .campaign-base-marker__sprite:not(.campaign-map-hex-art),
-    .campaign-known-site__sprite:not(.campaign-map-hex-art) {
-      transform: scale(var(--campaign-map-marker-scale, 1));
-      transform-box: fill-box;
-      transform-origin: center;
     }
     .campaign-base-marker__hit-target,
     .campaign-base-marker__focus-ring,
@@ -2145,11 +2139,13 @@
     .campaign-map-selection-locator {
       opacity: 0;
       visibility: hidden;
+      filter: drop-shadow(0 0 2px rgba(255, 221, 126, 0.92));
     }
     .campaign-base-marker.is-selected .campaign-map-selection-locator,
     .campaign-known-site.is-selected .campaign-map-selection-locator {
       opacity: 1;
       visibility: visible;
+      stroke-width: 2.75;
     }
     .campaign-base-marker__sprite,
     .campaign-known-site__sprite {
@@ -2159,22 +2155,6 @@
     .campaign-known-site:focus-visible .campaign-known-site__focus-ring {
       stroke-width: 2;
     }
-    .campaign-map-viewport::-webkit-scrollbar {
-      width: 10px;
-      height: 10px;
-    }
-
-    .campaign-map-viewport::-webkit-scrollbar-thumb {
-      background: rgba(140, 160, 200, 0.25);
-      border-radius: 999px;
-    }
-
-    .campaign-map-viewport::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .campaign-map-viewport::-webkit-scrollbar-corner {
-      background: transparent;
-    }
     /* Campaign hex overlay: selection and origin highlights */
     .campaign-hex polygon {
       transition: fill 120ms ease, stroke 120ms ease, stroke-width 120ms ease;
@@ -2182,7 +2162,7 @@
     .campaign-hex.selected polygon {
       fill: transparent;
       stroke: #d7b45f;
-      stroke-width: 1.5;
+      stroke-width: 2.5;
     }
     .campaign-hex.selected.entity-selected polygon {
       stroke: transparent;
@@ -10233,7 +10213,7 @@
           <div class="campaign-map">
             <h2>Campaign Map</h2>
             <div class="campaign-map-viewport" aria-label="Campaign theater viewport">
-              <div id="campaignMapCanvas" class="campaign-map-canvas" data-map-scroll="campaign">
+              <div id="campaignMapCanvas" class="campaign-map-canvas">
                 <svg id="campaignHexMap" xmlns="http://www.w3.org/2000/svg"></svg>
               </div>
             </div>
@@ -10501,7 +10481,8 @@
 
             <!-- ENGAGEMENT ACTION -->
             <div class="action-section">
-              <button id="campaignQueueEngagement" type="button" class="engagement-btn" disabled>
+              <p id="campaignEngagementReason" class="campaign-engagement-reason">Select an eligible opposing hex to prepare an engagement order.</p>
+              <button id="campaignQueueEngagement" type="button" class="engagement-btn" aria-describedby="campaignEngagementReason" disabled>
                 <span class="btn-icon">ENG</span>
                 <span>Queue Engagement</span>
               </button>

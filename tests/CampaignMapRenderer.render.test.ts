@@ -119,18 +119,16 @@ registerTest("FSG_CAM_101_SHIPPED_COLOCATED_MARKERS_REMAIN_INSIDE_AUTHORED_HEX",
     const contactToken = contactMarker.querySelector<SVGCircleElement>("circle:not(.campaign-intel-uncertainty)")!;
     for (const zoom of [0.714, 1, 3.48, 7.5]) {
       viewport.setTransform(zoom, 0, 0);
-      const markerScale = Number(root.style.getPropertyValue("--campaign-map-marker-scale"));
-      const contactScale = Number(root.style.getPropertyValue("--campaign-map-contact-scale"));
       renderer.setIntelContactsVisible(false);
       if (Number(siteTarget.getAttribute("cx")) !== center.cx
         || Number(siteTarget.getAttribute("cy")) !== center.cy
         || !circleStaysInsideFlatTopHex(center, radius, siteTarget, 1)
-        || !imageStaysInsideFlatTopHex(center, radius, siteSprite, markerScale)) {
+        || !imageStaysInsideFlatTopHex(center, radius, siteSprite, 1)) {
         throw new Error(`Operational Douvres marker escapes authored Grid 29,23 at zoom ${zoom}.`);
       }
       renderer.setIntelContactsVisible(true);
       if (Number(contactToken.getAttribute("cx")) <= center.cx
-        || !circleStaysInsideFlatTopHex(center, radius, contactToken, contactScale)) {
+        || !circleStaysInsideFlatTopHex(center, radius, contactToken, 1)) {
         throw new Error(`Intelligence co-location is not distinct and bounded at zoom ${zoom}.`);
       }
     }
@@ -149,7 +147,7 @@ registerTest("FSG_CAM_101_SHIPPED_COLOCATED_MARKERS_REMAIN_INSIDE_AUTHORED_HEX",
   } finally { canvas.remove(); }
 });
 
-registerTest("FSG_CAM_102_HEX_ART_REGISTERS_TO_FLAT_TOP_CELLS_AT_EVERY_ZOOM", () => {
+registerTest("FSG_CAM_102_ALL_HEX_ART_AND_FORMATIONS_SHARE_THE_CELL_CAMERA", () => {
   const canvas = document.createElement("div");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.id = "campaignSymbolScaleMap";
@@ -182,6 +180,8 @@ registerTest("FSG_CAM_102_HEX_ART_REGISTERS_TO_FLAT_TOP_CELLS_AT_EVERY_ZOOM", ()
     const rotatedSymbol = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="24,23"]')!;
     const nonHexSymbol = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="12,18"]')!;
     const junoForce = svg.querySelector<SVGCircleElement>('#campaign-map-forces .campaign-force-stack[data-hex="28,23"] .campaign-force-stack__footprint')!;
+    const junoForceStack = junoForce?.closest<SVGGElement>(".campaign-force-stack");
+    const contactToken = svg.querySelector<SVGGElement>(".campaign-intel-contact__token");
     const rotatedTaskForces = svg.querySelectorAll<SVGGElement>('.campaign-task-force[data-facing="SW"][transform]');
     const base = svg.querySelector<SVGImageElement>(".campaign-base-marker__sprite")!;
     const baseHex = base?.closest<SVGGElement>(".campaign-base-marker")?.dataset.hex;
@@ -192,45 +192,101 @@ registerTest("FSG_CAM_102_HEX_ART_REGISTERS_TO_FLAT_TOP_CELLS_AT_EVERY_ZOOM", ()
     const baseHexOutline = baseHex
       ? svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${baseHex}"] polygon`)
       : null;
-    const junoClip = svg.querySelector<SVGPolygonElement>('clipPath[data-hex="28,23"] polygon');
     const radius = 1024 / (2 + 1.5 * 57);
-    if (!douvres || !junoSymbol || !rotatedSymbol || !nonHexSymbol || !junoForce || !base || !douvresCenter || !junoCenter || !baseCenter || !baseSelection || !baseHexOutline || !junoClip
+    const hexArtGroups = {
+      tiles: Array.from(svg.querySelectorAll<SVGImageElement>("#campaign-map-sprites .campaign-map-tile-symbol.campaign-map-hex-art")),
+      bases: Array.from(svg.querySelectorAll<SVGImageElement>(".campaign-base-marker__sprite.campaign-map-hex-art")),
+      knownSites: Array.from(svg.querySelectorAll<SVGImageElement>(".campaign-known-site__sprite.campaign-map-hex-art"))
+    };
+    const registrationFailures = Object.entries(hexArtGroups).flatMap(([ownerKind, images]) => images.flatMap((image, index) => {
+      const frame = image.closest<SVGGElement>(".campaign-map-hex-art-frame");
+      const hexKey = frame?.dataset.hex;
+      const cellGroup = hexKey ? svg.querySelector<SVGGElement>(`.campaign-hex[data-hex="${hexKey}"]`) : null;
+      const cell = cellGroup?.querySelector<SVGPolygonElement>("polygon") ?? null;
+      const clipId = frame?.getAttribute("clip-path")?.match(/^url\(#(.+)\)$/)?.[1];
+      const clipPath = clipId ? svg.querySelector<SVGClipPathElement>(`#${clipId}`) : null;
+      const clip = clipPath?.querySelector<SVGPolygonElement>("polygon") ?? null;
+      const points = (cell?.getAttribute("points") ?? "").trim().split(/\s+/).map((pair) => pair.split(",").map(Number));
+      const xs = points.map(([x]) => x ?? Number.NaN);
+      const cellDiameter = Math.max(...xs) - Math.min(...xs);
+      const width = Number(image.getAttribute("width"));
+      const height = Number(image.getAttribute("height"));
+      const x = Number(image.getAttribute("x"));
+      const y = Number(image.getAttribute("y"));
+      const cx = Number(cellGroup?.dataset.cx);
+      const cy = Number(cellGroup?.dataset.cy);
+      const cellRelativeOwner = image.dataset.visualScale === "cell-relative"
+        || image.closest<SVGGElement>('[data-visual-scale="cell-relative"]') !== null;
+      const counterScaleOwner = (() => {
+        for (let owner: Element | null = image.parentElement; owner && owner !== root; owner = owner.parentElement) {
+          if (owner instanceof SVGElement
+            && (/scale\(/.test(owner.getAttribute("transform") ?? "")
+              || (/scale\(/.test(owner.style.transform) && owner.style.transform !== "none"))) return owner;
+        }
+        return null;
+      })();
+      const valid = Boolean(frame && cell && clip)
+        && clipPath?.getAttribute("clipPathUnits") === "userSpaceOnUse"
+        && clip?.getAttribute("points") === cell?.getAttribute("points")
+        && image.getAttribute("transform")?.startsWith("rotate(30 ")
+        && image.dataset.sourceGridOrientation === "point-top"
+        && image.dataset.mapGridOrientation === "flat-top"
+        && Math.abs(width - cellDiameter) <= 0.001
+        && Math.abs(height - cellDiameter) <= 0.001
+        && Math.abs(x + width / 2 - cx) <= 0.001
+        && Math.abs(y + height / 2 - cy) <= 0.001
+        && cellRelativeOwner
+        && !counterScaleOwner;
+      return valid ? [] : [`${ownerKind}[${index}]@${hexKey ?? "unknown"}`];
+    }));
+    if (!douvres || !junoSymbol || !rotatedSymbol || !nonHexSymbol || !junoForce || !junoForceStack
+      || !contactToken || !base || !douvresCenter || !junoCenter || !baseCenter || !baseSelection || !baseHexOutline
+      || Object.values(hexArtGroups).some((images) => images.length === 0)
+      || registrationFailures.length > 0
       || junoSymbol.dataset.symbolTreatment !== "grid-registered-hex"
-      || !junoSymbol.getAttribute("transform")?.startsWith("rotate(30 ")
-      || junoSymbol.parentElement?.style.transform
       || !rotatedSymbol.getAttribute("transform")?.startsWith("rotate(30 ")
-      || rotatedSymbol.parentElement?.style.transform
       || nonHexSymbol.dataset.symbolTreatment !== "bounded-icon"
-      || nonHexSymbol.parentElement?.style.transform !== "scale(var(--campaign-map-tile-symbol-scale, 1))"
-      || !base.getAttribute("transform")?.startsWith("rotate(30 ")
+      || nonHexSymbol.closest<SVGGElement>(".campaign-map-tile-symbol-frame")?.dataset.visualScale !== "cell-relative"
+      || junoForceStack.dataset.visualScale !== "cell-relative"
+      || contactToken.dataset.visualScale !== "cell-relative"
       || baseSelection.getAttribute("points") !== baseHexOutline.getAttribute("points")
-      || junoClip.getAttribute("points") !== svg.querySelector<SVGPolygonElement>('.campaign-hex[data-hex="28,23"] polygon')?.getAttribute("points")
-      || Math.abs(Number(junoSymbol.getAttribute("width")) - radius * 2) > 0.001
-      || Math.abs(Number(junoSymbol.getAttribute("height")) - radius * 2) > 0.001
       || rotatedTaskForces.length === 0) {
-      throw new Error("Campaign hex artwork is not registered to the shipped flat-top cell geometry.");
+      throw new Error(`Campaign map still has competing sprite size/transform owners: ${JSON.stringify({
+        categories: Object.fromEntries(Object.entries(hexArtGroups).map(([key, images]) => [key, images.length])),
+        registrationFailures,
+        nonHexScale: nonHexSymbol.parentElement?.style.transform,
+        forceScale: junoForceStack?.style.transform,
+        contactScale: contactToken?.style.transform
+      })}`);
     }
+    const openingForceRatio = Number(junoForce.getAttribute("r")) * 2 / (radius * 2);
+    let previousForceScreenWidth = 0;
     for (const zoom of [1, 3.48, 7.5]) {
       viewport.setTransform(zoom, 0, 0);
-      const markerScale = Number(root.style.getPropertyValue("--campaign-map-marker-scale"));
-      const tileScale = Number(root.style.getPropertyValue("--campaign-map-tile-symbol-scale"));
-      const forceScale = Number(root.style.getPropertyValue("--campaign-map-force-scale"));
-      const douvresWidth = Number(douvres.getAttribute("width")) * zoom * markerScale;
+      const forbiddenScaleVariables = [
+        "--campaign-map-marker-scale", "--campaign-map-tile-symbol-scale",
+        "--campaign-map-force-scale", "--campaign-map-contact-scale"
+      ].filter((property) => root.style.getPropertyValue(property).trim() !== "");
+      const douvresWidth = Number(douvres.getAttribute("width")) * zoom;
       const junoSymbolWidth = Number(junoSymbol.getAttribute("width")) * zoom;
-      const junoForceWidth = Number(junoForce.getAttribute("r")) * 2 * zoom * forceScale;
+      const junoForceWidth = Number(junoForce.getAttribute("r")) * 2 * zoom;
       const baseWidth = Number(base.getAttribute("width")) * zoom;
       const junoCellWidth = radius * 2 * zoom;
-      if (![markerScale, tileScale, forceScale].every(value => Number.isFinite(value) && value > 0)
-        || Math.abs(tileScale - Math.min(1, 2.9 / zoom)) > 0.000001
-        || douvresWidth > 44.01
+      const forceRatio = junoForceWidth / junoCellWidth;
+      if (forbiddenScaleVariables.length > 0
         || Math.abs(junoSymbolWidth / junoCellWidth - 1) > 0.001
-        || junoForceWidth > 44.01
-        || Math.abs(baseWidth / junoCellWidth - Number(base.getAttribute("width")) / (radius * 2)) > 0.001
-        || !imageStaysInsideFlatTopHex(douvresCenter, radius, douvres, markerScale)
-        || !circleStaysInsideFlatTopHex(junoCenter, radius, junoForce, forceScale)
-        || !imageStaysInsideFlatTopHex(baseCenter, radius, base, 1)) {
-        throw new Error(`Campaign artwork changed its cell-relative scale at zoom ${zoom}: ${JSON.stringify({ douvresWidth, junoSymbolWidth, junoCellWidth, junoForceWidth, baseWidth })}`);
+        || Math.abs(baseWidth / junoCellWidth - 1) > 0.001
+        || Math.abs(forceRatio - openingForceRatio) > 0.001
+        || (zoom >= 3.48 && junoForceWidth < 44)
+        || junoForceWidth + 0.001 < previousForceScreenWidth
+        || !imageStaysInsideFlatTopHex(douvresCenter, radius, douvres, 1)
+        || !circleStaysInsideFlatTopHex(junoCenter, radius, junoForce, 1)) {
+        throw new Error(`Campaign artwork changed its cell-relative scale at zoom ${zoom}: ${JSON.stringify({
+          forbiddenScaleVariables, douvresWidth, junoSymbolWidth, junoCellWidth,
+          junoForceWidth, forceRatio, openingForceRatio, baseWidth
+        })}`);
       }
+      previousForceScreenWidth = junoForceWidth;
     }
   } finally { canvas.remove(); }
 });
@@ -824,16 +880,15 @@ registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING",
       if (visible.length < priorVisibleCount) violations.push(`zoom ${zoom}: disclosure regressed from ${priorVisibleCount} to ${visible.length}`);
       priorVisibleCount = visible.length;
 
-      const markerScale = Number(root.style.getPropertyValue("--campaign-map-marker-scale"));
       const geometry = visible.map((marker, index) => {
         const sprite = marker.querySelector<SVGImageElement>(".campaign-base-marker__sprite, .campaign-known-site__sprite");
         const target = marker.querySelector<SVGCircleElement>(".campaign-base-marker__hit-target, .campaign-known-site__hit-target");
         const center = renderer.getHexCenter(marker.dataset.hex ?? "");
-        const visualDiameter = Number(sprite?.getAttribute("width")) * zoom * markerScale;
+        const visualDiameter = Number(sprite?.getAttribute("width")) * zoom;
         const hitRadius = Number(target?.getAttribute("r")) * zoom;
         if (!center || !sprite || !target || visualDiameter <= 0
-          || !imageStaysInsideFlatTopHex(center, registeredRadius, sprite, markerScale)
-          || !circleStaysInsideFlatTopHex(center, registeredRadius, target, 1)) {
+          || !circleStaysInsideFlatTopHex(center, registeredRadius, target, 1)
+          || (/scale\(/.test(marker.style.transform) && marker.style.transform !== "none")) {
           violations.push(`zoom ${zoom}: marker ${index} escapes its authored cell`);
         }
         return {
@@ -859,10 +914,13 @@ registerTest("FSG_CAM_037_MARKERS_REMAIN_LEGIBLE_CLICKABLE_AND_NON_OVERLAPPING",
     const operationalHidesDetailPointerFlow = /data-campaign-map-density="operational"[\s\S]{0,240}data-density-tier="detail"[\s\S]{0,240}display:\s*none;[\s\S]{0,80}pointer-events:\s*none;/.test(shellCss);
     const campaignCss = readFileSync("src/ui/campaign/styles/campaign-command.css", "utf8");
     const mapListAlternative = /\.campaign-map-list-entry\s*\{[\s\S]{0,160}min-height:\s*46px/.test(campaignCss);
+    const findLocationControl = /this\.listToggle\.textContent\s*=\s*"Find location"/.test(
+      readFileSync("src/ui/campaign/components/CampaignMapOverlayController.ts", "utf8")
+    );
     if (!theaterHidesSecondaryPointerFlow) violations.push("theater-hidden markers remain in pointer flow");
     if (!theaterSelectedMarkerYieldsPointerFlow) violations.push("theater selected marker still captures neighboring 10 km hexes");
     if (!operationalHidesDetailPointerFlow) violations.push("operational-hidden detail markers remain in pointer flow");
-    if (!mapListAlternative) violations.push("bounded overview markers lack a full-size Map list selection path");
+    if (!mapListAlternative || !findLocationControl) violations.push("overview markers lack a full-size Find location selection path");
 
     if (markers.length !== 31 || violations.length > 0) {
       throw new Error(`Campaign semantic-zoom density is not first-class: ${JSON.stringify({

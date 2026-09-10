@@ -316,38 +316,71 @@ registerTest("MAP_VIEWPORT_TOUCH_PINCH_ZOOM", async ({ Given, When, Then }) => {
   });
 });
 
-registerTest("MAP_VIEWPORT_NON_HEX_TILE_SYMBOLS_RETAIN_CLOSE_ZOOM_CAP", async ({ Given, When, Then }) => {
+registerTest("FSG_CAM_111_MAP_VIEWPORT_HAS_ONE_GEOGRAPHIC_CAMERA_SCALE_OWNER", async ({ Given, When, Then }) => {
   let mapViewport: MapViewport;
   let host: HTMLElement;
+  let svg: SVGSVGElement;
   let viewportRoot: SVGGElement;
-  const tileScales: number[] = [];
-  const labelScales: number[] = [];
+  let zoomOutput: HTMLOutputElement;
+  const snapshots: Array<{
+    zoom: number;
+    rootTransform: string | null;
+    forbiddenVariables: string[];
+    artTransform: string;
+    zoomLabel: string;
+  }> = [];
 
-  await Given("a campaign viewport with a bounded non-hex tile symbol", () => {
+  await Given("a campaign viewport containing cell-relative terrain, formations, and contacts", () => {
     const dom = setupMapDom();
     host = dom.host;
+    svg = dom.svg;
     viewportRoot = dom.viewportRoot;
+    const campaignScreen = document.createElement("section");
+    campaignScreen.id = "campaignScreen";
+    zoomOutput = document.createElement("output");
+    zoomOutput.id = "campaignZoomLevel";
+    campaignScreen.append(dom.viewport, zoomOutput);
+    document.body.appendChild(campaignScreen);
+    for (const className of ["campaign-map-tile-symbol-frame", "campaign-force-stack", "campaign-intel-contact__token"]) {
+      const art = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      art.classList.add(className);
+      art.dataset.visualScale = "cell-relative";
+      viewportRoot.appendChild(art);
+    }
     mapViewport = new MapViewport();
   });
 
-  await When("the commander moves from opening zoom to maximum detail zoom", () => {
+  await When("the commander moves from opening zoom through maximum detail zoom", () => {
     for (const zoom of [1, 3.48, 7.5]) {
       mapViewport.setTransform(zoom, 0, 0);
-      tileScales.push(Number(viewportRoot.style.getPropertyValue("--campaign-map-tile-symbol-scale")));
-      labelScales.push(Number(viewportRoot.style.getPropertyValue("--campaign-map-location-label-scale")));
+      snapshots.push({
+        zoom,
+        rootTransform: viewportRoot.getAttribute("transform"),
+        forbiddenVariables: [
+          "--campaign-map-marker-scale", "--campaign-map-tile-symbol-scale",
+          "--campaign-map-force-scale", "--campaign-map-contact-scale"
+        ].filter((property) => viewportRoot.style.getPropertyValue(property).trim() !== ""),
+        artTransform: Array.from(viewportRoot.querySelectorAll<SVGGElement>('[data-visual-scale="cell-relative"]'))
+          .map((element) => `${element.getAttribute("transform") ?? ""}|${element.style.transform}`)
+          .join(","),
+        zoomLabel: zoomOutput.textContent ?? ""
+      });
     }
   });
 
-  await Then("the non-hex symbol retains its previous screen-space growth cap", () => {
-    const expected = [1, 2.9 / 3.48, 2.9 / 7.5];
-    if (tileScales.some((scale, index) => Math.abs(scale - expected[index]!) > 0.000001)) {
-      throw new Error(`Expected bounded non-hex tile scales ${JSON.stringify(expected)}, received ${JSON.stringify(tileScales)}.`);
+  await Then("only viewportRoot scales map-bound art and the current zoom remains announced", () => {
+    const failures = snapshots.filter((snapshot) => (
+      snapshot.rootTransform !== `translate(0, 0) scale(${snapshot.zoom})`
+      || snapshot.forbiddenVariables.length > 0
+      || snapshot.artTransform !== "|,|,|"
+      || snapshot.zoomLabel !== `${Math.round(snapshot.zoom * 100)}%`
+    ));
+    if (failures.length > 0
+      || svg.dataset.zoom !== "7.5"
+      || viewportRoot.querySelectorAll('[data-visual-scale="cell-relative"]').length !== 3) {
+      throw new Error(`Campaign map retained a second scale owner: ${JSON.stringify({ failures, svgZoom: svg.dataset.zoom })}.`);
     }
-    const expectedLabelScales = [1, 2.8 / 3.48, 2.8 / 7.5];
-    if (labelScales.some((scale, index) => Math.abs(scale - expectedLabelScales[index]!) > 0.000001)) {
-      throw new Error(`Expected bounded location-label scales ${JSON.stringify(expectedLabelScales)}, received ${JSON.stringify(labelScales)}.`);
-    }
-    host.remove();
+    host.closest("#campaignScreen")?.remove();
   });
 });
 
@@ -523,13 +556,10 @@ registerTest("MAP_VIEWPORT_FITS_AND_CENTERS_COMPLETE_MAP", async ({ Given, When,
     const appliedTransform = viewportRoot.getAttribute("transform") ?? "";
     const inverseZoom = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom"));
     const restingScale = Number(viewportRoot.style.getPropertyValue("--campaign-map-inverse-zoom-resting"));
-    const markerScale = Number(viewportRoot.style.getPropertyValue("--campaign-map-marker-scale"));
-    // At overview zoom, markers follow the theater so they cannot cover adjacent authored cells.
-    const expectedMarkerScale = 1;
+    // Only interaction and disclosure surfaces counter-scale; map-bound artwork follows the theater camera.
     if (!appliedTransform.includes(`scale(${expectedZoom})`)
       || Math.abs(inverseZoom - 1 / expectedZoom) > tolerance
-      || Math.abs(restingScale - 0.92 / expectedZoom) > tolerance
-      || Math.abs(markerScale - expectedMarkerScale) > tolerance) {
+      || Math.abs(restingScale - 0.92 / expectedZoom) > tolerance) {
       throw new Error(`Complete-map fit was not applied to the viewport root: ${appliedTransform}.`);
     }
     host.remove();

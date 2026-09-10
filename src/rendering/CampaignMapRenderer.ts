@@ -11,7 +11,7 @@ import { projectLegacyForceGroupAsSupportCapacity } from "../game/campaign/logis
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const HEX_STROKE = "#0e1a2b";
-const HEX_STROKE_WIDTH = 0.75;
+const HEX_STROKE_WIDTH = 1.1;
 const BACKGROUND_LAYER_ID = "campaign-map-background";
 const HEX_LAYER_ID = "campaign-map-hexes";
 const TERRAIN_OVERLAY_LAYER_ID = "campaign-map-terrain-overlay";
@@ -389,15 +389,13 @@ export class CampaignMapRenderer {
     if (className === "selected") this.setEntitySelection(hexKey, true);
   }
 
-  /** Non-geographic symbol art keeps a bounded screen-space footprint. */
-  private boundSymbol(element: SVGGraphicsElement, scaleVariable: string): void {
-    element.style.transformBox = "fill-box";
-    element.style.transformOrigin = "center";
-    element.style.transform = `scale(var(${scaleVariable}, 1))`;
-  }
-
   private markerRadius(): number {
     return this.getRegisteredGridGeometry()?.radius ?? HEX_RADIUS * this.getHexDensityScalar();
+  }
+
+  /** Uses the owning cell as the one size authority for regular-hex raster artwork. */
+  private campaignSpriteSize(spriteKey: string, nonHexSize: number): number {
+    return HEX_SHAPED_CAMPAIGN_SPRITES.has(spriteKey) ? this.markerRadius() * 2 : nonHexSize;
   }
 
   /** Registers point-top hex raster art to the active grid without changing geographic state. */
@@ -664,6 +662,7 @@ export class CampaignMapRenderer {
           outline.setAttribute("fill", "rgba(14, 26, 43, 0.035)");
           outline.setAttribute("stroke", HEX_STROKE);
           outline.setAttribute("stroke-width", String(HEX_STROKE_WIDTH));
+          outline.setAttribute("vector-effect", "non-scaling-stroke");
           group.appendChild(outline);
           layer.appendChild(group);
           this.hexGroups.set(hexKey, group);
@@ -731,6 +730,7 @@ export class CampaignMapRenderer {
           outline.setAttribute("fill", "rgba(14, 26, 43, 0.05)");
           outline.setAttribute("stroke", HEX_STROKE);
           outline.setAttribute("stroke-width", String(HEX_STROKE_WIDTH));
+          outline.setAttribute("vector-effect", "non-scaling-stroke");
 
           group.appendChild(outline);
           layer.appendChild(group);
@@ -923,8 +923,8 @@ export class CampaignMapRenderer {
       symbol.classList.add("campaign-map-tile-symbol-frame");
       symbol.setAttribute("data-hex", hexKey);
       const isHexArtwork = HEX_SHAPED_CAMPAIGN_SPRITES.has(spriteKey);
-      if (!isHexArtwork) this.boundSymbol(symbol, "--campaign-map-tile-symbol-scale");
-      const iconSize = isHexArtwork ? this.markerRadius() * 2 : markerIconSize;
+      symbol.dataset.visualScale = "cell-relative";
+      const iconSize = this.campaignSpriteSize(spriteKey, markerIconSize);
 
       const image = document.createElementNS(SVG_NS, "image");
       image.setAttribute("href", asset);
@@ -974,6 +974,7 @@ export class CampaignMapRenderer {
     marker.classList.add("campaign-sprite", "campaign-task-force");
     marker.setAttribute("data-hex", hexKey);
     marker.setAttribute("data-facing", facing);
+    marker.setAttribute("data-visual-scale", "cell-relative");
     marker.setAttribute("role", "img");
     marker.setAttribute("aria-label", `${markerLabel} · hex ${hexKey}`);
 
@@ -1015,7 +1016,7 @@ export class CampaignMapRenderer {
     addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.06, -iconSize * 0.82, "campaign-task-force__destroyer");
     addShip(destroyer, iconSize * 1.02, iconSize * 0.48, iconSize * 1.38, iconSize * 0.66, "campaign-task-force__destroyer");
     if (facing.endsWith("W")) {
-      marker.setAttribute("transform", `translate(${2 * cx} 0) scale(-1 1)`);
+      marker.setAttribute("transform", `matrix(-1 0 0 1 ${2 * cx} 0)`);
     }
     layer.appendChild(marker);
     this.spriteIndex.set(hexKey, primaryShip);
@@ -1109,7 +1110,10 @@ export class CampaignMapRenderer {
       const installation = document.createElementNS(SVG_NS, "image");
       installation.classList.add("campaign-base-marker__sprite");
       installation.setAttribute("href", asset);
-      const installationSize = Math.min(THEATER_MARKER_ICON_SIZE, this.markerRadius() * 1.25);
+      const installationSize = this.campaignSpriteSize(
+        spriteKey,
+        Math.min(THEATER_MARKER_ICON_SIZE, this.markerRadius() * 1.25)
+      );
       installation.setAttribute("x", String(center.cx - installationSize / 2));
       installation.setAttribute("y", String(center.cy - installationSize / 2));
       installation.setAttribute("width", String(installationSize));
@@ -1117,6 +1121,7 @@ export class CampaignMapRenderer {
       installation.setAttribute("preserveAspectRatio", "xMidYMid meet");
       installation.setAttribute("data-marker-sprite-key", spriteKey);
       installation.setAttribute("data-authoritative-anchor", "true");
+      installation.setAttribute("data-visual-scale", "cell-relative");
       installation.setAttribute("pointer-events", "none");
       installation.setAttribute("aria-hidden", "true");
       this.appendCampaignSpriteArtwork(marker, installation, spriteKey, hexKey, center.cx, center.cy);
@@ -1351,7 +1356,7 @@ export class CampaignMapRenderer {
 
       const stack = document.createElementNS(SVG_NS, "g");
       stack.classList.add("campaign-force-stack");
-      this.boundSymbol(stack, "--campaign-map-force-scale");
+      stack.dataset.visualScale = "cell-relative";
       stack.setAttribute("data-hex", hexKey);
       stack.setAttribute("data-faction", controller);
       stack.setAttribute("data-formation-count", String(totalFormations));
@@ -1369,6 +1374,7 @@ export class CampaignMapRenderer {
       footprint.setAttribute("fill", "rgba(7, 18, 24, 0.24)");
       footprint.setAttribute("stroke", "rgba(137, 211, 169, 0.82)");
       footprint.setAttribute("stroke-width", String(Math.max(0.9, density * 4)));
+      footprint.setAttribute("vector-effect", "non-scaling-stroke");
       footprint.setAttribute("data-hex", hexKey);
       footprint.setAttribute("aria-hidden", "true");
       footprint.classList.add("campaign-force-stack__footprint");
@@ -1393,6 +1399,38 @@ export class CampaignMapRenderer {
         icon.setAttribute("data-hex", hexKey);
         stack.appendChild(icon);
       });
+
+      const countRadius = Math.max(2.6, safeRadius * 0.27);
+      const countCx = cx + safeRadius * 0.62;
+      const countCy = cy + safeRadius * 0.58;
+      const countPlate = document.createElementNS(SVG_NS, "circle");
+      countPlate.classList.add("campaign-force-stack__count-plate");
+      countPlate.setAttribute("cx", String(countCx));
+      countPlate.setAttribute("cy", String(countCy));
+      countPlate.setAttribute("r", String(countRadius));
+      countPlate.setAttribute("fill", "#17231d");
+      countPlate.setAttribute("stroke", "#d7bf76");
+      countPlate.setAttribute("stroke-width", "0.9");
+      countPlate.setAttribute("vector-effect", "non-scaling-stroke");
+      countPlate.setAttribute("aria-hidden", "true");
+      stack.appendChild(countPlate);
+
+      const countLabel = document.createElementNS(SVG_NS, "text");
+      countLabel.classList.add("campaign-force-stack__count");
+      countLabel.textContent = String(totalFormations);
+      countLabel.setAttribute("x", String(countCx));
+      countLabel.setAttribute("y", String(countCy));
+      countLabel.setAttribute("fill", "#fff0bd");
+      countLabel.setAttribute("font-size", String(Math.max(4.6, safeRadius * 0.44)));
+      countLabel.setAttribute("font-weight", "800");
+      countLabel.setAttribute("text-anchor", "middle");
+      countLabel.setAttribute("dominant-baseline", "central");
+      countLabel.setAttribute("paint-order", "stroke");
+      countLabel.setAttribute("stroke", "rgba(0, 0, 0, 0.82)");
+      countLabel.setAttribute("stroke-width", "0.55");
+      countLabel.setAttribute("vector-effect", "non-scaling-stroke");
+      countLabel.setAttribute("aria-hidden", "true");
+      stack.appendChild(countLabel);
 
       layer.appendChild(stack);
     });
@@ -1648,7 +1686,7 @@ export class CampaignMapRenderer {
       const tokenRadius = this.markerRadius() * (sharesHexWithKnownSite ? 0.27 : 0.54);
       const tokenGroup = document.createElementNS(SVG_NS, "g");
       tokenGroup.classList.add("campaign-intel-contact__token");
-      this.boundSymbol(tokenGroup, "--campaign-map-contact-scale");
+      tokenGroup.dataset.visualScale = "cell-relative";
       const token = document.createElementNS(SVG_NS, "circle");
       token.setAttribute("cx", String(markerCx));
       token.setAttribute("cy", String(cy));
@@ -1731,7 +1769,10 @@ export class CampaignMapRenderer {
       // The fixed installation remains centered even when the Operational layer hides its
       // co-located mobile contact. Intelligence mode adds the smaller contact token in-cell.
       const markerCx = cx;
-      const iconSize = Math.min(THEATER_MARKER_ICON_SIZE, radius * 1.25);
+      const iconSize = this.campaignSpriteSize(
+        resolvedSpriteKey,
+        Math.min(THEATER_MARKER_ICON_SIZE, radius * 1.25)
+      );
       const hitRadius = Math.min(THEATER_KNOWN_SITE_HIT_RADIUS, radius * 0.74);
       const roleLabel = this.formatMarkerLabel(site.role);
       const statusLabel = site.category === "enemyInstallation"
@@ -1762,6 +1803,7 @@ export class CampaignMapRenderer {
       image.setAttribute("pointer-events", "none");
       image.setAttribute("aria-hidden", "true");
       image.setAttribute("data-authoritative-anchor", "true");
+      image.setAttribute("data-visual-scale", "cell-relative");
       this.appendCampaignSpriteArtwork(marker, image, resolvedSpriteKey, site.locationHexKey, markerCx, cy);
 
       const focusRing = document.createElementNS(SVG_NS, "circle");
@@ -2140,6 +2182,7 @@ export class CampaignMapRenderer {
       path.setAttribute("stroke-width", String(strokeWidth));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
+      path.setAttribute("vector-effect", "non-scaling-stroke");
       path.setAttribute("opacity", String(opacity));
       path.setAttribute("aria-hidden", "true");
       path.classList.add(className);
@@ -2148,9 +2191,9 @@ export class CampaignMapRenderer {
 
     // A low-opacity area establishes the contested corridor; the dark casing separates it from both
     // the background illustration and the permanent hex grid. The warm center line is faction-neutral.
-    appendPath("campaign-front-ribbon__zone", "#ead79b", Math.max(10, density * 50), 0.16);
-    appendPath("campaign-front-ribbon__casing", "#101611", Math.max(6.5, density * 30), 0.9);
-    appendPath("campaign-front-ribbon__line", "#f0d48a", Math.max(2.6, density * 11), 1);
+    appendPath("campaign-front-ribbon__zone", "#ead79b", Math.max(8, density * 34), 0.13);
+    appendPath("campaign-front-ribbon__casing", "#101611", Math.max(5, density * 20), 0.88);
+    appendPath("campaign-front-ribbon__line", "#f0d48a", Math.max(2.4, density * 7), 0.96);
 
     const markerIndex = Math.floor((route.length - 1) / 2);
     const markerPoint = route[markerIndex];
