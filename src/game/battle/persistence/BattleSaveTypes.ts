@@ -213,7 +213,9 @@ function migrateCampaignBattleRules(
   }
   const template = getBattleTemplateByKey(context.templateKey);
   if (!template || !template.campaignKeys.includes(battlePackage.scenarioKey)
-    || !template.missionTypes.includes(context.missionType)) {
+    || !template.missionTypes.includes(context.missionType)
+    || (context.battlefieldProfile
+      && !template.battlefieldProfiles.includes(context.battlefieldProfile))) {
     throw new Error(`Active campaign battle cannot be migrated because template '${context.templateKey}' is incompatible with campaign '${battlePackage.scenarioKey}'.`);
   }
 
@@ -226,6 +228,13 @@ function migrateCampaignBattleRules(
   assertCompatibleIdentity("template role", scenario.campaignTemplatePlayerRole, template.playerRole);
   assertCompatibleIdentity("Player role", scenario.campaignPlayerRole, playerRole);
   assertCompatibleIdentity("mission type", scenario.campaignMissionType, context.missionType);
+  if (context.battlefieldProfile) {
+    assertCompatibleIdentity(
+      "battlefield geography",
+      scenario.campaignBattlefieldProfile,
+      context.battlefieldProfile
+    );
+  }
   assertCompatibleIdentity("battle hex", scenario.campaignBattleHexKey, context.battleHexKey);
   assertCompatibleIdentity("engagement identity", scenario.campaignEngagementId, context.engagementId);
   assertCompatibleIdentity("battle package identity", scenario.campaignBattlePackageId, battlePackage.packageId);
@@ -291,6 +300,7 @@ function migrateCampaignBattleRules(
     campaignTemplatePlayerRole: template.playerRole,
     campaignPlayerRole: playerRole,
     campaignMissionType: context.missionType,
+    campaignBattlefieldProfile: context.battlefieldProfile,
     campaignBattleHexKey: context.battleHexKey,
     campaignEngagementId: context.engagementId,
     campaignBattlePackageId: battlePackage.packageId,

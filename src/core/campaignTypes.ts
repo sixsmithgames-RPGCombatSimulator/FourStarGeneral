@@ -149,6 +149,8 @@ export interface CampaignTileInstance {
   controlSinceDay?: number;
   /** Runtime infrastructure projection. Authored scenarios may also seed pre-existing damage. */
   infrastructure?: CampaignInfrastructureState;
+  /** Explicit tactical geography override for scenario fixtures or unusually local terrain. */
+  battlefieldProfile?: CampaignBattlefieldProfile;
 }
 
 /**
@@ -589,6 +591,18 @@ export type CampaignMissionType =
   | "depotRaid"
   | "meetingEngagement";
 
+/** Geographic character that a generated tactical map must visibly and mechanically represent. */
+export type CampaignBattlefieldProfile =
+  | "beachBluffs"
+  | "lowCoastalBeach"
+  | "floodedLowland"
+  | "bocage"
+  | "openCountry"
+  | "urbanApproaches"
+  | "riverCrossing"
+  | "portEstuary"
+  | "airfield";
+
 /** One aggregate campaign force pool entry with optional stable formation identities attached by Campaign 2.0. */
 export interface CampaignEngagementForceGroup {
   hexKey: string;
@@ -614,6 +628,8 @@ export interface CampaignEngagementContext {
   amphibious: boolean;
   /** True when the battle hex borders declared water — steers template terrain selection. */
   coastal: boolean;
+  /** Frozen tactical geography. New engagements always provide it; older committed packages retain their exact template key. */
+  battlefieldProfile?: CampaignBattlefieldProfile;
   /** Current battle-hex facility performance, used by tactical generation and briefings. */
   infrastructureEffectiveness?: number;
   /** Current battle-hex facility integrity, when the tile contains strategic infrastructure. */

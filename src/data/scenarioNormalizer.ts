@@ -31,6 +31,7 @@ export type RawScenarioInput = {
   campaignTemplatePlayerRole?: unknown;
   campaignPlayerRole?: unknown;
   campaignMissionType?: unknown;
+  campaignBattlefieldProfile?: unknown;
   campaignBattleHexKey?: unknown;
   campaignEngagementId?: unknown;
   campaignBattlePackageId?: unknown;
@@ -366,6 +367,9 @@ export function normalizeScenarioSource(
       ? raw.campaignPlayerRole
       : undefined,
     campaignMissionType: typeof raw.campaignMissionType === "string" ? raw.campaignMissionType : undefined,
+    campaignBattlefieldProfile: typeof raw.campaignBattlefieldProfile === "string"
+      ? raw.campaignBattlefieldProfile
+      : undefined,
     campaignBattleHexKey: typeof raw.campaignBattleHexKey === "string" ? raw.campaignBattleHexKey : undefined,
     campaignEngagementId: typeof raw.campaignEngagementId === "string" ? raw.campaignEngagementId : undefined,
     campaignBattlePackageId: typeof raw.campaignBattlePackageId === "string" || raw.campaignBattlePackageId === null

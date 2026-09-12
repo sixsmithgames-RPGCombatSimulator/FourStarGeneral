@@ -34,8 +34,8 @@ function scenarioFixture(): CampaignScenarioData {
     tiles: [
       { tile: "bot", hex: { q: 0, r: 0 }, forces: [] },
       { tile: "bot", hex: { q: 1, r: 0 }, forces: [{ unitType: "Panzer_IV", count: 2 }] },
-      { tile: "player", hex: { q: 2, r: 0 }, forces: [{ unitType: "Infantry_42", count: 1 }] },
-      { tile: "player", hex: { q: 3, r: 0 }, forces: [{ unitType: "Infantry_42", count: 1 }] }
+      { tile: "player", hex: { q: 2, r: 0 }, battlefieldProfile: "openCountry", forces: [{ unitType: "Infantry_42", count: 1 }] },
+      { tile: "player", hex: { q: 3, r: 0 }, battlefieldProfile: "openCountry", forces: [{ unitType: "Infantry_42", count: 1 }] }
     ],
     fronts: [{
       key: "contact-front",

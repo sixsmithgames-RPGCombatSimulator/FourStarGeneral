@@ -1447,6 +1447,9 @@ registerTest("FSG_CAM_079_QUEUE_CALLER_REQUIRES_DANGER_BRIEFING_CONSENT", async 
     // Author opposing forces in direct contact; real knowledge fusion, not a briefing stub, assesses their strength.
     scenario.tilePalette.playerHub.role = "fortificationLight";
     scenario.tilePalette.botFort.forces![0].count = danger.count;
+    const battleTile = scenario.tiles.find((tile) => tile.tile === "botFort");
+    if (!battleTile) throw new Error("Danger briefing fixture lost its opposing battle tile.");
+    battleTile.battlefieldProfile = "openCountry";
     for (const tile of scenario.tiles) tile.forces = structuredClone(scenario.tilePalette[tile.tile].forces);
     screen.renderScenario(scenario);
     const layer = appendCampaignPopupFixture();

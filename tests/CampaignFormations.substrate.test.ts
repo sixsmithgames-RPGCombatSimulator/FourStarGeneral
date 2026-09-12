@@ -214,6 +214,7 @@ function buildEngagementContext(): CampaignEngagementContext {
     attacker: "Player",
     defender: "Bot",
     missionType: "lineAssault",
+    battlefieldProfile: "openCountry",
     amphibious: false,
     coastal: false,
     availableForces: [{ hexKey: "0,0", unitType: "Infantry_42", count: 2 }],

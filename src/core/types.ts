@@ -297,6 +297,7 @@ export interface ScenarioData {
   campaignTemplatePlayerRole?: "attacker" | "defender";
   campaignPlayerRole?: "attacker" | "defender";
   campaignMissionType?: string;
+  campaignBattlefieldProfile?: string;
   campaignBattleHexKey?: string;
   campaignEngagementId?: string;
   campaignBattlePackageId?: string | null;

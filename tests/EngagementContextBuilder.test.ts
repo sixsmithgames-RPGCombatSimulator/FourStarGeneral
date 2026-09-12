@@ -33,7 +33,7 @@ function buildFixtureScenario(): CampaignScenarioData {
     },
     tiles: [
       // Battle hex: Bot heavy fortification, offset "5,5".
-      { tile: "botFortHeavy", hex: { q: 5, r: 3 }, forces: [{ unitType: "Infantry_42", count: 2 }] },
+      { tile: "botFortHeavy", hex: { q: 5, r: 3 }, battlefieldProfile: "openCountry", forces: [{ unitType: "Infantry_42", count: 2 }] },
       // Adjacent Bot support, offset "6,5".
       { tile: "botRegion", hex: { q: 6, r: 2 }, forces: [{ unitType: "Artillery_105mm", count: 1 }] },
       // Adjacent player staging tile, offset "4,5". Battleship should be excluded (not coastal);
@@ -119,7 +119,7 @@ registerTest("ENGAGEMENT_CONTEXT_AVAILABILITY_AND_CAPS", async ({ Given, When, T
     if (!Number.isFinite(context.forceRatio) || context.forceRatio <= 0) {
       throw new Error(`forceRatio should be finite and positive, got ${context.forceRatio}`);
     }
-    if (!context.templateKey || !context.templateKey.match(/omaha|hurtgen/)) {
+    if (context.battlefieldProfile !== "openCountry" || context.templateKey !== "depot_falaise_pocket") {
       throw new Error(`Western Europe engagement did not freeze a compatible fortified template: ${context.templateKey}`);
     }
   });
@@ -233,7 +233,7 @@ registerTest("ENGAGEMENT_CONTEXT_MISSION_TYPES_AND_BANDS", async ({ Given, When,
       { tile: "botAir", hex: { q: 11, r: 0 } },
       { tile: "botLogi", hex: { q: 12, r: 0 } },
       { tile: "botFortLight", hex: { q: 13, r: 0 } },
-      { tile: "botRegion", hex: { q: 14, r: 0 } }
+      { tile: "botRegion", hex: { q: 14, r: 0 }, battlefieldProfile: "openCountry" }
     );
   });
 

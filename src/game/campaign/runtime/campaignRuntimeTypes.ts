@@ -10,6 +10,7 @@
 import type {
   CampaignDecision,
   CampaignArcDefinition,
+  CampaignBattlefieldProfile,
   CampaignFactionEconomy,
   CampaignFactionKey,
   CampaignForceGroup,
@@ -116,6 +117,7 @@ export interface CampaignTileRuntime {
   forces: CampaignForceGroup[];
   spriteKey?: string;
   rotation?: number;
+  battlefieldProfile?: CampaignBattlefieldProfile;
   legacyControlSinceDay?: number;
   /** Persistent facility integrity/capture/repair truth. Absent only on pre-C20-025 development saves. */
   infrastructure?: CampaignInfrastructureState;

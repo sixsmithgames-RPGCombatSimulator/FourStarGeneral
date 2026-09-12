@@ -33,7 +33,7 @@ function navalScenario(): CampaignScenarioData {
     },
     tiles: [
       { tile: "player", hex: { q: 0, r: 0 }, forces: [{ unitType: "Infantry_42", count: 2 }] },
-      { tile: "enemy", hex: { q: 1, r: 0 }, forces: [{ unitType: "Panzer_IV", count: 1 }] },
+      { tile: "enemy", hex: { q: 1, r: 0 }, battlefieldProfile: "openCountry", forces: [{ unitType: "Panzer_IV", count: 1 }] },
       { tile: "fleet", hex: { q: 0, r: 1 } },
       { tile: "hostileFleet", hex: { q: 2, r: 0 } }
     ],

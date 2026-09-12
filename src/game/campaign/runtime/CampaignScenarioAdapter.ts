@@ -498,6 +498,7 @@ export function createCampaignRuntime(
       ...(infrastructure ? { infrastructure } : {}),
       ...(tile.spriteKey ? { spriteKey: tile.spriteKey } : {}),
       ...(tile.rotation !== undefined ? { rotation: tile.rotation } : {}),
+      ...(tile.battlefieldProfile ? { battlefieldProfile: tile.battlefieldProfile } : {}),
       ...(tile.controlSinceDay !== undefined ? { legacyControlSinceDay: tile.controlSinceDay } : {})
     };
   });
@@ -668,6 +669,7 @@ export function projectLegacyCampaignState(
       controlSinceSegment: tile.controlSinceSegment,
       ...(tile.spriteKey ? { spriteKey: tile.spriteKey } : {}),
       ...(tile.rotation !== undefined ? { rotation: tile.rotation } : {}),
+      ...(tile.battlefieldProfile ? { battlefieldProfile: tile.battlefieldProfile } : {}),
       ...(tile.legacyControlSinceDay !== undefined ? { controlSinceDay: tile.legacyControlSinceDay } : {}),
       ...(tile.infrastructure ? { infrastructure: structuredClone(tile.infrastructure) } : {})
     };

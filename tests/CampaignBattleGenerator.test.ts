@@ -3,8 +3,12 @@ import { registerTest } from "./harness.js";
 import type { CampaignEngagementContext } from "../src/core/campaignTypes";
 import { generateCampaignBattleScenario } from "../src/game/campaign/CampaignBattleGenerator";
 import { BATTLE_TEMPLATES, selectBattleTemplate } from "../src/game/campaign/battleTemplates";
+import { resolveCampaignBattlefieldProfile } from "../src/game/campaign/campaignBattlefieldGeography";
 import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
 import { createMissionRulesController } from "../src/state/missionRules";
+import campaignScenarioData from "../src/data/campaign01.json";
+import type { CampaignScenarioData } from "../src/core/campaignTypes";
+import { deriveMissionType } from "../src/game/campaign/EngagementContextBuilder";
 
 function buildContext(overrides: Partial<CampaignEngagementContext> = {}): CampaignEngagementContext {
   return {
@@ -13,6 +17,7 @@ function buildContext(overrides: Partial<CampaignEngagementContext> = {}): Campa
     attacker: "Player",
     defender: "Bot",
     missionType: "fortifiedAssault",
+    battlefieldProfile: "beachBluffs",
     amphibious: false,
     coastal: false,
     availableForces: [],
@@ -37,32 +42,202 @@ function buildContext(overrides: Partial<CampaignEngagementContext> = {}): Campa
   };
 }
 
+type RawTerrainScenario = {
+  tilePalette: Record<string, { terrain?: string; features?: string[] }>;
+  tiles: Array<Array<string | { tile: string }>>;
+  objectives?: Array<{ hex: [number, number]; owner: "Player" | "Bot"; vp: number }>;
+};
+
+function terrainEvidence(source: unknown): Record<string, number> {
+  const scenario = source as RawTerrainScenario;
+  const evidence: Record<string, number> = {};
+  scenario.tiles.forEach((row) => row.forEach((cell) => {
+    const key = typeof cell === "string" ? cell : cell.tile;
+    const definition = scenario.tilePalette[key];
+    if (!definition) throw new Error(`Missing tactical palette entry ${key}.`);
+    evidence[definition.terrain ?? "unknown"] = (evidence[definition.terrain ?? "unknown"] ?? 0) + 1;
+    definition.features?.forEach((feature) => {
+      evidence[`feature:${feature}`] = (evidence[`feature:${feature}`] ?? 0) + 1;
+    });
+  }));
+  return evidence;
+}
+
+function rawTileAt(source: unknown, hex: readonly [number, number]): { terrain?: string; features?: string[] } {
+  const scenario = source as RawTerrainScenario;
+  const cell = scenario.tiles[hex[1]]?.[hex[0]];
+  if (!cell) throw new Error(`Missing tactical tile at ${hex[0]},${hex[1]}.`);
+  const key = typeof cell === "string" ? cell : cell.tile;
+  const definition = scenario.tilePalette[key];
+  if (!definition) throw new Error(`Missing tactical palette entry ${key}.`);
+  return definition;
+}
+
 registerTest("CAMPAIGN_BATTLE_TEMPLATE_SELECTION", async ({ Given, When, Then }) => {
   await Given("the seed template registry", async () => {
-    const missionTypes = ["fortifiedAssault", "lineAssault", "portAssault", "airfieldRaid", "depotRaid", "meetingEngagement"] as const;
-    for (const missionType of missionTypes) {
-      if (!BATTLE_TEMPLATES.some((entry) => entry.missionTypes.includes(missionType))) {
-        throw new Error(`No template covers mission type ${missionType}`);
-      }
-      const compatible = selectBattleTemplate(missionType, false, `central_${missionType}`, "central_channel");
+    const cases = [
+      ["fortifiedAssault", "beachBluffs"],
+      ["lineAssault", "lowCoastalBeach"],
+      ["portAssault", "portEstuary"],
+      ["airfieldRaid", "airfield"],
+      ["depotRaid", "urbanApproaches"],
+      ["meetingEngagement", "openCountry"]
+    ] as const;
+    for (const [missionType, profile] of cases) {
+      const compatible = selectBattleTemplate(missionType, profile, `central_${missionType}`, "central_channel");
       if (!compatible.campaignKeys.includes("central_channel")) {
         throw new Error(`${missionType} selected a template outside the Western Europe campaign.`);
+      }
+      if (!compatible.battlefieldProfiles.includes(profile)) {
+        throw new Error(`${missionType} selected ${compatible.key} outside ${profile}.`);
       }
     }
   });
 
   let coastalPick = "";
   await When("a coastal fortified assault selects a template twice", async () => {
-    const first = selectBattleTemplate("fortifiedAssault", true, "eng_1");
-    const second = selectBattleTemplate("fortifiedAssault", true, "eng_1");
+    const first = selectBattleTemplate("fortifiedAssault", "beachBluffs", "eng_1", "central_channel");
+    const second = selectBattleTemplate("fortifiedAssault", "beachBluffs", "eng_1", "central_channel");
     if (first.key !== second.key) throw new Error("Selection is not deterministic per engagement id");
     coastalPick = first.key;
-    if (first.terrain !== "coastal") throw new Error(`Coastal battle picked inland template ${first.key}`);
+    if (!first.battlefieldProfiles.includes("beachBluffs")) throw new Error(`Beach battle picked incompatible template ${first.key}`);
     if (!first.missionTypes.includes("fortifiedAssault")) throw new Error("Selected template does not serve the mission type");
   });
 
   await Then("the selection honors mission type and terrain preference", async () => {
     if (!coastalPick) throw new Error("No template selected");
+    let rejected = false;
+    try {
+      selectBattleTemplate("airfieldRaid", "floodedLowland", "bad_airfield", "central_channel");
+    } catch (error) {
+      rejected = error instanceof Error && /No airfieldRaid template represents floodedLowland geography/.test(error.message);
+    }
+    if (!rejected) throw new Error("Incompatible mission/geography selection did not fail closed.");
+  });
+});
+
+registerTest("CAMPAIGN_BATTLEFIELD_GEOGRAPHY_COVERS_THE_COMPLETE_NORMANDY_THEATER", async ({ Given, When, Then }) => {
+  const campaign = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const selectedKeys = new Set<string>();
+  const profiles = new Set<string>();
+
+  await Given("every authored operational tile from the Channel ports through Rouen", async () => {
+    if (campaign.tiles.length !== 68) {
+      throw new Error(`The theater coverage fixture expected 68 authored tiles, found ${campaign.tiles.length}.`);
+    }
+  });
+
+  await When("each possible battle hex resolves its mission, geography, and approved tactical map", async () => {
+    campaign.tiles.forEach((tile) => {
+      const profile = resolveCampaignBattlefieldProfile(campaign, tile);
+      const offsetKey = `${tile.hex.q},${tile.hex.r + Math.floor(tile.hex.q / 2)}`;
+      const missionType = deriveMissionType(campaign, offsetKey);
+      const selected = selectBattleTemplate(missionType, profile, `coverage:${offsetKey}`, campaign.key);
+      profiles.add(profile);
+      selectedKeys.add(selected.key);
+      if (!selected.battlefieldProfiles.includes(profile) || !selected.missionTypes.includes(missionType)) {
+        throw new Error(`${offsetKey} selected ${selected.key} for incompatible ${profile}/${missionType}.`);
+      }
+    });
+  });
+
+  await Then("beaches, objectives, inland terrain, ports, airfields, and crossings keep distinct geography", async () => {
+    const expectedProfiles = [
+      "beachBluffs",
+      "lowCoastalBeach",
+      "floodedLowland",
+      "bocage",
+      "openCountry",
+      "urbanApproaches",
+      "riverCrossing",
+      "portEstuary",
+      "airfield"
+    ];
+    expectedProfiles.forEach((profile) => {
+      if (!profiles.has(profile)) throw new Error(`The shipped theater never exercises ${profile}.`);
+    });
+    const forbidden = [...selectedKeys].filter((key) => /hurtgen|bastogne|two_bridges|el_alamein|kasserine/i.test(key));
+    if (forbidden.length > 0) {
+      throw new Error(`New Normandy engagements selected geographically incompatible maps: ${forbidden.join(", ")}.`);
+    }
+
+    const profileAt = (q: number, r: number): string => {
+      const tile = campaign.tiles.find((candidate) => candidate.hex.q === q && candidate.hex.r === r);
+      if (!tile) throw new Error(`Missing campaign tile ${q},${r}.`);
+      return resolveCampaignBattlefieldProfile(campaign, tile);
+    };
+    if (profileAt(24, 12) !== "beachBluffs"
+      || profileAt(29, 9) !== "lowCoastalBeach"
+      || profileAt(21, 16) !== "floodedLowland"
+      || profileAt(31, 7) !== "riverCrossing"
+      || profileAt(20, 15) !== "portEstuary"
+      || profileAt(44, 4) !== "riverCrossing") {
+      throw new Error("One or more Normandy landmark profiles drifted from the theater geography contract.");
+    }
+  });
+});
+
+registerTest("CAMPAIGN_TACTICAL_TEMPLATES_PROVE_TERRAIN_AND_OBJECTIVE_FEATURES", async ({ Given, When, Then }) => {
+  const selectable = BATTLE_TEMPLATES.filter((entry) => (
+    entry.campaignKeys.includes("central_channel") && entry.battlefieldProfiles.length > 0
+  ));
+
+  await Given("the maps approved for new Normandy engagements", async () => {
+    if (selectable.length < 8) throw new Error(`Expected the complete Normandy map library, found ${selectable.length} templates.`);
+  });
+
+  await When("their actual tactical tiles are measured", async () => {
+    selectable.forEach((entry) => {
+      const evidence = terrainEvidence(entry.scenario);
+      entry.battlefieldProfiles.forEach((profile) => {
+        const pass = profile === "beachBluffs"
+          ? (evidence.beach ?? 0) >= 40 && (evidence.sea ?? 0) >= 20
+            && ((evidence.hill ?? 0) + (evidence.mountain ?? 0)) >= 40
+          : profile === "lowCoastalBeach"
+            ? (evidence.beach ?? 0) >= 30 && (evidence.sea ?? 0) >= 20 && (evidence.plains ?? 0) >= 80
+            : profile === "floodedLowland"
+              ? (evidence.marsh ?? 0) >= 30 && (evidence.river ?? 0) >= 20 && (evidence["feature:bridge"] ?? 0) >= 2
+              : profile === "bocage"
+                ? (evidence.forest ?? 0) >= 100 && (evidence.plains ?? 0) >= 100
+                : profile === "openCountry"
+                  ? (evidence.plains ?? 0) >= 250 && (evidence["feature:road"] ?? 0) >= 20
+                  : profile === "urbanApproaches"
+                    ? ((evidence.city ?? 0) + (evidence.town ?? 0) + (evidence.hamlet ?? 0)) >= 40
+                    : profile === "riverCrossing"
+                      ? (evidence.river ?? 0) >= 30 && (evidence["feature:bridge"] ?? 0) >= 2
+                      : profile === "portEstuary"
+                        ? (evidence.sea ?? 0) >= 30 && (evidence.beach ?? 0) >= 20
+                          && ((evidence.city ?? 0) + (evidence.town ?? 0) + (evidence.hamlet ?? 0)) >= 15
+                        : (evidence["feature:airfield"] ?? 0) >= 6 && (evidence["feature:runway"] ?? 0) >= 6;
+        if (!pass) throw new Error(`${entry.key} does not contain the tiles required for ${profile}: ${JSON.stringify(evidence)}.`);
+      });
+    });
+  });
+
+  await Then("airfield, port, and river objectives occupy the feature the mission names", async () => {
+    const cases = [
+      { templateKey: "airfield_gela_coast", profile: "airfield", missionType: "airfieldRaid", feature: "airfield" },
+      { templateKey: "port_anzio_beachhead", profile: "portEstuary", missionType: "portAssault", terrain: "city" },
+      { templateKey: "river_arnhem_lowland", profile: "riverCrossing", missionType: "meetingEngagement", feature: "bridge" }
+    ] as const;
+    cases.forEach((entry, index) => {
+      const generated = generateCampaignBattleScenario(buildContext({
+        engagementId: `feature_objective_${index}`,
+        missionType: entry.missionType,
+        battlefieldProfile: entry.profile,
+        templateKey: entry.templateKey
+      }));
+      const raw = generated as unknown as RawTerrainScenario;
+      const firstObjective = raw.objectives?.[0];
+      if (!firstObjective) throw new Error(`${entry.templateKey} lost its campaign objective.`);
+      const objectiveTile = rawTileAt(raw, firstObjective.hex);
+      if ("feature" in entry && entry.feature && !objectiveTile.features?.includes(entry.feature)) {
+        throw new Error(`${entry.templateKey} objective ${firstObjective.hex.join(",")} is not on ${entry.feature}.`);
+      }
+      if ("terrain" in entry && entry.terrain && objectiveTile.terrain !== entry.terrain) {
+        throw new Error(`${entry.templateKey} objective ${firstObjective.hex.join(",")} is ${objectiveTile.terrain}, expected ${entry.terrain}.`);
+      }
+    });
   });
 });
 
@@ -85,6 +260,7 @@ registerTest("CAMPAIGN_BATTLE_BOT_ROSTER_GENERATION", async ({ Given, When, Then
       campaignTemplateKey?: string;
       campaignPlayerRole?: string;
       campaignMissionType?: string;
+      campaignBattlefieldProfile?: string;
       campaignBattleHexKey?: string;
       deploymentZones: Array<{ label: string; description?: string }>;
       size: { cols: number; rows: number };
@@ -92,6 +268,7 @@ registerTest("CAMPAIGN_BATTLE_BOT_ROSTER_GENERATION", async ({ Given, When, Then
     };
     if (!raw.name.startsWith("Fortified Assault")) throw new Error(`Scenario not renamed: ${raw.name}`);
     if (!raw.campaignTemplateKey) throw new Error("Template key not recorded on generated scenario");
+    if (raw.campaignBattlefieldProfile !== "beachBluffs") throw new Error("Battlefield profile not recorded on generated scenario");
     if (raw.campaignPlayerRole !== "attacker" || raw.campaignMissionType !== "fortifiedAssault" || raw.campaignBattleHexKey !== "5,5") {
       throw new Error("Generated campaign battle lost its frozen engagement identity metadata.");
     }
@@ -221,19 +398,10 @@ registerTest("CAMPAIGN_BATTLE_PLAYER_DEFENSE_REORIENTS_THE_TACTICAL_MAP", async 
 });
 
 registerTest("CAMPAIGN_BATTLE_PLAYER_DEFENSE_PRESERVES_AUTHORED_DEFENSIVE_GEOMETRY", async ({ Given, When, Then }) => {
-  let engagementId = "";
+  const engagementId = "eng_bastogne_legacy_defense";
   let scenario: ReturnType<typeof generateCampaignBattleScenario> | null = null;
 
-  await Given("a depot defense that deterministically selects the authored Bastogne defensive map", async () => {
-    for (let index = 0; index < 500; index += 1) {
-      const candidate = `eng_bastogne_defense_${index}`;
-      if (selectBattleTemplate("depotRaid", false, candidate).key === "depot_bastogne") {
-        engagementId = candidate;
-        break;
-      }
-    }
-    if (!engagementId) throw new Error("Could not select the Bastogne campaign template deterministically.");
-  });
+  await Given("an older frozen depot defense that explicitly names the authored Bastogne map", async () => {});
 
   await When("the Bot attacks Player-held depot ground", async () => {
     scenario = generateCampaignBattleScenario(buildContext({
@@ -246,7 +414,9 @@ registerTest("CAMPAIGN_BATTLE_PLAYER_DEFENSE_PRESERVES_AUTHORED_DEFENSIVE_GEOMET
       enemyForces: [{ hexKey: "13,10", unitType: "Infantry_42", count: 2 }],
       playerForceValue: 200,
       enemyForceValue: 200,
-      forceRatio: 1
+      forceRatio: 1,
+      templateKey: "depot_bastogne",
+      battlefieldProfile: undefined
     }));
   });
 
@@ -282,7 +452,7 @@ registerTest("CAMPAIGN_BATTLE_INVERTED_DEFENSE_USES_PLAYER_FACING_ZONE_COPY", as
   await Given("a depot defense that selects the attack-oriented Carentan map", async () => {
     for (let index = 0; index < 500; index += 1) {
       const candidate = `eng_carentan_defense_${index}`;
-      if (selectBattleTemplate("depotRaid", false, candidate).key === "raid_carentan") {
+      if (selectBattleTemplate("depotRaid", "floodedLowland", candidate, "central_channel").key === "raid_carentan") {
         engagementId = candidate;
         break;
       }
@@ -301,7 +471,8 @@ registerTest("CAMPAIGN_BATTLE_INVERTED_DEFENSE_USES_PLAYER_FACING_ZONE_COPY", as
       enemyForces: [{ hexKey: "5,5", unitType: "Panzer_IV", count: 2 }],
       playerForceValue: 200,
       enemyForceValue: 200,
-      forceRatio: 1
+      forceRatio: 1,
+      battlefieldProfile: "floodedLowland"
     }));
   });
 
@@ -326,7 +497,7 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
 
   await Given("a Western Europe meeting engagement whose old hash pool included desert templates", async () => {
     for (let index = 0; index < 100; index += 1) {
-      const selected = selectBattleTemplate("meetingEngagement", false, `western_meeting_${index}`, "central_channel");
+      const selected = selectBattleTemplate("meetingEngagement", "openCountry", `western_meeting_${index}`, "central_channel");
       if (!selected.campaignKeys.includes("central_channel") || /el_alamein|kasserine/.test(selected.key)) {
         throw new Error(`Western Europe selected incompatible template ${selected.key}.`);
       }
@@ -337,7 +508,8 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
     generated = generateCampaignBattleScenario(buildContext({
       engagementId: "eng_frozen_western_meeting",
       missionType: "meetingEngagement",
-      templateKey: "meeting_two_bridges"
+      templateKey: "meeting_two_bridges",
+      battlefieldProfile: undefined
     }));
   });
 
@@ -443,6 +615,7 @@ registerTest("CAMPAIGN_BATTLE_FREEZES_THEATER_COMPATIBLE_TEMPLATE_AND_TERMINAL_R
       attacker: "Bot",
       defender: "Player",
       templateKey: "depot_bastogne",
+      battlefieldProfile: undefined,
       availableForces: [{ hexKey: "5,5", unitType: "Infantry_42", count: 2 }]
     }));
     const normalizedDefense = normalizeScenarioSource(defense as unknown as RawScenarioInput, { turnLimit: 0 });

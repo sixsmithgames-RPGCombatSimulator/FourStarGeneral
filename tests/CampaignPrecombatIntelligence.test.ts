@@ -27,8 +27,8 @@ function scenario(): CampaignScenarioData {
     dimensions: { cols: 4, rows: 2 }, background: { imageUrl: "about:blank", stretchMode: "contain" },
     tilePalette: { player: { role: "region", factionControl: "Player" }, bot: { role: "region", factionControl: "Bot" } },
     tiles: [
-      { tile: "player", hex: { q: 2, r: 0 }, forces: [{ unitType: "Infantry_42", count: 9 }, { unitType: "Paratrooper", count: 6 }, { unitType: "Medium_Tank", count: 3 }] },
-      { tile: "bot", hex: { q: 1, r: 0 }, forces: [{ unitType: "Infantry_42", count: 21 }] }
+      { tile: "player", hex: { q: 2, r: 0 }, battlefieldProfile: "openCountry", forces: [{ unitType: "Infantry_42", count: 9 }, { unitType: "Paratrooper", count: 6 }, { unitType: "Medium_Tank", count: 3 }] },
+      { tile: "bot", hex: { q: 1, r: 0 }, battlefieldProfile: "openCountry", forces: [{ unitType: "Infantry_42", count: 21 }] }
     ],
     fronts: [], objectives: [],
     economies: ["Player", "Bot"].map(faction => ({ faction, manpower: 100000, supplies: 1000, fuel: 1000, ammo: 1000, airPower: 0, navalPower: 0, intelCoverage: 0 }))

@@ -7,8 +7,8 @@
  * derive from the mission type and the pool's mapped RP value.
  *
  * The generated scenario is cached per engagement id so PrecombatScreen and BattleScreen receive
- * the identical object. Every failure path falls back to the legacy default scenario — battle
- * generation must never block the player from fighting.
+ * the identical object. Invalid campaign, template, geography, or commitment identity fails closed
+ * before tactical play can diverge from campaign truth.
  *
  * Design reference: docs/CAMPAIGN_BATTLE_GENERATION_DESIGN.md ("Enemy force generation").
  */
@@ -239,13 +239,22 @@ export function generateCampaignBattleScenario(
   }
   const template = effectiveContext.templateKey
     ? getBattleTemplateByKey(effectiveContext.templateKey)
-    : selectBattleTemplate(effectiveContext.missionType, effectiveContext.coastal, effectiveContext.engagementId, campaignKey);
-  if (!template || !template.campaignKeys.includes(campaignKey)) {
+    : effectiveContext.battlefieldProfile
+      ? selectBattleTemplate(
+          effectiveContext.missionType,
+          effectiveContext.battlefieldProfile,
+          effectiveContext.engagementId,
+          campaignKey
+        )
+      : null;
+  if (!template || !template.campaignKeys.includes(campaignKey)
+    || !template.missionTypes.includes(effectiveContext.missionType)
+    || (effectiveContext.battlefieldProfile
+      && !template.battlefieldProfiles.includes(effectiveContext.battlefieldProfile))) {
     throw new Error(`[CampaignBattleGenerator] Template '${effectiveContext.templateKey ?? "unresolved"}' is not compatible with campaign '${campaignKey}'.`);
   }
   const scenario = structuredClone(template.scenario) as ScenarioSource & Record<string, unknown>;
   const playerDefense = effectiveContext.attacker === "Bot" && effectiveContext.defender === "Player";
-  const invertAuthoredSides = playerDefense && template.playerRole === "attacker";
 
   scenario["name"] = playerDefense
     ? `${MISSION_TYPE_LABELS[effectiveContext.missionType]} Defense — Hex ${effectiveContext.battleHexKey}`
@@ -254,6 +263,7 @@ export function generateCampaignBattleScenario(
   scenario["campaignTemplatePlayerRole"] = template.playerRole;
   scenario["campaignPlayerRole"] = playerDefense ? "defender" : "attacker";
   scenario["campaignMissionType"] = effectiveContext.missionType;
+  scenario["campaignBattlefieldProfile"] = effectiveContext.battlefieldProfile;
   scenario["campaignBattleHexKey"] = effectiveContext.battleHexKey;
   scenario["campaignEngagementId"] = effectiveContext.engagementId;
   scenario["campaignBattlePackageId"] = battlePackage?.packageId ?? null;
@@ -279,6 +289,20 @@ export function generateCampaignBattleScenario(
           : infrastructureFactor < 1 ? "damaged" : "intact";
   });
 
+  if (template.objectiveHexOverrides) {
+    const objectives = Array.isArray(scenario["objectives"])
+      ? scenario["objectives"] as Array<Record<string, unknown>>
+      : [];
+    if (template.objectiveHexOverrides.length !== objectives.length) {
+      throw new Error(
+        `[CampaignBattleGenerator] Template '${template.key}' declares ${template.objectiveHexOverrides.length} campaign objective positions for ${objectives.length} objectives.`
+      );
+    }
+    objectives.forEach((objective, index) => {
+      objective["hex"] = [...template.objectiveHexOverrides![index]!];
+    });
+  }
+
   const sides = scenario["sides"] as Record<string, Record<string, unknown>>;
   const player = sides?.["Player"];
   const bot = sides?.["Bot"];
@@ -289,38 +313,39 @@ export function generateCampaignBattleScenario(
 
   const authoredPlayerUnits = structuredClone((Array.isArray(player["units"]) ? player["units"] : []) as RawUnit[]);
   const authoredBotUnits = structuredClone((Array.isArray(bot["units"]) ? bot["units"] : []) as RawUnit[]);
+  const desiredPlayerRole = playerDefense ? "defender" : "attacker";
+  const invertAuthoredSides = template.playerRole !== desiredPlayerRole;
+  const templateUnits = invertAuthoredSides ? authoredPlayerUnits : authoredBotUnits;
   // A campaign package is the authoritative force contract for both sides. Template rosters are
   // placement anchors only; retaining authored Player units would silently add unrelated forces
   // beside the exact persistent formations the commander committed in precombat.
   player["units"] = [];
+  bot["units"] = [];
+  if (invertAuthoredSides) {
+    const deploymentZones = Array.isArray(scenario["deploymentZones"])
+      ? scenario["deploymentZones"] as Array<Record<string, unknown>>
+      : [];
+    deploymentZones.forEach((zone) => {
+      if (zone["faction"] === "Player") {
+        zone["faction"] = "Bot";
+        relabelInvertedDeploymentZone(zone, "Bot");
+      } else if (zone["faction"] === "Bot") {
+        zone["faction"] = "Player";
+        relabelInvertedDeploymentZone(zone, "Player");
+      }
+    });
+    const objectives = Array.isArray(scenario["objectives"])
+      ? scenario["objectives"] as Array<Record<string, unknown>>
+      : [];
+    objectives.forEach((objective) => {
+      if (objective["owner"] === "Player") objective["owner"] = "Bot";
+      else if (objective["owner"] === "Bot") objective["owner"] = "Player";
+    });
+    const playerHq = structuredClone(player["hq"]);
+    player["hq"] = structuredClone(bot["hq"]);
+    bot["hq"] = playerHq;
+  }
   if (playerDefense) {
-    // Attack-oriented maps must be inverted. Authored defensive maps (Bastogne, Kasserine,
-    // Anzio) already put Player on the defended ground, so their zones/objectives/HQ stay put.
-    if (invertAuthoredSides) {
-      const deploymentZones = Array.isArray(scenario["deploymentZones"])
-        ? scenario["deploymentZones"] as Array<Record<string, unknown>>
-        : [];
-      deploymentZones.forEach((zone) => {
-        if (zone["faction"] === "Player") {
-          zone["faction"] = "Bot";
-          relabelInvertedDeploymentZone(zone, "Bot");
-        } else if (zone["faction"] === "Bot") {
-          zone["faction"] = "Player";
-          relabelInvertedDeploymentZone(zone, "Player");
-        }
-      });
-      const objectives = Array.isArray(scenario["objectives"])
-        ? scenario["objectives"] as Array<Record<string, unknown>>
-        : [];
-      objectives.forEach((objective) => {
-        if (objective["owner"] === "Player") objective["owner"] = "Bot";
-        else if (objective["owner"] === "Bot") objective["owner"] = "Player";
-      });
-      const playerHq = structuredClone(player["hq"]);
-      player["hq"] = structuredClone(bot["hq"]);
-      bot["hq"] = playerHq;
-    }
-    bot["units"] = [];
     player["goal"] = "Hold the defended objectives and prevent an operational breakthrough.";
     player["strategy"] = "Use prepared ground, preserve the core formations, and counterattack only when the enemy attack loses cohesion.";
   }
@@ -342,9 +367,6 @@ export function generateCampaignBattleScenario(
     throw new Error(`[CampaignBattleGenerator] Engagement '${effectiveContext.engagementId}' has no committed opposing ground formation.`);
   }
 
-  const templateUnits = playerDefense
-    ? (invertAuthoredSides ? authoredPlayerUnits : authoredBotUnits)
-    : authoredBotUnits;
   const size = scenario["size"] as { cols: number; rows: number };
   const generated = buildBotRoster(
     effectiveContext,

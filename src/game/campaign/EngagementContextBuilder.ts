@@ -25,6 +25,7 @@ import {
   CAMPAIGN_NAVAL_UNIT_TYPES
 } from "./campaignForceMapping";
 import { hasBattleTemplatesForCampaign, selectBattleTemplate } from "./battleTemplates";
+import { resolveCampaignBattlefieldProfile } from "./campaignBattlefieldGeography";
 import { evaluateCampaignNavalSupport } from "./logistics/CampaignNavalSupportService";
 import type { CampaignRuntimeState } from "./runtime/campaignRuntimeTypes";
 
@@ -251,10 +252,16 @@ export function buildEngagementContext(
   const supplies = attackerEconomy?.supplies ?? 0;
   const rpReserve = Math.max(RP_RESERVE_FLOOR, Math.min(RP_RESERVE_CEILING, Math.floor(supplies / 4)));
   const missionType = deriveMissionType(scenario, options.battleHexKey);
+  const battlefieldProfile = resolveCampaignBattlefieldProfile(scenario, battleTile);
   if (!hasBattleTemplatesForCampaign(scenario.key)) {
     throw new Error(`[EngagementContextBuilder] Campaign '${scenario.key}' has no approved tactical template pool.`);
   }
-  const templateKey = selectBattleTemplate(missionType, coastal, options.engagementId, scenario.key).key;
+  const templateKey = selectBattleTemplate(
+    missionType,
+    battlefieldProfile,
+    options.engagementId,
+    scenario.key
+  ).key;
 
   return {
     engagementId: options.engagementId,
@@ -265,6 +272,7 @@ export function buildEngagementContext(
     // Full amphibious (cross-water assault) detection is future work; coastal steers templates now.
     amphibious: false,
     coastal,
+    battlefieldProfile,
     ...(battleInfrastructure ? {
       infrastructureEffectiveness: battleInfrastructure.effectiveness,
       infrastructureIntegrity: battleInfrastructure.integrity,
