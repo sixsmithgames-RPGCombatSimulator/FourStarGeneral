@@ -494,6 +494,53 @@ registerTest("CAMPAIGN_STATE_LOAD_REACHES_THE_CERTIFIED_FULL_THEATER_MIGRATION",
   });
 });
 
+registerTest("CAMPAIGN_SAVE_UPGRADES_UNCOMMITTED_LEGACY_PLANS_TO_LOCAL_TACTICAL_GEOGRAPHY", async ({ Given, When, Then }) => {
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  const definition = splitLegacyCampaignScenario(scenario);
+  const state = new CampaignState({ legacyStorage: null });
+  state.setScenario(scenario);
+  const engagementId = "legacy-douvres-plan";
+  const prepared = state.prepareCampaignFrontEngagement({
+    engagementId,
+    frontKey: "juno_sword",
+    attacker: "Player",
+    requestedTargetHexKey: "29,23"
+  });
+  if (!prepared.ok) throw new Error(`Douvres migration fixture could not prepare: ${prepared.reason}`);
+  state.setPendingEngagements([prepared.engagement]);
+  state.setActiveEngagementId(engagementId);
+  const prior = state.getRuntimeSnapshot();
+  if (!prior) throw new Error("Douvres migration fixture did not create a runtime.");
+  const legacyContext = prior.engagements[engagementId]?.engagement.context as unknown as {
+    battlefieldProfile?: string;
+    templateKey?: string;
+  } | null;
+  if (!legacyContext || prior.engagementLedger[engagementId]?.package) {
+    throw new Error("Douvres migration fixture did not create an uncommitted planning context.");
+  }
+  delete legacyContext.battlefieldProfile;
+  legacyContext.templateKey = "line_hurtgen_forest";
+  let migrated: ReturnType<typeof migrateCampaignRuntimeContent>;
+
+  await Given("a current-content campaign save whose uncommitted Douvres plan predates battlefield profiles", () => {});
+  await When("the normal content migration reconciles the planning-only engagement", () => {
+    migrated = migrateCampaignRuntimeContent(prior, definition);
+  });
+  await Then("the plan selects the certified low coastal map without changing campaign progress", () => {
+    const context = migrated.runtime.engagements[engagementId]?.engagement.context;
+    if (!migrated.migrated
+      || context?.battlefieldProfile !== "lowCoastalBeach"
+      || context.templateKey !== "line_gela_low_coast"
+      || migrated.runtime.engagementLedger[engagementId]?.package !== null
+      || migrated.runtime.activeEngagementId !== engagementId
+      || migrated.runtime.revision !== prior.revision
+      || migrated.runtime.currentSegment !== prior.currentSegment
+      || migrated.runtime.factions.Player.economy.supplies !== prior.factions.Player.economy.supplies) {
+      throw new Error("The legacy Douvres plan did not upgrade to its local coastal tactical geography.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_SAVE_PRESERVES_PROGRESS_ACROSS_THEATER_SUPPORT_CORRECTION", async ({ Given, When, Then }) => {
   const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
   const definition = splitLegacyCampaignScenario(scenario);

@@ -17,6 +17,9 @@ import { createCampaignRuntime, projectLegacyCampaignState } from "../runtime/Ca
 import type { CampaignRuntimeState, CampaignScenarioDefinition } from "../runtime/campaignRuntimeTypes";
 import { createCampaignKnowledgeState } from "../../../state/CampaignIntelligence";
 import { CampaignSaveError } from "./CampaignSaveTypes";
+import { campaignOffsetKeyToRuntimeHexKey } from "../orders/CampaignOrderService";
+import { resolveCampaignBattlefieldProfile } from "../campaignBattlefieldGeography";
+import { selectBattleTemplate } from "../battleTemplates";
 
 /** Exact production content identity immediately before the actionable-contact geometry repair. */
 export const CENTRAL_CHANNEL_PRE_CONTACT_CONTENT_HASH = "fnv1a32-9f497e04";
@@ -77,6 +80,11 @@ export interface CampaignFormationIdentityReconciliationResult {
   readonly changedFormationIds: readonly string[];
 }
 
+export interface CampaignBattlefieldContextReconciliationResult {
+  readonly runtime: CampaignRuntimeState;
+  readonly changedEngagementIds: readonly string[];
+}
+
 /**
  * Reconciles the persisted display snapshot from stable origin metadata without changing IDs,
  * placement, lifecycle state, orders, reservations, or integrity-bound historical records.
@@ -95,6 +103,55 @@ export function reconcileSavedCampaignFormationIdentities(
     changedFormationIds.push(formationId);
   });
   return { runtime, changedFormationIds };
+}
+
+/**
+ * Upgrades only engagements that have not frozen forces or entered battle. A loaded planning
+ * opportunity is still a proposal, so its map must reflect current theater geography. Committed
+ * packages and legacy in-battle records remain byte-for-byte historical evidence.
+ */
+export function reconcileUncommittedCampaignBattlefieldContexts(
+  source: CampaignRuntimeState
+): CampaignBattlefieldContextReconciliationResult {
+  const runtime = structuredClone(source);
+  const changedEngagementIds: string[] = [];
+  if (runtime.scenarioKey !== "central_channel") return { runtime, changedEngagementIds };
+
+  runtime.engagementOrder.forEach((engagementId) => {
+    const engagement = runtime.engagements[engagementId];
+    const ledger = runtime.engagementLedger[engagementId];
+    const context = engagement?.engagement.context;
+    if (!engagement || !context || ledger?.package
+      || (engagement.status !== "opportunity" && engagement.status !== "planned")) return;
+
+    const runtimeHexKey = campaignOffsetKeyToRuntimeHexKey(context.battleHexKey);
+    const tile = runtimeHexKey ? runtime.tiles[runtimeHexKey] : null;
+    if (!tile) {
+      throw new CampaignSaveError(
+        "CONTENT_MISMATCH",
+        `Uncommitted engagement ${engagementId} targets a campaign hex that no longer exists.`,
+        { scenarioKey: runtime.scenarioKey, engagementId, battleHexKey: context.battleHexKey }
+      );
+    }
+    const battlefieldProfile = resolveCampaignBattlefieldProfile(
+      { key: runtime.scenarioKey },
+      {
+        tile: tile.tileKey,
+        hex: tile.hex,
+        ...(tile.battlefieldProfile ? { battlefieldProfile: tile.battlefieldProfile } : {})
+      }
+    );
+    const templateKey = selectBattleTemplate(
+      context.missionType,
+      battlefieldProfile,
+      context.engagementId,
+      runtime.scenarioKey
+    ).key;
+    if (context.battlefieldProfile === battlefieldProfile && context.templateKey === templateKey) return;
+    engagement.engagement.context = { ...context, battlefieldProfile, templateKey };
+    changedEngagementIds.push(engagementId);
+  });
+  return { runtime, changedEngagementIds };
 }
 
 function cloneAuthoredFronts(definition: CampaignScenarioDefinition): CampaignRuntimeState["compatibility"]["initialFronts"] {
@@ -268,14 +325,17 @@ export function migrateCampaignRuntimeContent(
   definition: CampaignScenarioDefinition
 ): CampaignContentMigrationResult {
   const identityReconciliation = reconcileSavedCampaignFormationIdentities(input);
-  const source = identityReconciliation.runtime;
+  const battlefieldReconciliation = reconcileUncommittedCampaignBattlefieldContexts(identityReconciliation.runtime);
+  const source = battlefieldReconciliation.runtime;
+  const runtimeMetadataMigrated = identityReconciliation.changedFormationIds.length > 0
+    || battlefieldReconciliation.changedEngagementIds.length > 0;
   const currentHash = computeCampaignContentHash(definition);
   if (source.scenarioKey !== definition.key) {
     throw contentMismatch("Campaign save belongs to a different authored scenario.", source, currentHash);
   }
   if (source.scenarioContentHash === currentHash) {
     assertCampaignRuntimeState(source);
-    return { runtime: source, migrated: identityReconciliation.changedFormationIds.length > 0 };
+    return { runtime: source, migrated: runtimeMetadataMigrated };
   }
 
   if (definition.key === "central_channel"
