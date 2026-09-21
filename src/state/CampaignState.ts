@@ -1,12 +1,13 @@
-import type {
-  CampaignDecision,
-  CampaignEngagementContext,
-  CampaignFactionKey,
-  CampaignPendingEngagement,
-  CampaignScenarioData,
-  CampaignTurnState,
-  CampaignTileInstance,
-  ProductionAllocation
+import {
+  SEGMENTS_PER_DAY,
+  type CampaignDecision,
+  type CampaignEngagementContext,
+  type CampaignFactionKey,
+  type CampaignPendingEngagement,
+  type CampaignScenarioData,
+  type CampaignTurnState,
+  type CampaignTileInstance,
+  type ProductionAllocation
 } from "../core/campaignTypes";
 import type {
   CampaignIntelBriefEvent,
@@ -19,6 +20,7 @@ import type {
 import { axialKey, hexDistance, hexLine, neighbors } from "../core/Hex";
 import type { ScenarioUnit } from "../core/types";
 import { getTransportMode, TRANSPORT_MODES } from "../data/transportModes";
+import { formatCampaignSegmentTime } from "../game/campaign/CampaignSegmentTime";
 import {
   buildEngagementContext,
   type BuildEngagementContextOptions
@@ -1063,13 +1065,13 @@ export class CampaignState {
     if (!report || action.availability !== "available") {
       return { action, normalizedAllocation, dailyOutput: report ? computeDailyProduction(report.capacity, normalizedAllocation) : null, effectiveSegment: null };
     }
-    const remainder = this.runtime?.currentSegment ? this.runtime.currentSegment % 8 : 0;
+    const remainder = this.runtime?.currentSegment ? this.runtime.currentSegment % SEGMENTS_PER_DAY : 0;
     const currentSegment = this.runtime?.currentSegment ?? 0;
     return {
       action,
       normalizedAllocation,
       dailyOutput: computeDailyProduction(report.capacity, normalizedAllocation),
-      effectiveSegment: currentSegment + (remainder === 0 ? 8 : 8 - remainder)
+      effectiveSegment: currentSegment + (remainder === 0 ? SEGMENTS_PER_DAY : SEGMENTS_PER_DAY - remainder)
     };
   }
 
@@ -1278,8 +1280,8 @@ export class CampaignState {
     const normalized = preview.normalizedAllocation;
     if (!normalized) return { ok: false, reason: "Allocation must be greater than zero." };
     const currentSegment = this.runtime.currentSegment;
-    const remainder = currentSegment % 8;
-    const effectiveSegment = currentSegment + (remainder === 0 ? 8 : 8 - remainder);
+    const remainder = currentSegment % SEGMENTS_PER_DAY;
+    const effectiveSegment = currentSegment + (remainder === 0 ? SEGMENTS_PER_DAY : SEGMENTS_PER_DAY - remainder);
     let createdId: string | null = null;
     const result = this.transactCampaignOrders(
       "orders:create-production-draft",
@@ -2888,49 +2890,17 @@ export class CampaignState {
 
   /** Returns the current day number (1-based). */
   getCurrentDay(): number {
-    return Math.floor(this.currentSegment / 8) + 1;
+    return Math.floor(this.currentSegment / SEGMENTS_PER_DAY) + 1;
   }
 
   /** Returns the segment within the current day (0-7). */
   getSegmentOfDay(): number {
-    return this.currentSegment % 8;
+    return this.currentSegment % SEGMENTS_PER_DAY;
   }
 
   /** Formats one deterministic campaign segment using authored historical context when available. */
   private formatSegmentTimeDisplay(segment: number): string {
-    const dayIndex = Math.floor(segment / 8);
-    const day = dayIndex + 1;
-    const segmentOfDay = segment % 8;
-    const hourStart = segmentOfDay * 3;
-    const hourEnd = hourStart + 3;
-    const formatHour = (hour: number): string => hour.toString().padStart(2, "0");
-    const calendar = this.scenario?.historicalCalendar;
-    if (!calendar) {
-      return `Day ${day}, ${formatHour(hourStart)}:00-${formatHour(hourEnd)}:00`;
-    }
-
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(calendar.startDateIso);
-    if (!match) {
-      throw new Error(`[CampaignState] Invalid historical start date: ${calendar.startDateIso}. Use YYYY-MM-DD.`);
-    }
-    const startYear = Number(match[1]);
-    const startMonth = Number(match[2]) - 1;
-    const startDay = Number(match[3]);
-    const startDate = new Date(Date.UTC(startYear, startMonth, startDay));
-    if (startDate.getUTCFullYear() !== startYear
-      || startDate.getUTCMonth() !== startMonth
-      || startDate.getUTCDate() !== startDay) {
-      throw new Error(`[CampaignState] Historical start date does not exist: ${calendar.startDateIso}.`);
-    }
-    const displayDate = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-    const monthNames = [
-      "January", "February", "March", "April", "May", "June",
-      "July", "August", "September", "October", "November", "December"
-    ] as const;
-    const operationDay = calendar.operationDayOffset + dayIndex;
-    const operationDayLabel = operationDay === 0 ? "D-Day" : operationDay > 0 ? `D+${operationDay}` : `D${operationDay}`;
-    const dateLabel = `${displayDate.getUTCDate()} ${monthNames[displayDate.getUTCMonth()]} ${displayDate.getUTCFullYear()}`;
-    return `${operationDayLabel} · ${dateLabel}, ${formatHour(hourStart)}:00–${formatHour(hourEnd)}:00`;
+    return formatCampaignSegmentTime(segment, this.scenario?.historicalCalendar).displayLabel;
   }
 
   /**
@@ -3129,13 +3099,13 @@ export class CampaignState {
     sources.sort((a, b) => b.capacity - a.capacity);
 
     const allocation = this.getProductionAllocation();
-    const remainder = this.currentSegment % 8;
+    const remainder = this.currentSegment % SEGMENTS_PER_DAY;
     return {
       capacity,
       allocation,
       daily: computeDailyProduction(capacity, allocation),
       sources,
-      segmentsUntilNextTick: remainder === 0 ? 8 : 8 - remainder
+      segmentsUntilNextTick: remainder === 0 ? SEGMENTS_PER_DAY : SEGMENTS_PER_DAY - remainder
     };
   }
 

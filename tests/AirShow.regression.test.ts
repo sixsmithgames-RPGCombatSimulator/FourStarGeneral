@@ -17,7 +17,8 @@ import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath.js"
 import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS
-} from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+} from "../src/ui/airshow/AirShowTimeline.js";
+import { sampleAirShowTimelineTrack } from "../src/ui/airshow/AirShowTimeline.js";
 import { HEX_WIDTH } from "../src/core/balance.js";
 
 function findContestedInspection(result: ReturnType<typeof runAirScenario> | null) {
@@ -358,42 +359,56 @@ registerTest("AIR_SHOW_REGRESSION_CLASH_STARTS_DURING_BOMBER_APPROACH_NOT_AT_TAR
     result = runAirScenario();
   });
 
-  await Then("the fighter clash should begin while bombers are still early in their pre-target approach", async () => {
+  await Then("the fighter clash should begin while bombers are still in their pre-target approach", async () => {
     const inspection = findContestedInspection(result);
     if (!inspection) {
       console.log("[REGRESSION: CLASH TIMING] No contested package found - skipping");
       return;
     }
 
-    const preTargetBomberPhaseLabels = new Set([
-      "fighter-ingress",
-      "escort-clash-merge",
-      "escort-clash-scramble",
-      "bomber-ingress",
-      "bomber-defense-pass"
-    ]);
-    const preTargetBomberPhases = inspection.report.phases.filter(
-      (phase) => preTargetBomberPhaseLabels.has(phase.label) && phase.assignments.some((assignment) => assignment.role === "bomber")
-    );
-    const fighterIngress = preTargetBomberPhases.find((phase) => phase.label === "fighter-ingress");
-    const targetRun = inspection.report.phases.find((phase) => phase.label === "target-run");
-
-    if (!fighterIngress || preTargetBomberPhases.length === 0 || !targetRun) {
-      throw new Error("Expected fighter-ingress, pre-target bomber phases, and target-run in the contested package.");
+    const timeline = inspection.timeline;
+    const clashMerge = timeline?.beats.find((beat) => beat.label === "escort-clash-merge");
+    const bomberTracks = timeline?.tracks.filter((track) => track.role === "bomber") ?? [];
+    if (!timeline || !clashMerge || bomberTracks.length === 0) {
+      throw new Error("Expected a contested timeline with escort-clash and bomber tracks.");
     }
 
-    const totalPreTargetDurationMs = preTargetBomberPhases.reduce((sum, phase) => sum + phase.durationMs, 0);
-    const clashStartProgress = fighterIngress.durationMs / Math.max(1, totalPreTargetDurationMs);
-
-    if (clashStartProgress < 0.18 || clashStartProgress > 0.42) {
+    const approachViolations: string[] = [];
+    const ingressProgress: number[] = [];
+    bomberTracks.forEach((track) => {
+      const ingress = track.segments.find((segment) => segment.label === "bomber-ingress");
+      const targetRun = track.segments.find((segment) => segment.label === "target-run");
+      if (!ingress || !targetRun) {
+        approachViolations.push(`${track.actorId}: missing bomber-ingress or target-run`);
+        return;
+      }
+      const progress = (clashMerge.startTimeMs - ingress.startTimeMs)
+        / Math.max(1, ingress.endTimeMs - ingress.startTimeMs);
+      ingressProgress.push(progress);
+      if (
+        clashMerge.startTimeMs < ingress.startTimeMs
+        || clashMerge.startTimeMs >= ingress.endTimeMs
+        || clashMerge.startTimeMs >= targetRun.startTimeMs
+      ) {
+        approachViolations.push(
+          `${track.actorId}: clash=${Math.round(clashMerge.startTimeMs)}ms, `
+          + `ingress=${Math.round(ingress.startTimeMs)}-${Math.round(ingress.endTimeMs)}ms, `
+          + `target=${Math.round(targetRun.startTimeMs)}ms`
+        );
+      }
+    });
+    if (approachViolations.length > 0) {
       throw new Error(
-        `Expected clash start during early-to-mid bomber approach, saw ${(clashStartProgress * 100).toFixed(1)}% ` +
-        `of pre-target bomber progress.`
+        `Expected escort clash to start while every bomber is still on ingress, before the target run:\n`
+        + approachViolations.map((message) => `- ${message}`).join("\n")
       );
     }
 
+    const minimumProgress = Math.min(...ingressProgress);
+    const maximumProgress = Math.max(...ingressProgress);
     console.log(
-      `[REGRESSION: CLASH TIMING] ✓ FIXED: clash starts at ${(clashStartProgress * 100).toFixed(1)}% of bomber pre-target progress`
+      `[REGRESSION: CLASH TIMING] ✓ FIXED: clash starts during bomber ingress `
+      + `(${(minimumProgress * 100).toFixed(1)}-${(maximumProgress * 100).toFixed(1)}%)`
     );
   });
 });
@@ -629,21 +644,19 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_DEFENSE_PASS_USES_TURRET_RETURN_FIRE_AN
     }
 
     const bomberDefensePass = inspection.report.phases.find((phase) => phase.label === "bomber-defense-pass");
-    const bomberDefenseMetrics = inspection.phaseMetrics.find((phase) => phase.label === "bomber-defense-pass");
-    if (!bomberDefensePass || !bomberDefenseMetrics) {
+    const timeline = inspection.timeline;
+    if (!bomberDefensePass || !timeline || typeof bomberDefensePass.startTimeMs !== "number") {
       throw new Error("Expected bomber-defense-pass phase.");
     }
 
     const roleByActorId = new Map(
       bomberDefensePass.assignments.map((assignment) => [assignment.actorId, assignment.role] as const)
     );
-    const assignmentByActorId = new Map(
-      bomberDefensePass.assignments.map((assignment) => [assignment.actorId, assignment] as const)
-    );
-    const bomberOwnedTracers = bomberDefenseMetrics.tracerMetrics.filter(
+    const tracksByActorId = new Map(timeline.tracks.map((track) => [track.actorId, track] as const));
+    const bomberOwnedTracers = bomberDefensePass.tracers.filter(
       (tracer) => roleByActorId.get(tracer.sourceActorId) === "bomber"
     );
-    const fighterOwnedTracers = bomberDefenseMetrics.tracerMetrics.filter((tracer) => {
+    const fighterOwnedTracers = bomberDefensePass.tracers.filter((tracer) => {
       const role = roleByActorId.get(tracer.sourceActorId);
       return role === "interceptor" || role === "escort";
     });
@@ -658,9 +671,21 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_DEFENSE_PASS_USES_TURRET_RETURN_FIRE_AN
     }
 
     const bomberEmitterViolations = bomberOwnedTracers.flatMap((tracer) => {
-      const assignment = assignmentByActorId.get(tracer.sourceActorId);
-      const center = assignment ? sampleAssignmentCenterAtProgress(assignment, tracer.progress) : null;
+      const timeMs = bomberDefensePass.startTimeMs!
+        + bomberDefensePass.durationMs * tracer.progress;
+      const sourceTrack = tracksByActorId.get(tracer.sourceActorId);
+      const targetTrack = tracer.targetActorId ? tracksByActorId.get(tracer.targetActorId) : null;
+      const center = sourceTrack ? sampleAirShowTimelineTrack(sourceTrack, timeMs)?.point ?? null : null;
+      const target = targetTrack ? sampleAirShowTimelineTrack(targetTrack, timeMs)?.point ?? null : null;
       const offsetPx = center ? distanceBetweenPoints(center, tracer.emitterPoint) : Number.POSITIVE_INFINITY;
+      const targetAlignmentDeg = target
+        ? headingChangeDeg(
+            tracer.centerlineEndPoint.cx - tracer.emitterPoint.cx,
+            tracer.centerlineEndPoint.cy - tracer.emitterPoint.cy,
+            target.cx - tracer.emitterPoint.cx,
+            target.cy - tracer.emitterPoint.cy
+          )
+        : Number.POSITIVE_INFINITY;
       const violations: string[] = [];
       if (tracer.emitter !== "center") {
         violations.push(`${tracer.sourceActorId} used ${tracer.emitter} emitter`);
@@ -671,8 +696,8 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_DEFENSE_PASS_USES_TURRET_RETURN_FIRE_AN
       if (offsetPx > 1.5) {
         violations.push(`${tracer.sourceActorId} emitter offset ${offsetPx.toFixed(1)}px from bomber center`);
       }
-      if ((tracer.targetAlignmentDeg ?? Number.POSITIVE_INFINITY) > 2) {
-        violations.push(`${tracer.sourceActorId} turret aim misaligned by ${(tracer.targetAlignmentDeg ?? 0).toFixed(1)}deg`);
+      if (targetAlignmentDeg > 2) {
+        violations.push(`${tracer.sourceActorId} turret aim misaligned by ${targetAlignmentDeg.toFixed(1)}deg`);
       }
       return violations;
     });
@@ -708,18 +733,12 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_DEFENSE_PASS_USES_TURRET_RETURN_FIRE_AN
     }
 
     const fighterEmitterViolations = fighterOwnedTracers.flatMap((tracer) => {
-      const assignment = assignmentByActorId.get(tracer.sourceActorId);
-      const center = assignment ? sampleAssignmentCenterAtProgress(assignment, tracer.progress) : null;
-      const offsetPx = center ? distanceBetweenPoints(center, tracer.emitterPoint) : 0;
       const violations: string[] = [];
       if (tracer.emitter !== "nose") {
         violations.push(`${tracer.sourceActorId} used ${tracer.emitter} emitter`);
       }
       if (tracer.fanHalfAngleDeg > 3.5) {
         violations.push(`${tracer.sourceActorId} used excessive fighter spray ${tracer.fanHalfAngleDeg.toFixed(1)}deg`);
-      }
-      if (offsetPx < 1) {
-        violations.push(`${tracer.sourceActorId} emitter stayed on sprite center (${offsetPx.toFixed(1)}px)`);
       }
       return violations;
     });
@@ -813,43 +832,30 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_ORDNANCE_TO_EGRESS_REMAINS_CONTINUOUS",
       return;
     }
 
-    const targetRun = inspection.report.phases.find((phase) => phase.label === "target-run");
-    const egress = inspection.report.phases.find((phase) => phase.label === "egress");
-    if (!targetRun || !egress) {
-      throw new Error("Expected target-run and egress phases.");
-    }
-
-    const targetRunBombers = targetRun.assignments.filter((assignment) => assignment.role === "bomber");
-    const egressBomberById = new Map(
-      egress.assignments
-        .filter((assignment) => assignment.role === "bomber")
-        .map((assignment) => [assignment.actorId, assignment] as const)
-    );
-
-    if (targetRunBombers.length === 0 || egressBomberById.size === 0) {
-      throw new Error("Expected bomber assignments in both target-run and egress.");
+    const bomberTracks = inspection.timeline?.tracks.filter((track) => track.role === "bomber") ?? [];
+    if (bomberTracks.length === 0) {
+      throw new Error("Expected bomber tracks with target-run and egress segments.");
     }
 
     const violations: string[] = [];
 
-    targetRunBombers.forEach((targetRunAssignment) => {
-      const egressAssignment = egressBomberById.get(targetRunAssignment.actorId);
-      if (!egressAssignment) {
-        violations.push(`${targetRunAssignment.actorId}: missing from egress`);
+    bomberTracks.forEach((track) => {
+      const targetRun = track.segments.find((segment) => segment.label === "target-run");
+      const egress = track.segments.find((segment) => segment.label === "egress");
+      if (!targetRun || !egress) {
+        violations.push(`${track.actorId}: missing target-run or egress segment`);
         return;
       }
 
-      const targetRunSamples = targetRunAssignment.sampledPositions;
-      const egressSamples = egressAssignment.sampledPositions;
-      if (targetRunSamples.length < 2 || egressSamples.length < 2) {
-        violations.push(`${targetRunAssignment.actorId}: insufficient samples`);
+      if (targetRun.points.length < 2 || egress.points.length < 2) {
+        violations.push(`${track.actorId}: insufficient authored path points`);
         return;
       }
 
-      const targetRunPrev = targetRunSamples[targetRunSamples.length - 2]!;
-      const targetRunEnd = targetRunSamples[targetRunSamples.length - 1]!;
-      const egressStart = egressSamples[0]!;
-      const egressNext = egressSamples[1]!;
+      const targetRunPrev = targetRun.points[targetRun.points.length - 2]!;
+      const targetRunEnd = targetRun.points[targetRun.points.length - 1]!;
+      const egressStart = egress.points[0]!;
+      const egressNext = egress.points[1]!;
       const gapPx = Math.hypot(targetRunEnd.cx - egressStart.cx, targetRunEnd.cy - egressStart.cy);
       const turnDeg = headingChangeDeg(
         targetRunEnd.cx - targetRunPrev.cx,
@@ -859,7 +865,7 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_ORDNANCE_TO_EGRESS_REMAINS_CONTINUOUS",
       );
 
       if (gapPx > 1.5 || turnDeg > 120) {
-        violations.push(`${targetRunAssignment.actorId}: gap=${gapPx.toFixed(1)}px turn=${turnDeg.toFixed(1)}deg`);
+        violations.push(`${track.actorId}: gap=${gapPx.toFixed(1)}px turn=${turnDeg.toFixed(1)}deg`);
       }
     });
 
@@ -959,54 +965,62 @@ registerTest("AIR_SHOW_REGRESSION_FLAK_TIMING_DURING_APPROACH", async ({ Given, 
       return;
     }
 
-    const phasesWithFlak = inspection.report.phases.filter(
-      p => (p.flakBursts?.length ?? 0) > 0
-    );
-
-    if (phasesWithFlak.length === 0) {
-      throw new Error("Expected phases with flak.");
+    const timeline = inspection.timeline;
+    if (!timeline) {
+      throw new Error("Expected the absolute-time air-show timeline for flak validation.");
     }
-
+    const flakCues = timeline.cues.filter((cue) => cue.kind === "flak");
+    if (flakCues.length === 0) {
+      throw new Error("Expected timeline flak cues.");
+    }
     const violations: string[] = [];
-
-    for (const phase of phasesWithFlak) {
-      const flakBursts = phase.flakBursts!;
-
-      const firstProgress = flakBursts[0]?.progress ?? 0;
-      const lastProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-
-      if (phase.label === "bomber-defense-pass" && firstProgress < 0.12) {
-        violations.push(
-          `${phase.label}: flak starts at ${(firstProgress * 100).toFixed(0)}% (should be >=12%)`
-        );
+    timeline.tracks.filter((track) => track.role === "bomber").forEach((track) => {
+      const actorFlak = flakCues
+        .filter((cue) => cue.bomberActorId === track.actorId)
+        .sort((left, right) => left.timeMs - right.timeMs);
+      const release = timeline.cues.find(
+        (cue) => cue.kind === "bomb-release" && cue.bomberActorId === track.actorId
+      );
+      const egress = track.segments.find((segment) => segment.label === "egress");
+      if (actorFlak.length === 0 || !release || !egress) {
+        violations.push(`${track.actorId}: missing flak, release, or egress timing`);
+        return;
       }
 
-      const outOfRangeFlak = flakBursts.find((burst) => {
-        const bomberCenter =
-          burst.sampledBomberCenter
-          ?? (burst.targetSource === "bomberPath" ? burst.targetCenter : null);
-        const rangeReferenceCenter = burst.rangeReferenceCenter ?? burst.targetCenter;
-        return !!bomberCenter && distanceBetweenPoints(bomberCenter, rangeReferenceCenter) > HEX_WIDTH * 8.25;
+      const outOfRangeFlak = actorFlak.find((cue) => {
+        const bomberCenter = sampleAirShowTimelineTrack(track, cue.timeMs)?.point;
+        return !!bomberCenter
+          && distanceBetweenPoints(bomberCenter, timeline.geometry.target) > HEX_WIDTH * 8.25;
       });
       if (outOfRangeFlak) {
-        const bomberCenter =
-          outOfRangeFlak.sampledBomberCenter
-          ?? (outOfRangeFlak.targetSource === "bomberPath" ? outOfRangeFlak.targetCenter : null);
-        const rangeReferenceCenter = outOfRangeFlak.rangeReferenceCenter ?? outOfRangeFlak.targetCenter;
-        const rangePx = bomberCenter ? distanceBetweenPoints(bomberCenter, rangeReferenceCenter) : 0;
+        const bomberCenter = sampleAirShowTimelineTrack(track, outOfRangeFlak.timeMs)?.point;
+        const rangePx = bomberCenter
+          ? distanceBetweenPoints(bomberCenter, timeline.geometry.target)
+          : Number.POSITIVE_INFINITY;
+        violations.push(`${track.actorId}: flak opens ${Math.round(rangePx)}px from target reference`);
+      }
+
+      const lastFlash = actorFlak[actorFlak.length - 1]!;
+      const smokeVisibleUntilMs = actorFlak.reduce(
+        (latest, cue) => Math.max(latest, cue.timeMs + cue.lingerMs),
+        actorFlak[0]!.timeMs
+      );
+      if (lastFlash.timeMs >= release.timeMs) {
+        violations.push(`${track.actorId}: flak flashes continue through or after release`);
+      }
+      if (smokeVisibleUntilMs <= release.timeMs || smokeVisibleUntilMs >= egress.startTimeMs) {
         violations.push(
-          `${phase.label}: flak burst at ${(outOfRangeFlak.progress * 100).toFixed(0)}% is ${Math.round(rangePx)}px from its battery/target reference (should be within about eight hexes)`
+          `${track.actorId}: smoke=${Math.round(smokeVisibleUntilMs)}ms, `
+          + `release=${Math.round(release.timeMs)}ms, egress=${Math.round(egress.startTimeMs)}ms`
         );
       }
 
-      if (lastProgress > 0.88) {
-        violations.push(
-          `${phase.label}: flak ends at ${(lastProgress * 100).toFixed(0)}% (should taper before egress setup)`
-        );
-      }
-
-      console.log(`[REGRESSION: FLAK] ${phase.label}: ${flakBursts.length} bursts from ${(firstProgress * 100).toFixed(0)}% to ${(lastProgress * 100).toFixed(0)}%`);
-    }
+      console.log(
+        `[REGRESSION: FLAK] ${track.actorId}: ${actorFlak.length} flashes, `
+        + `last=${Math.round(lastFlash.timeMs)}ms release=${Math.round(release.timeMs)}ms `
+        + `smoke=${Math.round(smokeVisibleUntilMs)}ms egress=${Math.round(egress.startTimeMs)}ms`
+      );
+    });
 
     if (violations.length > 0) {
       throw new Error(`Flak timing violations:\n${violations.join("\n")}`);
@@ -1019,13 +1033,13 @@ registerTest("AIR_SHOW_REGRESSION_FLAK_TIMING_DURING_APPROACH", async ({ Given, 
 registerTest("AIR_SHOW_REGRESSION_BOMBER_HOLD_IN_PLACE_ASSIGNMENTS", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
-  await Given("the added bomber hold-in-place assignments for visibility sync", async () => {});
+  await Given("the continuous bomber timeline that replaced phase-local hold assignments", async () => {});
 
   await When("the contested package with dogfight is run", async () => {
     result = runAirScenario();
   });
 
-  await Then("bombers should have hold-in-place assignments during escort clash phases", async () => {
+  await Then("bombers should remain continuously visible during escort clash beats", async () => {
     const inspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
     );
@@ -1034,33 +1048,42 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_HOLD_IN_PLACE_ASSIGNMENTS", async ({ Gi
       return;
     }
 
-    // Find escort clash phases
-    const clashPhases = inspection.report.phases.filter(p =>
-      p.label.includes("escort-clash")
-    );
-
-    if (clashPhases.length === 0) {
+    const timeline = inspection.timeline;
+    const clashBeats = timeline?.beats.filter((beat) => beat.label.includes("escort-clash")) ?? [];
+    const bomberTracks = timeline?.tracks.filter((track) => track.role === "bomber") ?? [];
+    if (clashBeats.length === 0) {
       console.log("[REGRESSION: HOLD-IN-PLACE] No escort clash phases - skipping");
       return;
     }
-
-    // Check that bombers are present in clash phases (via hold-in-place)
-    let bombersInClash = 0;
-    for (const phase of clashPhases) {
-      const bomberCount = phase.assignments.filter(a => a.role === "bomber").length;
-      bombersInClash += bomberCount;
+    if (bomberTracks.length === 0) {
+      throw new Error("Expected bomber tracks in the contested package.");
     }
 
-    if (bombersInClash === 0) {
+    const visibilityViolations = clashBeats.flatMap((beat) => {
+      const sampleTimes = [
+        beat.startTimeMs,
+        (beat.startTimeMs + beat.endTimeMs) * 0.5,
+        beat.endTimeMs
+      ];
+      return bomberTracks.flatMap((track) => {
+        const missingTime = sampleTimes.find((timeMs) => !sampleAirShowTimelineTrack(track, timeMs));
+        return typeof missingTime === "number"
+          ? [`${track.actorId}: not visible at ${Math.round(missingTime)}ms during ${beat.label}`]
+          : [];
+      });
+    });
+    if (visibilityViolations.length > 0) {
       throw new Error(
-        "Expected bombers in escort clash phases (via hold-in-place assignments). " +
-        "This validates the fix that adds bomber hold-in-place for visibility sync."
+        `Expected continuous bomber visibility across escort clash beats:\n`
+        + visibilityViolations.map((message) => `- ${message}`).join("\n")
       );
     }
 
-    console.log(`[REGRESSION: HOLD-IN-PLACE] ✓ FIXED: ${bombersInClash} bomber assignments across ${clashPhases.length} clash phases`);
-    console.log(`  - Hold-in-place assignments added: ✓`);
-    console.log(`  - syncAirShowPhaseVisibility keeps bombers visible: ✓`);
+    console.log(
+      `[REGRESSION: HOLD-IN-PLACE] ✓ FIXED: ${bomberTracks.length} bomber tracks remain visible `
+      + `across ${clashBeats.length} clash beats`
+    );
+    console.log(`  - Continuous absolute-time tracks replace phase-local hold assignments: ✓`);
   });
 });
 

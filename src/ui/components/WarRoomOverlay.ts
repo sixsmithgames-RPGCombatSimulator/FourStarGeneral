@@ -14,6 +14,7 @@ import type {
 } from "../../data/warRoomTypes";
 import { warRoomHotspotDefinitions } from "../../data/warRoomHotspots";
 import type { WarRoomDataProvider } from "./WarRoomDataProvider";
+import { ListenerLifecycle } from "../lifecycle/ListenerLifecycle";
 
 /**
  * Hotspot definition for interactive war room elements.
@@ -54,6 +55,8 @@ export class WarRoomOverlay {
   private readonly dataProvider: WarRoomDataProvider;
   private readonly hotspotDefinitions: ReadonlyArray<WarRoomHotspot>;
   private readonly closeListeners = new Set<() => void>();
+  private readonly acknowledgedDirectives = new Set<string>();
+  private readonly lifecycle = new ListenerLifecycle();
   private activeHotspot: WarRoomHotspot | null = null;
   private unsubscribeProvider: (() => void) | null = null;
 
@@ -336,7 +339,8 @@ export class WarRoomOverlay {
       }
       case "campaignClock": {
         const timing = payload as CampaignTiming;
-        return `Day ${timing.day}, ${timing.time}. ${timing.note}`;
+        const dayLabel = timing.dayLabel ?? `Day ${timing.day}`;
+        return `${dayLabel}${timing.time ? `, ${timing.time}` : ""}. ${timing.note}`;
       }
       default:
         return "";
@@ -350,11 +354,7 @@ export class WarRoomOverlay {
     return this.hotspotDefinitions as WarRoomHotspot[];
   }
 
-  /**
-   * Retrieves war room data.
-   * TODO: Wire to actual data source (state management, API, etc.)
-   * For now, returns sample data for development.
-   */
+  /** Retrieves the latest provider-owned War Room snapshot. */
   private getWarRoomData(): WarRoomData {
     return this.dataProvider.getSnapshot();
   }
@@ -363,21 +363,21 @@ export class WarRoomOverlay {
    * Binds event handlers.
    */
   private bindEvents(): void {
-    this.closeButton.addEventListener("click", () => this.close());
+    this.lifecycle.addEventListener(this.closeButton, "click", () => this.close());
 
-    this.overlay.addEventListener("click", (event) => {
+    this.lifecycle.addEventListener(this.overlay, "click", (event) => {
       if (event.target === this.overlay) {
         this.close();
       }
     });
 
     // Close the detail panel via its own X button.
-    this.detailCloseButton.addEventListener("click", (event) => {
+    this.lifecycle.addEventListener(this.detailCloseButton, "click", (event) => {
       event.stopPropagation();
       this.closeDetail();
     });
 
-    this.detailBody.addEventListener("click", (event) => {
+    this.lifecycle.addEventListener(this.detailBody, "click", (event) => {
       const actionButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-war-room-action]");
       if (!actionButton) {
         return;
@@ -388,11 +388,34 @@ export class WarRoomOverlay {
         event.preventDefault();
         event.stopPropagation();
         document.dispatchEvent(new CustomEvent("warroom:openBattleRequisitions"));
+        return;
+      }
+
+      if (action === "acknowledge-directive") {
+        event.preventDefault();
+        event.stopPropagation();
+        const index = Number.parseInt(actionButton.dataset.directiveIndex ?? "", 10);
+        const directive = Number.isInteger(index)
+          ? this.getWarRoomData().commandOrders[index]
+          : undefined;
+        if (!directive) {
+          this.announceMessage("That directive is no longer active. Review the current Command Orders list.");
+          if (this.activeHotspot?.dataKey === "commandOrders") {
+            this.renderHotspotDetail(this.activeHotspot);
+          }
+          return;
+        }
+
+        this.acknowledgedDirectives.add(this.getDirectiveKey(directive));
+        if (this.activeHotspot?.dataKey === "commandOrders") {
+          this.renderHotspotDetail(this.activeHotspot);
+        }
+        this.announceMessage(`${directive.title} acknowledged.`);
       }
     });
 
     // Clicking anywhere on the surface that is not inside the detail panel or a hotspot closes the detail panel.
-    this.dialog.addEventListener("click", (event) => {
+    this.lifecycle.addEventListener(this.dialog, "click", (event) => {
       if (!this.isDetailOpen()) return;
       const target = event.target as HTMLElement | null;
       if (!target) return;
@@ -402,7 +425,7 @@ export class WarRoomOverlay {
     });
 
     // Keyboard shortcuts for quick navigation; Escape closes the detail first, then the overlay.
-    this.overlay.addEventListener("keydown", (event) => {
+    this.lifecycle.addEventListener(this.overlay, "keydown", (event) => {
       const e = event as KeyboardEvent;
       switch (e.key) {
         case "Escape":
@@ -510,7 +533,7 @@ export class WarRoomOverlay {
       }
       case "campaignClock": {
         const c = payload as CampaignTiming | undefined;
-        return c?.day ? `Day ${c.day}` : "";
+        return c ? c.dayLabel ?? `Day ${c.day}` : "";
       }
       default:
         return "";
@@ -550,6 +573,9 @@ export class WarRoomOverlay {
     const readiness = data.readinessState;
     const casualties = data.casualtyLedger;
     const clock = data.campaignClock;
+    const headquartersContext = clock.phase
+      ? [clock.dayLabel ?? `Day ${clock.day}`, clock.time].filter(Boolean).join(" · ")
+      : clock.note || `Turn ${clock.day}`;
     const supplyClass = supply.status === "critical" || supply.status === "low"
       ? ` war-room-command-chip--${supply.status}`
       : "";
@@ -562,7 +588,7 @@ export class WarRoomOverlay {
     this.commandStrip.innerHTML = `
       <div class="war-room-command-chip">
         <span>Headquarters</span>
-        <strong>${this.escapeHtml(clock.note || `Turn ${clock.day}`)}</strong>
+        <strong>${this.escapeHtml(headquartersContext)}</strong>
       </div>
       <div class="war-room-command-chip${supplyClass}">
         <span>Supply</span>
@@ -679,25 +705,28 @@ export class WarRoomOverlay {
         `;
       }
       case "commandOrders": {
-        // List actionable directives and expose placeholder action buttons for future command hooks.
         const directives = (payload as CommandDirective[]) ?? [];
         if (directives.length === 0) {
           return `<p class="war-room-empty">No active directives have been issued.</p>`;
         }
         return directives
           .map(
-            (directive) => `
+            (directive, index) => {
+              const acknowledged = this.acknowledgedDirectives.has(this.getDirectiveKey(directive));
+              const buttonLabel = acknowledged ? "Acknowledged" : "Acknowledge";
+              return `
               <article class="war-room-order">
                 <h4>${this.escapeHtml(directive.title)}</h4>
                 <p>${this.escapeHtml(directive.objective)}</p>
                 <footer class="war-room-order-footer">
                   <span class="war-room-order-priority">Priority: ${this.escapeHtml(directive.priority ?? "unspecified")}</span>
-                  <button type="button" class="war-room-action" data-war-room-action="acknowledge-directive">
-                    Acknowledge
+                  <button type="button" class="war-room-action" data-war-room-action="acknowledge-directive" data-directive-index="${index}"${acknowledged ? " disabled" : ""} aria-label="${this.escapeHtml(`${buttonLabel}: ${directive.title}`)}">
+                    ${buttonLabel}
                   </button>
                 </footer>
               </article>
-            `
+            `;
+            }
           )
           .join("");
       }
@@ -828,10 +857,11 @@ export class WarRoomOverlay {
         // Highlight campaign tempo so planners understand current operational window.
         const clock = (payload as CampaignTiming) ?? { day: 1, time: "0600", note: "", phase: "" };
         const phaseLine = clock.phase ? `<p class="war-room-phase">Current Phase: ${this.escapeHtml(clock.phase)}</p>` : "";
+        const timeLine = clock.time ? `<p class="war-room-time">${this.escapeHtml(clock.time)}</p>` : "";
         return `
           <section class="war-room-clock">
-            <p class="war-room-day">Day ${this.escapeHtml(clock.day)}</p>
-            <p class="war-room-time">${this.escapeHtml(clock.time)}</p>
+            <p class="war-room-day">${this.escapeHtml(clock.dayLabel ?? `Day ${clock.day}`)}</p>
+            ${timeLine}
             <p>${this.escapeHtml(clock.note)}</p>
             ${phaseLine}
           </section>
@@ -869,6 +899,11 @@ export class WarRoomOverlay {
     return Number(value.toFixed(1)).toString();
   }
 
+  /** Stable presentation key used to retain acknowledgement while a directive remains active. */
+  private getDirectiveKey(directive: CommandDirective): string {
+    return [directive.title, directive.objective, directive.deadline ?? ""].join("\u0000");
+  }
+
   /**
    * Registers a listener that fires whenever the overlay fully closes.
    */
@@ -881,6 +916,7 @@ export class WarRoomOverlay {
    * Clears the provider subscription when this component is no longer needed.
    */
   dispose(): void {
+    this.lifecycle.dispose();
     this.closeListeners.clear();
     if (this.unsubscribeProvider) {
       this.unsubscribeProvider();
@@ -889,6 +925,9 @@ export class WarRoomOverlay {
     if (typeof this.dataProvider.dispose === "function") {
       this.dataProvider.dispose();
     }
+    this.hotspotLayer.replaceChildren();
+    this.hotspotButtons = [];
+    this.activeHotspot = null;
   }
 
   /**

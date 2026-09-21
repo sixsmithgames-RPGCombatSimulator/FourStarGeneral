@@ -83,7 +83,9 @@ export interface AirshowTemporalAudit {
   readonly actorCount: number;
   readonly durationMs: number;
   readonly medianSampleIntervalMs: number;
+  readonly p99SampleIntervalMs: number;
   readonly maximumSampleGapMs: number;
+  readonly delayedSampleGapCount: number;
   readonly mergeMinimumOpposingDistancePx: number | null;
   readonly scrambleCentroidDistancePx: number | null;
   readonly scrambleNearestOpposingDistancePx: number | null;
@@ -112,6 +114,16 @@ export interface AirshowTemporalArtifactPaths {
   readonly summary: string;
 }
 
+export interface AirshowSampleCadenceAssessment {
+  readonly sampleIntervalCount: number;
+  readonly medianSampleIntervalMs: number;
+  readonly p99SampleIntervalMs: number;
+  readonly maximumSampleGapMs: number;
+  readonly delayedSampleGapCount: number;
+  readonly passed: boolean;
+  readonly message: string;
+}
+
 const FIGHTER_SPEED_PX_PER_MS = 0.115;
 const BOMBER_SPEED_PX_PER_MS = 0.0575;
 
@@ -129,6 +141,55 @@ function median(values: ReadonlyArray<number>): number {
   return sorted.length % 2 === 0
     ? (sorted[midpoint - 1]! + sorted[midpoint]!) / 2
     : sorted[midpoint]!;
+}
+
+function percentile(values: ReadonlyArray<number>, ratio: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(ratio * sorted.length) - 1));
+  return sorted[index]!;
+}
+
+/**
+ * Certifies the timer that observes the animation, independently from the
+ * aircraft-motion checks below. A single delayed callback can be caused by the
+ * browser or test runner without representing a sustained animation stall, so
+ * it is retained as evidence but is not enough to fail a long trace. Repeated
+ * delays, a degraded median, or any half-second blind spot still fail.
+ */
+export function assessAirshowSampleCadence(
+  intervals: ReadonlyArray<number>,
+  targetSampleIntervalMs = AIR_SHOW_TEMPORAL_SAMPLE_INTERVAL_MS
+): AirshowSampleCadenceAssessment {
+  if (!Number.isFinite(targetSampleIntervalMs) || targetSampleIntervalMs <= 0) {
+    throw new Error("Airshow cadence assessment requires a positive finite target interval.");
+  }
+  const positiveIntervals = intervals.filter((interval) => Number.isFinite(interval) && interval > 0);
+  const medianSampleIntervalMs = median(positiveIntervals);
+  const p99SampleIntervalMs = percentile(positiveIntervals, 0.99);
+  const maximumSampleGapMs = Math.max(0, ...positiveIntervals);
+  const delayedSampleGapCount = positiveIntervals.filter(
+    (interval) => interval > targetSampleIntervalMs * 3
+  ).length;
+  const delayedGapFraction = positiveIntervals.length === 0
+    ? 0
+    : delayedSampleGapCount / positiveIntervals.length;
+  const delayedGapsAreIsolated = delayedSampleGapCount === 0
+    || (delayedSampleGapCount === 1 && delayedGapFraction <= 0.002);
+  const passed = positiveIntervals.length > 0
+    && medianSampleIntervalMs <= targetSampleIntervalMs * 1.6
+    && p99SampleIntervalMs <= targetSampleIntervalMs * 2
+    && maximumSampleGapMs < targetSampleIntervalMs * 5
+    && delayedGapsAreIsolated;
+  return {
+    sampleIntervalCount: positiveIntervals.length,
+    medianSampleIntervalMs,
+    p99SampleIntervalMs,
+    maximumSampleGapMs,
+    delayedSampleGapCount,
+    passed,
+    message: `median ${medianSampleIntervalMs.toFixed(1)}ms, p99 ${p99SampleIntervalMs.toFixed(1)}ms, maximum gap ${maximumSampleGapMs.toFixed(1)}ms, ${delayedSampleGapCount}/${positiveIntervals.length} delayed gaps`
+  };
 }
 
 function centroid(actors: ReadonlyArray<AirshowTemporalActor>): { readonly cx: number; readonly cy: number } {
@@ -208,20 +269,25 @@ export function auditAirshowTemporalTrace(
   const samples = inputSamples
     .filter((sample) => Number.isFinite(sample.elapsedMs) && sample.actors.length > 0)
     .sort((left, right) => left.elapsedMs - right.elapsedMs);
-  const targetSampleIntervalMs = options.targetSampleIntervalMs ?? 100;
+  const targetSampleIntervalMs = options.targetSampleIntervalMs ?? AIR_SHOW_TEMPORAL_SAMPLE_INTERVAL_MS;
   const intervals = samples.slice(1).map((sample, index) => sample.elapsedMs - samples[index]!.elapsedMs);
-  const positiveIntervals = intervals.filter((interval) => interval > 0);
-  const medianSampleIntervalMs = median(positiveIntervals);
-  const maximumSampleGapMs = Math.max(0, ...positiveIntervals);
+  const cadence = assessAirshowSampleCadence(intervals, targetSampleIntervalMs);
+  const { medianSampleIntervalMs, p99SampleIntervalMs, maximumSampleGapMs, delayedSampleGapCount } = cadence;
 
   if (samples.length < 10) {
     findings.push({ severity: "error", code: "insufficient-samples", message: `Only ${samples.length} painted-position samples were captured.` });
   }
-  if (medianSampleIntervalMs > targetSampleIntervalMs * 1.6 || maximumSampleGapMs > targetSampleIntervalMs * 3) {
+  if (!cadence.passed) {
     findings.push({
       severity: "error",
       code: "sample-cadence",
-      message: `Trace cadence is too sparse: median ${medianSampleIntervalMs.toFixed(1)}ms, maximum gap ${maximumSampleGapMs.toFixed(1)}ms.`
+      message: `Trace cadence is too sparse: ${cadence.message}.`
+    });
+  } else if (delayedSampleGapCount === 1) {
+    findings.push({
+      severity: "warning",
+      code: "sample-cadence-outlier",
+      message: `Trace retained one isolated scheduler delay: ${cadence.message}.`
     });
   }
 
@@ -523,7 +589,9 @@ export function auditAirshowTemporalTrace(
     actorCount: actorIds.length,
     durationMs: samples.length > 0 ? samples[samples.length - 1]!.elapsedMs - samples[0]!.elapsedMs : 0,
     medianSampleIntervalMs,
+    p99SampleIntervalMs,
     maximumSampleGapMs,
+    delayedSampleGapCount,
     mergeMinimumOpposingDistancePx,
     scrambleCentroidDistancePx,
     scrambleNearestOpposingDistancePx,
@@ -544,7 +612,7 @@ function renderSummary(audit: AirshowTemporalAudit): string {
     `Scenario: ${audit.scenarioId}`,
     `Generated: ${audit.generatedAtIso}`,
     `Trace: ${audit.sampleCount} samples, ${audit.actorCount} aircraft, ${formatTimestamp(audit.durationMs)}`,
-    `Cadence: median ${audit.medianSampleIntervalMs.toFixed(1)}ms, maximum gap ${audit.maximumSampleGapMs.toFixed(1)}ms`,
+    `Cadence: median ${audit.medianSampleIntervalMs.toFixed(1)}ms, p99 ${audit.p99SampleIntervalMs.toFixed(1)}ms, maximum gap ${audit.maximumSampleGapMs.toFixed(1)}ms, ${audit.delayedSampleGapCount} delayed gap${audit.delayedSampleGapCount === 1 ? "" : "s"}`,
     `Merge: ${audit.mergeMinimumOpposingDistancePx?.toFixed(1) ?? "n/a"}px nearest opponents`,
     `Scramble: ${audit.scrambleCentroidDistancePx?.toFixed(1) ?? "n/a"}px centroids, ${audit.scrambleNearestOpposingDistancePx?.toFixed(1) ?? "n/a"}px nearest opponents`,
     `Pairing switch: ${audit.pairingSwitchFraction === null ? "n/a" : `${(audit.pairingSwitchFraction * 100).toFixed(0)}%`}`,

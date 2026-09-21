@@ -3,6 +3,7 @@ import type {
   FormationReadinessComponentSummary,
   FormationReadinessModel,
   FormationStatus,
+  FormationStatusCapacity,
   PersonnelStatusPool,
   ScenarioUnit,
   VehicleStatusPool
@@ -138,13 +139,21 @@ function normalizeReadinessModel(status: FormationStatus, fallback?: FormationRe
   return model;
 }
 
+function sumCapacity(values: Readonly<Record<string, number>> | undefined): number {
+  return Object.values(values ?? {}).reduce(
+    (sum, value) => sum + Math.max(0, Math.round(Number.isFinite(value) ? value : 0)),
+    0
+  );
+}
+
 function summarizePersonnelReadiness(status: FormationStatus): FormationReadinessComponentSummary {
-  let total = 0;
+  let presentTotal = 0;
   let effective = 0;
   Object.values(status.personnel).forEach((pool) => {
-    total += pool.fit + pool.injured + pool.wounded + pool.severelyWounded + pool.killed;
+    presentTotal += pool.fit + pool.injured + pool.wounded + pool.severelyWounded + pool.killed;
     effective += pool.fit + pool.injured * PERSONNEL_INJURED_EFFECTIVENESS;
   });
+  const total = Math.max(presentTotal, sumCapacity(status.capacity?.personnel));
   const readiness = total > 0 ? roundReadiness((effective / total) * 100) : 0;
   return {
     total,
@@ -155,12 +164,13 @@ function summarizePersonnelReadiness(status: FormationStatus): FormationReadines
 }
 
 function summarizeEquipmentReadiness(status: FormationStatus): FormationReadinessComponentSummary {
-  let total = 0;
+  let presentTotal = 0;
   let effective = 0;
   Object.values(status.equipment).forEach((pool) => {
-    total += pool.operational + pool.damaged + pool.disabled + pool.destroyed;
+    presentTotal += pool.operational + pool.damaged + pool.disabled + pool.destroyed;
     effective += pool.operational + pool.damaged * EQUIPMENT_DAMAGED_EFFECTIVENESS;
   });
+  const total = Math.max(presentTotal, sumCapacity(status.capacity?.equipment));
   const readiness = total > 0 ? roundReadiness((effective / total) * 100) : 0;
   return {
     total,
@@ -400,8 +410,40 @@ function reconcileStatusPoolsToFormation(
 ): void {
   const personnelAuthorizedTotal = resolveAuthorizedPersonnelTotal(unitType, formation);
   const equipmentAuthorizedTotal = resolveAuthorizedEquipmentTotal(unitType, formation);
-  normalizePersonnelPools(status, personnelAuthorizedTotal);
-  normalizeEquipmentPools(status, equipmentAuthorizedTotal);
+  if (!status.capacity) {
+    // Old snapshots were authored under the full-formation invariant. Normalize
+    // them once before recording their explicit capacity.
+    normalizePersonnelPools(status, personnelAuthorizedTotal);
+    normalizeEquipmentPools(status, equipmentAuthorizedTotal);
+    status.capacity = {
+      personnel: Object.fromEntries(Object.entries(status.personnel).map(([key, pool]) => [key, personnelPoolTotal(pool)])),
+      equipment: Object.fromEntries(Object.entries(status.equipment).map(([key, pool]) => [key, equipmentPoolTotal(pool)]))
+    };
+    return;
+  }
+
+  const sanitizeCapacity = (capacity: FormationStatusCapacity): void => {
+    capacity.personnel = Object.fromEntries(Object.entries(capacity.personnel ?? {}).map(([key, value]) => [
+      key,
+      Math.max(0, Math.round(Number.isFinite(value) ? value : 0))
+    ]));
+    capacity.equipment = Object.fromEntries(Object.entries(capacity.equipment ?? {}).map(([key, value]) => [
+      key,
+      Math.max(0, Math.round(Number.isFinite(value) ? value : 0))
+    ]));
+  };
+  sanitizeCapacity(status.capacity);
+
+  Object.entries(status.personnel).forEach(([key, pool]) => {
+    const cap = status.capacity!.personnel[key] ?? personnelPoolTotal(pool);
+    status.capacity!.personnel[key] = cap;
+    capPersonnelPoolToAuthorized(pool, cap);
+  });
+  Object.entries(status.equipment).forEach(([key, pool]) => {
+    const cap = status.capacity!.equipment[key] ?? equipmentPoolTotal(pool);
+    status.capacity!.equipment[key] = cap;
+    capEquipmentPoolToAuthorized(pool, cap);
+  });
 }
 
 export function calculateFormationReadiness(
@@ -522,7 +564,11 @@ function statusHasRecordedDamage(status: FormationStatus): boolean {
   const equipmentDamage = Object.values(status.equipment).some(
     (pool) => pool.damaged > 0 || pool.disabled > 0 || pool.destroyed > 0
   );
-  return personnelDamage || equipmentDamage || (status.suppression ?? 0) > 0;
+  const personnelPresent = Object.values(status.personnel).reduce((sum, pool) => sum + personnelPoolTotal(pool), 0);
+  const equipmentPresent = Object.values(status.equipment).reduce((sum, pool) => sum + equipmentPoolTotal(pool), 0);
+  const detached = personnelPresent < sumCapacity(status.capacity?.personnel)
+    || equipmentPresent < sumCapacity(status.capacity?.equipment);
+  return personnelDamage || equipmentDamage || detached || (status.suppression ?? 0) > 0;
 }
 
 export function createInitialFormationStatus(unitType: string, formationKey?: string | null, readiness = 100): FormationStatus {
@@ -555,6 +601,10 @@ export function createInitialFormationStatus(unitType: string, formationKey?: st
   const status: FormationStatus = {
     personnel,
     equipment,
+    capacity: {
+      personnel: Object.fromEntries(Object.entries(personnel).map(([key, pool]) => [key, personnelPoolTotal(pool)])),
+      equipment: Object.fromEntries(Object.entries(equipment).map(([key, pool]) => [key, equipmentPoolTotal(pool)]))
+    },
     ammo: {},
     suppression: 0,
     readinessModel: buildReadinessModel(unitType, matchingFormation)
@@ -604,12 +654,16 @@ export function mergeSameTypeFormationStatus(target: ScenarioUnit, source: Scena
 
   Object.entries(source.status.personnel).forEach(([key, pool]) => {
     personnelCaps.set(key, Math.max(
+      targetStatus.capacity?.personnel[key] ?? 0,
+      source.status?.capacity?.personnel[key] ?? 0,
       personnelPoolTotal(targetStatus.personnel[key]),
       personnelPoolTotal(pool)
     ));
   });
   Object.entries(source.status.equipment).forEach(([key, pool]) => {
     equipmentCaps.set(key, Math.max(
+      targetStatus.capacity?.equipment[key] ?? 0,
+      source.status?.capacity?.equipment[key] ?? 0,
       equipmentPoolTotal(targetStatus.equipment[key]),
       equipmentPoolTotal(pool)
     ));
@@ -642,6 +696,14 @@ export function mergeSameTypeFormationStatus(target: ScenarioUnit, source: Scena
     targetPool.destroyed += pool.destroyed;
     capEquipmentPoolToAuthorized(targetPool, equipmentCaps.get(key) ?? equipmentPoolTotal(targetPool));
   });
+  if (targetStatus.capacity && source.status.capacity) {
+    Object.entries(source.status.capacity.personnel).forEach(([key, capacity]) => {
+      targetStatus.capacity!.personnel[key] = Math.max(targetStatus.capacity!.personnel[key] ?? 0, capacity);
+    });
+    Object.entries(source.status.capacity.equipment).forEach(([key, capacity]) => {
+      targetStatus.capacity!.equipment[key] = Math.max(targetStatus.capacity!.equipment[key] ?? 0, capacity);
+    });
+  }
   target.strength = deriveStrengthFromStatus(targetStatus, target.strength);
 }
 

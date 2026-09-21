@@ -8,8 +8,12 @@ import {
   type TurnFaction,
   type CampaignBridgeState,
   type AirMissionArrival,
-  type AirEngagementEvent
+  type AirEngagementEvent,
+  type SerializedAirMission,
+  type SupportImpactEvent
 } from "../game/GameEngine";
+import type { Axial, ScenarioUnit } from "../core/types";
+import type { EnemyContactSnapshot, SupportSnapshot, UnitCommandState } from "../game/battle/BattleRuntimeContracts";
 import {
   COMPLETE_BATTLE_SAVE_VERSION,
   type CompleteSerializedBattleState,
@@ -20,8 +24,12 @@ import type { MissionStatus, SerializedMissionRulesState } from "./missionRules"
 import { findGeneralById, type GeneralRosterEntry } from "../utils/rosterStorage";
 import type { AllocationCategory } from "../data/unitAllocation";
 import { ensureDeploymentState, type DeploymentPoolEntry } from "./DeploymentState";
-import type { MissionKey } from "./UIState";
 import { ensureCampaignState } from "./CampaignState";
+import type { BattleMissionReportingSnapshot } from "../game/battle/reporting/BattleMissionReport";
+import type { BattleSidebarEngine } from "../contracts/BattleSidebarEngine";
+import { createBattleSidebarEngineFacade } from "./BattleSidebarEngineFacade";
+import type { BattleWarRoomInputSnapshot, BattleWarRoomMissionSnapshot } from "../contracts/BattleWarRoomSnapshot";
+import { createBattleWarRoomInputSnapshot } from "./BattleWarRoomSnapshotProjection";
 
 /** Refreshes campaign-bound roster labels without mutating the tactical save or its integrity boundary. */
 export function projectCampaignRosterFormationNames(
@@ -69,16 +77,24 @@ export interface PrecombatAllocationSummary {
  * Snapshot of the mission intel confirmed at the end of precombat.
  * Battle HUD layers read this data to render briefing copy without re-querying mission tables.
  */
-export interface PrecombatMissionInfo {
-  readonly missionKey: MissionKey;
-  /** Parent campaign identity shown separately from the tactical engagement title. */
-  readonly campaignTitle?: string;
-  readonly title: string;
-  readonly briefing: string;
-  readonly objectives: readonly string[];
-  readonly doctrine: string;
-  readonly turnLimit: number | null;
-  readonly baselineSupplies: ReadonlyArray<{ readonly label: string; readonly amount: string }>;
+export type PrecombatMissionInfo = BattleWarRoomMissionSnapshot;
+
+/**
+ * Immutable turn facts exposed to presentation/application services that need to
+ * reason about battle boundaries without receiving the mutable GameEngine.
+ */
+export interface BattleTurnSnapshot {
+  readonly turnNumber: number;
+  readonly phase: TurnSummary["phase"];
+  readonly activeFaction: TurnSummary["activeFaction"];
+}
+
+/** Detached engine facts required to present and validate tactical support orders. */
+export interface BattleSupportCommandSnapshot {
+  readonly turnNumber: number;
+  readonly support: SupportSnapshot;
+  readonly scheduledPlayerAirMissions: readonly SerializedAirMission[];
+  readonly enemyContacts: readonly EnemyContactSnapshot[];
 }
 
 /**
@@ -103,6 +119,7 @@ type BattleUpdateListener = (reason: BattleUpdateReason) => void;
  */
 export class BattleState {
   private gameEngine: GameEngine | null = null;
+  private readonly sidebarEngineFacade = createBattleSidebarEngineFacade(() => this.ensureGameEngine());
   private engineConfig: GameEngineConfig | null = null;
   private precombatAllocationSummary: PrecombatAllocationSummary | null = null;
   private precombatMissionInfo: PrecombatMissionInfo | null = null;
@@ -110,11 +127,6 @@ export class BattleState {
   private rosterSnapshot: BattleRosterSnapshot | null = null;
   /** Cached logistics snapshots split by faction so UI bridges can render summaries without recomputing each frame. */
   private logisticsSnapshot: LogisticsSnapshot | null = null;
-  private supplySnapshotByFaction: Record<TurnFaction, SupplySnapshot | null> = {
-    Player: null,
-    Bot: null,
-    Ally: null
-  };
   /** Cached supply snapshot accessible to UI helpers without a live engine reference. */
   private readonly supplySnapshotCache: Record<TurnFaction, SupplySnapshot | null> = {
     Player: null,
@@ -193,6 +205,9 @@ export class BattleState {
     return this.gameEngine;
   }
 
+  /** Returns the state-owned sidebar adapter after verifying that its engine exists. */
+  getSidebarEngine(): BattleSidebarEngine { this.ensureGameEngine(); return this.sidebarEngineFacade; }
+
   /**
    * Returns the active game engine instance when one has been initialized.
    * UI call sites can use this for optional turn/phase checks without throwing.
@@ -255,6 +270,104 @@ export class BattleState {
     return history.map((entry) => structuredClone(entry));
   }
 
+  /** Returns the sole detached read model consumed by the in-battle War Room. */
+  getWarRoomInputSnapshot(): BattleWarRoomInputSnapshot | null {
+    if (!this.gameEngine) return null;
+    this.rosterSnapshot = this.projectCampaignRosterNames(this.gameEngine.getRosterSnapshot());
+    this.refreshLogisticsSnapshots();
+    return createBattleWarRoomInputSnapshot({
+      engine: this.gameEngine, roster: this.rosterSnapshot, logistics: this.logisticsSnapshot,
+      playerSupply: this.supplySnapshotCache.Player, mission: this.precombatMissionInfo,
+      campaign: this.campaignBridgeState
+    });
+  }
+
+  /**
+   * Returns the immutable engine facts needed by mission reporting.
+   * Keeping this projection in state prevents the UI from coupling the debrief path to GameEngine internals.
+   */
+  getMissionReportingSnapshot(): BattleMissionReportingSnapshot | null {
+    if (!this.gameEngine) {
+      return null;
+    }
+    const livePlayerUnitIds = [
+      ...this.gameEngine.playerUnits,
+      ...this.gameEngine.reserveUnits.map((entry) => entry.unit)
+    ]
+      .map((unit) => unit.unitId?.trim() ?? "")
+      .filter((unitId) => unitId.length > 0);
+    return structuredClone({
+      currentPlayerUnits: [...this.gameEngine.playerUnits, ...this.gameEngine.reserveUnits.map((entry) => entry.unit)],
+      currentBotUnits: this.gameEngine.botUnits,
+      playerSupplyHistory: this.gameEngine.getSupplyHistory("Player"),
+      airMissionReports: this.gameEngine.getAirMissionReports(),
+      livePlayerUnitIds
+    });
+  }
+
+  /**
+   * Returns a detached support-command projection so UI targeting never reaches through state into mutable GameEngine collections.
+   */
+  getBattleSupportCommandSnapshot(): BattleSupportCommandSnapshot | null {
+    if (!this.gameEngine) {
+      return null;
+    }
+    return structuredClone({
+      turnNumber: this.gameEngine.getTurnSummary().turnNumber,
+      support: this.gameEngine.getSupportSnapshot(),
+      scheduledPlayerAirMissions: this.gameEngine.getScheduledAirMissions("Player"),
+      enemyContacts: this.gameEngine.getEnemyContactSnapshot()
+    });
+  }
+
+  /** Returns a detached command-state projection for one unit at an axial battle hex. */
+  getBattleUnitCommandState(hex: Axial, unitId?: string): UnitCommandState | null {
+    if (!this.gameEngine) {
+      return null;
+    }
+    const state = this.gameEngine.getUnitCommandState(hex, unitId);
+    return state ? structuredClone(state) : null;
+  }
+
+  /** Cancels one queued support asset without exposing its mutable engine record. */
+  cancelQueuedBattleSupport(assetId: string): boolean {
+    return this.ensureGameEngine().cancelQueuedSupport(assetId);
+  }
+
+  /** Cancels one queued player air mission through the battle-state command boundary. */
+  cancelQueuedBattleAirMission(missionId: string): boolean {
+    return this.ensureGameEngine().cancelQueuedAirMission(missionId);
+  }
+
+  /** Returns engine-legal axial smoke target keys for the selected unit. */
+  resolveBattleSmokeTargetHexKeys(hex: Axial, unitId?: string): string[] {
+    return this.ensureGameEngine().resolveSmokeTargetHexKeys(hex, unitId);
+  }
+
+  /** Queues an observed support strike while keeping command mutation inside BattleState. */
+  queueBattleSupportAction(
+    callerHex: Axial,
+    assetId: string,
+    targetHex: Axial,
+    callerUnitId?: string | null
+  ): boolean {
+    return this.ensureGameEngine().queueSupportActionFromUnit(callerHex, assetId, targetHex, callerUnitId);
+  }
+
+  /** Consumes and detaches pending support impacts exactly once for presentation playback. */
+  consumeBattleSupportImpacts(): SupportImpactEvent[] {
+    return structuredClone(this.ensureGameEngine().consumeSupportImpactEvents());
+  }
+
+  /** Returns a detached live bot unit at the requested axial hex after impact resolution. */
+  getBotUnitAt(hex: Axial): ScenarioUnit | null {
+    if (!this.gameEngine) {
+      return null;
+    }
+    const unit = this.gameEngine.botUnits.find((candidate) => candidate.hex.q === hex.q && candidate.hex.r === hex.r) ?? null;
+    return unit ? structuredClone(unit) : null;
+  }
+
   /**
    * Returns axial keys for player formations that have not yet moved or attacked during the current turn.
    * Battle UI layers use this to render idle-unit highlights and prompt reminders before ending the turn.
@@ -290,6 +403,23 @@ export class BattleState {
    */
   getCurrentTurnSummary(): TurnSummary {
     return this.ensureGameEngine().getTurnSummary();
+  }
+
+  /**
+   * Returns the minimal detached turn context used by optional UI workflows such
+   * as tactical save scheduling. Unlike ensureGameEngine(), this is safe before
+   * engine initialization and does not expose the engine across the state seam.
+   */
+  getBattleTurnSnapshot(): BattleTurnSnapshot | null {
+    if (!this.gameEngine) {
+      return null;
+    }
+    const summary = this.gameEngine.getTurnSummary();
+    return {
+      turnNumber: summary.turnNumber,
+      phase: summary.phase,
+      activeFaction: summary.activeFaction
+    };
   }
 
   /**
@@ -342,8 +472,6 @@ export class BattleState {
     this.precombatMissionInfo = null;
     this.rosterSnapshot = null;
     this.logisticsSnapshot = null;
-    this.supplySnapshotByFaction.Player = null;
-    this.supplySnapshotByFaction.Bot = null;
     this.supplySnapshotCache.Player = null;
     this.supplySnapshotCache.Bot = null;
     this.assignedCommanderId = null;
@@ -356,9 +484,6 @@ export class BattleState {
     this.engineConfig = null;
     this.rosterSnapshot = null;
     this.logisticsSnapshot = null;
-    this.supplySnapshotByFaction.Player = null;
-    this.supplySnapshotByFaction.Bot = null;
-    this.supplySnapshotByFaction.Ally = null;
     this.supplySnapshotCache.Player = null;
     this.supplySnapshotCache.Bot = null;
     this.supplySnapshotCache.Ally = null;
@@ -519,7 +644,6 @@ export class BattleState {
       return;
     }
     const snapshot = this.gameEngine.getSupplySnapshot(faction);
-    this.supplySnapshotByFaction[faction] = snapshot;
     this.supplySnapshotCache[faction] = snapshot ? structuredClone(snapshot) : null;
   }
 

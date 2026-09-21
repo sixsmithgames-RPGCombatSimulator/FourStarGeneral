@@ -32,13 +32,6 @@ import {
 } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder.js";
 import { buildCoordinatedAirClusterPlaybackPlan } from "../src/ui/airshow/ClusterAirPlaybackPlanner.js";
 import {
-  resolveAirInterceptBomberArrivalDelayMs
-} from "../src/ui/airshow/AirShowPlaybackPolicy.js";
-import {
-  buildCoordinatedAirClusterTimingPolicy,
-  buildResolvedAirCombatSceneTimingPolicy
-} from "../src/ui/airshow/AirShowTimingPolicies.js";
-import {
   sampleAirShowWaypointPath,
   sampleAirShowWaypointPoints
 } from "../src/ui/airshow/AirShowPathMath.js";
@@ -482,8 +475,6 @@ export interface AirScenarioCoordinatedPlanSummary {
   readonly fighterSceneFlakBurstCount: number;
   readonly strikeSortieMissionIds: readonly string[];
   readonly residualOperationLabels: readonly string[];
-  readonly bomberStartDelayMs: number;
-  readonly fighterIngressLeadMs: number;
   readonly sceneReport: AirShowInspectionReport | null;
   /** Actual renderer timeline, retained for per-aircraft absolute-time measurements. */
   readonly sceneTimeline: AirShowTimeline | null;
@@ -824,17 +815,9 @@ function resolveBotHqKey(engine: GameEngine): string | null {
 
 function buildLiveCoordinatedPlanOptions(engine: GameEngine) {
   return {
-    ...buildCoordinatedAirClusterTimingPolicy(),
     playerHqKey: resolvePlayerHqKey(engine),
     botHqKey: resolveBotHqKey(engine)
   };
-}
-
-function buildLiveResolvedSceneTimingPolicy(event: AirEngagementEvent) {
-  if (event.type === "capClash") {
-    return undefined;
-  }
-  return buildResolvedAirCombatSceneTimingPolicy(resolveAirInterceptBomberArrivalDelayMs());
 }
 
 function offsetHexKeyToAxial(hexKey: string | null | undefined): Axial | null {
@@ -1328,8 +1311,6 @@ function buildPlaybackProjection(
           }
           return `event:${entry.event.type}:${entry.event.missionId ?? entry.event.bomber.unitKey}`;
         })),
-        bomberStartDelayMs: plan.bomberStartDelayMs,
-        fighterIngressLeadMs: plan.fighterIngressLeadMs,
         sceneReport: fighterSceneInspection?.report ?? null,
         sceneTimeline: fighterSceneInspection?.timeline ?? null,
         scenePhaseMetrics: fighterSceneInspection?.phaseMetrics ?? [],
@@ -1424,7 +1405,6 @@ function buildInspectableScene(
     bomberTargetKey: bomberTargetHexKey,
     flakEvent,
     includeBomber: event.type === "airToAir",
-    phaseTimings: buildLiveResolvedSceneTimingPolicy(event),
     playerHqKey: resolvePlayerHqKey(engine),
     botHqKey: resolveBotHqKey(engine)
   });
@@ -1562,11 +1542,10 @@ function buildSyntheticInspectableCases(): Array<{
         hexKey: "4,4",
         interceptors: [],
         escorts: [makeFlight("synthetic-s1-escort", "escort", "escort", "1,6", 42, "Fighter", "Player", 100)],
-        bomber: makeFlight("synthetic-s1-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100),
+        bombers: [makeFlight("synthetic-s1-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100)],
         escortExchanges: [],
         bomberPassExchanges: [],
         bomberTargetHexKey: "5,5",
-        bomberArrivalDelayMs: 260,
         flakBursts: makeFlakBursts(18)
       }
     },
@@ -1587,7 +1566,7 @@ function buildSyntheticInspectableCases(): Array<{
         hexKey: "4,4",
         interceptors: [],
         escorts: [],
-        bomber: makeFlight("synthetic-s2-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100),
+        bombers: [makeFlight("synthetic-s2-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100)],
         escortExchanges: [],
         bomberPassExchanges: [],
         bomberTargetHexKey: "5,5",
@@ -1620,7 +1599,7 @@ function buildSyntheticInspectableCases(): Array<{
           makeFlight("synthetic-s3-interceptor-b", "interceptor", "cap", "6,3", 30, "Interceptor", "Bot", 100, 100, 88)
         ],
         escorts: [],
-        bomber: makeFlight("synthetic-s3-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100, 82, 82),
+        bombers: [makeFlight("synthetic-s3-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100, 82, 82)],
         escortExchanges: [],
         bomberPassExchanges: [
           { attackerUnitKey: "synthetic-s3-interceptor-a", defenderUnitKey: "synthetic-s3-bomber", defenderStrengthAfter: 82 },
@@ -1650,7 +1629,7 @@ function buildSyntheticInspectableCases(): Array<{
           makeFlight("synthetic-s4-player-cap-b", "interceptor", "cap", "0,2", 24, "Interceptor", "Player", 100, 63, 63)
         ],
         escorts: [makeFlight("synthetic-s4-axis-cap", "escort", "cap", "7,6", 0, "Fighter", "Bot", 100, 42, 42)],
-        bomber: null,
+        bombers: [],
         escortExchanges: [
           { attackerUnitKey: "synthetic-s4-player-cap-a", defenderUnitKey: "synthetic-s4-axis-cap", defenderStrengthAfter: 71 },
           { attackerUnitKey: "synthetic-s4-player-cap-b", defenderUnitKey: "synthetic-s4-axis-cap", defenderStrengthAfter: 42 }
@@ -1696,7 +1675,7 @@ function buildSyntheticInspectableCases(): Array<{
           makeFlight("synthetic-s5-escort-a", "escort", "escort", "1,5", -36, "Fighter", "Player", 25, 25, 25),
           makeFlight("synthetic-s5-escort-b", "escort", "escort", "1,6", 36, "Interceptor", "Player", 25, 25, 25)
         ],
-        bomber: makeFlight("synthetic-s5-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100, 100, 78),
+        bombers: [makeFlight("synthetic-s5-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100, 100, 78)],
         escortExchanges: [
           { attackerUnitKey: "synthetic-s5-interceptor-a", defenderUnitKey: "synthetic-s5-escort-a", defenderStrengthAfter: 25 },
           { attackerUnitKey: "synthetic-s5-interceptor-b", defenderUnitKey: "synthetic-s5-escort-b", defenderStrengthAfter: 25 }
@@ -1707,7 +1686,6 @@ function buildSyntheticInspectableCases(): Array<{
           { attackerUnitKey: "synthetic-s5-interceptor-c", defenderUnitKey: "synthetic-s5-bomber", defenderStrengthAfter: 78 }
         ],
         bomberTargetHexKey: "5,5",
-        bomberArrivalDelayMs: 220,
         flakBursts: makeFlakBursts(20)
       }
     }
@@ -3005,8 +2983,8 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
       `  coordinated cluster #${plan.clusterIndex + 1} focus=${plan.focusKey ?? "<none>"} ` +
       `coveredMissionIds=${plan.coveredMissionIds.join("|") || "<none>"} ` +
       `fighterScene=${plan.hasFighterScene} interceptors=${plan.fighterSceneInterceptorCount} escorts=${plan.fighterSceneEscortCount} ` +
-      `strikeSorties=${plan.strikeSortieMissionIds.join("|") || "<none>"} bomberDelayMs=${plan.bomberStartDelayMs} ` +
-      `fighterLeadMs=${plan.fighterIngressLeadMs} fighterSceneDurationMs=${plan.fighterSceneDurationMs} tracers=${plan.fighterSceneTracerCount} flak=${plan.fighterSceneFlakBurstCount}`
+      `strikeSorties=${plan.strikeSortieMissionIds.join("|") || "<none>"} ` +
+      `fighterSceneDurationMs=${plan.fighterSceneDurationMs} tracers=${plan.fighterSceneTracerCount} flak=${plan.fighterSceneFlakBurstCount}`
     );
     if (plan.fighterScenePhaseLabels.length > 0) {
       lines.push(`    fighterScenePhases=${plan.fighterScenePhaseLabels.join(" -> ")}`);
@@ -3304,8 +3282,6 @@ function collectAirScenarioDiagnosticAnimations(result: AirScenarioResult): AirS
         `strikeSorties=${plan.strikeSortieMissionIds.join("|") || "<none>"}`,
         `fighterScene=${plan.hasFighterScene}`,
         `fighterSceneDurationMs=${plan.fighterSceneDurationMs}`,
-        `bomberStartDelayMs=${plan.bomberStartDelayMs}`,
-        `fighterIngressLeadMs=${plan.fighterIngressLeadMs}`,
         `tracers=${plan.fighterSceneTracerCount}`,
         `flakBursts=${plan.fighterSceneFlakBurstCount}`
       ]

@@ -6,6 +6,7 @@ import type {
   ResolvedAirShowScene
 } from "../src/ui/airshow/AirShowPlaybackScene";
 import type { AirShowTimeline } from "../src/ui/airshow/AirShowTimeline";
+import { installAirShowRuntimeTraceDebugHook } from "../src/ui/airshow/AirShowRuntimeTrace";
 import {
   buildAirshowHarnessFixture,
   buildAirshowHarnessFixtureLarge,
@@ -199,7 +200,6 @@ describe("Air show renderer timeline", () => {
         ...source,
         kind: "capClash",
         bombers: [],
-        bomber: null,
         bomberTargetHexKey: null,
         flakBursts: []
       };
@@ -221,6 +221,9 @@ describe("Air show renderer timeline", () => {
     const fixture = buildAirshowHarnessFixture();
     const harness = renderFixture(fixture);
     const scene = buildScene(fixture);
+    const traceHook = installAirShowRuntimeTraceDebugHook(window);
+    traceHook.enable();
+    traceHook.clear();
     const planned = timeline(harness.renderer, scene);
     const impactTimeMs = planned.cues.find((cue) => cue.kind === "impact")?.timeMs ?? 0;
     const bomberActorId = planned.actors.find((actor) => actor.role === "bomber")?.actorId;
@@ -269,7 +272,15 @@ describe("Air show renderer timeline", () => {
       expect(visibleDuringImpact).toBe(true);
       expect(internals.playExplosion).toHaveBeenCalledTimes(1);
       expect(harness.svg.querySelectorAll("[data-testid='airshow-actor']")).toHaveLength(0);
+      const trace = traceHook.getLatest();
+      expect(trace?.source).toBe("AirShowTimelinePlayer");
+      expect(trace?.timeline.version).toBe(2);
+      expect(trace?.events[0]?.event.kind).toBe("timeline-start");
+      expect(trace?.events.some(({ event }) => event.kind === "beat-entered")).toBe(true);
+      expect(trace?.events.some(({ event }) => event.kind === "cue-fired")).toBe(true);
+      expect(trace?.events[trace.events.length - 1]?.event.kind).toBe("timeline-complete");
     } finally {
+      traceHook.clear();
       resolveImpact();
       nowSpy.mockRestore();
       disposeHarness(harness);
@@ -281,7 +292,7 @@ describe("Air show renderer timeline", () => {
     const harness = renderFixture(fixture);
     try {
       const source = buildScene(fixture);
-      const baseBomber = source.bomber!;
+      const baseBomber = source.bombers[0]!;
       const zeroBomber = {
         ...baseBomber,
         id: "tutorial-zero-bomber",
@@ -294,7 +305,6 @@ describe("Air show renderer timeline", () => {
         interceptors: [],
         escorts: [],
         bombers: [zeroBomber],
-        bomber: zeroBomber,
         flakBursts: []
       };
       const planned = timeline(harness.renderer, scene);

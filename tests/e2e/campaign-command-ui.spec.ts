@@ -43,6 +43,20 @@ function contained(inner: Geometry, outer: Geometry): void {
   expect(inner.bottom).toBeLessThanOrEqual(outer.bottom + 1);
 }
 
+async function wheelUntilContained(page: Page, owner: Locator, target: Locator): Promise<void> {
+  const ownerBox = await geometry(owner);
+  await page.mouse.move(ownerBox.x + ownerBox.width / 2, ownerBox.y + ownerBox.height / 2);
+  for (let attempt = 0; attempt < 48; attempt += 1) {
+    const frame = await geometry(owner);
+    const item = await geometry(target);
+    if (item.y >= frame.y - 1 && item.bottom <= frame.bottom + 1) return;
+    const direction = item.bottom > frame.bottom ? 1 : -1;
+    await page.mouse.wheel(0, direction * 32);
+    await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+  }
+  contained(await geometry(target), await geometry(owner));
+}
+
 async function evidence(page: Page, info: TestInfo, name: string, value: unknown): Promise<void> {
   await info.attach(`${name}.json`, { body: Buffer.from(JSON.stringify(value, null, 2)), contentType: 'application/json' });
   const screenshot = info.outputPath(`${name}.png`);
@@ -60,6 +74,22 @@ async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promis
 }> {
   return page.locator('#campaignHexMap').evaluate((svg, requestedHex) => {
     const viewport = document.querySelector<HTMLElement>('.campaign-map-viewport')!.getBoundingClientRect();
+    const projectedBounds = (element: SVGGraphicsElement) => {
+      const box = element.getBBox();
+      const matrix = element.getScreenCTM();
+      if (!matrix) throw new Error(`Missing screen transform for ${element.tagName}.`);
+      const corners = [
+        new DOMPoint(box.x, box.y),
+        new DOMPoint(box.x + box.width, box.y),
+        new DOMPoint(box.x + box.width, box.y + box.height),
+        new DOMPoint(box.x, box.y + box.height)
+      ].map(point => point.matrixTransform(matrix));
+      const left = Math.min(...corners.map(point => point.x));
+      const right = Math.max(...corners.map(point => point.x));
+      const top = Math.min(...corners.map(point => point.y));
+      const bottom = Math.max(...corners.map(point => point.y));
+      return { left, right, top, bottom, width: right - left, height: bottom - top };
+    };
     const candidates = Array.from(svg.querySelectorAll<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol.campaign-map-hex-art'));
     const tile = requestedHex
       ? candidates.find(image => image.dataset.hex === requestedHex)
@@ -75,8 +105,9 @@ async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promis
     if (!tile?.dataset.hex) throw new Error(`No visible registered hex artwork${requestedHex ? ` at ${requestedHex}` : ''}.`);
     const hexKey = tile.dataset.hex;
     const cell = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${hexKey}"] polygon`)!;
-    const tileBox = tile.getBoundingClientRect();
-    const cellBox = cell.getBoundingClientRect();
+    const tileViewportBox = tile.getBoundingClientRect();
+    const tileBox = projectedBounds(tile);
+    const cellBox = projectedBounds(cell);
     const transform = svg.querySelector('#viewportRoot')?.getAttribute('transform') ?? null;
     const scale = Number(transform?.match(/scale\(([^)]+)\)/)?.[1]);
     const registrationFailures = Array.from(svg.querySelectorAll<SVGImageElement>('.campaign-map-hex-art')).flatMap(image => {
@@ -114,14 +145,14 @@ async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promis
     const measuredOwnerRatios = Object.fromEntries(Object.entries(ownerRatios).map(([kind, images]) => [kind, images.flatMap(image => {
       const frame = image.closest<SVGGElement>('.campaign-map-hex-art-frame')!;
       const owner = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${frame.dataset.hex}"] polygon`)!;
-      const imageBox = image.getBoundingClientRect(); const ownerBox = owner.getBoundingClientRect();
+      const imageBox = projectedBounds(image); const ownerBox = projectedBounds(owner);
       return imageBox.width > 0 && ownerBox.width > 0 ? [imageBox.width / ownerBox.width] : [];
     })])) as Record<'tiles' | 'bases' | 'knownSites', number[]>;
     const force = svg.querySelector<SVGCircleElement>('.campaign-force-stack__footprint')!;
     const forceStack = force.closest<SVGGElement>('.campaign-force-stack')!;
     const forceCell = svg.querySelector<SVGPolygonElement>(`.campaign-hex[data-hex="${forceStack.dataset.hex}"] polygon`)!;
-    const forceBox = force.getBoundingClientRect();
-    const forceCellBox = forceCell.getBoundingClientRect();
+    const forceBox = projectedBounds(force);
+    const forceCellBox = projectedBounds(forceCell);
     const forceToCell = forceCell.getScreenCTM()!.inverse();
     const forceContained = Array.from({ length: 32 }, (_, index) => new DOMPoint(
       forceBox.left + forceBox.width / 2 + Math.cos(index * Math.PI / 16) * forceBox.width / 2,
@@ -130,8 +161,8 @@ async function campaignHexArtGeometry(page: Page, preferredHex?: string): Promis
     return {
       hexKey,
       scale,
-      intersectsViewport: tileBox.right > viewport.left && tileBox.left < viewport.right
-        && tileBox.bottom > viewport.top && tileBox.top < viewport.bottom,
+      intersectsViewport: tileViewportBox.right > viewport.left && tileViewportBox.left < viewport.right
+        && tileViewportBox.bottom > viewport.top && tileViewportBox.top < viewport.bottom,
       ratio: tileBox.width / cellBox.width,
       centerDelta: Math.hypot(
         tileBox.left + tileBox.width / 2 - (cellBox.left + cellBox.width / 2),
@@ -535,9 +566,7 @@ test('FSG_CAM_077 640x360: body alone scrolls and exposes the last target', asyn
   expect(ancestors.filter((ancestor) => ancestor.scrollable)).toEqual([]);
   const initial = await body.evaluate((element) => element.scrollTop);
   const target = page.locator('[data-campaign-front-target-choice]').last();
-  const targetBeforeScroll = await geometry(target);
-  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-  await page.mouse.wheel(0, Math.ceil(targetBeforeScroll.bottom - bounds.bottom + 4));
+  await wheelUntilContained(page, body, target);
   await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(initial);
   await evidence(page, info, 'compact-before-target', { body: await geometry(body), target: await geometry(target), scrollTop: await body.evaluate((element) => element.scrollTop) });
   contained(await geometry(target), await geometry(body));

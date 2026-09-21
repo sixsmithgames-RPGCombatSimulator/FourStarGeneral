@@ -22,6 +22,10 @@ import {
   type CampaignIntelligenceFilters,
   type CampaignIntelligenceGroup
 } from "./CampaignWorkspaceProjection";
+import {
+  focusAndRevealWithinScrollOwner,
+  revealElementWithinScrollOwner
+} from "../components/FocusedScrollReveal";
 
 export type { CampaignWorkspaceId } from "./CampaignCommandUIState";
 
@@ -1025,12 +1029,13 @@ export class CampaignCommandShell {
     }));
   }
 
-  private setAfterActionExpanded(expanded: boolean, restoreFocus = true): void {
+  private setAfterActionExpanded(expanded: boolean, restoreFocus = true, invoker: HTMLElement | null = null): void {
     const next = expanded && this.afterActionReports.length > 0;
     if (next === this.afterActionExpanded) return;
     if (next) {
       const active = document.activeElement;
-      this.afterActionInvoker = active instanceof HTMLElement && this.root.contains(active) && active.tabIndex >= 0 ? active : null;
+      const returnTarget = invoker ?? (active instanceof HTMLElement ? active : null);
+      this.afterActionInvoker = returnTarget && this.root.contains(returnTarget) && returnTarget.tabIndex >= 0 ? returnTarget : null;
     }
     this.afterActionExpanded = next;
     const panel = this.root.querySelector<HTMLElement>("#campaignAfterActionPanel");
@@ -1041,13 +1046,38 @@ export class CampaignCommandShell {
     if (this.afterActionExpanded) {
       if (panel) this.ownAfterActionBoundary(panel);
     } else if (restoreFocus) {
-      const invoker = this.afterActionInvoker;
-      if (invoker?.isConnected && invoker.closest("#campaignWorkspacePanel") && this.isAvailable(this.root)) {
-        this.setWorkspaceExpanded(true);
-      }
-      if (invoker && this.isAvailable(invoker)) invoker.focus({ preventScroll: true });
-      else this.root.querySelector<HTMLButtonElement>("#campaignCommandReports")?.focus();
+      this.restoreAfterActionFocus();
     }
+  }
+
+  private restoreAfterActionFocus(): void {
+    const resolveInvoker = (): HTMLElement | null => {
+      const captured = this.afterActionInvoker;
+      // Situation refreshes may replace the archive trigger while the modal is
+      // open. Restore the current semantic control instead of a stale node.
+      return captured?.matches("[data-open-campaign-aar]")
+        ? this.root.querySelector<HTMLElement>("[data-open-campaign-aar]")
+        : captured?.isConnected ? captured : null;
+    };
+    const focusTarget = (): void => {
+      let target = resolveInvoker();
+      // The managed UI state closes every sheet when AAR ownership ends. Reopen
+      // the captured workspace before testing availability so its manager can
+      // release inert and keep Shell/store state canonical.
+      if (target?.closest("#campaignWorkspacePanel") && this.isAvailable(this.root)) this.setWorkspaceExpanded(true);
+      if (!target || !this.isAvailable(target)) target = this.root.querySelector<HTMLElement>("#campaignCommandReports");
+      if (!target || !this.isAvailable(target)) return;
+      target.focus({ preventScroll: true });
+    };
+    focusTarget();
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      const newerFocusIsValid = active instanceof HTMLElement
+        && active !== document.body
+        && active !== document.documentElement
+        && this.isAvailable(active);
+      if (!newerFocusIsValid) focusTarget();
+    });
   }
 
   /** DOM availability follows the owning screen and any newer modal's inert boundary. */
@@ -1088,6 +1118,17 @@ export class CampaignCommandShell {
       // Keep other global command listeners out, while ordinary native button keys still execute.
       event.stopPropagation();
       if (event.key === "Escape") { event.preventDefault(); this.setAfterActionExpanded(false); return; }
+      if ((event.key === "Enter" || event.key === " ")
+        && event.target instanceof HTMLElement
+        && event.target.tagName === "SUMMARY") {
+        const disclosure = event.target.closest<HTMLDetailsElement>("details");
+        const scrollOwner = event.target.closest<HTMLElement>(".campaign-aar-detail");
+        if (!disclosure || !scrollOwner) return;
+        event.preventDefault();
+        disclosure.open = !disclosure.open;
+        revealElementWithinScrollOwner(scrollOwner, event.target);
+        return;
+      }
       if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
       const targets = Array.from(panel.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, summary, [tabindex]"))
         .filter((target) => {
@@ -1100,10 +1141,15 @@ export class CampaignCommandShell {
           return true;
         });
       const index = targets.indexOf(document.activeElement as HTMLElement);
-      if (index < 0 || (event.shiftKey ? index === 0 : index === targets.length - 1)) {
-        event.preventDefault();
-        (event.shiftKey ? targets[targets.length - 1] : targets[0])?.focus();
-      }
+      if (targets.length === 0) return;
+      event.preventDefault();
+      const nextIndex = index < 0
+        ? (event.shiftKey ? targets.length - 1 : 0)
+        : (index + (event.shiftKey ? targets.length - 1 : 1)) % targets.length;
+      const next = targets[nextIndex];
+      if (!next) return;
+      const scrollOwner = next.closest<HTMLElement>(".campaign-aar-detail, .campaign-aar-archive");
+      focusAndRevealWithinScrollOwner(next, scrollOwner);
     };
     const onScreen = (event: Event): void => {
       if ((event as CustomEvent<{ id?: string }>).detail?.id !== "campaign") this.setAfterActionExpanded(false, false);
@@ -1281,14 +1327,28 @@ export class CampaignCommandShell {
         if (unchanged.length > 0) {
           const unchangedDisclosure = document.createElement("details");
           unchangedDisclosure.className = "campaign-aar-unchanged";
+          const unchangedSummary = createTextElement(
+            "summary",
+            "",
+            `${unchanged.length} formation${unchanged.length === 1 ? "" : "s"} returned with no reported loss or condition change`
+          );
+          // Firefox does not consistently include a native <summary> in sequential
+          // keyboard navigation. Make the disclosure contract explicit for every engine.
+          unchangedSummary.tabIndex = 0;
           unchangedDisclosure.append(
-            createTextElement(
-              "summary",
-              "",
-              `${unchanged.length} formation${unchanged.length === 1 ? "" : "s"} returned with no reported loss or condition change`
-            ),
+            unchangedSummary,
             ...unchanged.map(createFormationRow)
           );
+          unchangedDisclosure.addEventListener("toggle", () => {
+            const revealSummary = (): void => {
+              // A deferred reveal must never undo a newer keyboard move. The
+              // summary owns scrolling only while it still owns focus.
+              if (document.activeElement !== unchangedSummary) return;
+              revealElementWithinScrollOwner(detail, unchangedSummary);
+            };
+            revealSummary();
+            window.requestAnimationFrame(revealSummary);
+          });
           command.append(unchangedDisclosure);
         }
         return command;
@@ -1353,7 +1413,8 @@ export class CampaignCommandShell {
       const replacement = focusAttributes.length > 0
         ? controls.find((control) => focusAttributes.every((attribute) => control.getAttribute(attribute.name) === attribute.value))
         : controls.find((control) => control.tagName === focused?.tagName && control.textContent === focused?.textContent);
-      (replacement ?? continueAction).focus();
+      const focusTarget = replacement ?? continueAction;
+      focusAndRevealWithinScrollOwner(focusTarget, focusTarget.closest<HTMLElement>(".campaign-aar-detail, .campaign-aar-archive"));
     }
   }
 
@@ -1598,7 +1659,9 @@ export class CampaignCommandShell {
       createTextElement("strong", "", `${situation.afterActionUnread} unread`),
       createTextElement("small", "", this.afterActionReports.length > 0 ? `${this.afterActionReports.length} after-action reports archived` : "No battles resolved yet")
     );
-    battle.onclick = () => this.setAfterActionExpanded(true);
+    // Safari/WebKit does not focus buttons on pointer activation. Capture the
+    // semantic trigger explicitly so modal close still returns to its invoker.
+    battle.onclick = () => this.setAfterActionExpanded(true, true, battle);
     sources.replaceChildren(intelligence, battle);
   }
 
@@ -1649,6 +1712,17 @@ export class CampaignCommandShell {
     }
     const continueButton = this.root.querySelector<HTMLButtonElement>("#campaignOutcomeContinue");
     if (continueButton) continueButton.hidden = outcome.canContinue !== true;
+    const saveButton = this.root.querySelector<HTMLButtonElement>("#campaignOutcomeSave");
+    if (saveButton) {
+      const persistenceBusy = this.currentView?.saveStatus === "Saving" || this.currentView?.saveStatus === "Loading";
+      saveButton.disabled = persistenceBusy;
+      saveButton.setAttribute("aria-disabled", persistenceBusy ? "true" : "false");
+      saveButton.textContent = this.currentView?.saveStatus === "Saving"
+        ? "Saving campaign record…"
+        : this.currentView?.saveStatus === "Loading"
+          ? "Campaign record unavailable while loading"
+          : "Save campaign record";
+    }
     panel.dataset.outcome = outcome.result;
     panel.dataset.outcomeKey = outcome.key;
     panel.hidden = this.dismissedOutcomeKey === outcome.key;

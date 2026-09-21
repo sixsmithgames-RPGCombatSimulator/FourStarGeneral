@@ -1,4 +1,4 @@
-import type { SupportAssetSnapshot } from "../GameEngine";
+import type { SupportAssetSnapshot } from "../battle/BattleRuntimeContracts";
 import { createOffMapSupportAsset } from "../support/SupportAssetFactory";
 import { CAMPAIGN_NON_FORMATION_SUPPORT_KEYS } from "./campaignForceMapping";
 import type { CampaignBattlePackage } from "./engagements/CampaignEngagementLedgerTypes";

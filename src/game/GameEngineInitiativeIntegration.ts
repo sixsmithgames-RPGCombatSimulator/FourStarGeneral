@@ -933,8 +933,13 @@ export class GameEngineInitiativeMethods {
     if (resolved.faction === 'Player' && resolved.unit.type === 'Supply_Truck') {
       const logistics = typeof engine.getLogisticsSnapshot === 'function' ? engine.getLogisticsSnapshot() : null;
       const priorityTargets = Array.isArray(logistics?.priorityTargets) ? logistics.priorityTargets : [];
+      const supportTeams = Array.isArray(logistics?.supportTeamStatuses) ? logistics.supportTeamStatuses : [];
+      const supportTarget = supportTeams.find((entry: { unitId?: string; assignedHex?: string | null }) =>
+        entry.unitId === resolved.unit.unitId && Boolean(entry.assignedHex)
+      );
       const nextTarget = priorityTargets.find((entry: { status?: string }) => entry.status !== 'resupplied');
-      const targetHex = this.parseAxialKey(nextTarget?.hex ?? null) ?? this.cloneHex(engine._baseCamp?.hex ?? null);
+      const targetHex = this.parseAxialKey(supportTarget?.assignedHex ?? nextTarget?.hex ?? null)
+        ?? this.cloneHex(engine._baseCamp?.hex ?? null);
       if (!targetHex) {
         return false;
       }
@@ -1012,12 +1017,32 @@ export class GameEngineInitiativeMethods {
     moved.hex = this.cloneHex(step) ?? step;
     moved.entrench = 0;
 
+    const definition = typeof engine.getUnitDefinition === 'function' ? engine.getUnitDefinition(unit.type) : null;
+    const moveCost = definition && typeof engine.resolveMoveCost === 'function'
+      ? engine.resolveMoveCost(definition.moveType, engine.terrainAt(step), step, origin)
+      : 1;
+    const flags = typeof engine.getUnitActionFlags === 'function'
+      ? engine.getUnitActionFlags(faction, unit)
+      : { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
+    const movementAvailable = typeof unit.movementCredit === 'number'
+      ? unit.movementCredit
+      : definition && typeof engine.resolveBaseMovementAllowance === 'function'
+        ? engine.resolveBaseMovementAllowance(definition, flags, unit)
+        : 1;
+    if (!Number.isFinite(moveCost) || moveCost > movementAvailable + 1e-6) {
+      return false;
+    }
+    moved.movementCredit = Math.max(0, Number((movementAvailable - moveCost).toFixed(4)));
+
     if (typeof engine.removeUnitFromFactionHex !== 'function' || typeof engine.addUnitToFactionHex !== 'function') {
       return false;
     }
 
     engine.removeUnitFromFactionHex(faction, origin, moved.unitId ?? undefined);
     engine.addUnitToFactionHex(faction, moved);
+    if (definition?.moveType !== 'air' && typeof engine.overrunRecoverySitesAtHex === 'function') {
+      engine.overrunRecoverySitesAtHex(faction, moved.hex);
+    }
 
     const fuelStep = typeof engine.resolveMovementFuelStep === 'function' && engine.getUnitDefinition
       ? engine.resolveMovementFuelStep(engine.getUnitDefinition(unit.type).moveType, step)
@@ -1034,6 +1059,12 @@ export class GameEngineInitiativeMethods {
     }
     if (typeof engine.syncEntrenchForFaction === 'function') {
       engine.syncEntrenchForFaction(faction, moved.hex, moved.entrench, moved.unitId ?? undefined);
+    }
+    if (typeof engine.setUnitActionFlags === 'function') {
+      engine.setUnitActionFlags(faction, moved, {
+        ...flags,
+        movementPointsUsed: flags.movementPointsUsed + moveCost
+      });
     }
 
     return true;

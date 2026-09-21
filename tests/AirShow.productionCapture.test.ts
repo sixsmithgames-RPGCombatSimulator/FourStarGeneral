@@ -374,7 +374,6 @@ registerTest("AIRSHOW_PLAYBACK_REJECTS_LINKED_ESCORT_CONTRACT_MISMATCHES", async
           fallbackLaneOffsetPx: number,
           skipEscortFlights: boolean,
           announceEvent: boolean,
-          bomberArrivalDelayMs: number,
           allowBomberDefensePass: boolean,
           bomberOriginKey: string | null,
           linkedEscortFlights: readonly Record<string, unknown>[]
@@ -387,7 +386,6 @@ registerTest("AIRSHOW_PLAYBACK_REJECTS_LINKED_ESCORT_CONTRACT_MISMATCHES", async
         0,
         false,
         false,
-        900,
         true,
         "0,0",
         [

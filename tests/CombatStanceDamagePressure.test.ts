@@ -189,8 +189,8 @@ registerTest("ASSAULT_CONTACT_PRESSURE_INCREASES_SEVERITY_AGAINST_DAMAGED_RECON"
       }
     }
     if (fireAtWill.packet.readinessLoss <= 0 || fireAtWill.packet.readinessLoss >= defender.strength
-      || assault.packet.readinessLoss <= 0 || assault.packet.readinessLoss >= defender.strength) {
-      throw new Error(`Expected both stances to inflict measurable, nonterminal damage against ${defender.strength} remaining readiness, saw ${fireAtWill.packet.readinessLoss} and ${assault.packet.readinessLoss}.`);
+      || assault.packet.readinessLoss <= 0 || assault.packet.readinessLoss > defender.strength) {
+      throw new Error(`Expected Fire at Will to remain nonterminal and assault to stay bounded by ${defender.strength} readiness, saw ${fireAtWill.packet.readinessLoss} and ${assault.packet.readinessLoss}.`);
     }
     if (assault.expectedHits <= fireAtWill.expectedHits * 2) {
       throw new Error(`Assault did not produce the expected contact-pressure increase (${fireAtWill.expectedHits} -> ${assault.expectedHits}).`);

@@ -16,7 +16,14 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { ALLOCATION_BY_KEY } from "../../src/data/unitAllocation";
 import { openTrainingRequisition } from "./support/openTrainingRequisition";
+
+function parseDisplayedRp(text: string | null, label: string): number {
+  const match = text?.match(/[\d,]+/);
+  expect(match, `${label} should contain a numeric RP value.`).not.toBeNull();
+  return Number.parseInt(match?.[0].replace(/,/g, "") ?? "0", 10);
+}
 
 test.describe("Requisition Screen Layout", () => {
   test.beforeEach(async ({ page }) => {
@@ -27,15 +34,15 @@ test.describe("Requisition Screen Layout", () => {
     // Verify the intel row exists with correct structure
     const intelRow = await page.locator(".precombat-intel-row");
     await expect(intelRow).toBeVisible();
-    
+
     // Verify mission intel panel exists on the left
     const missionPanel = await page.locator(".mission-intel-panel");
     await expect(missionPanel).toBeVisible();
-    
+
     // Verify mission title is displayed
     const missionTitle = await page.locator("#precombatMissionTitle");
     await expect(missionTitle).toBeVisible();
-    
+
     // Verify theater overview (minimap) is on the right
     const mapCard = await page.locator(".map-card");
     await expect(mapCard).toBeVisible();
@@ -43,6 +50,9 @@ test.describe("Requisition Screen Layout", () => {
     // Verify minimap canvas exists
     const minimap = await page.locator("#precombatHexMap");
     await expect(minimap).toBeVisible();
+    await expect(minimap.locator(".hex-cell")).toHaveCount(320);
+    await expect(minimap.locator("image, #viewportRoot, .combat-effects-layer, .terrain-sprite")).toHaveCount(0);
+    await expect(minimap).toHaveAttribute("aria-label", /theater overview, 320 hexes/i);
     
     // Verify unit allocation panel is below the intel row
     const allocationPanel = await page.locator(".allocation-panel");
@@ -55,6 +65,15 @@ test.describe("Requisition Screen Layout", () => {
     });
   });
 
+  test("should keep the browser event loop responsive after tactical bootstrap", async ({ page }) => {
+    const heartbeat = await page.evaluate(() => new Promise<string>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve("responsive")));
+    }));
+
+    expect(heartbeat).toBe("responsive");
+    await expect(page.locator("#precombatScreen")).toBeVisible();
+  });
+
   test("should display budget in RP with correct initial values", async ({ page }) => {
     // Verify budget panel uses RP terminology
     const budgetLabel = await page.locator(".topbar-budget .budget-label");
@@ -63,20 +82,18 @@ test.describe("Requisition Screen Layout", () => {
     // Verify spent amount shows RP
     const spentElement = await page.locator("#budgetSpent");
     const spentText = await spentElement.textContent();
-    expect(spentText).toMatch(/Spent:\s*\d+\s*RP/i);
+    expect(spentText).toMatch(/^\s*[\d,]+\s*RP\s+used\s*$/i);
     
     // Verify remaining amount shows RP
     const remainingElement = await page.locator("#budgetRemaining");
     const remainingText = await remainingElement.textContent();
-    expect(remainingText).toMatch(/(Remaining|Available):\s*[\d,]+\s*(RP|requisition)/i);
-    
-    // Verify budget shows 1,200 total (or close to it after auto-seeded convoy)
-    const remainingMatch = remainingText?.match(/[\d,]+/);
-    if (remainingMatch) {
-      const remaining = parseInt(remainingMatch[0].replace(/,/g, ""), 10);
-      expect(remaining).toBeGreaterThan(1100); // Should be ~1160 after convoy
-      expect(remaining).toBeLessThanOrEqual(1200);
-    }
+    expect(remainingText).toMatch(/^\s*[\d,]+\s*RP\s+available\s*$/i);
+
+    // The two independently rendered values must reconcile to one positive budget.
+    const spent = parseDisplayedRp(spentText, "Spent budget");
+    const remaining = parseDisplayedRp(remainingText, "Remaining budget");
+    expect(spent).toBe(ALLOCATION_BY_KEY.supplyConvoy.costPerUnit);
+    expect(spent + remaining).toBeGreaterThan(spent);
   });
 
   test("should auto-seed supply convoy with quantity 1, not 0", async ({ page }) => {
@@ -101,7 +118,9 @@ test.describe("Requisition Screen Layout", () => {
     // Verify total cost is displayed as 40 RP (1 × 40)
     const totalElement = await supplyConvoyItem.locator(".allocation-total");
     const totalText = await totalElement.textContent();
-    expect(totalText).toContain("40");
+    expect(parseDisplayedRp(totalText, "Supply convoy total")).toBe(
+      ALLOCATION_BY_KEY.supplyConvoy.costPerUnit
+    );
   });
 
   test("should maintain budget consistency when adding infantry", async ({ page }) => {
@@ -113,6 +132,15 @@ test.describe("Requisition Screen Layout", () => {
     // Get the increment button
     const incrementBtn = await infantryItem.locator('[data-action="increment"]');
     await expect(incrementBtn).toBeVisible();
+
+    const initialSpent = parseDisplayedRp(
+      await page.locator("#budgetSpent").textContent(),
+      "Initial spent budget"
+    );
+    const initialRemaining = parseDisplayedRp(
+      await page.locator("#budgetRemaining").textContent(),
+      "Initial remaining budget"
+    );
     
     // Click twice to add 2 infantry (tutorial requirement)
     await incrementBtn.click();
@@ -125,14 +153,20 @@ test.describe("Requisition Screen Layout", () => {
     const displayedCount = await countElement.textContent();
     expect(parseInt(displayedCount ?? "0", 10)).toBe(2);
     
-    // Verify budget updated correctly
-    // 2 infantry @ 50 RP = 100 RP + 1 supply convoy @ 40 RP = 140 RP total
-    const newSpent = await page.locator("#budgetSpent").textContent();
-    expect(newSpent).toContain("140");
-    
-    const newRemaining = await page.locator("#budgetRemaining").textContent();
-    // 1200 - 140 = 1060
-    expect(newRemaining).toContain("1,060");
+    // Verify both sides of the budget move by the authoritative catalog price.
+    const infantrySpend = 2 * ALLOCATION_BY_KEY.infantry.costPerUnit;
+    const newSpent = parseDisplayedRp(
+      await page.locator("#budgetSpent").textContent(),
+      "Updated spent budget"
+    );
+    expect(newSpent).toBe(initialSpent + infantrySpend);
+
+    const newRemaining = parseDisplayedRp(
+      await page.locator("#budgetRemaining").textContent(),
+      "Updated remaining budget"
+    );
+    expect(newRemaining).toBe(initialRemaining - infantrySpend);
+    expect(newSpent + newRemaining).toBe(initialSpent + initialRemaining);
   });
 
   test("should contain plus/minus buttons within allocation cards", async ({ page }) => {
@@ -205,25 +239,35 @@ test.describe("Requisition Screen Layout", () => {
   });
 
   test("should support complete tutorial force composition", async ({ page }) => {
+    const initialBudget = parseDisplayedRp(
+      await page.locator("#budgetSpent").textContent(),
+      "Initial spent budget"
+    ) + parseDisplayedRp(
+      await page.locator("#budgetRemaining").textContent(),
+      "Initial remaining budget"
+    );
+
     // Add units as per tutorial requirements
     const requiredUnits = [
-      { key: "infantry", count: 3, cost: 50 },
-      { key: "tank", count: 1, cost: 100 },
-      { key: "heavyTankCompany", count: 1, cost: 140 },
-      { key: "tankDestroyerCompany", count: 1, cost: 80 },
-      { key: "engineer", count: 1, cost: 80 },
-      { key: "flakBattery", count: 1, cost: 210 },
-      { key: "reconBike", count: 1, cost: 45 },
-      { key: "howitzer", count: 1, cost: 180 },
-      { key: "ammo", count: 1, cost: 30 },
-      { key: "medic", count: 1, cost: 60 },
-      { key: "maintenance", count: 1, cost: 55 }
-    ];
-    
-    // Calculate expected total (supply convoy auto-added at 40 RP)
-    const expectedTotal = requiredUnits.reduce((sum, u) => sum + (u.count * u.cost), 40);
-    expect(expectedTotal).toBe(1170);
-    
+      { key: "infantry", count: 3 },
+      { key: "tank", count: 1 },
+      { key: "heavyTankCompany", count: 1 },
+      { key: "tankDestroyerCompany", count: 1 },
+      { key: "engineer", count: 1 },
+      { key: "flakBattery", count: 1 },
+      { key: "reconBike", count: 1 },
+      { key: "howitzer", count: 1 },
+      { key: "ammo", count: 1 },
+      { key: "medic", count: 1 },
+      { key: "maintenance", count: 1 }
+    ] as const;
+
+    // Calculate expected total from the same authoritative formation catalog used
+    // by the game, including the mission-minimum supply convoy.
+    const expectedTotal = requiredUnits.reduce(
+      (sum, unit) => sum + (unit.count * ALLOCATION_BY_KEY[unit.key].costPerUnit),
+      ALLOCATION_BY_KEY.supplyConvoy.costPerUnit
+    );
     // Add each unit type
     for (const unit of requiredUnits) {
       const listId = ["ammo", "fuel", "medic", "maintenance", "supplyConvoy"].includes(unit.key)
@@ -252,15 +296,12 @@ test.describe("Requisition Screen Layout", () => {
     
     // Verify final budget
     const spentText = await page.locator("#budgetSpent").textContent();
-    const spentMatch = spentText?.match(/[\d,]+/);
-    expect(Number.parseInt(spentMatch?.[0].replace(/,/g, "") ?? "0", 10)).toBe(expectedTotal);
+    expect(parseDisplayedRp(spentText, "Final spent budget")).toBe(expectedTotal);
     
     const remainingText = await page.locator("#budgetRemaining").textContent();
-    const remainingMatch = remainingText?.match(/[\d,]+/);
-    if (remainingMatch) {
-      const remaining = parseInt(remainingMatch[0].replace(/,/g, ""), 10);
-      expect(remaining).toBe(1200 - expectedTotal);
-    }
+    const remaining = parseDisplayedRp(remainingText, "Final remaining budget");
+    expect(remaining).toBe(initialBudget - expectedTotal);
+    expect(expectedTotal + remaining).toBe(initialBudget);
     
     // Take final screenshot
     await page.screenshot({ 

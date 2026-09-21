@@ -137,6 +137,8 @@ export interface ReadinessStatus {
  */
 export interface CampaignTiming {
   day: number;
+  /** Player-facing campaign date or standalone mission-turn label. */
+  dayLabel?: string;
   time: string;
   note: string;
   phase?: string;

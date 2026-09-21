@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDirectory = path.join(repositoryRoot, "dist");
 const staticImportPattern = /(?:\bfrom\s*|\bimport\s*)(["'])(\.\/[^"']+\.js)\1/g;
+const maximumInitialScriptBytes = 100 * 1024;
 
 function findDependencyCycle(graph) {
   const visiting = new Set();
@@ -64,6 +65,17 @@ async function buildStaticImportGraph() {
 }
 
 const graph = await buildStaticImportGraph();
+const tacticalChunk = [...graph.keys()].find((file) => /^TacticalBattleFlowBootstrap-.*\.js$/.test(file));
+if (!tacticalChunk) {
+  throw new Error("Production bundle is missing the lazy TacticalBattleFlowBootstrap chunk; tactical code may have returned to the initial bundle.");
+}
+const initialScriptBytes = (await readFile(path.join(outputDirectory, "index.js"))).byteLength;
+if (initialScriptBytes > maximumInitialScriptBytes) {
+  throw new Error(
+    `Production initial script is ${initialScriptBytes} bytes; lazy-startup budget is ${maximumInitialScriptBytes}. `
+      + "Keep campaign and tactical runtimes behind their dynamic bootstrap boundaries."
+  );
+}
 const cycle = findDependencyCycle(graph);
 if (cycle) {
   throw new Error(
@@ -72,4 +84,4 @@ if (cycle) {
   );
 }
 
-console.log(`Production bundle verified: ${graph.size} JavaScript file(s), no static chunk cycles.`);
+console.log(`Production bundle verified: ${graph.size} JavaScript file(s), ${initialScriptBytes}-byte initial script, lazy tactical chunk present, no static chunk cycles.`);

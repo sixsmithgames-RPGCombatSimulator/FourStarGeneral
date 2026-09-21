@@ -10,12 +10,16 @@ export async function openTrainingRequisition(page: Page): Promise<void> {
   await page.getByRole("button", { name: /Training Exercise/ }).click();
   await page.waitForSelector("#precombatScreen", { state: "visible" });
 
-  const tutorialDialog = page.getByRole("dialog", { name: "Tutorial" });
+  // The precombat screen becomes visible before the welcome step is published.
+  // Wait for the live (non-hidden) overlay instead of racing its initial hidden
+  // container or its title-dependent accessible name.
+  const tutorialDialog = page.locator("#tutorialOverlayContainer:not(.hidden)");
+  await tutorialDialog.waitFor({ state: "visible", timeout: 5_000 }).catch(() => undefined);
   if (await tutorialDialog.isVisible().catch(() => false)) {
     const skipButton = tutorialDialog.getByRole("button", { name: "Skip tutorial" });
     if (await skipButton.isVisible().catch(() => false)) {
       await skipButton.click();
-      await tutorialDialog.waitFor({ state: "hidden" });
+      await page.locator("#tutorialOverlayContainer").waitFor({ state: "hidden" });
     }
   }
 

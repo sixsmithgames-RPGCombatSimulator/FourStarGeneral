@@ -672,6 +672,7 @@ registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLI
 registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({ Given, When, Then, createScreen }) => {
   let screen: BattleScreen;
   let soundEnabled = true;
+  let soundAvailable = true;
   let toggleButton: HTMLButtonElement;
 
   await Given("a battle screen with a sound toggle button and renderer audio controls", async () => {
@@ -692,7 +693,12 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
         soundEnabled = enabled;
       },
       isSoundEnabled() {
-        return soundEnabled;
+        return soundAvailable && soundEnabled;
+      },
+      getSoundAvailability() {
+        return soundAvailable
+          ? { available: true, reason: null }
+          : { available: false, reason: "Web Audio API is unavailable in this browser." };
       }
     } as any;
 
@@ -737,6 +743,14 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
     }
     if (toggleButton.getAttribute("aria-checked") !== "true") {
       throw new Error(`Expected aria-checked to be true, received ${toggleButton.getAttribute("aria-checked")}`);
+    }
+    soundAvailable = false;
+    (screen as any).applySoundPreference(true);
+    if (!toggleButton.disabled
+      || toggleButton.getAttribute("aria-disabled") !== "true"
+      || toggleButton.querySelector<HTMLElement>("[data-settings-value]")?.textContent !== "Unavailable"
+      || toggleButton.dataset.soundPreference !== "true") {
+      throw new Error("Unavailable combat audio did not disable the control while preserving the saved preference.");
     }
     window.localStorage.removeItem("fsg-sound-enabled");
   });
@@ -1228,6 +1242,7 @@ registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", as
   let screen: BattleScreen;
   const callOrder: string[] = [];
   let announcement = "";
+  let turnStartAutosaveRequests = 0;
 
   await Given("a finalized deployment with two predeployed allied formations", async () => {
     mountBattleScreenRoot();
@@ -1269,6 +1284,11 @@ registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", as
       getCampaignBridgeState: () => null,
       getCurrentTurnSummary: () => ({ turnNumber: 1, activeFaction: "Player", phase: "playerTurn" })
     };
+    (screen as any).tacticalSaveController = {
+      requestTurnStartAutosave: async () => {
+        turnStartAutosaveRequests += 1;
+      }
+    };
     (screen as any).battleLoadout = null;
     (screen as any).reservePresenter = null;
     (screen as any).deploymentPanel = null;
@@ -1293,6 +1313,9 @@ registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", as
     }
     if (!announcement.includes("2 allied formations transferred to your command.")) {
       throw new Error(`Expected allied command transfer in the battle-start report, received '${announcement}'.`);
+    }
+    if (turnStartAutosaveRequests !== 1) {
+      throw new Error(`Expected one turn-start autosave request, received ${turnStartAutosaveRequests}.`);
     }
   });
 });
@@ -1557,6 +1580,19 @@ registerTest("BATTLESCREEN_RIVER_WATCH_MISSION_END_USES_COMPUTED_STATUS", async 
       },
       hasEngine() {
         return true;
+      },
+      getMissionReportingSnapshot() {
+        return {
+          currentPlayerUnits: [
+            { type: "Infantry_42", hex: { q: 1, r: 1 } },
+            { type: "Engineer", hex: { q: 1, r: 2 } },
+            { type: "Recon_Bike", hex: { q: 1, r: 3 } }
+          ],
+          currentBotUnits: [],
+          playerSupplyHistory: [],
+          airMissionReports: [],
+          livePlayerUnitIds: []
+        };
       },
       ensureGameEngine() {
         return {

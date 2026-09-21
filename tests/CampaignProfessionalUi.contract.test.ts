@@ -466,15 +466,17 @@ registerTest("FSG_CAM_043_FORMATION_DRILLDOWN_PRESERVES_BASE_ORDER_CONTEXT", asy
 });
 
 registerTest("FSG_CAM_044_BLOCKED_RECONSTRUCTION_REASON_OWNS_THE_BASE_ACTION_SUMMARY", async ({ Given, When, Then }) => {
-  const source = readWorkspaceSource("src/ui/screens/CampaignScreen.ts");
-  const start = source.indexOf("const baseActionSummary");
-  const end = source.indexOf("const capabilities", start);
+  const source = readWorkspaceSource("src/ui/campaign/CampaignCommandHexProjection.ts");
+  const screenSource = readWorkspaceSource("src/ui/screens/CampaignScreen.ts");
+  const start = source.indexOf("function projectBaseAction");
+  const end = source.indexOf("function projectInfrastructure", start);
   const projection = source.slice(start, end);
   await Given("a damaged friendly installation whose reconstruction action is blocked", () => {});
   await When("the base action-summary projection is inspected", () => {});
   await Then("the repair reason and corrective action outrank generic movement fallback copy", () => {
-    if (!/repairPreview\?\.reason/.test(projection)
-      || !/repairPreview\?\.correctiveAction/.test(projection)) {
+    if (!/repairPreview\.reason/.test(projection)
+      || !/repairPreview\.correctiveAction/.test(projection)
+      || screenSource.includes("const baseActionSummary")) {
       throw new Error("The base action summary can still discard a relevant reconstruction blocker in favor of generic movement copy.");
     }
   });

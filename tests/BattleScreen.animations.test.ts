@@ -62,12 +62,9 @@ function createOwnedAirRenderer(
       calls.push(call);
       await onPlayback(call);
     },
-    animateAircraftSortie: unexpected("animateAircraftSortie"),
-    animateAircraftFlyover: unexpected("animateAircraftFlyover"),
     playFlakBurstAt: unexpected("playFlakBurstAt"),
     playExplosion: unexpected("playExplosion"),
     playDustCloud: unexpected("playDustCloud"),
-    playDogfight: unexpected("playDogfight"),
     playAirDamageSmokeTrailAt: unexpected("playAirDamageSmokeTrailAt"),
     markHexDamaged: (hexKey: string) => { aftermath.push(`damaged:${hexKey}`); },
     markHexWrecked: (hexKey: string) => { aftermath.push(`wrecked:${hexKey}`); },
@@ -251,6 +248,14 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", requireCleanPlayback
     getCurrentTurnSummary() {
       return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
     },
+    getBattleSupportCommandSnapshot() {
+      return {
+        turnNumber: 1,
+        support: fakeEngine.getSupportSnapshot(),
+        scheduledPlayerAirMissions: fakeEngine.getScheduledAirMissions(),
+        enemyContacts: []
+      };
+    },
     getIdlePlayerUnitKeys() {
       return [];
     }
@@ -360,7 +365,13 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
     ensureGameEngine: () => fakeEngine,
     tryGetGameEngine: () => fakeEngine,
     getIdlePlayerUnitKeys: () => [],
-    getCurrentTurnSummary: () => ({ phase: "botTurn", activeFaction: "Bot", turnNumber: 1 })
+    getCurrentTurnSummary: () => ({ phase: "botTurn", activeFaction: "Bot", turnNumber: 1 }),
+    getBattleSupportCommandSnapshot: () => ({
+      turnNumber: 1,
+      support: fakeEngine.getSupportSnapshot(),
+      scheduledPlayerAirMissions: fakeEngine.getScheduledAirMissions(),
+      enemyContacts: []
+    })
   } as unknown as import("../src/state/BattleState").BattleState;
 
   const fakeRenderer = {
@@ -457,7 +468,10 @@ registerTest("BATTLESCREEN_SUPPORT_EVENT_CONSUMER_REPORTS_EMPTY_IMPACT_WITHOUT_I
   // Retain the actual event consumer and playback; replace only unrelated UI
   // wiring and the renderer boundary so no test-local message producer exists.
   const screen = Object.assign(Object.create(BattleScreen.prototype), {
-    battleState: { ensureGameEngine: () => engine },
+    battleState: {
+      consumeBattleSupportImpacts: () => engine.consumeSupportImpactEvents(),
+      getBotUnitAt: () => null
+    },
     unitTypes: { Infantry_42: { class: "infantry" } },
     hexMapRenderer: {
       playArtillerySupportImpact: async (hexKey: string) => { barrages.push(hexKey); },
@@ -537,7 +551,10 @@ registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARR
   const fakeBattleState = {
     hasEngine: () => true,
     ensureGameEngine: () => fakeEngine,
-    tryGetGameEngine: () => fakeEngine
+    tryGetGameEngine: () => fakeEngine,
+    getBotUnitAt: (hex: { q: number; r: number }) => fakeEngine.botUnits.find(
+      (unit) => unit.hex.q === hex.q && unit.hex.r === hex.r
+    ) ?? null
   } as unknown as import("../src/state/BattleState").BattleState;
 
   const fakeRenderer = {
@@ -953,7 +970,7 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", requireC
       const { scene, options } = playback.calls[0];
       const bomber = scene.bombers?.[0];
       if (scene.kind !== "airToAir" || scene.hexKey !== "0,0" || scene.bomberTargetHexKey !== "0,0"
-        || scene.bombers?.length !== 1 || scene.bomber !== bomber
+        || scene.bombers.length !== 1
         || bomber?.id !== "u_bomber" || bomber.scenarioType !== "Bomber" || bomber.faction !== "Player"
         || bomber.role !== "bomber" || bomber.combatRole !== "strike"
         || bomber.originHexKey !== "1,0" || bomber.targetHexKey !== "0,0"
@@ -1094,7 +1111,7 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", 
       }
       const { scene, options } = playback.calls[0];
       const bomber = scene.bombers?.[0];
-      if (scene.bombers?.length !== 1 || scene.bomber !== bomber || bomber?.id !== "u_bomber"
+      if (scene.bombers.length !== 1 || bomber?.id !== "u_bomber"
         || bomber.originHexKey !== "1,0" || bomber.targetHexKey !== "0,0"
         || bomber.strengthBefore !== 100 || bomber.strengthAfterEscortPhase !== 100 || bomber.finalStrength !== 0
         || scene.strikeAborted !== true || options?.onImpact !== undefined || options?.playImpactEffects !== true) {
@@ -1250,8 +1267,7 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", re
       }
       const { scene, options } = ownedRenderer.calls[0];
       const bombers = scene.bombers ?? [];
-      // The timing policy gives both bombers the same 360ms lead within this one scene.
-      if (bombers.length !== 2 || scene.bomber !== bombers[0] || scene.bomberArrivalDelayMs !== 360
+      if (bombers.length !== 2
         || bombers[0].id !== "b1" || bombers[0].originHexKey !== "0,10" || bombers[0].targetHexKey !== "12,-6" || bombers[0].laneOffsetPx !== -9
         || bombers[1].id !== "b2" || bombers[1].originHexKey !== "1,10" || bombers[1].targetHexKey !== "13,-6" || bombers[1].laneOffsetPx !== 9
         || bombers.some((bomber) => bomber.faction !== "Bot" || bomber.role !== "bomber" || bomber.combatRole !== "strike"
@@ -1392,7 +1408,7 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
     const { scene, options } = playback.calls[0];
     const bomber = scene.bombers?.[0];
     if (scene.kind !== "airToAir" || scene.hexKey !== "0,0" || scene.bomberTargetHexKey !== "0,0"
-      || scene.bombers?.length !== 1 || scene.bomber !== bomber
+      || scene.bombers.length !== 1
       || bomber?.id !== "u_bomber" || bomber.scenarioType !== "Bomber" || bomber.faction !== "Player"
       || bomber.role !== "bomber" || bomber.combatRole !== "strike" || bomber.laneOffsetPx !== 0
       || bomber.originHexKey !== "1,0" || bomber.targetHexKey !== "0,0"

@@ -165,6 +165,56 @@ registerTest("HEXMAP_RENDERER_SHOWS_SENTRY_STATUS_PIP", async ({ Given, When, Th
   });
 });
 
+registerTest("HEXMAP_RENDERER_SHOWS_AND_CLEARS_TACTICAL_RECOVERY_SITES", async ({ Given, When, Then }) => {
+  const viewport = document.createElement("div");
+  Object.defineProperty(viewport, "clientWidth", { value: 320, configurable: true });
+  Object.defineProperty(viewport, "clientHeight", { value: 220, configurable: true });
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  viewport.appendChild(canvas);
+  document.body.appendChild(viewport);
+
+  const scenario: ScenarioData = {
+    name: "Recovery Marker",
+    size: { cols: 1, rows: 1 },
+    tilePalette: {
+      PLAINS: { terrain: "plains", terrainType: "grass", density: "average", features: [], recon: "intel" }
+    },
+    tiles: [[{ tile: "PLAINS" }]],
+    objectives: [],
+    turnLimit: 1,
+    sides: {
+      Player: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] },
+      Bot: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] }
+    }
+  };
+  const renderer = new HexMapRenderer();
+
+  await Given("a rendered battlefield hex with casualties and equipment awaiting support", async () => {
+    renderer.render(svg as SVGSVGElement, canvas as HTMLDivElement, scenario);
+  });
+  await When("the recovery-site overlay is rendered and later refreshed away", async () => {
+    renderer.renderRecoverySiteMarker("0,0", {
+      personnel: 12,
+      equipment: 3,
+      tooltip: "Recovery site awaiting medical and maintenance support"
+    });
+  });
+  await Then("the hex carries an explicit counted marker that the renderer can clear", async () => {
+    const marker = svg.querySelector<SVGGElement>('g.recovery-site-marker[data-recovery-site="0,0"]');
+    if (!marker || marker.textContent?.includes("✚12 ⚙3") !== true
+      || marker.querySelector("title")?.textContent !== "Recovery site awaiting medical and maintenance support") {
+      throw new Error("Expected the recovery marker to show both casualty categories and its support-routing description.");
+    }
+    renderer.clearRecoverySiteMarkers();
+    if (svg.querySelector("g.recovery-site-marker")) {
+      throw new Error("Expected recovery marker refresh to remove stale site indicators.");
+    }
+    viewport.remove();
+  });
+});
+
 registerTest("HEXMAP_RENDERER_KEEPS_SPOTTED_CONTACT_MARKERS_READABLE_WHEN_FACING_LEFT", async ({ Given, When, Then }) => {
   const viewport = document.createElement("div");
   viewport.style.width = "320px";

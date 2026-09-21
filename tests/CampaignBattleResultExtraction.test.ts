@@ -348,6 +348,96 @@ registerTest("CAMPAIGN_BATTLE_RESULT_REJECTS_MISSING_OR_TAMPERED_COMMITMENTS", a
   });
 });
 
+registerTest("CAMPAIGN_RESULT_REUNITES_TACTICAL_RECOVERY_AND_APPLIES_SURVIVING_SUPPORT", async ({ Then }) => {
+  const { runtime, pkg } = commitFixture();
+  const tacticalState = tacticalStateFixture(runtime, pkg);
+  const attacker = tacticalState.playerPlacements[0];
+  if (!attacker?.status || !attacker.unitId) {
+    throw new Error("Campaign recovery fixture has no committed attacker status.");
+  }
+  const personnelEntry = Object.entries(attacker.status.personnel)[0];
+  if (!personnelEntry) throw new Error("Campaign recovery fixture has no personnel pool.");
+  const [personnelKey, pool] = personnelEntry;
+  const detachedCount = Math.min(6, pool.fit);
+  pool.fit -= detachedCount;
+  const siteStatus = {
+    personnel: Object.fromEntries(Object.keys(attacker.status.personnel).map((key) => [key, {
+      fit: 0,
+      injured: 0,
+      wounded: key === personnelKey ? detachedCount : 0,
+      severelyWounded: 0,
+      killed: 0
+    }])),
+    equipment: Object.fromEntries(Object.keys(attacker.status.equipment).map((key) => [key, {
+      operational: 0,
+      damaged: 0,
+      disabled: 0,
+      destroyed: 0
+    }])),
+    ammo: {},
+    suppression: 0,
+    readinessModel: attacker.status.readinessModel
+  };
+  const emptyStaged = structuredClone(siteStatus);
+  Object.values(emptyStaged.personnel).forEach((entry) => { entry.wounded = 0; });
+  tacticalState.recoverySites = [{
+    siteId: "campaign-local-recovery",
+    faction: "Player",
+    hex: { ...attacker.hex },
+    createdTurn: tacticalState.turnNumber,
+    cause: "ordered",
+    sourceUnitId: attacker.unitId,
+    sourceCampaignProvenance: structuredClone(attacker.campaignProvenance!),
+    unitType: attacker.type,
+    formationKey: attacker.formationKey,
+    displayName: attacker.campaignProvenance?.formationName ?? "Committed formation",
+    baseExperience: attacker.baseExperience ?? attacker.experience,
+    readinessModel: attacker.status.readinessModel,
+    status: siteStatus,
+    staged: emptyStaged,
+    state: "awaitingCare"
+  }];
+
+  const unsupported = extractCampaignBattleResultPackage({
+    battlePackage: pkg,
+    tacticalState,
+    missionStatus,
+    result: "attackerVictory"
+  });
+  const supportedState = structuredClone(tacticalState);
+  supportedState.playerPlacements.push({
+    type: "Supply_Truck",
+    unitId: "campaign-medic",
+    formationKey: "medic",
+    controlledBy: "Player",
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 0,
+    fuel: 20,
+    entrench: 0,
+    facing: "NE"
+  });
+  const supported = extractCampaignBattleResultPackage({
+    battlePackage: pkg,
+    tacticalState: supportedState,
+    missionStatus,
+    result: "attackerVictory"
+  });
+  const unsupportedDelta = unsupported.formationDeltas.find((delta) => delta.role === "attacker");
+  const supportedDelta = supported.formationDeltas.find((delta) => delta.role === "attacker");
+  if (!unsupportedDelta || !supportedDelta) throw new Error("Campaign recovery result omitted the attacker delta.");
+  const unsupportedWounded = Object.values(unsupportedDelta.personnelStatusAfter).reduce((sum, entry) => sum + entry.wounded, 0);
+  const supportedWounded = Object.values(supportedDelta.personnelStatusAfter).reduce((sum, entry) => sum + entry.wounded, 0);
+  if (unsupportedWounded < detachedCount || supportedWounded !== 0 || supportedDelta.readinessAfter <= unsupportedDelta.readinessAfter) {
+    throw new Error(`Expected surviving medical support to recover aggregated battle casualties, received ${JSON.stringify({ unsupportedWounded, supportedWounded, unsupported: unsupportedDelta.readinessAfter, supported: supportedDelta.readinessAfter })}.`);
+  }
+  if (supported.formationDeltas.length !== pkg.formationCommitments.length) {
+    throw new Error("Battle-local recovery detachments must not become persistent campaign formations.");
+  }
+  await Then("tactical sites aggregate into their committed source and surviving campaign support recovers casualties at battle end", () => {});
+});
+
 registerTest("CAMPAIGN_NAVAL_SUPPORT_REACHES_TACTICAL_PLAY_AND_RECONCILES_CHARGE_USE", async ({ Given, When, Then }) => {
   const { campaign, runtime, pkg } = commitNavalFixture();
   const tacticalState = tacticalStateFixture(runtime, pkg);

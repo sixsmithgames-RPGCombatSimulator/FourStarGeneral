@@ -324,13 +324,6 @@ export class ProceduralEffectsAnimator {
           targetMaterial: "earth",
           gainMultiplier: 0.88
         };
-      case "explosionLarge":
-        return {
-          weaponClass: "large_bomb",
-          playbackMode: "impact_only",
-          targetMaterial: "earth",
-          gainMultiplier: 1
-        };
       default:
         return null;
     }

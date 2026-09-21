@@ -93,15 +93,24 @@ async function readable(locator: Locator, page: Page) {
   expect(await locator.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   expect(await locator.evaluate(el => {
     const rect = el.getBoundingClientRect();
+    const clippedBy: Array<{ element: string; overflow: string; rect: DOMRect; clientTop: number; clientHeight: number }> = [];
     for (let parent = el.parentElement; parent; parent = parent.parentElement) {
       const style = getComputedStyle(parent); const frame = parent.getBoundingClientRect();
       if (['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowY)
-        && (rect.top < frame.top + parent.clientTop - 1 || rect.bottom > frame.top + parent.clientTop + parent.clientHeight + 1)) return false;
+        && (rect.top < frame.top + parent.clientTop - 1 || rect.bottom > frame.top + parent.clientTop + parent.clientHeight + 1)) {
+        clippedBy.push({ element: parent.id || parent.className, overflow: style.overflowY, rect: frame, clientTop: parent.clientTop, clientHeight: parent.clientHeight });
+      }
       if (['auto', 'scroll', 'hidden', 'clip'].includes(style.overflowX)
-        && (rect.left < frame.left + parent.clientLeft - 1 || rect.right > frame.left + parent.clientLeft + parent.clientWidth + 1)) return false;
+        && (rect.left < frame.left + parent.clientLeft - 1 || rect.right > frame.left + parent.clientLeft + parent.clientWidth + 1)) {
+        clippedBy.push({ element: parent.id || parent.className, overflow: style.overflowX, rect: frame, clientTop: parent.clientTop, clientHeight: parent.clientHeight });
+      }
+      // A viewport-fixed modal escapes ordinary overflow clipping above its fixed
+      // stacking context. Keep checking the modal itself, but not layout ancestors
+      // whose boxes do not actually clip the rendered dialog.
+      if (style.position === 'fixed') break;
     }
-    return true;
-  }), 'The entire control/text fits every clipping ancestor').toBe(true);
+    return { target: rect, clippedBy };
+  }), 'The entire control/text fits every clipping ancestor').toMatchObject({ clippedBy: [] });
   expect(await locator.evaluate(el => { const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return hit === el || el.contains(hit); })).toBe(true);
 }
 async function evidence(page: Page, info: TestInfo, name: string) {
@@ -116,6 +125,14 @@ async function evidence(page: Page, info: TestInfo, name: string) {
         padding: getComputedStyle(el).padding, overflow: getComputedStyle(el).overflow }
     })) }));
   writeFileSync(info.outputPath(`${name}.json`), JSON.stringify({ source: baseline ? 'pre-repair' : 'working-tree', ...data }, null, 2));
+}
+
+async function tabUntilFocused(page: Page, target: Locator, limit = 64): Promise<void> {
+  for (let step = 0; step < limit; step += 1) {
+    if (await target.evaluate(element => element === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  await expect(target, `Target did not enter the native Tab sequence within ${limit} steps`).toBeFocused();
 }
 for (const viewport of [{ width: 640, height: 360 }, { width: 753, height: 356 }, { width: 800, height: 900 },
   { width: 1280, height: 720 }, { width: 1506, height: 768 }, { width: 1920, height: 1080 }]) {
@@ -140,7 +157,7 @@ for (const viewport of [{ width: 640, height: 360 }, { width: 753, height: 356 }
       await expect(panel.locator('[data-aar-report-id="report-0"]')).toBeFocused();
       const disclosures = panel.locator('details > summary');
       await expect(disclosures).toHaveCount(2);
-      for (let n = 0; n < 12 && !await disclosures.first().evaluate(el => el === document.activeElement); n++) await page.keyboard.press('Tab');
+      await tabUntilFocused(page, disclosures.first());
       await expect(disclosures.first()).toBeFocused();
       await readable(disclosures.first(), page);
       await page.keyboard.press('Tab'); await expect(disclosures.nth(1)).toBeFocused();
@@ -163,7 +180,7 @@ for (const viewport of [{ width: 640, height: 360 }, { width: 753, height: 356 }
       await readable(decision, page); await readable(decision.locator('strong'), page);
       for (const text of await decision.locator('span').all()) await readable(text, page);
       const acknowledge = panel.locator('[data-acknowledge-aar]');
-      for (let n = 0; n < 20 && !await acknowledge.evaluate(el => el === document.activeElement); n++) await page.keyboard.press('Tab');
+      await tabUntilFocused(page, acknowledge);
       await expect(acknowledge).toBeFocused(); await readable(acknowledge, page);
       await evidence(page, info, 'aar-final-action');
       await page.keyboard.press('Enter');

@@ -25,6 +25,9 @@ export interface SidebarController {
 }
 
 export interface IPopupManager {
+  /** Releases persistent document, window, store, and popup-control listeners. */
+  dispose(): void;
+
   /**
    * Opens a popup by its key identifier.
    * @param key - The unique identifier for the popup

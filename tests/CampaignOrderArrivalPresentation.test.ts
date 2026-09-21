@@ -19,10 +19,10 @@ function projectOrder(state: CampaignState, orderId: string): CampaignCommandOrd
   const orders = state.getCampaignOrders();
   const order = orders.find((entry) => entry.id === orderId);
   assert.ok(order);
-  // A narrow test seam exercises the real private projection, not a copied UI formula.
+  // A narrow test seam exercises Screen's canonical Operations adapter, not a copied UI formula.
   return (screen as unknown as {
-    projectCommandOrder(order: CampaignOrder, playerOrders: readonly CampaignOrder[]): CampaignCommandOrderView;
-  }).projectCommandOrder(order, orders);
+    projectCommandOrderForReview(order: CampaignOrder, playerOrders: readonly CampaignOrder[]): CampaignCommandOrderView;
+  }).projectCommandOrderForReview(order, orders);
 }
 
 /** Feeds the real Screen formation projection into the shipped inspector consumer. */

@@ -2,6 +2,86 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import type { AirEngagementEvent, AirMissionReportEntry, BotTurnSummary } from "../src/game/GameEngine";
+import { BattleActivityLog } from "../src/ui/announcements/BattleActivityLog";
+
+registerTest("BATTLESCREEN_COMPACT_BATTLE_START_COLLAPSES_ACTIVITY_DRAWER", async ({ Given, When, Then }) => {
+  const originalMatchMedia = window.matchMedia;
+  let viewportWidth = 0;
+  const observedStates: Array<{
+    width: number;
+    hostCollapsed: boolean;
+    shellCollapsed: boolean;
+    toggleExpanded: string | null;
+    toggleLabel: string | null;
+    toggleText: string | null;
+  }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+  const battleMain = document.createElement("main");
+  const host = document.createElement("aside");
+  const toggle = document.createElement("button");
+
+  await Given("a real activity log is available across mobile, intermediate overlay, and desktop widths", () => {
+    host.id = "responsiveBattleActivityLog";
+    host.classList.add("hidden");
+    toggle.id = "responsiveBattleActivityLogToggle";
+    toggle.classList.add("hidden");
+    battleMain.append(host, toggle);
+    document.body.appendChild(battleMain);
+
+    const activityLog = new BattleActivityLog({
+      hostSelector: "#responsiveBattleActivityLog",
+      toggleSelector: "#responsiveBattleActivityLogToggle",
+      listSelector: "#missingResponsiveBattleActivityList",
+      emptyStateSelector: "#missingResponsiveBattleActivityEmpty",
+      scrollSelector: "#missingResponsiveBattleActivityScroll"
+    });
+    (screen as any).battleActivityLog = activityLog;
+    (screen as any).battleMainContainer = battleMain;
+    activityLog.registerCollapsedChangeListener((collapsed) => (screen as any).reflectActivityLogState(collapsed));
+  });
+
+  await When("battle presentation starts at 390px, 800px, and above the 980px drawer breakpoint", () => {
+    try {
+      window.matchMedia = ((query: string) => ({
+        matches: query === "(max-width: 980px)" && viewportWidth <= 980
+      })) as unknown as typeof window.matchMedia;
+      for (const width of [390, 800, 1024]) {
+        viewportWidth = width;
+        (screen as any).showActivityLogAfterDeployment();
+        observedStates.push({
+          width,
+          hostCollapsed: host.hasAttribute("data-activity-collapsed"),
+          shellCollapsed: battleMain.hasAttribute("data-activity-collapsed"),
+          toggleExpanded: toggle.getAttribute("aria-expanded"),
+          toggleLabel: toggle.getAttribute("aria-label"),
+          toggleText: toggle.textContent
+        });
+      }
+    } finally {
+      window.matchMedia = originalMatchMedia;
+      battleMain.remove();
+    }
+  });
+
+  await Then("every map-covering drawer starts collapsed while desktop retains the expanded log", () => {
+    const actual = observedStates.map((state) => [
+      state.width,
+      state.hostCollapsed,
+      state.shellCollapsed,
+      state.toggleExpanded,
+      state.toggleLabel,
+      state.toggleText
+    ]);
+    const expected = [
+      [390, true, true, "false", "Expand activity log", "⟨"],
+      [800, true, true, "false", "Expand activity log", "⟨"],
+      [1024, false, false, "true", "Collapse activity log", "⟩"]
+    ];
+    if (JSON.stringify(actual) !== JSON.stringify(expected) || host.classList.contains("hidden") || toggle.classList.contains("hidden")) {
+      throw new Error(`Responsive activity drawer drifted: ${JSON.stringify(actual)}.`);
+    }
+  });
+});
 
 registerTest("BATTLESCREEN_ENEMY_ACTIVITY_LOG_SHOWS_COUNTERFIRE_DAMAGE", async ({ When, Then }) => {
   const published: Array<{ summary: string; details?: Record<string, unknown> }> = [];
@@ -101,11 +181,11 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
       throw new Error(`Expected 2 defensive air log entries, received ${published.length}.`);
     }
 
-    if (published[0]?.category !== "player" || !published[0].summary.includes("Flak battery engaged Bomber on final approach")) {
+    if (published[0]?.category !== "player" || !published[0].summary.includes("Flak battery engaged He 177 Bomber Staffel on final approach")) {
       throw new Error(`Expected player flak activity entry, saw ${JSON.stringify(published[0])}.`);
     }
 
-    if (published[1]?.category !== "player" || !published[1].summary.includes("Player air patrol intercepted enemy Bomber")) {
+    if (published[1]?.category !== "player" || !published[1].summary.includes("Player air patrol intercepted enemy He 177 Bomber Staffel")) {
       throw new Error(`Expected player interception activity entry, saw ${JSON.stringify(published[1])}.`);
     }
 
@@ -611,11 +691,13 @@ registerTest("BATTLESCREEN_MISSION_STATS_CAPTURE_PLAYER_AIR_LOSSES", async ({ Wh
 
   (screen as any).battleState = {
     hasEngine: () => true,
-    ensureGameEngine: () => ({
-      playerUnits: [],
-      botUnits: [],
-      reserveUnits: [{ unit: { unitId: "bomber-flight-1", type: "Bomber", hex: { q: 0, r: 0 }, strength: 81 } }],
-      getAirMissionReports: () => reports
+    ensureGameEngine: () => { throw new Error("Mission reporting must use the typed BattleState snapshot."); },
+    getMissionReportingSnapshot: () => ({
+      currentPlayerUnits: [],
+      currentBotUnits: [],
+      playerSupplyHistory: [],
+      airMissionReports: reports,
+      livePlayerUnitIds: ["bomber-flight-1"]
     }),
     getPrecombatMissionInfo: () => ({ missionKey: "town_defense" })
   };

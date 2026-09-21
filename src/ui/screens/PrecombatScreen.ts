@@ -22,7 +22,8 @@ import type { MissionKey } from "../../state/UIState";
 import { ensureTutorialState, isTrainingMission } from "../../state/TutorialState";
 import { getNextPhase } from "../../data/tutorialSteps";
 import { createMissionRulesController } from "../../state/missionRules";
-import { HexMapRenderer } from "../../rendering/HexMapRenderer";
+import { renderPrecombatMiniMap } from "../../rendering/PrecombatMiniMapRenderer";
+import { ListenerLifecycle } from "../lifecycle/ListenerLifecycle";
 import type { ScenarioData, ScenarioDeploymentZone, ScenarioUnit } from "../../core/types";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
 import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
@@ -43,11 +44,6 @@ import {
 
 type AllocationListElement = HTMLElement & {
   __allocationListenersAttached?: boolean;
-};
-
-type ScreenShownEventDetail = {
-  id?: string;
-  element?: Element | null;
 };
 
 type AllocationPresetEntry = {
@@ -433,10 +429,10 @@ const ALLOCATION_PRESETS: readonly AllocationPresetDefinition[] = [
 ];
 
 export class PrecombatScreen {
+  private readonly lifecycle = new ListenerLifecycle();
   private readonly screenManager: IScreenManager;
   private readonly battleState: BattleState;
   private readonly element: HTMLElement;
-
   // DOM element references
   private missionTitleElement!: HTMLElement;
   private missionBriefingElement!: HTMLElement;
@@ -462,12 +458,8 @@ export class PrecombatScreen {
   private allocationFeedbackElement!: HTMLElement;
   private miniMapCanvas!: HTMLDivElement;
   private miniMapSvg!: SVGSVGElement;
-
-  private readonly miniMapRenderer = new HexMapRenderer();
   private miniMapScenario: ScenarioData;
-
   private scenarioSource: ScenarioSource;
-
   // Campaign integration: active mission, difficulty, and dynamic caps derived from campaign economy when applicable.
   private activeMissionKey: MissionKey | null = null;
   private activeDifficulty: BotDifficulty = "Normal";
@@ -482,7 +474,6 @@ export class PrecombatScreen {
   private campaignBattlePackage: CampaignBattlePackage | null = null;
   /** Revision shown to the player while choosing forces; commitment rejects a stale plan. */
   private campaignPlanningRevision: number | null = null;
-
   /**
    * Allocation state containers required by interaction TODO.
    *
@@ -501,21 +492,6 @@ export class PrecombatScreen {
   private allocationDirty = false;
   private readonly predeployedRoster = new Map<string, { label: string; scenarioType: string; count: number }>();
   private readonly unlockState = ensureUnlockState();
-  private miniMapRenderFrame: number | null = null;
-  private miniMapRetryTimer: number | null = null;
-  private readonly miniMapRetryLimit = 8;
-  private readonly screenShownListener = (event: Event): void => {
-    const shownEvent = event as CustomEvent<ScreenShownEventDetail>;
-    if (shownEvent.detail?.id === "precombat") {
-      this.requestMiniMapRender();
-    }
-  };
-  private readonly resizeListener = (): void => {
-    if (!this.element.classList.contains("hidden")) {
-      this.requestMiniMapRender();
-    }
-  };
-
   constructor(screenManager: IScreenManager, battleState: BattleState) {
     this.screenManager = screenManager;
     this.battleState = battleState;
@@ -541,13 +517,16 @@ export class PrecombatScreen {
     this.registerScenarioDeploymentZones();
     // Ensure allocation widgets are hydrated before presenting the screen so keyboard / pointer controls are responsive immediately.
     this.initializeAllocationUI();
-    this.unlockState.subscribe(() => {
+    this.lifecycle.addCleanup(this.unlockState.subscribe(() => {
       this.rerenderAllocations();
       this.updateBudgetDisplay();
-    });
-    this.requestMiniMapRender();
+    }));
+    this.renderMiniMap();
   }
-
+  dispose(): void {
+    this.lifecycle.dispose(); [this.allocationUnitList, this.allocationSupportList, this.allocationLogisticsList]
+      .filter(Boolean).forEach((container) => { (container as AllocationListElement).__allocationListenersAttached = false; });
+  }
   /**
    * Returns the screen's root element.
    */
@@ -593,13 +572,11 @@ export class PrecombatScreen {
    * Binds event handlers.
    */
   private bindEvents(): void {
-    this.returnToLandingButton.addEventListener("click", () => this.handleReturnToLanding());
-    this.proceedToBattleButton.addEventListener("click", () => this.handleProceedToBattle());
-    this.allocationWarningReturn.addEventListener("click", () => this.handleAllocationWarningReturn());
-    this.allocationWarningProceed.addEventListener("click", () => this.handleAllocationWarningProceed());
-    this.allocationResetButton.addEventListener("click", () => this.handleAllocationActionButton());
-    document.addEventListener("screen:shown", this.screenShownListener);
-    window.addEventListener("resize", this.resizeListener);
+    this.lifecycle.addEventListener(this.returnToLandingButton, "click", () => this.handleReturnToLanding());
+    this.lifecycle.addEventListener(this.proceedToBattleButton, "click", () => this.handleProceedToBattle());
+    this.lifecycle.addEventListener(this.allocationWarningReturn, "click", () => this.handleAllocationWarningReturn());
+    this.lifecycle.addEventListener(this.allocationWarningProceed, "click", () => this.handleAllocationWarningProceed());
+    this.lifecycle.addEventListener(this.allocationResetButton, "click", () => this.handleAllocationActionButton());
   }
 
   /**
@@ -645,7 +622,6 @@ export class PrecombatScreen {
     this.seedDeploymentCaches();
     this.registerScenarioDeploymentZones();
     this.renderMiniMap();
-    this.requestMiniMapRender();
     this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();
@@ -1458,8 +1434,8 @@ export class PrecombatScreen {
     }
     allocationElement.__allocationListenersAttached = true;
 
-    container.addEventListener("click", (event) => this.handleAllocationContainerClick(event));
-    container.addEventListener("keydown", (event) => this.handleAllocationContainerKeydown(event as KeyboardEvent));
+    this.lifecycle.addEventListener(container, "click", (event) => this.handleAllocationContainerClick(event));
+    this.lifecycle.addEventListener(container, "keydown", (event) => this.handleAllocationContainerKeydown(event as KeyboardEvent));
   }
 
   /**
@@ -2228,105 +2204,12 @@ export class PrecombatScreen {
     return supplies.filter((item) => duplicateAssetPatterns.every((pattern) => !pattern.test(item.label.trim())));
   }
 
-  private renderMiniMap(): boolean {
-    this.miniMapRenderer.render(this.miniMapSvg, this.miniMapCanvas, this.miniMapScenario);
+  private renderMiniMap(): void {
+    renderPrecombatMiniMap(this.miniMapSvg, this.miniMapCanvas, this.miniMapScenario);
     const mapPreview = this.miniMapCanvas.closest<HTMLElement>(".map-preview");
     if (mapPreview) {
       mapPreview.style.aspectRatio = `${this.miniMapScenario.size.cols} / ${this.miniMapScenario.size.rows}`;
     }
-    this.miniMapCanvas.style.width = "100%";
-    this.miniMapCanvas.style.height = "100%";
-    this.miniMapSvg.removeAttribute("width");
-    this.miniMapSvg.removeAttribute("height");
-    this.miniMapSvg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    this.miniMapSvg.style.width = "100%";
-    this.miniMapSvg.style.height = "100%";
-    this.miniMapSvg.style.overflow = "visible";
-    const terrainSprites = Array.from(this.miniMapSvg.querySelectorAll<SVGImageElement>(".terrain-sprite"));
-    terrainSprites.forEach((sprite) => sprite.remove());
-    const hexTiles = Array.from(this.miniMapSvg.querySelectorAll<SVGPolygonElement>(".hex-tile"));
-    hexTiles.forEach((polygon) => {
-      const hexCell = polygon.closest<SVGGElement>(".hex-cell");
-      const terrainKey = hexCell?.dataset.terrain ?? hexCell?.dataset.terrainType ?? "";
-      const fill = this.getMiniMapTerrainFill(terrainKey, polygon.getAttribute("fill"));
-      polygon.setAttribute("fill", fill);
-      polygon.setAttribute("fill-opacity", "0.92");
-      polygon.setAttribute("stroke", "#272319");
-      polygon.setAttribute("stroke-width", "0.9");
-      polygon.setAttribute("vector-effect", "non-scaling-stroke");
-      polygon.style.paintOrder = "stroke fill";
-    });
-    const terrainOverlays = Array.from(this.miniMapSvg.querySelectorAll<SVGElement>(".terrain-feature-overlay"));
-    terrainOverlays.forEach((overlay) => overlay.setAttribute("opacity", "0.9"));
-    return true;
-  }
-
-  private requestMiniMapRender(attempt = 0): void {
-    if (typeof window === "undefined") {
-      this.renderMiniMap();
-      return;
-    }
-
-    if (this.miniMapRenderFrame !== null) {
-      window.cancelAnimationFrame(this.miniMapRenderFrame);
-      this.miniMapRenderFrame = null;
-    }
-
-    if (this.miniMapRetryTimer !== null) {
-      window.clearTimeout(this.miniMapRetryTimer);
-      this.miniMapRetryTimer = null;
-    }
-
-    this.miniMapRenderFrame = window.requestAnimationFrame(() => {
-      this.miniMapRenderFrame = window.requestAnimationFrame(() => {
-        this.miniMapRenderFrame = null;
-        const rendered = this.renderMiniMap();
-        if (!rendered && attempt < this.miniMapRetryLimit) {
-          this.miniMapRetryTimer = window.setTimeout(() => {
-            this.miniMapRetryTimer = null;
-            this.requestMiniMapRender(attempt + 1);
-          }, 50);
-        }
-      });
-    });
-  }
-
-  private getMiniMapTerrainFill(terrainKey: string, fallbackFill: string | null): string {
-    const normalized = terrainKey.trim().toLowerCase();
-    if (normalized.includes("water") || normalized.includes("river")) {
-      return "#5f7580";
-    }
-    if (normalized.includes("forest") || normalized.includes("woods")) {
-      return "#5a6648";
-    }
-    if (normalized.includes("hill") || normalized.includes("ridge") || normalized.includes("mount")) {
-      return "#7a6849";
-    }
-    if (
-      normalized.includes("urban") ||
-      normalized.includes("town") ||
-      normalized.includes("hamlet") ||
-      normalized.includes("city") ||
-      normalized.includes("village")
-    ) {
-      return "#8a775d";
-    }
-    if (normalized.includes("road") || normalized.includes("bridge")) {
-      return "#8b7a58";
-    }
-    if (normalized.includes("swamp") || normalized.includes("marsh")) {
-      return "#66705d";
-    }
-    if (normalized.includes("sand") || normalized.includes("desert")) {
-      return "#a08c64";
-    }
-    if (normalized.includes("snow") || normalized.includes("ice")) {
-      return "#c2c3b6";
-    }
-    if (normalized.includes("field") || normalized.includes("plain") || normalized.includes("grass")) {
-      return "#867950";
-    }
-    return fallbackFill ?? "#7f7250";
   }
 
   /**

@@ -494,6 +494,45 @@ registerTest("PLAYER_UNITS_CAN_MOVE_ONTO_A_FRIENDLY_HEX_UNTIL_STACK_LIMIT", asyn
   await Then("friendly occupied hexes accept movement until the two-formation stack limit", () => {});
 });
 
+registerTest("PLAYER_MOVEMENT_PATHS_ROUTE_AROUND_ENEMY_UNITS", async ({ Then }) => {
+  const movingRecon: ScenarioUnit = {
+    type: "TestReconTruck" as unknown as ScenarioUnit["type"],
+    unitId: "routing-recon",
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 4,
+    fuel: 40,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const enemyBlocker: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    unitId: "enemy-blocker",
+    hex: { q: 1, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+  const destination = { q: 2, r: 1 };
+
+  const { engine } = createEngine([movingRecon], [enemyBlocker]);
+  const move = engine.moveUnit(movingRecon.hex, destination, movingRecon.unitId);
+  const pathKeys = move.path.map((hex) => `${hex.q},${hex.r}`);
+
+  if (pathKeys.includes("1,1")) {
+    throw new Error(`Expected player route to avoid the enemy at 1,1, received ${pathKeys.join(" -> ")}.`);
+  }
+  if (pathKeys[0] !== "0,1" || pathKeys[pathKeys.length - 1] !== "2,1" || pathKeys.length < 4) {
+    throw new Error(`Expected a complete detour from 0,1 to 2,1, received ${pathKeys.join(" -> ")}.`);
+  }
+
+  await Then("the committed player path never crosses an enemy-occupied hex", () => {});
+});
+
 registerTest("RECON_BIKES_CAN_ASSAULT_BUT_CANNOT_DIG_IN", async ({ Then }) => {
   const reconBike: ScenarioUnit = {
     type: "Recon_Bike" as unknown as ScenarioUnit["type"],

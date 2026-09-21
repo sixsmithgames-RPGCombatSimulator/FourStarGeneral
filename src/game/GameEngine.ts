@@ -91,7 +91,6 @@ import {
   serializeSupplyState,
   type SupplyKey,
   type SupplyState,
-  type SupplyLedgerEntry,
   type SupplyStateSnapshot
 } from "../core/SupplyState";
 import {
@@ -102,7 +101,9 @@ import {
 } from "../core/Experience";
 import {
   applyReadinessScalarToStatus,
+  applyEquipmentRepairToStatus,
   applyEquipmentRepairToUnit,
+  applyMedicalRecoveryToStatus,
   applyMedicalRecoveryToUnit,
   createInitialFormationStatus,
   deriveStrengthFromStatus,
@@ -110,6 +111,20 @@ import {
   mergeSameTypeFormationStatus,
   synchronizeUnitStatusWithStrength
 } from "../data/unitSystem/status";
+import {
+  calculateEquipmentRecoveryNeed,
+  calculateMedicalRecoveryNeed,
+  createEmptyRecoveryStatus,
+  detachRecoverableStatus,
+  hasRecoveryPayload,
+  mergeFormationStatusPools,
+  previewLeaveBehind as buildLeaveBehindPreview,
+  resolveMobilityBurden,
+  summarizeRecoveryPayload,
+  type LeaveBehindPreview,
+  type RecoverySiteCause,
+  type TacticalRecoverySite
+} from "./tacticalRecovery";
 import {
   applyDamagePacketToUnit,
   describeDamagePacket,
@@ -131,6 +146,87 @@ import { createOffMapSupportAsset } from "./support/SupportAssetFactory";
 import type { UnitAllocationKey } from "../data/unitSystem/types";
 import { ensureUnlockState } from "../state/UnlockState";
 import type { CampaignBattlePackage } from "./campaign/engagements/CampaignEngagementLedgerTypes";
+import type { BattlePhase, TurnFaction } from "./battle/BattleRuntimeTypes";
+import type {
+  EnemyContactSnapshot,
+  EnemyContactState,
+  SupportAssetSnapshot,
+  SupportAssetStatus,
+  SupportSnapshot,
+  SupportSnapshotMetrics,
+  UnitCommandState,
+  UnitSuppressionState,
+  UnitTowState
+} from "./battle/BattleRuntimeContracts";
+import { scaleAirAttackResult } from "./battle/combat/AirAttackResultScaling";
+import type {
+  AirCombatExchangeEntry,
+  AirEngagementEvent,
+  AirMissionArrival,
+  AirMissionOutcome,
+  AirMissionOutcomeBase,
+  AirMissionStatus,
+  FlakEngagementEntry,
+  SerializedAirMission
+} from "./battle/air/AirCombatContracts";
+import { projectBattleAirEngagement } from "./battle/air/BattleAirEngagementProjection";
+import {
+  projectBattleAttackOutcome,
+  type AttackResolution,
+  type BattleCombatReportProjection,
+  type BotAttackSummary,
+  type CombatDamageSummary,
+  type TargetRichResolutionEntry
+} from "./battle/combat/BattleAttackOutcomeProjection";
+import { projectBattleAttackerPreparation } from "./battle/combat/BattleAttackerPreparation";
+import { projectBattleAttackerDisposition } from "./battle/combat/BattleAttackerDispositionProjection";
+import {
+  projectBattleAircraftAttackAmmunitionReadiness,
+  projectBattleAircraftAttackManeuverReadiness
+} from "./battle/combat/BattleAircraftAttackReadinessProjection";
+import { projectBattleDefenderDamage } from "./battle/combat/BattleDefenderDamageProjection";
+import { resolveBattleUnitSuppressionState } from "./battle/combat/BattleSuppressionState";
+import { projectBattleRetaliation } from "./battle/combat/BattleRetaliationProjection";
+import {
+  buildBattleSupplySnapshot,
+  type SupplySnapshot
+} from "./logistics/BattleSupplySnapshot";
+
+export type { BattlePhase, TurnFaction } from "./battle/BattleRuntimeTypes";
+export type {
+  EnemyContactSnapshot,
+  EnemyContactState,
+  SupportAssetSnapshot,
+  SupportAssetStatus,
+  SupportSnapshot,
+  SupportSnapshotMetrics,
+  UnitCommandState,
+  UnitSuppressionState,
+  UnitTowState
+} from "./battle/BattleRuntimeContracts";
+export type {
+  SupplyAlert,
+  SupplyCategorySnapshot,
+  SupplyResourceKey,
+  SupplySnapshot
+} from "./logistics/BattleSupplySnapshot";
+export type {
+  AttackResolution,
+  BotAttackSummary,
+  CombatDamageSummary,
+  TargetRichResolutionEntry
+} from "./battle/combat/BattleAttackOutcomeProjection";
+export type {
+  AirCombatExchangeEntry,
+  AirEngagementEvent,
+  AirMissionArrival,
+  AirMissionOutcome,
+  AirMissionOutcomeBase,
+  AirMissionResult,
+  AirMissionStatus,
+  FlakEngagementEntry,
+  SerializedAirMission
+} from "./battle/air/AirCombatContracts";
 
 /**
  * Minimal structure the campaign layer exposes to the tactical engine so transitions between screens stay predictable.
@@ -210,18 +306,6 @@ import {
  * Gameplay engine coordinates deployment, turn flow, and combat resolution for the battle screen.
  * Every public method includes human-readable comments describing inputs, outputs, and side-effects.
  */
-
-/**
- * Identifiers for the participant currently taking a turn. Explicit string union keeps the API simple
- * while enabling future expansion (e.g. additional AI factions).
- */
-export type TurnFaction = "Player" | "Bot" | "Ally";
-
-/**
- * Lifecycle phases the battle screen can be in. Deployment concludes once the player presses Begin,
- * after which normal turn sequencing governs the flow.
- */
-export type BattlePhase = "deployment" | "playerTurn" | "allyTurn" | "botTurn" | "completed";
 
 /**
  * Map of hex-key to scenario units representing deployed forces. This structure powers engine queries
@@ -391,81 +475,6 @@ export interface CombatPreviewTargetRichEntry {
   readonly projectedRetaliationDamage?: CombatDamageSummary;
 }
 
-export interface CombatDamageSummary {
-  readonly strengthBefore: number;
-  readonly strengthAfter: number;
-  readonly readinessLoss: number;
-  readonly statusBefore: FormationStatusSummary;
-  readonly statusAfter: FormationStatusSummary;
-  readonly personnel: DamagePacket["personnel"];
-  readonly equipment: DamagePacket["equipment"];
-  readonly suppression: number;
-  readonly fortificationDamage: number;
-  readonly weaponHits: DamagePacket["weaponHits"];
-  readonly componentDamage?: DamagePacket["componentDamage"];
-  readonly damageTypesUsed: readonly string[];
-  readonly statusTransitions?: DamagePacket["statusTransitions"];
-  readonly summary: string;
-}
-
-/**
- * Categorizes a support asset by operational readiness. The UI uses this grouping to render distinct
- * sections (ready queue, cooldown, maintenance) inside the support panel.
- */
-export type SupportAssetStatus = "ready" | "queued" | "cooldown" | "maintenance";
-
-/**
- * Minimal description of a support capability that the UI can render without touching engine internals.
- * The structure intentionally mirrors the plan in PLAN_battle_Support.md so subsequent wiring remains
- * predictable.
- */
-export interface SupportAssetSnapshot {
-  readonly id: string;
-  readonly label: string;
-  readonly type: "artillery" | "air" | "engineering" | "medical" | "other";
-  readonly status: SupportAssetStatus;
-  readonly charges: number;
-  readonly maxCharges: number;
-  readonly cooldown: number;
-  readonly maxCooldown: number;
-  readonly assignedHex: string | null;
-  readonly notes: string | null;
-  readonly queuedHex: string | null;
-  readonly queuedByHex: string | null;
-  /**
-   * Maximum direct readiness damage this support strike can inflict in one mission.
-   * Exposed for UI transparency and save-state determinism.
-   */
-  readonly strikeDamageCap?: number;
-}
-
-/**
- * Aggregated snapshot structure consumed by battle UI components to render the Support panel.
- * Sections are grouped by readiness so cards can be slotted directly into the planned layout.
- */
-export interface SupportSnapshot {
-  readonly updatedAt: string;
-  readonly ready: readonly SupportAssetSnapshot[];
-  readonly queued: readonly SupportAssetSnapshot[];
-  readonly cooldown: readonly SupportAssetSnapshot[];
-  readonly maintenance: readonly SupportAssetSnapshot[];
-  readonly metrics: SupportSnapshotMetrics;
-}
-
-/**
- * Derived support metrics shown above the capability board (e.g., asset readiness counts, average cooldown).
- */
-export interface SupportSnapshotMetrics {
-  readonly totalAssets: number;
-  readonly ready: number;
-  readonly queued: number;
-  readonly cooldown: number;
-  readonly maintenance: number;
-  readonly totalCharges: number;
-  readonly actionsQueued: number;
-  readonly averageCooldown: number | null;
-}
-
 export interface SupportImpactEvent {
   readonly assetId: string;
   readonly label: string;
@@ -504,77 +513,6 @@ interface InternalSupportAsset {
 export interface SupplyTickReport {
   faction: TurnFaction;
   outOfSupply: ScenarioUnit[];
-}
-
-/**
- * Enumerates the consumable resource pools surfaced in the supplies sidebar.
- * The player-facing plan focuses on ammunition, fuel, and placeholders for future medical/emergency data.
- */
-export type SupplyResourceKey = "ammo" | "fuel" | "medical" | "emergency";
-
-/**
- * Aggregated metrics describing the status of a single consumable category.
- * Totals are split between frontline and reserve forces so commanders can gauge distribution.
- */
-export interface SupplyCategorySnapshot {
-  /** Resource identifier tied to UI copy and icons. */
-  resource: SupplyResourceKey;
-  /** Human-readable label presented in the UI. */
-  label: string;
-  /** Combined inventory across frontline and reserves. */
-  total: number;
-  /** Stock currently attached to deployed frontline units. */
-  frontlineTotal: number;
-  /** Stock retained by reserve formations. */
-  reserveTotal: number;
-  /** Stockpile retained in depots and logistics caches. */
-  stockpileTotal: number;
-  /** Average stock per unit to highlight distribution health. */
-  averagePerUnit: number;
-  /** Consumption delta compared to the previous recorded snapshot. */
-  consumptionPerTurn: number;
-  /** Estimated remaining turns before depletion at the observed burn rate. */
-  estimatedDepletionTurns: number | null;
-  /** Rolling history used to render simple sparkline trend visuals. */
-  trend: number[];
-  /**
-   * Qualitative status flag feeding UI color coding.
-   * "unknown" indicates placeholder categories lacking live engine data.
-   */
-  status: "stable" | "warning" | "critical" | "unknown";
-  /** Optional contextual notes (used for medical/emergency placeholders). */
-  notes?: string;
-}
-
-/**
- * Structured alert message emitted when a supply category drops below plan thresholds.
- */
-export interface SupplyAlert {
-  resource: SupplyResourceKey;
-  level: "info" | "warning" | "critical";
-  message: string;
-}
-
-/**
- * Snapshot of overall faction supply posture at a specific turn.
- * The supplies panel consumes this payload to render totals, trends, and alerts.
- */
-export interface SupplySnapshot {
-  faction: TurnFaction;
-  turn: number;
-  phase: BattlePhase;
-  updatedAt: string;
-  categories: SupplyCategorySnapshot[];
-  alerts: SupplyAlert[];
-  /** Aggregate depot stock levels surfaced separately from unit-held munitions. */
-  stockpile: {
-    ammo: number;
-    fuel: number;
-    rations: number;
-    parts: number;
-  };
-  /** Rolling ledger entries capturing production, shipments, and consumption deltas. */
-  ledger: readonly SupplyLedgerEntry[];
 }
 
 export type BattleRequisitionKind = "supplies" | "support" | "unit";
@@ -759,7 +697,11 @@ interface SupplyDemandEntry {
 }
 
 interface CareDemandEntry {
-  unit: ScenarioUnit;
+  targetId: string;
+  targetLabel: string;
+  hex: Axial;
+  unit: ScenarioUnit | null;
+  site: TacticalRecoverySite | null;
   definition: UnitTypeDefinition;
   priority: SupplyPriority;
   need: number;
@@ -787,39 +729,6 @@ interface ConvoyReachableTarget {
   need: { ammoNeed: number; fuelNeed: number };
   plan: MovementPathPlan;
   cargoMismatchPenalty: number;
-}
-
-/**
- * Structured combat resolution payload returned to the UI layer after an attack.
- * Bundles the raw `AttackResult` math along with high-level flags so announcements
- * and animations can react without re-deriving game state deltas.
- */
-export interface AttackResolution {
-  readonly result: AttackResult;
-  readonly defenderRemainingStrength: number;
-  readonly defenderDestroyed: boolean;
-  readonly defenderDamage?: CombatDamageSummary;
-  readonly retaliationResult?: AttackResult;
-  readonly attackerRemainingStrength?: number;
-  readonly retaliationDamage?: CombatDamageSummary;
-  readonly retaliationOccurred: boolean;
-  readonly retaliationNote?: string;
-  readonly targetRich?: boolean;
-  readonly targetRichDefenders?: readonly TargetRichResolutionEntry[];
-  readonly totalDefenderDamage?: number;
-  readonly totalRetaliationDamage?: number;
-}
-
-export interface TargetRichResolutionEntry {
-  readonly unitId: string;
-  readonly unitType: ScenarioUnit["type"];
-  readonly remainingStrength: number;
-  readonly destroyed: boolean;
-  readonly expectedDamage: number;
-  readonly damage?: CombatDamageSummary;
-  readonly retaliationDamage: number;
-  readonly retaliation?: CombatDamageSummary;
-  readonly retaliationOccurred: boolean;
 }
 
 export interface HexUnitStackMember {
@@ -911,47 +820,6 @@ export interface AirMissionReportEntry {
   readonly notes?: string[];
 }
 
-export interface AirCombatExchangeEntry {
-  readonly phase: "capClash" | "escortClash" | "bomberPass";
-  readonly attackerFaction: TurnFaction;
-  readonly attackerUnitKey: string;
-  readonly attackerUnitType: string;
-  readonly attackerLabel?: string;
-  readonly defenderFaction: TurnFaction;
-  readonly defenderUnitKey: string;
-  readonly defenderUnitType: string;
-  readonly defenderLabel?: string;
-  readonly attackerStrengthBefore: number;
-  readonly attackerStrengthAfter: number;
-  readonly defenderStrengthBefore: number;
-  readonly defenderStrengthAfter: number;
-  readonly damageToDefender: number;
-  readonly retaliationDamage: number;
-  readonly damageSummaryToDefender?: CombatDamageSummary;
-  readonly retaliationDamageSummary?: CombatDamageSummary;
-  readonly attackerDestroyed: boolean;
-  readonly defenderDestroyed: boolean;
-  readonly visualPasses?: number;
-  readonly escortIndex?: number;        // Array index for escort pairing
-  readonly interceptorIndex?: number;   // Array index for interceptor pairing
-}
-
-export interface FlakEngagementEntry {
-  readonly batteryFaction: TurnFaction;
-  readonly batteryUnitKey: string;
-  readonly batteryUnitType: string;
-  readonly batteryLabel?: string;
-  readonly batteryHex?: Axial;
-  readonly bomberFaction: TurnFaction;
-  readonly bomberUnitKey: string;
-  readonly bomberUnitType: string;
-  readonly bomberLabel?: string;
-  readonly bomberStrengthBefore: number;
-  readonly bomberStrengthAfter: number;
-  readonly damageToBomber: number;
-  readonly bomberDestroyed: boolean;
-}
-
 interface AirPhaseFlakLedgerEntry {
   readonly faction: TurnFaction;
   readonly unitId: string;
@@ -995,149 +863,6 @@ export interface BotMoveSummary {
   readonly distance: number;
   /** Suggested animation duration in frames or milliseconds derived from distance (minimum of one). */
   readonly duration: number;
-}
-
-/** Describes a single bot attack for announcement and analytics. */
-export interface BotAttackSummary {
-  readonly attackerType: string;
-  readonly defenderType: string;
-  readonly from: Axial;
-  readonly target: Axial;
-  readonly inflictedDamage: number;
-  readonly damageSummary?: string;
-  readonly defenderDamage?: CombatDamageSummary;
-  readonly defenderDestroyed: boolean;
-  readonly retaliation?: {
-    readonly damage: number;
-    readonly summary?: string;
-    readonly damageSummary?: CombatDamageSummary;
-    readonly terrainDefense: number;
-    readonly accuracyMod: number;
-    readonly attackerStrengthAfter: number;
-  };
-}
-
-/** Lifecycle markers for air missions so UI widgets can narrate sortie progress consistently. */
-export type AirMissionStatus = "queued" | "inFlight" | "resolving" | "completed";
-
-/** Result buckets emitted once an air mission resolves. */
-type AirMissionResult = "success" | "partial" | "aborted" | "destroyed";
-
-/** Shared outcome fields that every mission report surfaces to the UI layer. */
-interface AirMissionOutcomeBase {
-  readonly type: AirMissionKind;
-  readonly result: AirMissionResult;
-  readonly details: string;
-  readonly refitRequired: boolean;
-  /** Optional engagement metrics used by sortie logs and HUD summaries. */
-  readonly meta?: {
-    readonly flakAttrition?: number;
-    readonly capIntercepts?: number;
-    readonly capKills?: number;
-    readonly escortsEngaged?: number;
-    readonly escortsWins?: number;
-    readonly bomberAttrition?: number;
-    readonly interceptorAttrition?: number;
-    readonly escortPhaseInterceptorAttrition?: number;
-    readonly bomberDefenseInterceptorAttrition?: number;
-    readonly interceptorKills?: number;
-    readonly escortAttrition?: number;
-    readonly escortKills?: number;
-  };
-}
-
-/** Mission-specific outcome payload surfaced to sortie logs and planners. */
-type AirMissionOutcome =
-  | (AirMissionOutcomeBase & {
-      readonly type: "strike";
-      readonly damageInflicted?: number;
-      readonly defenderDestroyed?: boolean;
-      readonly defenderType?: string;
-    })
-  | (AirMissionOutcomeBase & {
-      readonly type: "escort";
-      readonly interceptions?: number;
-      readonly protectedUnitKey?: string;
-    })
-  | (AirMissionOutcomeBase & {
-      readonly type: "airCover";
-      readonly interceptions?: number;
-      readonly protectedHex?: Axial;
-    })
-  | (AirMissionOutcomeBase & {
-      readonly type: "airTransport";
-      readonly droppedUnitType?: string;
-      readonly droppedHex?: Axial;
-    });
-
-/** Serialized mission payload stored in saves and surfaced to planning UI layers. */
-export interface SerializedAirMission {
-  readonly id: string;
-  readonly kind: AirMissionKind;
-  readonly faction: TurnFaction;
-  /** Stable squadron identifier (unitId) so resolution can find the unit even when multiple squadrons share a base. */
-  readonly unitKey: string;
-  /** Origin hex key for airbase capacity tracking and animation starting positions. */
-  readonly originHexKey?: string;
-  readonly unitType: string;
-  readonly status: AirMissionStatus;
-  readonly launchTurn: number;
-  readonly turnsRemaining: number;
-  readonly targetHex?: Axial;
-  readonly targetUnitKey?: string;
-  readonly escortTargetUnitKey?: string;
-  readonly interceptions?: number;
-  readonly airCombatDamageInflicted?: number;
-  readonly airCombatDamageTaken?: number;
-  readonly airCombatKills?: number;
-  readonly outcome?: AirMissionOutcome;
-}
-
-/** Lightweight mission arrival used by UI to visualize sorties beginning their patrol/strike. */
-export interface AirMissionArrival {
-  readonly missionId: string;
-  readonly faction: TurnFaction;
-  readonly unitKey: string;
-  readonly originHexKey?: string;
-  readonly unitType: string;
-  readonly unitStrength?: number;
-  readonly kind: AirMissionKind;
-  readonly targetHex?: Axial;
-  readonly targetUnitKey?: string;
-  readonly escortTargetUnitKey?: string;
-}
-
-/**
- * UI-facing event emitted when air-to-air combat occurs during mission resolution.
- * Allows the battle screen to animate bombers continuing to target while fighters/interceptors converge and engage.
- */
-export interface AirEngagementEvent {
-  readonly type: "airToAir" | "capClash" | "flak";
-  readonly location: Axial;
-  readonly missionId?: string;
-  readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly label?: string; readonly strength?: number };
-  readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly label?: string; readonly strength?: number; readonly hex?: Axial }>;
-  readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly label?: string; readonly strength?: number }>;
-  readonly flakDamage?: number;
-  readonly flakEngagements?: ReadonlyArray<FlakEngagementEntry>;
-  readonly bomberStrengthBefore?: number;
-  readonly bomberStrengthAfter?: number;
-  readonly bomberDestroyed?: boolean;
-  readonly interceptorAttrition?: number;
-  readonly escortPhaseInterceptorAttrition?: number;
-  readonly bomberDefenseInterceptorAttrition?: number;
-  readonly interceptorKills?: number;
-  readonly escortAttrition?: number;
-  readonly escortKills?: number;
-  readonly escortExchanges?: ReadonlyArray<AirCombatExchangeEntry>;
-  readonly bomberPassExchanges?: ReadonlyArray<AirCombatExchangeEntry>;
-  readonly escortsEngaged?: number;
-  readonly interceptorsAfterEscortPhase?: number;
-  readonly escortsAfterEscortPhase?: number;
-  readonly interceptorStrengthsAfterEscortPhase?: ReadonlyArray<number>;
-  readonly escortStrengthsAfterEscortPhase?: ReadonlyArray<number>;
-  readonly interceptorFinalStrengths?: ReadonlyArray<number>;
-  readonly escortFinalStrengths?: ReadonlyArray<number>;
 }
 
 /** Captures ongoing refit timers so hydration can restore readiness cycles after sorties. */
@@ -1306,6 +1031,23 @@ export interface MoveResolution {
   readonly from: Axial;
   readonly to: Axial;
   readonly path: readonly Axial[];
+  readonly recoverySitesOverrun?: readonly TacticalRecoverySite[];
+}
+
+export interface LeaveBehindResolution {
+  readonly unit: ScenarioUnit;
+  readonly site: TacticalRecoverySite;
+  readonly preview: LeaveBehindPreview;
+}
+
+export interface TacticalRecoveryEvent {
+  readonly id: string;
+  readonly turn: number;
+  readonly faction: TurnFaction;
+  readonly type: "leftBehind" | "routed" | "treated" | "repaired" | "reconstituted" | "overrun";
+  readonly siteId: string;
+  readonly hex: Axial;
+  readonly summary: string;
 }
 
 /**
@@ -1358,6 +1100,9 @@ export interface SerializedBattleState {
   supplyStates?: Record<TurnFaction, SupplyStateSnapshot>;
   supplyHistory?: Record<TurnFaction, SupplySnapshot[]>;
   logisticsCareEvents?: LogisticsCareEntry[];
+  /** Battle-local casualty sites. Campaign saves carry them only while the tactical battle remains active. */
+  recoverySites?: TacticalRecoverySite[];
+  recoveryEvents?: TacticalRecoveryEvent[];
   supplyTruckStates?: Record<TurnFaction, Array<[string, SupplyTruckState]>>;
   convoyServiceHistory?: Record<TurnFaction, Array<[string, number]>>;
   convoyServiceSequence?: Record<TurnFaction, number>;
@@ -1383,21 +1128,10 @@ export interface SerializedBattleState {
     battleRequisitionId: number;
     counterIntelId: number;
     deterministicEvent: number;
+    recoverySiteId?: number;
   };
   /** Serialized xorshift state used by any rule path that needs ordering variance. */
   randomState?: number;
-}
-
-export type EnemyContactState = "spotted" | "identified" | "visible";
-
-export interface EnemyContactSnapshot {
-  unitId: string;
-  hex: Axial;
-  state: EnemyContactState;
-  lastSeenTurn: number;
-  source: string;
-  unitType?: ScenarioUnit["type"];
-  strengthEstimate?: number;
 }
 
 export interface ReconObservedContact {
@@ -1418,41 +1152,6 @@ export interface PlayerReconReport {
   source: string;
   spottingRange: number;
   contacts: readonly ReconObservedContact[];
-}
-
-export type UnitSuppressionState = "clear" | "suppressed" | "pinned" | "broken";
-export type UnitTowState = "deployed" | "towed";
-
-export interface UnitCommandState {
-  readonly unitId: string;
-  readonly unitType: ScenarioUnit["type"];
-  readonly isAutomated: boolean;
-  readonly isEngineer: boolean;
-  readonly entrenchment: number;
-  readonly maxEntrenchment: number;
-  readonly suppressionState: UnitSuppressionState;
-  readonly suppressorCount: number;
-  readonly isOnSentry: boolean;
-  readonly towState: UnitTowState | null;
-  readonly existingHexModification: HexModification | null;
-  readonly existingHexModifications: readonly HexModification[];
-  readonly canMoveOut: boolean;
-  readonly moveOutReason: string | null;
-  readonly canDeployTow: boolean;
-  readonly deployTowReason: string | null;
-  readonly canEnterSentry: boolean;
-  readonly sentryReason: string | null;
-  readonly canDigIn: boolean;
-  readonly digInReason: string | null;
-  readonly canBuildModification: boolean;
-  readonly buildReason: string | null;
-  readonly buildModificationAvailability: Readonly<Record<HexModificationType, { available: boolean; reason: string | null }>>;
-  readonly isSmokeCapable: boolean;
-  readonly canLaySmoke: boolean;
-  readonly smokeReason: string | null;
-  readonly canSetFacing: boolean;
-  readonly setFacingReason: string | null;
-  readonly currentFacing: HexEdgeFacing;
 }
 
 interface InternalEnemyContactState {
@@ -1631,6 +1330,10 @@ export interface GameEngineAPI {
   getReserveSnapshot(): ReserveUnit[];
   getTurnSummary(): TurnSummary;
   getLogisticsSnapshot(): LogisticsSnapshot;
+  getRecoverySiteSnapshots(faction?: TurnFaction): TacticalRecoverySite[];
+  getRecoveryEvents(): readonly TacticalRecoveryEvent[];
+  previewLeaveCasualtiesBehind(hex: Axial, unitId?: string): LeaveBehindPreview | null;
+  leaveCasualtiesBehind(hex: Axial, unitId?: string): LeaveBehindResolution | null;
   setSupplyPriority(unitId: string, priority: SupplyPriority): boolean;
   getCombatReports(): readonly CombatReportEntry[];
   queueSupportAction(assetId: string, targetHex: Axial): void;
@@ -1720,8 +1423,6 @@ export class GameEngine implements GameEngineAPI {
   private static readonly SUPPLY_HISTORY_LIMIT = 12;
   /** Optional per-hex capacity caps for airbase launch queues provided by config. */
   private readonly airbaseCapMap: Record<string, number> | null = null;
-  /** Number of turns graphed in the mini trend sparkline shown in the supplies sidebar. */
-  private static readonly SUPPLY_TREND_WINDOW = 4;
   /** Scenario blueprint retained for terrain lookups and unit cloning. */
   private readonly scenario: ScenarioData;
 
@@ -2387,25 +2088,20 @@ export class GameEngine implements GameEngineAPI {
         }
       }
 
-      this.pendingAirEngagements.push({
+      this.pendingAirEngagements.push(projectBattleAirEngagement({
         type: "flak",
         missionId: mission.id,
-        location: structuredClone(mission.targetHex!),
+        location: mission.targetHex!,
         bomber: {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
           label: this.describeAirUnit(attackerBefore),
-          strength: bomberStrengthBeforeFlak
+          strengthBefore: bomberStrengthBeforeFlak
         },
         interceptors: flakInterceptorsForEvent,
-        escorts: [],
-        flakDamage: flakAttrition,
-        flakEngagements,
-        bomberStrengthBefore: bomberStrengthBeforeFlak,
-        bomberStrengthAfter: Math.max(0, currentBomber.strength),
-        bomberDestroyed: bomberDestroyedByFlak
-      });
+        flakEngagements
+      }));
 
         if (bomberDestroyedByFlak) {
           return {
@@ -2524,38 +2220,21 @@ export class GameEngine implements GameEngineAPI {
         this.syncStrengthForFaction(mission.faction, interception.bomberAfter.hex, interception.bomberAfter.strength, mission.unitKey);
       }
 
-      this.pendingAirEngagements.push({
+      this.pendingAirEngagements.push(projectBattleAirEngagement({
         type: "airToAir",
         missionId: mission.id,
-        location: structuredClone(mission.targetHex!),
+        location: mission.targetHex!,
         bomber: {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
           label: this.describeAirUnit(attackerBefore),
-          strength: bomberStrengthBeforeCap
+          strengthBefore: bomberStrengthBeforeCap
         },
         interceptors: interceptorsForEvent,
         escorts: escortsForEvent,
-        bomberStrengthBefore: bomberStrengthBeforeCap,
-        bomberStrengthAfter: interception.bomberAfter.strength,
-        bomberDestroyed: interception.bomberDestroyed,
-        interceptorAttrition,
-        escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
-        bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
-        interceptorKills,
-        escortAttrition,
-        escortKills,
-        escortsEngaged: interception.escortsEngaged,
-        interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
-        escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
-        interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
-        escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
-        interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
-        escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
-        escortExchanges: interception.escortExchanges,
-        bomberPassExchanges: interception.bomberPassExchanges
-      });
+        interception
+      }));
 
         if (interception.bomberDestroyed) {
           return {
@@ -2594,29 +2273,8 @@ export class GameEngine implements GameEngineAPI {
     }
 
     const strikeAttackerBefore = structuredClone(strikeAttacker);
-    const scaleStrikeAttackResult = (result: AttackResult, defendingDefinition: UnitTypeDefinition): AttackResult => {
-      const attackerIsBomber = this.isBomber(attackerDefinition);
-      const defenderIsAircraft = this.isAircraft(defendingDefinition);
-      if (attackerIsBomber && !defenderIsAircraft) {
-        const boostedDamage = result.expectedDamage * 10;
-        return {
-          ...result,
-          damagePerHit: result.damagePerHit * 10,
-          expectedDamage: boostedDamage,
-          expectedSuppression: result.expectedSuppression * 10
-        };
-      }
-      if (this.isAircraft(attackerDefinition) && !attackerIsBomber && defenderIsAircraft) {
-        const dogfightDamage = result.expectedDamage * 4;
-        return {
-          ...result,
-          damagePerHit: result.damagePerHit * 4,
-          expectedDamage: dogfightDamage,
-          expectedSuppression: result.expectedSuppression * 4
-        };
-      }
-      return result;
-    };
+    const attackerIsBomber = this.isBomber(attackerDefinition);
+    const attackerIsAircraft = this.isAircraft(attackerDefinition);
     let primaryAttackResult: AttackResult | null = null;
     let primaryDefenderDamage: CombatDamageSummary | undefined;
     let primaryDefenderBeforeStrike = primaryDefenderBeforeLaunch;
@@ -2639,7 +2297,11 @@ export class GameEngine implements GameEngineAPI {
       }
 
       const baseAttackResult = resolveAttack(request);
-      const scaledAttackResult = scaleStrikeAttackResult(baseAttackResult, defendingDefinition);
+      const scaledAttackResult = scaleAirAttackResult(baseAttackResult, {
+        attackerIsAircraft,
+        attackerIsBomber,
+        defenderIsAircraft: this.isAircraft(defendingDefinition)
+      });
       const updatedDefender = structuredClone(liveDefender);
       const defenderDamagePacket = this.applyCombatDamageToUnit(
         strikeAttacker,
@@ -3169,7 +2831,7 @@ export class GameEngine implements GameEngineAPI {
     readyStrikeMissions: readonly ScheduledAirMission[]
   ): AirEngagementEvent {
     const placeholder = axisCaps[0] ?? alliedCaps[0];
-    return {
+    return projectBattleAirEngagement({
       type: "capClash",
       missionId: placeholder?.mission.id,
       location: this.resolveCapClashFocusHex(alliedCaps, axisCaps, readyStrikeMissions),
@@ -3178,7 +2840,7 @@ export class GameEngine implements GameEngineAPI {
         unitKey: placeholder?.mission.unitKey ?? "cap-clash",
         unitType: placeholder?.unitBefore.type ?? "Fighter",
         label: placeholder ? this.describeAirUnit(placeholder.unitBefore) : "CAP Flight",
-        strength: placeholder ? this.deriveCombatStrength(placeholder.unitBefore) : 100
+        strengthBefore: placeholder ? this.deriveCombatStrength(placeholder.unitBefore) : 100
       },
       interceptors: alliedCaps.map((delta) => ({
         faction: delta.mission.faction,
@@ -3194,18 +2856,11 @@ export class GameEngine implements GameEngineAPI {
         label: this.describeAirUnit(delta.unitBefore),
         strength: this.deriveCombatStrength(delta.unitBefore)
       })),
-      bomberStrengthBefore: placeholder ? this.deriveCombatStrength(placeholder.unitBefore) : 100,
       bomberStrengthAfter: placeholder ? this.deriveCombatStrength(placeholder.unitAfter) : 100,
-      bomberDestroyed: false,
       escortExchanges: exchanges,
-      bomberPassExchanges: [],
-      interceptorsAfterEscortPhase: alliedCaps.filter((delta) => this.deriveCombatStrength(delta.unitAfter) > 0).length,
-      escortsAfterEscortPhase: axisCaps.filter((delta) => this.deriveCombatStrength(delta.unitAfter) > 0).length,
-      interceptorStrengthsAfterEscortPhase: alliedCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
-      escortStrengthsAfterEscortPhase: axisCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
       interceptorFinalStrengths: alliedCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
       escortFinalStrengths: axisCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter))
-    };
+    });
   }
 
   private resolveCapClashFocusHex(
@@ -3335,16 +2990,16 @@ export class GameEngine implements GameEngineAPI {
         };
       });
 
-      airToAirEvent = {
+      airToAirEvent = projectBattleAirEngagement({
         type: "airToAir",
         missionId: mission.id,
-        location: structuredClone(mission.targetHex),
+        location: mission.targetHex,
         bomber: {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
           label: this.describeAirUnit(bomberBeforeAirPhase),
-          strength: this.deriveCombatStrength(bomberBeforeAirPhase)
+          strengthBefore: this.deriveCombatStrength(bomberBeforeAirPhase)
         },
         interceptors: interceptorParticipants.map((entry) => ({
           faction: entry.mission.faction,
@@ -3360,25 +3015,8 @@ export class GameEngine implements GameEngineAPI {
           label: this.describeAirUnit(entry.unit),
           strength: this.deriveCombatStrength(entry.unit)
         })),
-        bomberStrengthBefore: this.deriveCombatStrength(bomberBeforeAirPhase),
-        bomberStrengthAfter: interception.bomberAfter.strength,
-        bomberDestroyed: interception.bomberDestroyed,
-        interceptorAttrition: interception.interceptorAttrition,
-        escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
-        bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
-        interceptorKills: interception.interceptorKills,
-        escortAttrition: interception.escortAttrition,
-        escortKills: interception.escortKills,
-        escortsEngaged: interception.escortsEngaged,
-        interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
-        escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
-        interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
-        escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
-        interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
-        escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
-        escortExchanges: interception.escortExchanges,
-        bomberPassExchanges: interception.bomberPassExchanges
-      };
+        interception
+      });
       this.pendingAirEngagements.push(airToAirEvent);
       if (interception.bomberDestroyed) {
         bomberDestroyedCause = "airToAir";
@@ -3495,7 +3133,6 @@ export class GameEngine implements GameEngineAPI {
       label: this.describeAirUnit(flakEntry.unit),
       hex: structuredClone(flakEntry.unit.hex)
     }));
-    let totalDamage = 0;
     let currentBomber = structuredClone(bomber);
     const flakEngagements: FlakEngagementEntry[] = [];
 
@@ -3532,7 +3169,6 @@ export class GameEngine implements GameEngineAPI {
       const damageSummary = this.buildCombatDamageSummary(bomberBeforeDamage, currentBomber, damagePacket);
       const suffered = damageSummary.readinessLoss;
       const bomberStrengthAfterBattery = this.deriveCombatStrength(currentBomber);
-      totalDamage += suffered;
       if (airPhaseFlakState) {
         this.recordAirPhaseFlakEngagement(airPhaseFlakState, opponentFaction, flakEntry.unit);
       } else {
@@ -3556,29 +3192,23 @@ export class GameEngine implements GameEngineAPI {
     }
 
     const bomberStrengthBeforeMission = this.deriveCombatStrength(bomber);
-    const bomberStrengthAfterMission = this.deriveCombatStrength(currentBomber);
     return {
       bomberAfter: currentBomber,
-      totalDamage,
-      event: {
+      totalDamage: flakEngagements.reduce((sum, engagement) => sum + engagement.damageToBomber, 0),
+      event: projectBattleAirEngagement({
         type: "flak",
         missionId: mission.id,
-        location: structuredClone(mission.targetHex),
+        location: mission.targetHex,
         bomber: {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
           label: this.describeAirUnit(bomber),
-          strength: bomberStrengthBeforeMission
+          strengthBefore: bomberStrengthBeforeMission
         },
         interceptors: flakInterceptorsForEvent,
-        escorts: [],
-        flakDamage: totalDamage,
-        flakEngagements,
-        bomberStrengthBefore: bomberStrengthBeforeMission,
-        bomberStrengthAfter: bomberStrengthAfterMission,
-        bomberDestroyed: bomberStrengthAfterMission <= 0
-      }
+        flakEngagements
+      })
     };
   }
 
@@ -4750,21 +4380,6 @@ export class GameEngine implements GameEngineAPI {
     if (finishedMission) {
       this.recordAirMissionReport(finishedMission, { event: "refitCompleted", notes: ["Squadron refit complete; ready for tasking"] });
     }
-  }
-
-  /**
-   * Returns the current depot stockpile totals derived from the faction supply state inventory.
-   */
-  private getFactionStockpileTotals(
-    faction: TurnFaction
-  ): { ammo: number; fuel: number; rations: number; parts: number } {
-    const state = this.supplyStateByFaction[faction];
-    return {
-      ammo: Math.max(0, Math.round(state.inventory.ammo.current)),
-      fuel: Math.max(0, Math.round(state.inventory.fuel.current)),
-      rations: Math.max(0, Math.round(state.inventory.rations.current)),
-      parts: Math.max(0, Math.round(state.inventory.parts.current))
-    };
   }
 
   /**
@@ -6188,6 +5803,7 @@ private automateSupplyConvoys(
       movedTruck.entrench = 0;
       this.removeUnitFromFactionHex(faction, fromHex, truckId);
       this.addUnitToFactionHex(faction, movedTruck);
+      this.overrunRecoverySitesAtHex(faction, movedTruck.hex);
       truck.facing = movedTruck.facing;
       truck.hex = structuredClone(movedTruck.hex);
       truck.fuel = movedTruck.fuel;
@@ -6243,6 +5859,11 @@ private automateSupplyConvoys(
     Ally: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } })
   };
   private readonly logisticsCareEvents: LogisticsCareEntry[] = [];
+  /** Non-occupying casualty and repair sites that exist only for the active tactical battle. */
+  private readonly recoverySites = new Map<string, TacticalRecoverySite>();
+  /** Append-only battle evidence used by the activity feed and after-action reporting. */
+  private readonly recoveryEvents: TacticalRecoveryEvent[] = [];
+  private recoverySiteIdCounter = 0;
   private readonly initialPlayerDepotStock: { ammo: number; fuel: number; rations: number; parts: number };
   /** Convoy cargo and assignment state tracked independently from the truck unit's onboard fuel. */
   private readonly supplyTruckStateByFaction: Record<TurnFaction, Map<string, SupplyTruckState>> = {
@@ -6315,6 +5936,29 @@ private automateSupplyConvoys(
   private generateUnitId(): string {
     this.unitIdCounter += 1;
     return `u_${this.unitIdPrefix}_${this.unitIdCounter}`;
+  }
+
+  private generateRecoverySiteId(): string {
+    this.recoverySiteIdCounter += 1;
+    return `recovery_${this.unitIdPrefix}_${this.recoverySiteIdCounter}`;
+  }
+
+  private recordRecoveryEvent(
+    faction: TurnFaction,
+    type: TacticalRecoveryEvent["type"],
+    site: TacticalRecoverySite,
+    summary: string
+  ): void {
+    this.recoveryEvents.push({
+      id: `recovery-event-${this.unitIdPrefix}-${this.deterministicEventCounter + 1}`,
+      turn: this._turnNumber,
+      faction,
+      type,
+      siteId: site.siteId,
+      hex: structuredClone(site.hex),
+      summary
+    });
+    this.nextDeterministicTimestamp();
   }
 
   /** Returns the next deterministic fraction in [0, 1) using a persisted xorshift32 stream. */
@@ -6730,10 +6374,6 @@ private automateSupplyConvoys(
     return this.resolveTowState(unit) === "towed";
   }
 
-  private buildTowStateRetaliationUnavailableNote(subject: string): string {
-    return `${subject} is limbered and cannot return fire until deployed.`;
-  }
-
   private resolveCounterfireLimitFromSentry(wasOnSentry: boolean): number {
     const baseLimit = Math.max(0, Math.round(combatBalance.counterfire.maxRetaliationsPerTurn));
     const sentryLimit = Math.max(
@@ -6782,7 +6422,25 @@ private automateSupplyConvoys(
       }
     }
 
-    return Math.max(0, adjustedMax);
+    const burden = resolveMobilityBurden(unit?.status, definition.moveType ?? "track");
+    return Math.max(0, Number((adjustedMax * burden.movementScalar).toFixed(4)));
+  }
+
+  private accrueMovementCreditForFaction(faction: TurnFaction): void {
+    this.getAllUnitsForFaction(faction).forEach((unit) => {
+      const definition = this.getUnitDefinition(unit.type);
+      if (definition.moveType === "air") return;
+      ensureFormationStatus(unit, unit.formationKey);
+      const grant = this.resolveBaseMovementAllowance(definition, this.createDefaultActionFlags(), unit);
+      const experienceScalar = 1 + getExperienceBonus(unit);
+      const nominalCap = Math.max(
+        1,
+        Math.ceil((definition.movement ?? 1) * this.commanderMoveScalar() * experienceScalar)
+      );
+      const prior = Math.max(0, Number(unit.movementCredit ?? 0));
+      unit.movementCredit = Number(Math.min(nominalCap, prior + grant).toFixed(4));
+      this.replaceUnitInFactionHex(faction, unit);
+    });
   }
 
   private resolveTowHookupCost(
@@ -9659,6 +9317,8 @@ private automateSupplyConvoys(
     this.combatReports.length = 0;
     this.casualtyLog.length = 0;
     this.logisticsCareEvents.length = 0;
+    this.recoverySites.clear();
+    this.recoveryEvents.length = 0;
     this.supplyPriorityByUnitId.clear();
     (Object.keys(this.supplyTruckStateByFaction) as TurnFaction[]).forEach((faction) => {
       this.supplyTruckStateByFaction[faction].clear();
@@ -9881,6 +9541,13 @@ private automateSupplyConvoys(
     (state.aircraftAmmo?.player ?? []).forEach(([key, ammo]) => this.playerAttackAmmo.set(key, structuredClone(ammo)));
     (state.aircraftAmmo?.bot ?? []).forEach(([key, ammo]) => this.botAttackAmmo.set(key, structuredClone(ammo)));
     (state.logisticsCareEvents ?? []).forEach((entry) => this.logisticsCareEvents.push(structuredClone(entry)));
+    (state.recoverySites ?? []).forEach((entry) => {
+      if (!entry.siteId || !this.inBounds(entry.hex) || this.recoverySites.has(entry.siteId)) {
+        throw new Error("Serialized tactical recovery site is malformed or duplicated.");
+      }
+      this.recoverySites.set(entry.siteId, structuredClone(entry));
+    });
+    (state.recoveryEvents ?? []).forEach((entry) => this.recoveryEvents.push(structuredClone(entry)));
 
     if (state.supplyTruckStates) {
       (Object.keys(state.supplyTruckStates) as TurnFaction[]).forEach((faction) => {
@@ -9934,6 +9601,7 @@ private automateSupplyConvoys(
       this.battleRequisitionIdCounter = Math.max(0, Math.round(state.counters.battleRequisitionId));
       this.counterIntelIdCounter = Math.max(0, Math.round(state.counters.counterIntelId));
       this.deterministicEventCounter = Math.max(0, Math.round(state.counters.deterministicEvent));
+      this.recoverySiteIdCounter = Math.max(0, Math.round(state.counters.recoverySiteId ?? 0));
     }
     if (typeof state.randomState === "number" && Number.isInteger(state.randomState)) {
       this.randomState = state.randomState >>> 0 || 0x6d2b79f5;
@@ -9987,6 +9655,7 @@ private automateSupplyConvoys(
     this._phase = "playerTurn";
     this._activeFaction = "Player";
     this._turnNumber = 1;
+    this.accrueMovementCreditForFaction("Player");
     this.playerActionFlags.clear();
     this.clearFlakEngagementsFor("Player");
     this.rebuildPlayerIdleUnitSet();
@@ -10111,6 +9780,7 @@ private automateSupplyConvoys(
       if (this.allySide && this.allyPlacements.size > 0) {
         this._phase = "allyTurn";
         this._activeFaction = "Ally";
+        this.accrueMovementCreditForFaction("Ally");
         this.allyActionFlags.clear();
         this.clearFlakEngagementsFor("Ally");
         this.clearSuppressionFor("Ally");
@@ -10124,6 +9794,7 @@ private automateSupplyConvoys(
       // Ally (if any) complete → Bot turn. Execute bot logic immediately before UI refresh.
       this._phase = "botTurn";
       this._activeFaction = "Bot";
+      this.accrueMovementCreditForFaction("Bot");
       this.botActionFlags.clear();
       this.clearFlakEngagementsFor("Bot");
       this.clearSuppressionFor("Bot");
@@ -10140,6 +9811,7 @@ private automateSupplyConvoys(
       this._turnNumber += 1;
       this.grantPassiveBattleRequisitionPointsForPlayerTurn();
       this.advanceCounterIntelTurn();
+      this.accrueMovementCreditForFaction("Player");
       this.playerActionFlags.clear();
       this.clearFlakEngagementsFor("Player");
       this.clearSuppressionFor("Player");
@@ -10164,6 +9836,7 @@ private automateSupplyConvoys(
       this._turnNumber += 1;
       this.grantPassiveBattleRequisitionPointsForPlayerTurn();
       this.advanceCounterIntelTurn();
+      this.accrueMovementCreditForFaction("Player");
       this.playerActionFlags.clear();
       this.clearFlakEngagementsFor("Player");
       this.clearSentryFor("Player");
@@ -10334,110 +10007,67 @@ private automateSupplyConvoys(
     attackerHex: Axial,
     attackerDef: UnitTypeDefinition,
     originalDefender: ScenarioUnit,
-    projectedDefender: ScenarioUnit,
+    defenderAfterDamage: ScenarioUnit,
     defenderHex: Axial,
     defenderDef: UnitTypeDefinition,
     effectiveStance: CombatStance | undefined,
     defenderFaction: TurnFaction = "Bot"
   ): { expectedDamage: number; possible: boolean; note?: string; projectedDamage?: CombatDamageSummary } {
     const simultaneousFire = originalDefender.onSentry === true;
-    const noteFor = (message: string): string =>
-      simultaneousFire
-        ? `Target is on sentry, but ${message.charAt(0).toLowerCase()}${message.slice(1)}`
-        : message;
     const attackerIsAircraft = this.isAircraft(attackerDef);
     const defenderIsAircraft = this.isAircraft(defenderDef);
     const defenderIsBomber = this.isBomber(defenderDef);
     const defenderGroundAmmoCost = defenderIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
-    const retaliationDefender = structuredClone(simultaneousFire ? originalDefender : projectedDefender);
-    retaliationDefender.onSentry = false;
-
-    if (retaliationDefender.strength <= 0) {
-      return {
-        expectedDamage: 0,
-        possible: false,
-        note: "Target is expected to be destroyed before it can return fire."
-      };
-    }
-
-    if (attackerIsAircraft && !defenderIsAircraft) {
-      return {
-        expectedDamage: 0,
-        possible: false,
-        note: noteFor("Ground units cannot retaliate against fast-moving aircraft.")
-      };
-    }
-
-    if (this.isPinnedOrBroken(this.resolveUnitSuppressionState(retaliationDefender).state)) {
-      return {
-        expectedDamage: 0,
-        possible: false,
-        note: noteFor("Target is pinned and cannot return fire.")
-      };
-    }
-
-    if (this.isRetaliationBlockedByTowState(retaliationDefender)) {
-      return {
-        expectedDamage: 0,
-        possible: false,
-        note: noteFor(this.buildTowStateRetaliationUnavailableNote("Target"))
-      };
-    }
-
-    const distance = hexDistance(defenderHex, attackerHex);
-    const defenderRangeMin = defenderDef.rangeMin ?? 1;
-    let defenderRangeMax = defenderDef.rangeMax ?? 1;
-    if (defenderIsBomber && attackerIsAircraft) {
-      defenderRangeMax = Math.max(defenderRangeMax, 2);
-    }
-    if (distance < defenderRangeMin || distance > defenderRangeMax) {
-      return {
-        expectedDamage: 0,
-        possible: false,
-        note: noteFor("Target is out of return-fire range.")
-      };
-    }
-
+    const defenderProjection = projectBattleDefenderDamage({
+      defenderAfterDamage,
+      stance: effectiveStance,
+      suppressorKey: this.getSquadronId(attacker),
+      suppressionBefore: this.resolveUnitSuppressionState(originalDefender).state
+    });
+    const retaliationSource = simultaneousFire ? originalDefender : defenderProjection.updatedDefender;
     const defenderFlags = defenderFaction === "Bot"
-      ? this.getUnitActionFlags("Bot", retaliationDefender)
-      : this.getUnitActionFlags("Player", retaliationDefender);
-    if (!this.hasRetaliationAvailable(defenderFlags, simultaneousFire)) {
-      return {
-        expectedDamage: 0,
-        possible: false,
-        note: noteFor("Target has already used all available retaliations this turn.")
-      };
+      ? this.getUnitActionFlags("Bot", retaliationSource)
+      : this.getUnitActionFlags("Player", retaliationSource);
+    const defenderAmmoKey = defenderIsAircraft ? this.getSquadronId(retaliationSource) : null;
+    const defenderAircraftAmmo = defenderAmmoKey
+      ? (defenderFaction === "Player" ? this.playerAttackAmmo : this.botAttackAmmo).get(defenderAmmoKey)
+        ?? this.createInitialAircraftAmmo(defenderDef)
+      : null;
+    const retaliationProjection = projectBattleRetaliation({
+      defenderBefore: originalDefender,
+      defenderAfter: defenderProjection.updatedDefender,
+      resolvedFacing: this.resolveFacingToward(defenderHex, attackerHex, retaliationSource.facing),
+      defenderWasOnSentry: simultaneousFire,
+      defenderBecameBroken: defenderProjection.defenderBecameBroken,
+      attackerStrength: attacker.strength,
+      attackerIsAircraft,
+      defenderIsAircraft,
+      defenderIsBomber,
+      defenderTowBlocked: this.isRetaliationBlockedByTowState(retaliationSource),
+      defenderPinnedOrBroken: this.isPinnedOrBroken(this.resolveUnitSuppressionState(retaliationSource).state),
+      distance: hexDistance(defenderHex, attackerHex),
+      rangeMin: defenderDef.rangeMin ?? 1,
+      rangeMax: defenderDef.rangeMax ?? 1,
+      retaliationAvailable: this.hasRetaliationAvailable(defenderFlags, simultaneousFire),
+      ammunition: defenderAircraftAmmo
+        ? { kind: "aircraft", needsRearm: defenderAircraftAmmo.needsRearm, airShots: defenderAircraftAmmo.air }
+        : {
+            kind: "ground",
+            available: typeof retaliationSource.ammo === "number" ? retaliationSource.ammo : null,
+            cost: defenderGroundAmmoCost
+      },
+      notePerspective: "target",
+      pinTowPriority: "pinFirst",
+      pinnedBlocksSentry: true
+    });
+    if (retaliationProjection.reachedAmmunitionGate && defenderAmmoKey) {
+      this.getAircraftAmmoState(defenderFaction, defenderAmmoKey, defenderDef);
+    }
+    if (!retaliationProjection.allowed) {
+      return { expectedDamage: 0, possible: false, note: retaliationProjection.note };
     }
 
-    if (defenderIsAircraft) {
-      const defenderAmmoState = this.getAircraftAmmoState(defenderFaction, this.getSquadronId(retaliationDefender), defenderDef);
-      if (this.aircraftNeedsRearm(defenderFaction, this.getSquadronId(retaliationDefender))) {
-        return {
-          expectedDamage: 0,
-          possible: false,
-          note: noteFor("Enemy aircraft must rearm before it can retaliate.")
-        };
-      }
-      if (defenderAmmoState.air <= 0) {
-        return {
-          expectedDamage: 0,
-          possible: false,
-          note: noteFor("Enemy aircraft has no interception ammo remaining.")
-        };
-      }
-    } else {
-      const defenderAmmo = typeof retaliationDefender.ammo === "number" ? retaliationDefender.ammo : null;
-      if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
-        return {
-          expectedDamage: 0,
-          possible: false,
-          note: noteFor(defenderGroundAmmoCost > 1
-            ? `Enemy unit lacks the ${defenderGroundAmmoCost.toFixed(0)} ammo needed to return indirect fire.`
-            : "Enemy unit has no ammunition remaining to retaliate.")
-        };
-      }
-    }
-
+    const retaliationDefender = retaliationProjection.defender;
     const retaliationReq = this.buildAttackRequest(retaliationDefender, attacker, defenderFaction, "Player", {
       allowBomberAirAttack: true,
       stance: effectiveStance === "assault" ? "assault" : undefined,
@@ -10449,7 +10079,7 @@ private automateSupplyConvoys(
       return {
         expectedDamage: 0,
         possible: false,
-        note: noteFor("Target lacks line of fire for retaliation.")
+        note: retaliationProjection.lineOfFireFailureNote
       };
     }
 
@@ -10488,7 +10118,7 @@ private automateSupplyConvoys(
       expectedDamage: projection.damage.readinessLoss,
       possible: true,
       projectedDamage: projection.damage,
-      note: simultaneousFire ? "Target is on sentry and will return fire simultaneously." : undefined
+      note: retaliationProjection.successNote
     };
   }
 
@@ -10661,15 +10291,21 @@ private automateSupplyConvoys(
     const flags = this.getUnitActionFlags("Player", unit);
 
     const adjustedMax = this.resolveBaseMovementAllowance(definition, flags, unit);
-
-    // Towed units can always move at least 1 hex even after hookup cost
-    const remaining = Math.max(this.resolveTowState(unit) === "towed" ? 1 : 0, adjustedMax - flags.movementPointsUsed);
+    const unbankedRemaining = Math.max(0, adjustedMax - flags.movementPointsUsed);
+    const creditedRemaining = typeof unit.movementCredit === "number"
+      ? Math.max(0, unit.movementCredit)
+      : unbankedRemaining;
+    // Fractional casualty burden accumulates between activations. Once a unit
+    // attacks, the ordinary post-attack movement cap still applies.
+    const remaining = flags.attacksUsed > 0
+      ? Math.min(creditedRemaining, unbankedRemaining)
+      : creditedRemaining;
     return {
       unit,
       definition,
       flags,
       moveType,
-      max: Math.max(0, adjustedMax),
+      max: Math.max(0, flags.movementPointsUsed + remaining),
       remaining
     };
   }
@@ -10922,6 +10558,7 @@ private automateSupplyConvoys(
     const reachable: Axial[] = [];
     const reachableKeys = new Set<string>();
     const originKey = axialKey(origin);
+    const hasCasualtyMobilityBurden = resolveMobilityBurden(unit.status, moveType).burdenRatio > 0;
 
     while (queue.length > 0) {
       const current = queue.shift()!;
@@ -10951,12 +10588,18 @@ private automateSupplyConvoys(
         const newCost = current.cost + moveCost;
         const newFuelCost = current.fuelCost + this.resolveMovementFuelStep(moveType, neighbor);
 
-        // All units may move at least 1 hex per turn regardless of terrain cost.
-        // This mirrors the bot AI guarantee and prevents heavy/towed units from being
-        // stranded on beaches or other high-cost terrain when their allowance is small.
-        const isFirstStep = flags.movementPointsUsed === 0 && current.cost === 0;
-        const withinBudget = newCost <= remaining && (!Number.isFinite(availableFuel) || newFuelCost <= availableFuel + 1e-6);
-        if (withinBudget || isFirstStep) {
+        const withinFuelBudget = !Number.isFinite(availableFuel) || newFuelCost <= availableFuel + 1e-6;
+        const withinMovementBudget = newCost <= remaining;
+        // Preserve the established one-hex difficult-terrain guarantee for an
+        // otherwise healthy formation. Casualty-burdened formations do not get
+        // this exception: their fractional allowance/credit is the authoritative
+        // linear slowdown and may require more than one activation to afford a hex.
+        const isHealthyFirstStep = (
+          !hasCasualtyMobilityBurden &&
+          flags.movementPointsUsed === 0 &&
+          current.cost === 0
+        );
+        if (withinFuelBudget && (withinMovementBudget || isHealthyFirstStep)) {
           queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });
           if (nKey !== originKey && !reachableKeys.has(nKey) && (!occupied || canEnterOccupiedHex)) {
             reachableKeys.add(nKey);
@@ -11101,9 +10744,18 @@ private automateSupplyConvoys(
 
     // Toggle the rush state
     const newRushState = !flags.isRushing;
+    const nextFlags = { ...flags, isRushing: newRushState };
+    if (typeof unit.movementCredit === "number") {
+      const previousAllowance = this.resolveBaseMovementAllowance(def, flags, unit);
+      const nextAllowance = this.resolveBaseMovementAllowance(def, nextFlags, unit);
+      unit.movementCredit = Math.max(
+        0,
+        Number((unit.movementCredit + nextAllowance - previousAllowance).toFixed(4))
+      );
+      this.replaceUnitInFactionHex("Player", unit);
+    }
     this.playerActionFlags.set(key, {
-      ...flags,
-      isRushing: newRushState
+      ...nextFlags
     });
 
     return newRushState;
@@ -11137,11 +10789,15 @@ private automateSupplyConvoys(
       throw new Error("Artillery cannot move after attacking.");
     }
 
+    const movementBlockers = moveType === "air"
+      ? new Set<string>()
+      : this.buildUnifiedOccupancySet();
+    movementBlockers.delete(fromKey);
     const movePlan = this.findCheapestPathToAny(
       from,
       [to],
       moveType,
-      new Set(),
+      movementBlockers,
       Number.isFinite(availableFuel) ? availableFuel : undefined
     );
     if (!movePlan || movePlan.summary.cost >= 999) {
@@ -11149,11 +10805,13 @@ private automateSupplyConvoys(
     }
     const moveSummary = movePlan.summary;
     const moveCost = moveSummary.cost;
+    const isHealthyFirstMove = (
+      resolveMobilityBurden(unit.status, moveType).burdenRatio <= 0 &&
+      flags.movementPointsUsed === 0 &&
+      moveSummary.steps === 1
+    );
 
-    // Guarantee every unit can always move at least 1 hex per turn even when terrain cost exceeds
-    // their movement allowance. This matches the getReachableHexes BFS and bot AI logic.
-    const isFirstMove = flags.movementPointsUsed === 0 && moveSummary.steps === 1;
-    if (!isFirstMove && moveCost > remaining) {
+    if (!isHealthyFirstMove && moveCost > remaining) {
       throw new Error(`Not enough movement points. Cost: ${moveCost}, Remaining: ${Math.max(0, remaining).toFixed(1)}`);
     }
     if (Number.isFinite(availableFuel) && moveSummary.fuelCost > availableFuel + 1e-6) {
@@ -11161,7 +10819,7 @@ private automateSupplyConvoys(
     }
 
     const newTotalMovement = flags.movementPointsUsed + moveCost;
-    if (!isFirstMove && newTotalMovement > max) {
+    if (!isHealthyFirstMove && newTotalMovement > max) {
       const leftover = Math.max(0, max - flags.movementPointsUsed);
       throw new Error(`Not enough movement points. Cost: ${moveCost}, Remaining: ${leftover.toFixed(1)}`);
     }
@@ -11195,6 +10853,9 @@ private automateSupplyConvoys(
     moved.facing = this.resolveFacingToward(from, to, unit.facing);
     moved.hex = structuredClone(to);
     moved.onSentry = false;
+    if (typeof moved.movementCredit === "number") {
+      moved.movementCredit = Math.max(0, Number((moved.movementCredit - moveCost).toFixed(4)));
+    }
     if (Number.isFinite(availableFuel) && moveSummary.fuelCost > 0) {
       moved.fuel = Math.max(0, Number((moved.fuel - moveSummary.fuelCost).toFixed(2)));
     }
@@ -11202,6 +10863,7 @@ private automateSupplyConvoys(
     const destinationUnits = this.getUnitsAtHexForFaction(to, "Player");
     destinationUnits.push(moved);
     this.setUnitsAtHexForFaction(to, "Player", destinationUnits);
+    const recoverySitesOverrun = moveType === "air" ? [] : this.overrunRecoverySitesAtHex("Player", to);
     this.transferAircraftAmmoState(this.playerAttackAmmo, fromKey, toKey);
     this.updatePlayerSupplyPosition(from, to, movingUnitId);
     this.syncPlayerFuel(to, moved.fuel, moved.unitId);
@@ -11227,7 +10889,8 @@ private automateSupplyConvoys(
       unit: structuredClone(moved),
       from: structuredClone(from),
       to: structuredClone(to),
-      path: movePlan.path.map((hex) => structuredClone(hex))
+      path: movePlan.path.map((hex) => structuredClone(hex)),
+      ...(recoverySitesOverrun.length > 0 ? { recoverySitesOverrun } : {})
     };
   }
 
@@ -11271,7 +10934,6 @@ private automateSupplyConvoys(
     const attackerIsAircraft = this.isAircraft(unitDef);
     const primaryDefenderIsAircraft = this.isAircraft(primaryDefenderDef);
     const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(unitDef, effectiveStance);
-    let attackManeuverCost = 0;
     const moveScalar = this.commanderMoveScalar();
     const boostedMovement = Math.max(1, Math.ceil((unitDef.movement ?? 1) * moveScalar * (1 + getExperienceBonus(attacker))));
     const halfMovement = Math.floor(boostedMovement / 2);
@@ -11315,51 +10977,29 @@ private automateSupplyConvoys(
       result: AttackResult,
       attackingDefinition: UnitTypeDefinition,
       defendingDefinition: UnitTypeDefinition
-    ): AttackResult => {
-      if (this.isBomber(attackingDefinition) && !this.isAircraft(defendingDefinition)) {
-        return {
-          ...result,
-          damagePerHit: result.damagePerHit * 10,
-          expectedDamage: result.expectedDamage * 10,
-          expectedSuppression: result.expectedSuppression * 10
-        };
-      }
-      if (this.isAircraft(attackingDefinition) && !this.isBomber(attackingDefinition) && this.isAircraft(defendingDefinition)) {
-        return {
-          ...result,
-          damagePerHit: result.damagePerHit * 4,
-          expectedDamage: result.expectedDamage * 4,
-          expectedSuppression: result.expectedSuppression * 4
-        };
-      }
-      return result;
-    };
-    const resolveRetaliationNote = (wasOnSentry: boolean, message: string): string =>
-      wasOnSentry
-        ? `Enemy unit was on sentry, but ${message.charAt(0).toLowerCase()}${message.slice(1)}`
-        : message;
-
+    ): AttackResult => scaleAirAttackResult(result, {
+      attackerIsAircraft: this.isAircraft(attackingDefinition),
+      attackerIsBomber: this.isBomber(attackingDefinition),
+      defenderIsAircraft: this.isAircraft(defendingDefinition)
+    });
+    const aircraftManeuverReadiness = projectBattleAircraftAttackManeuverReadiness({
+      attackerIsAircraft,
+      defenderIsAircraft: primaryDefenderIsAircraft,
+      movementAllowance: boostedMovement,
+      movementPointsUsed: flags.movementPointsUsed
+    });
+    const attackManeuverCost = aircraftManeuverReadiness.maneuverCost;
+    if (aircraftManeuverReadiness.unavailableMessage) {
+      throw new Error(aircraftManeuverReadiness.unavailableMessage);
+    }
     if (attackerIsAircraft) {
-      attackManeuverCost = primaryDefenderIsAircraft ? 2 : 1;
-      const remainingAirMovement = boostedMovement - flags.movementPointsUsed;
-      if (remainingAirMovement + 1e-6 < attackManeuverCost) {
-        throw new Error(
-          primaryDefenderIsAircraft
-            ? "This squadron expended its flight time and cannot execute another aerial dogfight this turn."
-            : "This squadron lacks the flight time to line up another ground strike this turn."
-        );
-      }
       const aircraftAmmoKey = resolveAircraftRegistryKey("Player", attacker);
-      const ammoState = this.getAircraftAmmoState("Player", aircraftAmmoKey, unitDef);
-      if (this.aircraftNeedsRearm("Player", aircraftAmmoKey)) {
-        throw new Error("This squadron must return to base to rearm before flying another sortie.");
-      }
-      if (primaryDefenderIsAircraft) {
-        if (ammoState.air <= 0) {
-          throw new Error("The fighter wing has exhausted its interception ammo and needs to rearm at base.");
-        }
-      } else if (ammoState.ground <= 0) {
-        throw new Error("The squadron has expended its bomb load and must rearm at the base camp before attacking ground targets again.");
+      const aircraftAmmunitionReadiness = projectBattleAircraftAttackAmmunitionReadiness({
+        defenderIsAircraft: primaryDefenderIsAircraft,
+        ammunition: this.getAircraftAmmoState("Player", aircraftAmmoKey, unitDef)
+      });
+      if (aircraftAmmunitionReadiness.unavailableMessage) {
+        throw new Error(aircraftAmmunitionReadiness.unavailableMessage);
       }
     }
 
@@ -11392,7 +11032,6 @@ private automateSupplyConvoys(
 
         // Process sequential flak damage
         const bomberStrengthBeforeFlak = attackingSnapshot.strength;
-        let flakDamage = 0;
         let bomberDestroyedByFlak = false;
         const flakEngagements: FlakEngagementEntry[] = [];
         for (const flakEntry of flakUnits) {
@@ -11425,7 +11064,6 @@ private automateSupplyConvoys(
           const damageSummary = this.buildCombatDamageSummary(bomberBeforeDamage, updatedAttackingSnapshot, damagePacket);
           const suffered = damageSummary.readinessLoss;
           attackingSnapshot = updatedAttackingSnapshot;
-          flakDamage += suffered;
           flakEngagements.push({
             batteryFaction: opponentFaction,
             batteryUnitKey: this.getSquadronId(flakEntry.unit),
@@ -11455,23 +11093,18 @@ private automateSupplyConvoys(
           }
         }
 
-        this.pendingAirEngagements.push({
+        this.pendingAirEngagements.push(projectBattleAirEngagement({
           type: "flak",
-          location: structuredClone(defenderHex),
+          location: defenderHex,
           bomber: {
             faction: "Player",
             unitKey: attackerKey,
             unitType: attacker.type as string,
-            strength: bomberStrengthBeforeFlak
+            strengthBefore: bomberStrengthBeforeFlak
           },
           interceptors: flakInterceptorsForEvent,
-          escorts: [],
-          flakDamage,
-          flakEngagements,
-          bomberStrengthBefore: bomberStrengthBeforeFlak,
-          bomberStrengthAfter: attackingSnapshot.strength,
-          bomberDestroyed: bomberDestroyedByFlak
-        });
+          flakEngagements
+        }));
 
         if (bomberDestroyedByFlak) {
           return null;  // Aircraft destroyed by flak before reaching target
@@ -11483,10 +11116,6 @@ private automateSupplyConvoys(
 
       if (capMissions.length > 0) {
         const bomberStrengthBeforeCap = attackingSnapshot.strength;
-        let interceptorAttrition = 0;
-        let escortAttrition = 0;
-        let interceptorKills = 0;
-        let escortKills = 0;
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const interceptorParticipants: AirInterceptionParticipant[] = [];
@@ -11516,11 +11145,6 @@ private automateSupplyConvoys(
           }
         }
         const interception = this.resolveAirInterception(attackingSnapshot, "Player", interceptorParticipants, escortParticipants);
-        interceptorAttrition = interception.interceptorAttrition;
-        escortAttrition = interception.escortAttrition;
-        interceptorKills = interception.interceptorKills;
-        escortKills = interception.escortKills;
-
         interception.escortDeltas.forEach((delta) => {
           if (!delta.engaged) {
             return;
@@ -11578,36 +11202,19 @@ private automateSupplyConvoys(
           this.syncStrengthForFaction("Player", attackingSnapshot.hex, attackingSnapshot.strength, attackerKey);
         }
 
-        this.pendingAirEngagements.push({
+        this.pendingAirEngagements.push(projectBattleAirEngagement({
           type: "airToAir",
-          location: structuredClone(defenderHex),
+          location: defenderHex,
           bomber: {
             faction: "Player",
             unitKey: attackerKey,
             unitType: attacker.type as string,
-            strength: bomberStrengthBeforeCap
+            strengthBefore: bomberStrengthBeforeCap
           },
           interceptors: interceptorsForEvent,
           escorts: escortsForEvent,
-          bomberStrengthBefore: bomberStrengthBeforeCap,
-          bomberStrengthAfter: attackingSnapshot.strength,
-          bomberDestroyed: interception.bomberDestroyed,
-          interceptorAttrition,
-          escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
-          bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
-          interceptorKills,
-          escortAttrition,
-          escortKills,
-          escortsEngaged: interception.escortsEngaged,
-          interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
-          escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
-          interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
-          escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
-          interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
-          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
-          escortExchanges: interception.escortExchanges,
-          bomberPassExchanges: interception.bomberPassExchanges
-        });
+          interception
+        }));
 
         if (interception.bomberDestroyed) {
           return null;
@@ -11615,14 +11222,15 @@ private automateSupplyConvoys(
       }
     }
 
-    const attackRequestSource = structuredClone(attackingSnapshot);
-    attackRequestSource.facing = this.resolveFacingToward(attackerHex, defenderHex, attackingSnapshot.facing);
-    attackRequestSource.onSentry = false;
-
-    const updatedAttacker = structuredClone(attackRequestSource);
-    updatedAttacker.ammo = attackerIsAircraft
-      ? Math.max(0, updatedAttacker.ammo - 1)
-      : Math.max(0, updatedAttacker.ammo - groundAttackAmmoCost);
+    const attackerPreparation = projectBattleAttackerPreparation({
+      attacker: attackingSnapshot,
+      resolvedFacing: this.resolveFacingToward(attackerHex, defenderHex, attackingSnapshot.facing),
+      ammunitionCost: attackerIsAircraft ? 1 : groundAttackAmmoCost,
+      maneuverCost: attackManeuverCost,
+      actionFlags: flags
+    });
+    const attackRequestSource = attackerPreparation.attackRequestSource;
+    let updatedAttacker = attackerPreparation.updatedAttacker;
 
     if (attackerIsAircraft) {
       this.spendAircraftAmmo("Player", resolveAircraftRegistryKey("Player", attacker), primaryDefenderIsAircraft);
@@ -11659,13 +11267,14 @@ private automateSupplyConvoys(
       }
 
       const defenderWasOnSentry = defenderBefore.onSentry === true;
-      const updatedDefender = structuredClone(defenderBefore);
-      updatedDefender.facing = this.resolveFacingToward(defenderHex, attackerHex, defenderBefore.facing);
-      updatedDefender.onSentry = false;
+      const defenderSuppressionBefore = this.resolveUnitSuppressionState(defenderBefore).state;
+      const damagedDefender = structuredClone(defenderBefore);
+      damagedDefender.facing = this.resolveFacingToward(defenderHex, attackerHex, defenderBefore.facing);
+      damagedDefender.onSentry = false;
       const defenderDamagePacket = this.applyCombatDamageToUnit(
         attackRequestSource,
         unitDef,
-        updatedDefender,
+        damagedDefender,
         defenderDef,
         scaledAttackResult,
         attackerHex,
@@ -11673,17 +11282,15 @@ private automateSupplyConvoys(
         this.resolveDamageEffectScalar(baseAttackResult, scaledAttackResult),
         this.resolveSuppressionEffectScalar(effectiveStance)
       );
-      const defenderDamageSummary = this.buildCombatDamageSummary(defenderBefore, updatedDefender, defenderDamagePacket);
+      const defenderDamageSummary = this.buildCombatDamageSummary(defenderBefore, damagedDefender, defenderDamagePacket);
       const inflictedDamage = defenderDamageSummary.readinessLoss;
       totalDefenderDamage += inflictedDamage;
-
-      if (effectiveStance === "suppressive" && updatedDefender.strength > 0) {
-        const suppressors = Array.isArray(updatedDefender.suppressedBy) ? [...updatedDefender.suppressedBy] : [];
-        if (!suppressors.includes(attackerKey)) {
-          suppressors.push(attackerKey);
-        }
-        updatedDefender.suppressedBy = suppressors;
-      }
+      const { updatedDefender, defenderBecameBroken } = projectBattleDefenderDamage({
+        defenderAfterDamage: damagedDefender,
+        stance: effectiveStance,
+        suppressorKey: attackerKey,
+        suppressionBefore: defenderSuppressionBefore
+      });
 
       if (updatedDefender.strength <= 0) {
         this.removeUnitFromFactionHex(entry.faction, defenderHex, entry.unitId);
@@ -11695,85 +11302,57 @@ private automateSupplyConvoys(
       } else {
         this.replaceUnitInFactionHex(entry.faction, updatedDefender);
         this.syncStrengthForFaction(entry.faction, defenderHex, updatedDefender.strength, entry.unitId);
+        if (defenderBecameBroken) {
+          this.routeBrokenUnit(entry.faction, updatedDefender, attackerHex);
+        }
       }
 
       let retaliationResultForEntry: AttackResult | undefined;
       let retaliationDamage = 0;
       let retaliationDamageSummary: CombatDamageSummary | undefined;
       let retaliationOccurredForEntry = false;
-      let retaliationNoteForEntry: string | undefined;
+      const retaliationSource = defenderWasOnSentry ? defenderBefore : updatedDefender;
+      const defenderIsAircraft = this.isAircraft(defenderDef);
+      const defenderGroundAmmoCost = defenderIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
+      const defenderAmmoKey = defenderIsAircraft
+        ? resolveAircraftRegistryKey(entry.faction, retaliationSource)
+        : null;
+      const defenderAircraftAmmo = defenderAmmoKey
+        ? (entry.faction === "Player" ? this.playerAttackAmmo : this.botAttackAmmo).get(defenderAmmoKey)
+          ?? this.createInitialAircraftAmmo(defenderDef)
+        : null;
+      const defenderFlags = this.getUnitActionFlags(entry.faction, retaliationSource);
+      const retaliation = projectBattleRetaliation({
+        defenderBefore,
+        defenderAfter: updatedDefender,
+        resolvedFacing: this.resolveFacingToward(defenderHex, attackerHex, retaliationSource.facing),
+        defenderWasOnSentry,
+        defenderBecameBroken,
+        attackerStrength: updatedAttacker.strength,
+        attackerIsAircraft,
+        defenderIsAircraft,
+        defenderIsBomber: this.isBomber(defenderDef),
+        defenderTowBlocked: this.isRetaliationBlockedByTowState(retaliationSource),
+        defenderPinnedOrBroken: this.isPinnedOrBroken(this.resolveUnitSuppressionState(retaliationSource).state),
+        distance: hexDistance(defenderHex, attackerHex),
+        rangeMin: defenderDef.rangeMin ?? 1,
+        rangeMax: defenderDef.rangeMax ?? 1,
+        retaliationAvailable: this.hasRetaliationAvailable(defenderFlags, defenderWasOnSentry),
+        ammunition: defenderAircraftAmmo
+          ? { kind: "aircraft", needsRearm: defenderAircraftAmmo.needsRearm, airShots: defenderAircraftAmmo.air }
+          : {
+              kind: "ground",
+              available: typeof retaliationSource.ammo === "number" ? retaliationSource.ammo : null,
+              cost: defenderGroundAmmoCost
+            }
+      });
+      const retaliationDefender = retaliation.defender;
+      let retaliationNoteForEntry = retaliation.note;
 
-      let retaliationAllowed = (defenderWasOnSentry || updatedDefender.strength > 0) && updatedAttacker.strength > 0;
-      if (retaliationAllowed && attackerIsAircraft && !this.isAircraft(defenderDef)) {
-        retaliationAllowed = false;
-        retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy unit cannot retaliate against fast-moving aircraft.");
+      if (retaliation.reachedAmmunitionGate && defenderAmmoKey) {
+        this.getAircraftAmmoState(entry.faction, defenderAmmoKey, defenderDef);
       }
-
-      const retaliationDefender = structuredClone(defenderWasOnSentry ? defenderBefore : updatedDefender);
-      retaliationDefender.facing = this.resolveFacingToward(defenderHex, attackerHex, retaliationDefender.facing);
-      retaliationDefender.onSentry = false;
-
-      if (retaliationAllowed && this.isRetaliationBlockedByTowState(retaliationDefender)) {
-        retaliationAllowed = false;
-        retaliationNoteForEntry = resolveRetaliationNote(
-          defenderWasOnSentry,
-          this.buildTowStateRetaliationUnavailableNote("Enemy unit")
-        );
-      }
-
-      if (retaliationAllowed && !defenderWasOnSentry && this.isPinnedOrBroken(this.resolveUnitSuppressionState(retaliationDefender).state)) {
-        retaliationAllowed = false;
-        retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy unit is pinned and cannot return fire.");
-      }
-
-      if (retaliationAllowed) {
-        const retaliationDistance = hexDistance(defenderHex, attackerHex);
-        const defenderRangeMin = defenderDef.rangeMin ?? 1;
-        let defenderRangeMax = defenderDef.rangeMax ?? 1;
-        if (this.isBomber(defenderDef) && attackerIsAircraft) {
-          defenderRangeMax = Math.max(defenderRangeMax, 2);
-        }
-        if (retaliationDistance < defenderRangeMin || retaliationDistance > defenderRangeMax) {
-          retaliationAllowed = false;
-          retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy unit is out of return-fire range.");
-        }
-      }
-
-      if (retaliationAllowed) {
-        const defenderFlags = this.getUnitActionFlags(entry.faction, retaliationDefender);
-        if (!this.hasRetaliationAvailable(defenderFlags, defenderWasOnSentry)) {
-          retaliationAllowed = false;
-          retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy unit has already used all available retaliations this turn.");
-        }
-      }
-
-      const defenderGroundAmmoCost = this.isAircraft(defenderDef) ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
-      if (retaliationAllowed) {
-        if (this.isAircraft(defenderDef)) {
-          const defenderAmmoKey = resolveAircraftRegistryKey(entry.faction, retaliationDefender);
-          const defenderAmmoState = this.getAircraftAmmoState(entry.faction, defenderAmmoKey, defenderDef);
-          if (this.aircraftNeedsRearm(entry.faction, defenderAmmoKey)) {
-            retaliationAllowed = false;
-            retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy aircraft must rearm before it can retaliate.");
-          } else if (defenderAmmoState.air <= 0) {
-            retaliationAllowed = false;
-            retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy aircraft has no interception ammo remaining.");
-          }
-        } else {
-          const defenderAmmo = typeof retaliationDefender.ammo === "number" ? retaliationDefender.ammo : null;
-          if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
-            retaliationAllowed = false;
-            retaliationNoteForEntry = resolveRetaliationNote(
-              defenderWasOnSentry,
-              defenderGroundAmmoCost > 1
-                ? `Enemy unit lacks the ${defenderGroundAmmoCost.toFixed(0)} ammo needed to return indirect fire.`
-                : "Enemy unit has no ammunition remaining to retaliate."
-            );
-          }
-        }
-      }
-
-      const retaliationReq = retaliationAllowed
+      const retaliationReq = retaliation.allowed
         ? this.buildAttackRequest(retaliationDefender, updatedAttacker, entry.faction, "Player", {
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined,
@@ -11802,9 +11381,7 @@ private automateSupplyConvoys(
         retaliationDamageSummary = this.buildCombatDamageSummary(attackerBeforeRetaliation, updatedAttacker, retaliationPacket);
         retaliationDamage = retaliationDamageSummary.readinessLoss;
         totalRetaliationDamage += retaliationDamage;
-        if (defenderWasOnSentry) {
-          retaliationNoteForEntry = "Enemy unit was on sentry and returned fire simultaneously.";
-        }
+        retaliationNoteForEntry = retaliation.successNote;
 
         if (this.isAircraft(defenderDef)) {
           this.spendAircraftAmmo(entry.faction, resolveAircraftRegistryKey(entry.faction, retaliationDefender), attackerIsAircraft);
@@ -11822,8 +11399,8 @@ private automateSupplyConvoys(
           }
           this.markRetaliationUsed(entry.faction, updatedDefender, defenderWasOnSentry);
         }
-      } else if (!retaliationNoteForEntry && retaliationAllowed) {
-        retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy unit lacked line of fire for retaliation.");
+      } else if (!retaliationNoteForEntry && retaliation.allowed) {
+        retaliationNoteForEntry = retaliation.lineOfFireFailureNote;
       }
 
       targetRichDefenders.push({
@@ -11866,10 +11443,11 @@ private automateSupplyConvoys(
 
     let attackerRemainingStrength = updatedAttacker.strength;
     const allDefendersDestroyed = defenderEntries.every((entry) => !this.findUnitInFactionAtHex(defenderHex, entry.faction, entry.unitId));
-    const canAssaultAdvance = effectiveStance === "assault" && allDefendersDestroyed && !attackerIsAircraft && !primaryDefenderIsAircraft;
-    let attackerFinalHex = structuredClone(attackerHex);
+    const { attacker: disposedAttacker, kind: attackerDisposition } = projectBattleAttackerDisposition({
+      attackerAfterCombat: updatedAttacker, targetHex: defenderHex, stance: effectiveStance, allDefendersDestroyed, attackerIsAircraft, primaryDefenderIsAircraft });
+    updatedAttacker = disposedAttacker;
 
-    if (updatedAttacker.strength <= 0) {
+    if (attackerDisposition === "destroyed") {
       this.removeUnitFromFactionHex("Player", attackerHex, attackerKey);
       this.deleteUnitActionFlags("Player", attacker);
       this.playerIdleUnitKeys.delete(attackerOriginKey);
@@ -11877,13 +11455,11 @@ private automateSupplyConvoys(
       if (attackerIsAircraft) {
         clearAircraftRegistryFor("Player", attacker);
       }
-    } else if (canAssaultAdvance) {
+    } else if (attackerDisposition === "advance") {
       const originRemainder = this.getUnitsAtHexForFaction(attackerHex, "Player").filter((candidate) => this.getSquadronId(candidate) !== attackerKey);
       this.setUnitsAtHexForFaction(attackerHex, "Player", originRemainder);
-      attackerFinalHex = structuredClone(defenderHex);
-      updatedAttacker.hex = structuredClone(defenderHex);
-      updatedAttacker.entrench = 0;
       this.addUnitToFactionHex("Player", updatedAttacker);
+      this.overrunRecoverySitesAtHex("Player", defenderHex);
       this.updatePlayerSupplyPosition(attackerHex, defenderHex, attackerKey);
       this.syncPlayerEntrench(defenderHex, updatedAttacker.entrench, attackerKey);
     } else {
@@ -11892,22 +11468,18 @@ private automateSupplyConvoys(
 
     if (updatedAttacker.strength > 0) {
       attackerRemainingStrength = updatedAttacker.strength;
-      this.syncPlayerAmmo(attackerFinalHex, updatedAttacker.ammo, attackerKey);
-      this.syncPlayerStrength(attackerFinalHex, updatedAttacker.strength, attackerKey);
-      this.setUnitActionFlags("Player", updatedAttacker, {
-        movementPointsUsed: flags.movementPointsUsed + attackManeuverCost,
-        attacksUsed: flags.attacksUsed + 1,
-        retaliationsUsed: flags.retaliationsUsed,
-        isRushing: flags.isRushing
-      });
+      this.syncPlayerAmmo(updatedAttacker.hex, updatedAttacker.ammo, attackerKey);
+      this.syncPlayerStrength(updatedAttacker.hex, updatedAttacker.strength, attackerKey);
+      this.setUnitActionFlags("Player", updatedAttacker, attackerPreparation.nextActionFlags);
     }
 
     this.updateIdleRegistryFor(attackerOriginKey);
-    if (axialKey(attackerFinalHex) !== attackerOriginKey) {
-      this.updateIdleRegistryFor(axialKey(attackerFinalHex));
+    if (axialKey(updatedAttacker.hex) !== attackerOriginKey) {
+      this.updateIdleRegistryFor(axialKey(updatedAttacker.hex));
     }
 
-    this.recordCombatReport({
+    const outcome = projectBattleAttackOutcome({
+      kind: "player",
       attacker: {
         unit: attackRequestSource,
         hex: attackerHex,
@@ -11924,28 +11496,21 @@ private automateSupplyConvoys(
         destroyed: primaryDefenderDestroyed
       },
       attackResult: primaryAttackResult,
-      retaliationResult: primaryRetaliationOccurred ? primaryRetaliationResult : undefined,
-      damage: primaryDefenderDamage,
-      retaliationDamage: primaryRetaliationOccurred ? primaryRetaliationDamage : undefined
-    });
-
-    this.invalidateRosterCache();
-
-    return {
-      result: primaryAttackResult,
-      defenderRemainingStrength: primaryDefenderRemainingStrength,
-      defenderDestroyed: primaryDefenderDestroyed,
       defenderDamage: primaryDefenderDamage,
-      retaliationResult: primaryRetaliationResult,
-      attackerRemainingStrength,
-      retaliationDamage: primaryRetaliationDamage,
+      primaryRetaliationResult,
+      primaryRetaliationDamage,
+      primaryRetaliationOccurred,
       retaliationOccurred: anyRetaliationOccurred,
       retaliationNote: primaryRetaliationNote,
-      targetRich: targetRichDefenders.length > 1,
       targetRichDefenders,
       totalDefenderDamage,
       totalRetaliationDamage
-    };
+    });
+    this.recordCombatReport(outcome.report);
+
+    this.invalidateRosterCache();
+
+    return outcome.summary;
   }
 
   /** Resolve a basic attack and update units in place. */
@@ -12049,6 +11614,8 @@ private automateSupplyConvoys(
         Ally: structuredClone(this.supplyHistoryByFaction.Ally)
       },
       logisticsCareEvents: structuredClone(this.logisticsCareEvents),
+      recoverySites: Array.from(this.recoverySites.values()).map((site) => structuredClone(site)),
+      recoveryEvents: this.recoveryEvents.map((event) => structuredClone(event)),
       supplyTruckStates: {
         Player: structuredClone(Array.from(this.supplyTruckStateByFaction.Player.entries())),
         Bot: structuredClone(Array.from(this.supplyTruckStateByFaction.Bot.entries())),
@@ -12083,10 +11650,328 @@ private automateSupplyConvoys(
         airMissionId: this.airMissionIdCounter,
         battleRequisitionId: this.battleRequisitionIdCounter,
         counterIntelId: this.counterIntelIdCounter,
-        deterministicEvent: this.deterministicEventCounter
+        deterministicEvent: this.deterministicEventCounter,
+        recoverySiteId: this.recoverySiteIdCounter
       },
       randomState: this.randomState
     };
+  }
+
+  getRecoverySiteSnapshots(faction?: TurnFaction): TacticalRecoverySite[] {
+    return Array.from(this.recoverySites.values())
+      .filter((site) => !faction || site.faction === faction)
+      .filter((site) => hasRecoveryPayload(site.status) || this.hasStagedRecovery(site))
+      .map((site) => structuredClone(site));
+  }
+
+  getRecoveryEvents(): readonly TacticalRecoveryEvent[] {
+    return this.recoveryEvents.map((entry) => structuredClone(entry));
+  }
+
+  previewLeaveCasualtiesBehind(hex: Axial, unitId?: string): LeaveBehindPreview | null {
+    const unit = this.lookupUnit(hex, "Player", false, unitId);
+    if (!unit || this.isAutomatedPlayerUnit(unit)) {
+      return null;
+    }
+    const definition = this.getUnitDefinition(unit.type);
+    if (definition.moveType === "air") {
+      return null;
+    }
+    ensureFormationStatus(unit, unit.formationKey);
+    const preview = buildLeaveBehindPreview(unit, definition.moveType ?? "track");
+    return preview.summary.personnel + preview.summary.equipment > 0 ? preview : null;
+  }
+
+  leaveCasualtiesBehind(hex: Axial, unitId?: string): LeaveBehindResolution | null {
+    if (this._phase !== "playerTurn" || this._activeFaction !== "Player") {
+      return null;
+    }
+    const unit = this.lookupUnit(hex, "Player", false, unitId);
+    if (!unit || this.isAutomatedPlayerUnit(unit)) {
+      return null;
+    }
+    return this.leaveUnitCasualtiesBehindForFaction("Player", unit, "ordered");
+  }
+
+  private leaveUnitCasualtiesBehindForFaction(
+    faction: TurnFaction,
+    unit: ScenarioUnit,
+    cause: RecoverySiteCause
+  ): LeaveBehindResolution | null {
+    const definition = this.getUnitDefinition(unit.type);
+    if (definition.moveType === "air") {
+      return null;
+    }
+    const sourceUnitId = this.ensureUnitId(unit);
+    const status = ensureFormationStatus(unit, unit.formationKey);
+    const sourceFlags = this.getUnitActionFlags(faction, unit);
+    const allowanceBefore = this.resolveBaseMovementAllowance(definition, sourceFlags, unit);
+    const preview = buildLeaveBehindPreview(unit, definition.moveType ?? "track");
+    if (preview.summary.personnel + preview.summary.equipment <= 0) {
+      return null;
+    }
+
+    const detached = detachRecoverableStatus(status);
+    unit.strength = deriveStrengthFromStatus(status, unit.strength);
+    if (cause === "ordered" && typeof unit.movementCredit === "number") {
+      const allowanceAfter = this.resolveBaseMovementAllowance(definition, sourceFlags, unit);
+      unit.movementCredit = Math.max(
+        0,
+        Number((unit.movementCredit + allowanceAfter - allowanceBefore).toFixed(4))
+      );
+    }
+    const siteId = this.generateRecoverySiteId();
+    const site: TacticalRecoverySite = {
+      siteId,
+      faction,
+      hex: structuredClone(unit.hex),
+      createdTurn: this._turnNumber,
+      cause,
+      sourceUnitId,
+      ...(unit.campaignProvenance ? { sourceCampaignProvenance: structuredClone(unit.campaignProvenance) } : {}),
+      unitType: unit.type,
+      ...(unit.formationKey ? { formationKey: unit.formationKey } : {}),
+      displayName: this.getDisplayUnitLabel(unit),
+      baseExperience: Math.max(0, unit.baseExperience ?? unit.experience ?? 0),
+      ...(status.readinessModel ? { readinessModel: structuredClone(status.readinessModel) } : {}),
+      status: detached,
+      staged: createEmptyRecoveryStatus(status),
+      state: "awaitingCare"
+    };
+    this.recoverySites.set(siteId, site);
+    this.replaceUnitInFactionHex(faction, unit);
+    this.syncStrengthForFaction(faction, unit.hex, unit.strength, sourceUnitId);
+    this.invalidateRosterCache();
+
+    const reason = cause === "rout" ? "routed and left" : "left";
+    this.recordRecoveryEvent(
+      faction,
+      cause === "rout" ? "routed" : "leftBehind",
+      site,
+      `${site.displayName} ${reason} ${preview.summary.personnel} wounded personnel and ${preview.summary.equipment} damaged equipment at ${this.formatAxial(site.hex)}.`
+    );
+    return { unit: structuredClone(unit), site: structuredClone(site), preview };
+  }
+
+  private hasStagedRecovery(site: TacticalRecoverySite): boolean {
+    const personnel = Object.values(site.staged.personnel).some((pool) => pool.fit > 0);
+    const equipment = Object.values(site.staged.equipment).some((pool) => pool.operational > 0);
+    return personnel || equipment;
+  }
+
+  private stageCompletedRecovery(site: TacticalRecoverySite): { personnel: number; equipment: number } {
+    let personnel = 0;
+    let equipment = 0;
+    Object.entries(site.status.personnel).forEach(([key, pool]) => {
+      const amount = Math.max(0, pool.fit);
+      if (amount <= 0) return;
+      const staged = site.staged.personnel[key] ?? (site.staged.personnel[key] = {
+        fit: 0, injured: 0, wounded: 0, severelyWounded: 0, killed: 0
+      });
+      pool.fit -= amount;
+      staged.fit += amount;
+      personnel += amount;
+    });
+    Object.entries(site.status.equipment).forEach(([key, pool]) => {
+      const amount = Math.max(0, pool.operational);
+      if (amount <= 0) return;
+      const staged = site.staged.equipment[key] ?? (site.staged.equipment[key] = {
+        operational: 0, damaged: 0, disabled: 0, destroyed: 0
+      });
+      pool.operational -= amount;
+      staged.operational += amount;
+      equipment += amount;
+    });
+    site.state = this.hasStagedRecovery(site) ? "readyToForm" : (hasRecoveryPayload(site.status) ? "awaitingCare" : "depleted");
+    return { personnel, equipment };
+  }
+
+  private deployStagedRecovery(site: TacticalRecoverySite): ScenarioUnit | null {
+    if (!this.hasStagedRecovery(site)) {
+      return null;
+    }
+    const existing = site.reconstitutedUnitId
+      ? this.getAllUnitsForFaction(site.faction).find((unit) => unit.unitId === site.reconstitutedUnitId) ?? null
+      : null;
+    if (existing && axialKey(existing.hex) === axialKey(site.hex)) {
+      const status = ensureFormationStatus(existing, existing.formationKey);
+      mergeFormationStatusPools(status, site.staged);
+      existing.strength = deriveStrengthFromStatus(status, existing.strength);
+      site.staged = createEmptyRecoveryStatus(site.status);
+      this.replaceUnitInFactionHex(site.faction, existing);
+      this.syncStrengthForFaction(site.faction, existing.hex, existing.strength, existing.unitId);
+      site.state = hasRecoveryPayload(site.status) ? "awaitingCare" : "depleted";
+      return existing;
+    }
+    if (existing) {
+      site.reconstitutedUnitId = undefined;
+    }
+
+    const definition = this.getUnitDefinition(site.unitType);
+    if (definition.moveType === "air" || this.countStackedCombatUnitsAtHex(site.hex, site.faction) >= 2) {
+      site.state = "readyToForm";
+      return null;
+    }
+    const detachmentStatus = structuredClone(site.staged);
+    const recoveredPersonnel = Object.values(detachmentStatus.personnel).reduce((sum, pool) => sum + pool.fit, 0);
+    const recoveredEquipment = Object.values(detachmentStatus.equipment).reduce((sum, pool) => sum + pool.operational, 0);
+    // A new recovered detachment is not required to field a category that did
+    // not return from the recovery site. Retaining the source formation's empty
+    // personnel denominator on an equipment-only detachment (or vice versa)
+    // would incorrectly turn real repaired assets into 0% readiness.
+    if (recoveredPersonnel <= 0) {
+      detachmentStatus.personnel = {};
+      if (detachmentStatus.capacity) detachmentStatus.capacity.personnel = {};
+    }
+    if (recoveredEquipment <= 0) {
+      detachmentStatus.equipment = {};
+      if (detachmentStatus.capacity) detachmentStatus.capacity.equipment = {};
+    }
+    if (
+      detachmentStatus.readinessModel?.basis === "platform" &&
+      recoveredPersonnel > 0 &&
+      recoveredEquipment > 0 &&
+      detachmentStatus.capacity
+    ) {
+      const personnelCapacity = Object.values(detachmentStatus.capacity.personnel).reduce((sum, value) => sum + value, 0);
+      const equipmentCapacity = Object.values(detachmentStatus.capacity.equipment).reduce((sum, value) => sum + value, 0);
+      const personnelRatio = personnelCapacity > 0 ? recoveredPersonnel / personnelCapacity : 1;
+      const equipmentRatio = equipmentCapacity > 0 ? recoveredEquipment / equipmentCapacity : 1;
+      // The scarcer returned category anchors readiness. The other category is
+      // right-sized to the newly formed detachment instead of pretending the
+      // entire original formation was recovered.
+      if (personnelRatio <= equipmentRatio) {
+        detachmentStatus.capacity.equipment = Object.fromEntries(
+          Object.entries(detachmentStatus.equipment).map(([key, pool]) => [key, pool.operational])
+        );
+      } else {
+        detachmentStatus.capacity.personnel = Object.fromEntries(
+          Object.entries(detachmentStatus.personnel).map(([key, pool]) => [key, pool.fit])
+        );
+      }
+    }
+    const unit: ScenarioUnit = {
+      type: site.unitType,
+      hex: structuredClone(site.hex),
+      strength: 0,
+      experience: site.baseExperience,
+      baseExperience: site.baseExperience,
+      earnedExperience: 0,
+      status: detachmentStatus,
+      ...(site.formationKey ? { formationKey: site.formationKey } : {}),
+      movementCredit: 0,
+      reconstitutedFromSiteId: site.siteId,
+      recoverySourceUnitId: site.sourceUnitId,
+      ammo: 0,
+      fuel: 0,
+      entrench: 0,
+      facing: "NW",
+      controlledBy: site.faction === "Player" ? "Player" : "AI",
+      unitId: this.generateUnitId()
+    };
+    unit.strength = deriveStrengthFromStatus(unit.status, 0);
+    if (unit.strength <= 0) {
+      site.state = "readyToForm";
+      return null;
+    }
+    site.staged = createEmptyRecoveryStatus(site.status);
+    site.reconstitutedUnitId = unit.unitId;
+    site.state = hasRecoveryPayload(site.status) ? "awaitingCare" : "depleted";
+    this.addUnitToFactionHex(site.faction, unit);
+    this.getSupplyMirrorForFaction(site.faction).push({
+      hex: structuredClone(unit.hex), unitId: unit.unitId, ammo: 0, fuel: 0, entrench: 0, strength: unit.strength
+    });
+    this.setUnitActionFlags(site.faction, unit, {
+      ...this.createDefaultActionFlags(),
+      movementPointsUsed: 999,
+      attacksUsed: 1
+    });
+    this.recordRecoveryEvent(
+      site.faction,
+      "reconstituted",
+      site,
+      `${site.displayName} recovered assets formed a new ${unit.strength.toFixed(2)}% detachment at ${this.formatAxial(site.hex)}.`
+    );
+    this.invalidateRosterCache();
+    return unit;
+  }
+
+  private overrunRecoverySitesAtHex(faction: TurnFaction, hex: Axial): TacticalRecoverySite[] {
+    const hostile = new Set(this.getHostileFactionsFor(faction));
+    const overrun = Array.from(this.recoverySites.values()).filter(
+      (site) => hostile.has(site.faction) && site.hex.q === hex.q && site.hex.r === hex.r
+    );
+    overrun.forEach((site) => {
+      const remaining = summarizeRecoveryPayload(site.status);
+      const staged = summarizeRecoveryPayload(site.staged);
+      const stagedFit = Object.values(site.staged.personnel).reduce((sum, pool) => sum + pool.fit, 0);
+      const stagedOperational = Object.values(site.staged.equipment).reduce((sum, pool) => sum + pool.operational, 0);
+      this.recordRecoveryEvent(
+        faction,
+        "overrun",
+        site,
+        `${site.displayName} recovery site at ${this.formatAxial(hex)} was overrun; ${remaining.personnel + staged.personnel + stagedFit} personnel and ${remaining.equipment + staged.equipment + stagedOperational} equipment were lost.`
+      );
+      this.recoverySites.delete(site.siteId);
+    });
+    return overrun.map((site) => structuredClone(site));
+  }
+
+  /**
+   * Resolves the existing broken state as a rout: casualties are separated at the
+   * defended hex and the surviving mobile body falls back one legal hex.
+   */
+  private routeBrokenUnit(faction: TurnFaction, damagedUnit: ScenarioUnit, threatHex: Axial): ScenarioUnit {
+    const definition = this.getUnitDefinition(damagedUnit.type);
+    if (definition.moveType === "air" || this.isSupplyTruckType(damagedUnit.type)) {
+      return damagedUnit;
+    }
+
+    this.leaveUnitCasualtiesBehindForFaction(faction, damagedUnit, "rout");
+    const unitId = this.ensureUnitId(damagedUnit);
+    const liveUnit = this.getAllUnitsForFaction(faction).find((unit) => unit.unitId === unitId) ?? damagedUnit;
+    const origin = structuredClone(liveUnit.hex);
+    if (liveUnit.strength <= 0) {
+      this.recordDestroyedTacticalUnit(liveUnit, definition);
+      this.removeUnitFromFactionHex(faction, origin, unitId);
+      this.deleteUnitActionFlags(faction, liveUnit);
+      this.removeSupplyEntryForFaction(faction, origin, unitId);
+      return liveUnit;
+    }
+    const friendlyAnchor = this.getSupplySourceHexes(faction)[0] ?? origin;
+    const retreatHex = neighbors(origin)
+      .filter((hex) => this.inBounds(hex))
+      .filter((hex) => this.resolveMoveCost(definition.moveType, this.terrainAt(hex), hex, origin) < 999)
+      .filter((hex) => !this.isHexBlockedForConvoy(hex, faction))
+      .filter((hex) => this.countStackedCombatUnitsAtHex(hex, faction) < 2)
+      .sort((left, right) =>
+        hexDistance(right, threatHex) - hexDistance(left, threatHex)
+        || hexDistance(left, friendlyAnchor) - hexDistance(right, friendlyAnchor)
+        || left.q - right.q
+        || left.r - right.r
+      )[0] ?? null;
+    if (!retreatHex) {
+      return liveUnit;
+    }
+
+    const routed = structuredClone(liveUnit);
+    routed.facing = this.resolveFacingToward(origin, retreatHex, routed.facing);
+    routed.hex = structuredClone(retreatHex);
+    routed.entrench = 0;
+    routed.onSentry = false;
+    routed.movementCredit = 0;
+    const flags = this.getUnitActionFlags(faction, liveUnit);
+    this.removeUnitFromFactionHex(faction, origin, unitId);
+    this.addUnitToFactionHex(faction, routed);
+    this.overrunRecoverySitesAtHex(faction, routed.hex);
+    this.updateSupplyPositionForFaction(faction, origin, routed.hex, unitId);
+    this.syncEntrenchForFaction(faction, routed.hex, 0, unitId);
+    this.setUnitActionFlags(faction, routed, {
+      ...flags,
+      movementPointsUsed: Math.max(flags.movementPointsUsed, 999),
+      attacksUsed: Math.max(flags.attacksUsed, 1)
+    });
+    return routed;
   }
 
   /**
@@ -12480,7 +12365,6 @@ private automateSupplyConvoys(
 
     const medicalCareEntries = this.getCareTargets("Player", "medical");
     const repairCareEntries = this.getCareTargets("Player", "repair");
-    const careTargetId = (unit: ScenarioUnit): string => unit.unitId ?? `${unit.type}@${axialKey(unit.hex)}`;
     const allocateCareAssets = (
       assets: ScenarioUnit[],
       targets: CareDemandEntry[],
@@ -12490,7 +12374,7 @@ private automateSupplyConvoys(
       const assignedCounts = new Map<string, number>();
       const remainingNeed = new Map<string, number>();
       targets.forEach((entry) => {
-        remainingNeed.set(careTargetId(entry.unit), entry.need);
+        remainingNeed.set(entry.targetId, entry.need);
       });
 
       assets.forEach((asset) => {
@@ -12499,14 +12383,16 @@ private automateSupplyConvoys(
           return;
         }
         const target = targets.find((entry) => {
-          const targetId = careTargetId(entry.unit);
-          return (remainingNeed.get(targetId) ?? 0) > 0 && hasSupplyPath(entry.unit.hex, network);
+          return (
+            (remainingNeed.get(entry.targetId) ?? 0) > 0 &&
+            this.resolveCareAssetPath("Player", asset, entry.hex) !== null
+          );
         }) ?? null;
         if (!target) {
           return;
         }
 
-        const targetId = careTargetId(target.unit);
+        const targetId = target.targetId;
         assignments.set(assetId, target);
         assignedCounts.set(targetId, (assignedCounts.get(targetId) ?? 0) + 1);
         remainingNeed.set(targetId, Math.max(0, (remainingNeed.get(targetId) ?? target.need) - capacityPerAsset));
@@ -12519,12 +12405,12 @@ private automateSupplyConvoys(
 
     const careTargets: LogisticsCareEntry[] = [
       ...medicalCareEntries.map((entry) => {
-        const recent = this.logisticsCareEvents.find((event) => event.type === "medical" && event.unitId === (entry.unit.unitId ?? ""));
-        const targetId = careTargetId(entry.unit);
+        const recent = this.logisticsCareEvents.find((event) => event.type === "medical" && event.unitId === entry.targetId);
+        const targetId = entry.targetId;
         return {
           unitId: targetId,
-          unitLabel: this.getDisplayUnitLabel(entry.unit),
-          hex: this.formatAxial(entry.unit.hex),
+          unitLabel: entry.targetLabel,
+          hex: this.formatAxial(entry.hex),
           priority: entry.priority,
           type: "medical",
           need: entry.need,
@@ -12533,12 +12419,12 @@ private automateSupplyConvoys(
         } satisfies LogisticsCareEntry;
       }),
       ...repairCareEntries.map((entry) => {
-        const recent = this.logisticsCareEvents.find((event) => event.type === "repair" && event.unitId === (entry.unit.unitId ?? ""));
-        const targetId = careTargetId(entry.unit);
+        const recent = this.logisticsCareEvents.find((event) => event.type === "repair" && event.unitId === entry.targetId);
+        const targetId = entry.targetId;
         return {
           unitId: targetId,
-          unitLabel: this.getDisplayUnitLabel(entry.unit),
-          hex: this.formatAxial(entry.unit.hex),
+          unitLabel: entry.targetLabel,
+          hex: this.formatAxial(entry.hex),
           priority: entry.priority,
           type: "repair",
           need: entry.need,
@@ -12574,14 +12460,14 @@ private automateSupplyConvoys(
       const target = assignments.get(assetId) ?? null;
       const assetLabel = this.getDisplayUnitLabel(asset);
       const assetReachable = hasSupplyPath(asset.hex, network);
-      const targetReachable = target ? hasSupplyPath(target.unit.hex, network) : false;
+      const targetReachable = target ? hasSupplyPath(target.hex, network) : false;
       const occupancy = this.buildConvoyBlockingOccupancySet("Player");
       occupancy.delete(axialKey(asset.hex));
       const assetDefinition = this.getUnitDefinition(asset.type);
       const routePlan = target && assetReachable && targetReachable
         ? this.findCheapestPathToAny(
           asset.hex,
-          this.collectServiceHexes(target.unit.hex, asset.hex, "Player"),
+          this.collectServiceHexes(target.hex, asset.hex, "Player"),
           assetDefinition.moveType,
           occupancy
         )
@@ -12589,7 +12475,7 @@ private automateSupplyConvoys(
       recordRouteDelayNodes(routePlan, assetDefinition.moveType);
 
       const recent = target
-        ? this.logisticsCareEvents.find((event) => event.type === type && event.unitId === (target.unit.unitId ?? ""))
+        ? this.logisticsCareEvents.find((event) => event.type === type && event.unitId === target.targetId)
         : null;
       const incident = !assetReachable
         ? "Outside supply network"
@@ -12603,7 +12489,7 @@ private automateSupplyConvoys(
       const activeStatus: LogisticsSupportTeamStatusEntry["status"] = type === "medical" ? "treating" : "repairing";
       const status: LogisticsSupportTeamStatusEntry["status"] = incident ? "blocked" : target ? activeStatus : "available";
       const routeLabel = target
-        ? `${assetLabel} → ${this.getDisplayUnitLabel(target.unit)} @ ${this.formatAxial(target.unit.hex)}`
+        ? `${assetLabel} → ${target.targetLabel} @ ${this.formatAxial(target.hex)}`
         : assetReachable
           ? `${assetLabel} standing by in network`
           : `${assetLabel} awaiting network link`;
@@ -12615,8 +12501,8 @@ private automateSupplyConvoys(
         route: routeLabel,
         status,
         etaHours: routePlan ? Number((((routePlan.path.length - 1) * 5) / 60).toFixed(2)) : 0,
-        assignedUnitLabel: target ? this.getDisplayUnitLabel(target.unit) : null,
-        assignedHex: target ? this.formatAxial(target.unit.hex) : null,
+        assignedUnitLabel: target?.targetLabel ?? null,
+        assignedHex: target ? this.formatAxial(target.hex) : null,
         need: target ? target.need : 0,
         lastTurnEffect: recent?.lastTurnEffect ?? null,
         incident
@@ -13322,19 +13208,48 @@ private automateSupplyConvoys(
   }
 
   private getCareTargets(faction: TurnFaction, type: "medical" | "repair"): CareDemandEntry[] {
-    return this.getAllUnitsForFaction(faction)
+    const units = this.getAllUnitsForFaction(faction);
+    const unitEntries: CareDemandEntry[] = units
       .filter((unit) => !this.isSupplyTruckType(unit.type))
       .map((unit) => {
         const definition = this.getUnitDefinition(unit.type);
         const priority = this.getSupplyPriorityForUnit(unit, definition);
         const need = type === "medical" ? this.calculateMedicalNeed(unit) : this.calculateRepairNeed(unit);
-        return { unit, definition, priority, need };
-      })
+        return {
+          targetId: unit.unitId ?? `${unit.type}@${axialKey(unit.hex)}`,
+          targetLabel: this.getDisplayUnitLabel(unit),
+          hex: structuredClone(unit.hex),
+          unit,
+          site: null,
+          definition,
+          priority,
+          need
+        };
+      });
+    const siteEntries: CareDemandEntry[] = Array.from(this.recoverySites.values())
+      .filter((site) => site.faction === faction)
+      .map((site) => {
+        const source = units.find((unit) => unit.unitId === site.sourceUnitId) ?? null;
+        const definition = this.getUnitDefinition(site.unitType);
+        return {
+          targetId: site.siteId,
+          targetLabel: `${site.displayName} recovery site`,
+          hex: structuredClone(site.hex),
+          unit: null,
+          site,
+          definition,
+          priority: source ? this.getSupplyPriorityForUnit(source, definition) : "critical" as SupplyPriority,
+          need: type === "medical"
+            ? calculateMedicalRecoveryNeed(site.status)
+            : calculateEquipmentRecoveryNeed(site.status)
+        };
+      });
+    return [...unitEntries, ...siteEntries]
       .filter((entry) => entry.need > 0)
       .sort((left, right) => {
         const priorityDiff = this.getSupplyPriorityWeight(right.priority) - this.getSupplyPriorityWeight(left.priority);
         if (priorityDiff !== 0) return priorityDiff;
-        return right.need - left.need;
+        return right.need - left.need || left.targetId.localeCompare(right.targetId);
       });
   }
 
@@ -13345,6 +13260,93 @@ private automateSupplyConvoys(
     }
   }
 
+  private resolveCareAssetPath(
+    faction: TurnFaction,
+    asset: ScenarioUnit,
+    targetHex: Axial
+  ): MovementPathPlan | null {
+    if (asset.fuel <= 0) {
+      return null;
+    }
+    if (hexDistance(asset.hex, targetHex) <= supplyBalance.convoy.serviceRadius) {
+      return {
+        path: [structuredClone(asset.hex)],
+        summary: { cost: 0, fuelCost: 0, steps: 0, roadSteps: 0, offroadSteps: 0 }
+      };
+    }
+    const definition = this.getUnitDefinition(asset.type);
+    const occupied = this.buildConvoyBlockingOccupancySet(faction);
+    occupied.delete(axialKey(asset.hex));
+    const availableFuel = this.resolveFuelBudget(asset, definition);
+    return this.findCheapestPathToAny(
+      asset.hex,
+      this.collectServiceHexes(targetHex, asset.hex, faction),
+      definition.moveType,
+      occupied,
+      Number.isFinite(availableFuel) ? availableFuel : undefined
+    );
+  }
+
+  /** Moves a medical or maintenance truck toward service range without teleporting care. */
+  private moveCareAssetTowardTarget(
+    faction: TurnFaction,
+    asset: ScenarioUnit,
+    targetHex: Axial
+  ): boolean {
+    const plan = this.resolveCareAssetPath(faction, asset, targetHex);
+    if (!plan) return false;
+    if (plan.path.length <= 1) return true;
+
+    const definition = this.getUnitDefinition(asset.type);
+    const availableFuel = this.resolveFuelBudget(asset, definition);
+    const flags = this.getUnitActionFlags(faction, asset);
+    let remainingMove = Math.max(
+      0,
+      asset.movementCredit ?? this.resolveBaseMovementAllowance(definition, flags, asset)
+    );
+    let fuelSpent = 0;
+    let movementSpent = 0;
+    let current = structuredClone(asset.hex);
+    for (const step of plan.path.slice(1)) {
+      const stepCost = this.resolveMoveCost(definition.moveType, this.terrainAt(step), step, current);
+      const stepFuel = this.resolveMovementFuelStep(definition.moveType, step);
+      if (stepCost > remainingMove + 1e-6 || fuelSpent + stepFuel > availableFuel + 1e-6) break;
+      if (this.isHexBlockedForConvoy(step, faction)) break;
+      current = structuredClone(step);
+      remainingMove -= stepCost;
+      movementSpent += stepCost;
+      fuelSpent += stepFuel;
+    }
+    if (axialKey(current) === axialKey(asset.hex)) {
+      // A complete route exists, but this asset needs to bank more fractional
+      // movement credit before it can begin the route.
+      return true;
+    }
+
+    const fromHex = structuredClone(asset.hex);
+    const assetId = this.ensureUnitId(asset);
+    const moved = structuredClone(asset);
+    moved.facing = this.resolveFacingToward(fromHex, current, moved.facing);
+    moved.hex = current;
+    moved.entrench = 0;
+    moved.movementCredit = Math.max(0, Number((remainingMove).toFixed(4)));
+    if (Number.isFinite(availableFuel)) {
+      moved.fuel = Math.max(0, Number((moved.fuel - fuelSpent).toFixed(2)));
+    }
+    this.removeUnitFromFactionHex(faction, fromHex, assetId);
+    this.addUnitToFactionHex(faction, moved);
+    this.overrunRecoverySitesAtHex(faction, moved.hex);
+    this.updateSupplyPositionForFaction(faction, fromHex, moved.hex, assetId);
+    this.syncFuelForFaction(faction, moved.hex, moved.fuel, assetId);
+    this.syncEntrenchForFaction(faction, moved.hex, 0, assetId);
+    this.setUnitActionFlags(faction, moved, {
+      ...flags,
+      movementPointsUsed: flags.movementPointsUsed + movementSpent
+    });
+    Object.assign(asset, moved);
+    return true;
+  }
+
   private applyAutomaticMedicalAndRepair(faction: TurnFaction): void {
     const units = this.getAllUnitsForFaction(faction);
     const medicalAssets = units.filter((unit) => this.isMedicalLogisticsUnit(unit));
@@ -13353,27 +13355,40 @@ private automateSupplyConvoys(
       return;
     }
 
-    const network = this.buildSupplyNetwork(faction);
     let mutated = false;
-    const canService = (asset: ScenarioUnit, target: ScenarioUnit): boolean => (
-      asset.fuel > 0 &&
-      hasSupplyPath(asset.hex, network) &&
-      hasSupplyPath(target.hex, network)
+    const canService = (asset: ScenarioUnit, target: CareDemandEntry): boolean => (
+      asset.fuel > 0 && hexDistance(asset.hex, target.hex) <= supplyBalance.convoy.serviceRadius
     );
 
     const runMedicalAsset = (asset: ScenarioUnit): void => {
-      const target = this.getCareTargets(faction, "medical").find((entry) => canService(asset, entry.unit));
+      const target = this.getCareTargets(faction, "medical")
+        .find((candidate) => this.moveCareAssetTowardTarget(faction, asset, candidate.hex)) ?? null;
       if (!target) return;
-      const result = applyMedicalRecoveryToUnit(target.unit, 12);
+      if (!canService(asset, target)) return;
+      const result = target.unit
+        ? applyMedicalRecoveryToUnit(target.unit, 12)
+        : applyMedicalRecoveryToStatus(target.site!.status, 12);
       if (result.treated <= 0) return;
-      this.syncStrengthForFaction(faction, target.unit.hex, target.unit.strength, target.unit.unitId);
+      if (target.unit) {
+        this.syncStrengthForFaction(faction, target.unit.hex, target.unit.strength, target.unit.unitId);
+      } else if (target.site) {
+        target.site.state = "receivingCare";
+        this.stageCompletedRecovery(target.site);
+        this.recordRecoveryEvent(
+          faction,
+          "treated",
+          target.site,
+          `${target.targetLabel}: ${result.treated} treated and ${result.returnedToFit} returned to fit duty.`
+        );
+        this.deployStagedRecovery(target.site);
+      }
       this.recordCareEvent({
-        unitId: target.unit.unitId ?? `${target.unit.type}@${axialKey(target.unit.hex)}`,
-        unitLabel: this.getDisplayUnitLabel(target.unit),
-        hex: this.formatAxial(target.unit.hex),
+        unitId: target.targetId,
+        unitLabel: target.targetLabel,
+        hex: this.formatAxial(target.hex),
         priority: target.priority,
         type: "medical",
-        need: Math.max(0, this.calculateMedicalNeed(target.unit)),
+        need: Math.max(0, target.unit ? this.calculateMedicalNeed(target.unit) : calculateMedicalRecoveryNeed(target.site!.status)),
         assignedAssets: 1,
         lastTurnEffect: `${result.treated} treated, ${result.returnedToFit} returned to fit duty`
       });
@@ -13381,19 +13396,35 @@ private automateSupplyConvoys(
     };
 
     const runRepairAsset = (asset: ScenarioUnit): void => {
-      const target = this.getCareTargets(faction, "repair").find((entry) => canService(asset, entry.unit));
+      const target = this.getCareTargets(faction, "repair")
+        .find((candidate) => this.moveCareAssetTowardTarget(faction, asset, candidate.hex)) ?? null;
       if (!target) return;
-      const result = applyEquipmentRepairToUnit(target.unit, 8);
+      if (!canService(asset, target)) return;
+      const result = target.unit
+        ? applyEquipmentRepairToUnit(target.unit, 8)
+        : applyEquipmentRepairToStatus(target.site!.status, 8);
       if (result.repaired <= 0) return;
-      this.syncStrengthForFaction(faction, target.unit.hex, target.unit.strength, target.unit.unitId);
+      if (target.unit) {
+        this.syncStrengthForFaction(faction, target.unit.hex, target.unit.strength, target.unit.unitId);
+      } else if (target.site) {
+        target.site.state = "receivingCare";
+        this.stageCompletedRecovery(target.site);
+        this.recordRecoveryEvent(
+          faction,
+          "repaired",
+          target.site,
+          `${target.targetLabel}: ${result.repaired} repaired and ${result.returnedToOperational} returned to operation.`
+        );
+        this.deployStagedRecovery(target.site);
+      }
       this.trackSupplyConsumption(faction, "parts", result.repaired, "Recovery and repair section");
       this.recordCareEvent({
-        unitId: target.unit.unitId ?? `${target.unit.type}@${axialKey(target.unit.hex)}`,
-        unitLabel: this.getDisplayUnitLabel(target.unit),
-        hex: this.formatAxial(target.unit.hex),
+        unitId: target.targetId,
+        unitLabel: target.targetLabel,
+        hex: this.formatAxial(target.hex),
         priority: target.priority,
         type: "repair",
-        need: Math.max(0, this.calculateRepairNeed(target.unit)),
+        need: Math.max(0, target.unit ? this.calculateRepairNeed(target.unit) : calculateEquipmentRecoveryNeed(target.site!.status)),
         assignedAssets: 1,
         lastTurnEffect: `${result.repaired} repaired, ${result.returnedToOperational} operational`
       });
@@ -13981,7 +14012,7 @@ private automateSupplyConvoys(
       this.allyPlacements.size > 0 ? [this.allyPlacements] : [],
       this.buildPlannerCounterIntelDecoys("Player")
     );
-    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input));
+    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input).filter((plan) => Number.isFinite(plan.score)));
     console.log(`[Bot AI] Planner generated ${plans.length} plans`);
 
     const occupancy = this.buildUnifiedOccupancySet();
@@ -14016,11 +14047,17 @@ private automateSupplyConvoys(
           moved.towState = "towed";
           moved.onSentry = false;
           moved.entrench = 0;
-          movementSpent += this.resolveTowHookupCost(unitDef, botFlags);
+          const hookupCost = this.resolveTowHookupCost(unitDef, botFlags);
+          movementSpent += hookupCost;
+          if (typeof moved.movementCredit === "number") {
+            moved.movementCredit = Math.max(0, Number((moved.movementCredit - hookupCost).toFixed(4)));
+          }
         }
 
-        // Get unit's actual movement points for this turn
-        const maxMovement = unitDef.movement ?? 1;
+        const availableMovement = typeof unit.movementCredit === "number"
+          ? Math.max(0, unit.movementCredit)
+          : this.resolveBaseMovementAllowance(unitDef, botFlags, unit);
+        const maxMovement = botFlags.movementPointsUsed + availableMovement;
         const availableFuel = this.resolveFuelBudget(unit, unitDef);
         const botMoveType = this.resolveTowState(moved) === "towed" ? "truck" : unitDef.moveType;
         let fuelSpent = 0;
@@ -14039,9 +14076,7 @@ private automateSupplyConvoys(
           const stepCost = this.resolveMoveCost(botMoveType, terrain, step, current);
           const stepFuel = this.resolveMovementFuelStep(botMoveType, step);
 
-          // Units can always move at least 1 hex per turn, even through difficult terrain
-          // After the first hex, check if we have movement points remaining
-          if (hexesMoved > 0 && movementSpent + stepCost > maxMovement) {
+          if (movementSpent + stepCost > maxMovement) {
             console.log(`[Bot AI] Movement exhausted after ${hexesMoved} hex(es): spent ${movementSpent}, next step cost ${stepCost}, max ${maxMovement}`);
             break;
           }
@@ -14052,6 +14087,9 @@ private automateSupplyConvoys(
 
           moved.facing = this.resolveFacingToward(current, step, moved.facing);
           moved.hex = structuredClone(step);
+          if (typeof moved.movementCredit === "number") {
+            moved.movementCredit = Math.max(0, Number((moved.movementCredit - stepCost).toFixed(4)));
+          }
           current = structuredClone(step);
           visited.push(structuredClone(step));
           movementSpent += stepCost;
@@ -14067,6 +14105,7 @@ private automateSupplyConvoys(
           console.log(`[Bot AI] ${unit.type} moved from ${fromLabel} to ${this.formatAxial(current)} (${visited.length - 1} steps)`);
           this.botPlacements.delete(fromKey);
           this.botPlacements.set(finalKey, moved);
+          this.overrunRecoverySitesAtHex("Bot", current);
           this.syncBotFuel(current, moved.fuel);
           this.syncBotEntrench(current, moved.entrench);
           this.setUnitActionFlags("Bot", moved, {
@@ -14150,7 +14189,7 @@ private automateSupplyConvoys(
     }
 
     const input = this.buildPlannerInputFor(this.allyPlacements, this.botPlacements, this.botDifficulty);
-    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input));
+    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input).filter((plan) => Number.isFinite(plan.score)));
     const occupancy = this.buildUnifiedOccupancySet();
 
     for (const plan of plans) {
@@ -14169,19 +14208,34 @@ private automateSupplyConvoys(
       if (toKey !== fromKey) {
         this.allyPlacements.delete(fromKey);
         const moved = structuredClone(unit);
+        const movedDefinition = this.getUnitDefinition(unit.type);
+        const movedFlags = this.getUnitActionFlags("Ally", unit);
+        let remainingMovement = Math.max(
+          0,
+          unit.movementCredit ?? this.resolveBaseMovementAllowance(movedDefinition, movedFlags, unit)
+        );
         for (let i = 1; i < plan.path.length; i += 1) {
           const step = plan.path[i];
           const stepKey = axialKey(step);
           if (occupancy.has(stepKey)) {
             break;
           }
+          const stepCost = this.resolveMoveCost(movedDefinition.moveType, this.terrainAt(step), step, current);
+          if (stepCost > remainingMovement + 1e-6) {
+            break;
+          }
           moved.facing = this.resolveFacingToward(current, step, moved.facing);
           moved.hex = structuredClone(step);
           current = structuredClone(step);
+          remainingMovement -= stepCost;
           visited.push(structuredClone(step));
         }
-        moved.entrench = 0;
+        moved.movementCredit = Math.max(0, Number(remainingMovement.toFixed(4)));
+        if (visited.length > 1) {
+          moved.entrench = 0;
+        }
         this.allyPlacements.set(axialKey(current), moved);
+        this.overrunRecoverySitesAtHex("Ally", current);
         this.syncEntrenchForFaction("Ally", current, moved.entrench);
         occupancy.delete(fromKey);
         occupancy.add(axialKey(current));
@@ -14343,7 +14397,11 @@ private automateSupplyConvoys(
         movingUnit.towState = "towed";
         movingUnit.onSentry = false;
         movingUnit.entrench = 0;
-        movementSpent += this.resolveTowHookupCost(unitDefinition, botFlags);
+        const hookupCost = this.resolveTowHookupCost(unitDefinition, botFlags);
+        movementSpent += hookupCost;
+        if (typeof movingUnit.movementCredit === "number") {
+          movingUnit.movementCredit = Math.max(0, Number((movingUnit.movementCredit - hookupCost).toFixed(4)));
+        }
       }
 
       for (let index = 1; index < plannedPath.length; index += 1) {
@@ -14361,7 +14419,10 @@ private automateSupplyConvoys(
           step,
           current
         );
-        if (visited.length > 1 && movementSpent + stepCost > this.resolveBaseMovementAllowance(unitDefinition, botFlags, movingUnit)) {
+        const movementAvailable = typeof movingUnit.movementCredit === "number"
+          ? Math.max(0, movingUnit.movementCredit)
+          : Math.max(0, this.resolveBaseMovementAllowance(unitDefinition, botFlags, movingUnit) - movementSpent);
+        if (stepCost > movementAvailable) {
           break;
         }
 
@@ -14369,12 +14430,16 @@ private automateSupplyConvoys(
         const moved = structuredClone(movingUnit);
         moved.facing = this.resolveFacingToward(current, step, moved.facing);
         moved.hex = structuredClone(step);
+        if (typeof moved.movementCredit === "number") {
+          moved.movementCredit = Math.max(0, Number((moved.movementCredit - stepCost).toFixed(4)));
+        }
         moved.entrench = 0;
         current = structuredClone(step);
         fuelSpent += stepFuel;
         movementSpent += stepCost;
         movingUnit = moved;
         this.botPlacements.set(axialKey(step), moved);
+        this.overrunRecoverySitesAtHex("Bot", step);
         this.updateBotSupplyPosition(visited[visited.length - 1], step);
         this.syncBotEntrench(step, moved.entrench);
         this.setUnitActionFlags("Bot", moved, {
@@ -14425,12 +14490,14 @@ private automateSupplyConvoys(
    */
   private calculateBotMovementAllowance(unit: ScenarioUnit): number {
     const definition = this.getUnitDefinition(unit.type);
-    const movePoints = (definition.movement ?? 1) * (1 + getExperienceBonus(unit));
+    const movePoints = typeof unit.movementCredit === "number"
+      ? unit.movementCredit
+      : this.resolveBaseMovementAllowance(definition, this.getUnitActionFlags("Bot", unit), unit);
     const availableFuel = this.resolveFuelBudget(unit, definition);
     if (Number.isFinite(availableFuel) && availableFuel <= 0) {
       return 0;
     }
-    return Math.max(1, Math.ceil(movePoints));
+    return Math.max(0, Math.floor(movePoints));
   }
 
   /**
@@ -14702,7 +14769,7 @@ private automateSupplyConvoys(
     const rangeMax = definition.rangeMax ?? 1;
     const distance = hexDistance(unit.hex, targetHex);
     const attackBandGap = this.distanceToAttackBand(distance, rangeMin, rangeMax);
-    const movementRate = Math.max(1, definition.movement ?? 1);
+    const movementRate = Math.max(0.01, this.resolveBaseMovementAllowance(definition, this.createDefaultActionFlags(), unit));
     let turns = attackBandGap <= 0 ? 0 : Math.ceil(attackBandGap / movementRate);
 
     if (this.requiresGroundLOS(definition) && !this.plannerLOSAllows(unit.hex, targetHex, false)) {
@@ -15074,33 +15141,6 @@ private automateSupplyConvoys(
     });
   }
 
-  /** Mirrors the strike-resolution damage scaling so scheduling decisions reflect the real attack profile. */
-  private scaleAirMissionAttackResult(
-    result: ReturnType<typeof resolveAttack>,
-    attackingDefinition: UnitTypeDefinition,
-    defendingDefinition: UnitTypeDefinition
-  ): ReturnType<typeof resolveAttack> {
-    if (this.isBomber(attackingDefinition) && !this.isAircraft(defendingDefinition)) {
-      return {
-        ...result,
-        damagePerHit: result.damagePerHit * 10,
-        expectedDamage: result.expectedDamage * 10,
-        expectedSuppression: result.expectedSuppression * 10
-      };
-    }
-
-    if (this.isAircraft(attackingDefinition) && !this.isBomber(attackingDefinition) && this.isAircraft(defendingDefinition)) {
-      return {
-        ...result,
-        damagePerHit: result.damagePerHit * 4,
-        expectedDamage: result.expectedDamage * 4,
-        expectedSuppression: result.expectedSuppression * 4
-      };
-    }
-
-    return result;
-  }
-
   /** Estimates how much damage a strike aircraft should inflict if it reaches the target. */
   private estimateBotStrikeDamageAgainstTarget(attacker: ScenarioUnit, target: ScenarioUnit): number {
     const req = this.buildMissionAttackRequest("Bot", attacker, target);
@@ -15110,7 +15150,11 @@ private automateSupplyConvoys(
     const attackerDef = this.getUnitDefinition(attacker.type);
     const targetDef = this.getUnitDefinition(target.type);
     const baseResult = resolveAttack(req);
-    const scaled = this.scaleAirMissionAttackResult(baseResult, attackerDef, targetDef);
+    const scaled = scaleAirAttackResult(baseResult, {
+      attackerIsAircraft: this.isAircraft(attackerDef),
+      attackerIsBomber: this.isBomber(attackerDef),
+      defenderIsAircraft: this.isAircraft(targetDef)
+    });
     const projection = this.previewCombatDamageToUnit(
       attacker,
       attackerDef,
@@ -15686,7 +15730,6 @@ private automateSupplyConvoys(
     const attackerIsAircraft = this.isAircraft(attackerDef);
     const primaryDefenderIsAircraft = this.isAircraft(primaryDefenderDef);
     const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(attackerDef, effectiveStance);
-    let attackManeuverCost = 0;
     const attackerFlags = botFlags;
     const resolveAircraftRegistryKey = (faction: TurnFaction, unit: ScenarioUnit): string => {
       const registry = faction === "Player" ? this.playerAttackAmmo : this.botAttackAmmo;
@@ -15705,25 +15748,11 @@ private automateSupplyConvoys(
       result: AttackResult,
       attackingDefinition: UnitTypeDefinition,
       defendingDefinition: UnitTypeDefinition
-    ): AttackResult => {
-      if (this.isBomber(attackingDefinition) && !this.isAircraft(defendingDefinition)) {
-        return {
-          ...result,
-          damagePerHit: result.damagePerHit * 10,
-          expectedDamage: result.expectedDamage * 10,
-          expectedSuppression: result.expectedSuppression * 10
-        };
-      }
-      if (this.isAircraft(attackingDefinition) && !this.isBomber(attackingDefinition) && this.isAircraft(defendingDefinition)) {
-        return {
-          ...result,
-          damagePerHit: result.damagePerHit * 4,
-          expectedDamage: result.expectedDamage * 4,
-          expectedSuppression: result.expectedSuppression * 4
-        };
-      }
-      return result;
-    };
+    ): AttackResult => scaleAirAttackResult(result, {
+      attackerIsAircraft: this.isAircraft(attackingDefinition),
+      attackerIsBomber: this.isBomber(attackingDefinition),
+      defenderIsAircraft: this.isAircraft(defendingDefinition)
+    });
     const botDifficultyDamageModifier = 1 + (getDifficultyModifiers(this.botDifficulty).damageMod / 100);
 
     if (primaryDefenderIsAircraft && !attackerIsAircraft && !this.hasAntiAirCapability(attackerDef)) {
@@ -15732,23 +15761,23 @@ private automateSupplyConvoys(
     if (!attackerIsAircraft && attackingUnit.ammo < groundAttackAmmoCost) {
       return null;
     }
+    const aircraftManeuverReadiness = projectBattleAircraftAttackManeuverReadiness({
+      attackerIsAircraft,
+      defenderIsAircraft: primaryDefenderIsAircraft,
+      movementAllowance: Math.max(1, Math.ceil((attackerDef.movement ?? 1) * (1 + getExperienceBonus(attackingUnit)))),
+      movementPointsUsed: attackerFlags.movementPointsUsed
+    });
+    const attackManeuverCost = aircraftManeuverReadiness.maneuverCost;
+    if (aircraftManeuverReadiness.unavailableReason) {
+      return null;
+    }
     if (attackerIsAircraft) {
-      attackManeuverCost = primaryDefenderIsAircraft ? 2 : 1;
-      const allowance = Math.max(1, Math.ceil((attackerDef.movement ?? 1) * (1 + getExperienceBonus(attackingUnit))));
-      const remaining = allowance - attackerFlags.movementPointsUsed;
-      if (remaining + 1e-6 < attackManeuverCost) {
-        return null;
-      }
       const aircraftAmmoKey = resolveAircraftRegistryKey("Bot", attackingUnit);
-      const ammoState = this.getAircraftAmmoState("Bot", aircraftAmmoKey, attackerDef);
-      if (this.aircraftNeedsRearm("Bot", aircraftAmmoKey)) {
-        return null;
-      }
-      if (primaryDefenderIsAircraft) {
-        if (ammoState.air <= 0) {
-          return null;
-        }
-      } else if (ammoState.ground <= 0) {
+      const aircraftAmmunitionReadiness = projectBattleAircraftAttackAmmunitionReadiness({
+        defenderIsAircraft: primaryDefenderIsAircraft,
+        ammunition: this.getAircraftAmmoState("Bot", aircraftAmmoKey, attackerDef)
+      });
+      if (aircraftAmmunitionReadiness.unavailableReason) {
         return null;
       }
     }
@@ -15790,7 +15819,6 @@ private automateSupplyConvoys(
       if (flakUnits.length > 0) {
         const flakInterceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; hex: Axial }> = [];
         const bomberStrengthBeforeFlak = attackingSnapshot.strength;
-        let flakDamage = 0;
         let bomberDestroyedByFlak = false;
         const flakEngagements: FlakEngagementEntry[] = [];
         for (const flakEntry of flakUnits) {
@@ -15829,7 +15857,6 @@ private automateSupplyConvoys(
           const damageSummary = this.buildCombatDamageSummary(bomberBeforeDamage, updatedAttackingSnapshot, damagePacket);
           const suffered = damageSummary.readinessLoss;
           attackingSnapshot = updatedAttackingSnapshot;
-          flakDamage += suffered;
           flakEngagements.push({
             batteryFaction: "Player",
             batteryUnitKey: this.getSquadronId(flakEntry.unit),
@@ -15856,18 +15883,18 @@ private automateSupplyConvoys(
           this.replaceUnitInFactionHex("Bot", attackingSnapshot);
           this.syncStrengthForFaction("Bot", attackingSnapshot.hex, attackingSnapshot.strength, attackerKey);
         }
-        this.pendingAirEngagements.push({
+        this.pendingAirEngagements.push(projectBattleAirEngagement({
           type: "flak",
-          location: structuredClone(targetHex),
-          bomber: { faction: "Bot", unitKey: attackerKey, unitType: attackingUnit.type as string, strength: bomberStrengthBeforeFlak },
+          location: targetHex,
+          bomber: {
+            faction: "Bot",
+            unitKey: attackerKey,
+            unitType: attackingUnit.type as string,
+            strengthBefore: bomberStrengthBeforeFlak
+          },
           interceptors: flakInterceptorsForEvent,
-          escorts: [],
-          flakDamage,
-          flakEngagements,
-          bomberStrengthBefore: bomberStrengthBeforeFlak,
-          bomberStrengthAfter: attackingSnapshot.strength,
-          bomberDestroyed: bomberDestroyedByFlak
-        });
+          flakEngagements
+        }));
         if (bomberDestroyedByFlak) {
           return null;
         }
@@ -15877,10 +15904,6 @@ private automateSupplyConvoys(
       const escortMissions = this.findAllActiveEscortsForUnit("Bot", attackerKey).filter((mission) => mission.interceptions < 1);
       if (capMissions.length > 0) {
         const bomberStrengthBeforeCap = attackingSnapshot.strength;
-        let interceptorAttrition = 0;
-        let escortAttrition = 0;
-        let interceptorKills = 0;
-        let escortKills = 0;
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const interceptorParticipants: AirInterceptionParticipant[] = [];
@@ -15900,10 +15923,6 @@ private automateSupplyConvoys(
           }
         }
         const interception = this.resolveAirInterception(attackingSnapshot, "Bot", interceptorParticipants, escortParticipants);
-        interceptorAttrition = interception.interceptorAttrition;
-        escortAttrition = interception.escortAttrition;
-        interceptorKills = interception.interceptorKills;
-        escortKills = interception.escortKills;
         interception.escortDeltas.forEach((delta) => {
           if (!delta.engaged) {
             return;
@@ -15951,45 +15970,34 @@ private automateSupplyConvoys(
           this.replaceUnitInFactionHex("Bot", attackingSnapshot);
           this.syncStrengthForFaction("Bot", attackingSnapshot.hex, attackingSnapshot.strength, attackerKey);
         }
-        this.pendingAirEngagements.push({
+        this.pendingAirEngagements.push(projectBattleAirEngagement({
           type: "airToAir",
-          location: structuredClone(targetHex),
-          bomber: { faction: "Bot", unitKey: attackerKey, unitType: attackingUnit.type as string, strength: bomberStrengthBeforeCap },
+          location: targetHex,
+          bomber: {
+            faction: "Bot",
+            unitKey: attackerKey,
+            unitType: attackingUnit.type as string,
+            strengthBefore: bomberStrengthBeforeCap
+          },
           interceptors: interceptorsForEvent,
           escorts: escortsForEvent,
-          bomberStrengthBefore: bomberStrengthBeforeCap,
-          bomberStrengthAfter: attackingSnapshot.strength,
-          bomberDestroyed: interception.bomberDestroyed,
-          interceptorAttrition,
-          escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
-          bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
-          interceptorKills,
-          escortAttrition,
-          escortKills,
-          escortsEngaged: interception.escortsEngaged,
-          interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
-          escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
-          interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
-          escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
-          interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
-          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
-          escortExchanges: interception.escortExchanges,
-          bomberPassExchanges: interception.bomberPassExchanges
-        });
+          interception
+        }));
         if (interception.bomberDestroyed) {
           return null;
         }
       }
     }
 
-    const attackRequestSource = structuredClone(attackingSnapshot);
-    attackRequestSource.facing = this.resolveFacingToward(attackerHex, targetHex, attackingSnapshot.facing);
-    attackRequestSource.onSentry = false;
-
-    const updatedAttacker = structuredClone(attackRequestSource);
-    updatedAttacker.ammo = attackerIsAircraft
-      ? Math.max(0, updatedAttacker.ammo - 1)
-      : Math.max(0, updatedAttacker.ammo - groundAttackAmmoCost);
+    const attackerPreparation = projectBattleAttackerPreparation({
+      attacker: attackingSnapshot,
+      resolvedFacing: this.resolveFacingToward(attackerHex, targetHex, attackingSnapshot.facing),
+      ammunitionCost: attackerIsAircraft ? 1 : groundAttackAmmoCost,
+      maneuverCost: attackManeuverCost,
+      actionFlags: attackerFlags
+    });
+    const attackRequestSource = attackerPreparation.attackRequestSource;
+    let updatedAttacker = attackerPreparation.updatedAttacker;
     if (attackerIsAircraft) {
       this.spendAircraftAmmo("Bot", resolveAircraftRegistryKey("Bot", attackingUnit), primaryDefenderIsAircraft);
     }
@@ -16065,13 +16073,14 @@ private automateSupplyConvoys(
       }
 
       const defenderWasOnSentry = defenderBefore.onSentry === true;
-      const updatedDefender = structuredClone(defenderBefore);
-      updatedDefender.facing = this.resolveFacingToward(targetHex, attackerHex, defenderBefore.facing);
-      updatedDefender.onSentry = false;
+      const defenderSuppressionBefore = this.resolveUnitSuppressionState(defenderBefore).state;
+      const damagedDefender = structuredClone(defenderBefore);
+      damagedDefender.facing = this.resolveFacingToward(targetHex, attackerHex, defenderBefore.facing);
+      damagedDefender.onSentry = false;
       const defenderDamagePacket = this.applyCombatDamageToUnit(
         attackRequestSource,
         attackerDef,
-        updatedDefender,
+        damagedDefender,
         defenderDef,
         scaledAttackResult,
         attackerHex,
@@ -16079,16 +16088,15 @@ private automateSupplyConvoys(
         this.resolveDamageEffectScalar(baseAttackResult, scaledAttackResult),
         this.resolveSuppressionEffectScalar(effectiveStance)
       );
-      const defenderDamageSummary = this.buildCombatDamageSummary(defenderBefore, updatedDefender, defenderDamagePacket);
+      const defenderDamageSummary = this.buildCombatDamageSummary(defenderBefore, damagedDefender, defenderDamagePacket);
       const inflictedDamage = defenderDamageSummary.readinessLoss;
       totalDefenderDamage += inflictedDamage;
-      if (effectiveStance === "suppressive" && updatedDefender.strength > 0) {
-        const suppressors = Array.isArray(updatedDefender.suppressedBy) ? [...updatedDefender.suppressedBy] : [];
-        if (!suppressors.includes(attackerKey)) {
-          suppressors.push(attackerKey);
-        }
-        updatedDefender.suppressedBy = suppressors;
-      }
+      const { updatedDefender, defenderBecameBroken } = projectBattleDefenderDamage({
+        defenderAfterDamage: damagedDefender,
+        stance: effectiveStance,
+        suppressorKey: attackerKey,
+        suppressionBefore: defenderSuppressionBefore
+      });
 
       if (updatedDefender.strength <= 0) {
         this.removeUnitFromFactionHex(entry.faction, targetHex, entry.unitId);
@@ -16100,62 +16108,64 @@ private automateSupplyConvoys(
       } else {
         this.replaceUnitInFactionHex(entry.faction, updatedDefender);
         this.syncStrengthForFaction(entry.faction, targetHex, updatedDefender.strength, entry.unitId);
+        if (defenderBecameBroken) {
+          this.routeBrokenUnit(entry.faction, updatedDefender, attackerHex);
+        }
       }
 
       let retaliationResultForEntry: AttackResult | undefined;
       let retaliationDamage = 0;
       let retaliationDamageSummary: CombatDamageSummary | undefined;
       let retaliationOccurredForEntry = false;
-      let retaliationAllowed = (defenderWasOnSentry || updatedDefender.strength > 0) && updatedAttacker.strength > 0;
-      if (retaliationAllowed && attackerIsAircraft && !this.isAircraft(defenderDef)) {
-        retaliationAllowed = false;
-      }
-      const retaliationDefender = structuredClone(defenderWasOnSentry ? defenderBefore : updatedDefender);
-      retaliationDefender.facing = this.resolveFacingToward(targetHex, attackerHex, retaliationDefender.facing);
-      retaliationDefender.onSentry = false;
-      if (retaliationAllowed && this.isRetaliationBlockedByTowState(retaliationDefender)) {
-        retaliationAllowed = false;
-      }
-      if (retaliationAllowed && !defenderWasOnSentry && this.isPinnedOrBroken(this.resolveUnitSuppressionState(retaliationDefender).state)) {
-        retaliationAllowed = false;
-      }
-      if (retaliationAllowed) {
-        const retaliationDistance = hexDistance(targetHex, attackerHex);
-        const defenderRangeMin = defenderDef.rangeMin ?? 1;
-        let defenderRangeMax = defenderDef.rangeMax ?? 1;
-        if (this.isBomber(defenderDef) && attackerIsAircraft) {
-          defenderRangeMax = Math.max(defenderRangeMax, 2);
-        }
-        if (retaliationDistance < defenderRangeMin || retaliationDistance > defenderRangeMax) {
-          retaliationAllowed = false;
-        }
-      }
-      if (retaliationAllowed) {
-        const defenderFlags = this.getUnitActionFlags(entry.faction, retaliationDefender);
-        if (!this.hasRetaliationAvailable(defenderFlags, defenderWasOnSentry)) {
-          retaliationAllowed = false;
-        }
-      }
-      const defenderGroundAmmoCost = this.isAircraft(defenderDef) ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
-      if (retaliationAllowed) {
-        if (this.isAircraft(defenderDef)) {
-          if (canTrackAircraftAmmoForFaction(entry.faction)) {
-            const defenderAmmoKey = resolveAircraftRegistryKey(entry.faction, retaliationDefender);
-            const defenderAmmoState = this.getAircraftAmmoState(entry.faction, defenderAmmoKey, defenderDef);
-            if (this.aircraftNeedsRearm(entry.faction, defenderAmmoKey) || defenderAmmoState.air <= 0) {
-              retaliationAllowed = false;
+      const retaliationSource = defenderWasOnSentry ? defenderBefore : updatedDefender;
+      const defenderIsAircraft = this.isAircraft(defenderDef);
+      const defenderGroundAmmoCost = defenderIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
+      const tracksDefenderAircraftAmmo = defenderIsAircraft && canTrackAircraftAmmoForFaction(entry.faction);
+      const defenderAmmoKey = tracksDefenderAircraftAmmo
+        ? resolveAircraftRegistryKey(entry.faction, retaliationSource)
+        : null;
+      const trackedDefenderAmmo = defenderAmmoKey
+        ? (entry.faction === "Player" ? this.playerAttackAmmo : this.botAttackAmmo).get(defenderAmmoKey)
+          ?? this.createInitialAircraftAmmo(defenderDef)
+        : null;
+      const defenderAircraftAmmo = defenderIsAircraft
+        ? trackedDefenderAmmo ?? {
+            air: typeof retaliationSource.ammo === "number" ? retaliationSource.ammo : 0,
+            ground: 0,
+            needsRearm: false
+          }
+        : null;
+      const defenderFlags = this.getUnitActionFlags(entry.faction, retaliationSource);
+      const retaliation = projectBattleRetaliation({
+        defenderBefore,
+        defenderAfter: updatedDefender,
+        resolvedFacing: this.resolveFacingToward(targetHex, attackerHex, retaliationSource.facing),
+        defenderWasOnSentry,
+        defenderBecameBroken,
+        attackerStrength: updatedAttacker.strength,
+        attackerIsAircraft,
+        defenderIsAircraft,
+        defenderIsBomber: this.isBomber(defenderDef),
+        defenderTowBlocked: this.isRetaliationBlockedByTowState(retaliationSource),
+        defenderPinnedOrBroken: this.isPinnedOrBroken(this.resolveUnitSuppressionState(retaliationSource).state),
+        distance: hexDistance(targetHex, attackerHex),
+        rangeMin: defenderDef.rangeMin ?? 1,
+        rangeMax: defenderDef.rangeMax ?? 1,
+        retaliationAvailable: this.hasRetaliationAvailable(defenderFlags, defenderWasOnSentry),
+        ammunition: defenderAircraftAmmo
+          ? { kind: "aircraft", needsRearm: defenderAircraftAmmo.needsRearm, airShots: defenderAircraftAmmo.air }
+          : {
+              kind: "ground",
+              available: typeof retaliationSource.ammo === "number" ? retaliationSource.ammo : null,
+              cost: defenderGroundAmmoCost
             }
-          } else if ((typeof retaliationDefender.ammo === "number" ? retaliationDefender.ammo : 0) <= 0) {
-            retaliationAllowed = false;
-          }
-        } else {
-          const defenderAmmo = typeof retaliationDefender.ammo === "number" ? retaliationDefender.ammo : null;
-          if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
-            retaliationAllowed = false;
-          }
-        }
+      });
+      const retaliationDefender = retaliation.defender;
+
+      if (retaliation.reachedAmmunitionGate && defenderAmmoKey) {
+        this.getAircraftAmmoState(entry.faction, defenderAmmoKey, defenderDef);
       }
-      const retaliationReq = retaliationAllowed
+      const retaliationReq = retaliation.allowed
         ? this.buildAttackRequest(retaliationDefender, updatedAttacker, entry.faction, "Bot", {
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined,
@@ -16225,41 +16235,36 @@ private automateSupplyConvoys(
     const allDefendersDestroyed = defenderEntries.every(
       (entry) => !this.findUnitInFactionAtHex(targetHex, entry.faction, entry.unitId)
     );
-    const canAssaultAdvance = effectiveStance === "assault" && allDefendersDestroyed && !attackerIsAircraft && !primaryDefenderIsAircraft;
-    let attackerFinalHex = structuredClone(attackerHex);
-    if (updatedAttacker.strength <= 0) {
+    const { attacker: disposedAttacker, kind: attackerDisposition } = projectBattleAttackerDisposition({
+      attackerAfterCombat: updatedAttacker, targetHex, stance: effectiveStance, allDefendersDestroyed, attackerIsAircraft, primaryDefenderIsAircraft });
+    updatedAttacker = disposedAttacker;
+    if (attackerDisposition === "destroyed") {
       this.removeUnitFromFactionHex("Bot", attackerHex, attackerKey);
       this.deleteUnitActionFlags("Bot", attackingUnit);
       this.removeSupplyEntryForFaction("Bot", attackerHex, attackerKey);
       if (attackerIsAircraft) {
         this.clearAircraftAmmoStateForUnit("Bot", attackingUnit);
       }
-    } else if (canAssaultAdvance) {
+    } else if (attackerDisposition === "advance") {
       const originRemainder = this.getUnitsAtHexForFaction(attackerHex, "Bot").filter(
         (candidate) => this.getSquadronId(candidate) !== attackerKey
       );
       this.setUnitsAtHexForFaction(attackerHex, "Bot", originRemainder);
-      attackerFinalHex = structuredClone(targetHex);
-      updatedAttacker.hex = structuredClone(targetHex);
-      updatedAttacker.entrench = 0;
       this.addUnitToFactionHex("Bot", updatedAttacker);
+      this.overrunRecoverySitesAtHex("Bot", targetHex);
       this.updateSupplyPositionForFaction("Bot", attackerHex, targetHex, attackerKey);
       this.syncEntrenchForFaction("Bot", targetHex, updatedAttacker.entrench, attackerKey);
     } else {
       this.replaceUnitInFactionHex("Bot", updatedAttacker);
     }
     if (updatedAttacker.strength > 0) {
-      this.syncAmmoForFaction("Bot", attackerFinalHex, updatedAttacker.ammo, attackerKey);
-      this.syncStrengthForFaction("Bot", attackerFinalHex, updatedAttacker.strength, attackerKey);
-      this.setUnitActionFlags("Bot", updatedAttacker, {
-        movementPointsUsed: attackerFlags.movementPointsUsed + attackManeuverCost,
-        attacksUsed: attackerFlags.attacksUsed + 1,
-        retaliationsUsed: attackerFlags.retaliationsUsed,
-        isRushing: attackerFlags.isRushing
-      });
+      this.syncAmmoForFaction("Bot", updatedAttacker.hex, updatedAttacker.ammo, attackerKey);
+      this.syncStrengthForFaction("Bot", updatedAttacker.hex, updatedAttacker.strength, attackerKey);
+      this.setUnitActionFlags("Bot", updatedAttacker, attackerPreparation.nextActionFlags);
     }
 
-    this.recordCombatReport({
+    const outcome = projectBattleAttackOutcome({
+      kind: "bot",
       attacker: {
         unit: attackRequestSource,
         hex: attackerHex,
@@ -16276,32 +16281,20 @@ private automateSupplyConvoys(
         destroyed: primaryDefenderDestroyed
       },
       attackResult: primaryAttackResult,
-      retaliationResult: primaryRetaliationOccurred ? primaryRetaliationResult : undefined,
-      damage: primaryDefenderDamage,
-      retaliationDamage: primaryRetaliationOccurred ? primaryRetaliationDamage : undefined
+      defenderDamage: primaryDefenderDamage,
+      primaryRetaliationResult,
+      primaryRetaliationDamage,
+      primaryRetaliationOccurred,
+      retaliationOccurred: anyRetaliationOccurred,
+      representativeRetaliationResult,
+      totalDefenderDamage,
+      totalRetaliationDamage,
+      allDefendersDestroyed
     });
+    this.recordCombatReport(outcome.report);
     this.invalidateRosterCache();
 
-    return {
-      attackerType: attackingUnit.type,
-      defenderType: primaryDefenderBeforeAttack.type,
-      from: structuredClone(attackerHex),
-      target: structuredClone(targetHex),
-      inflictedDamage: totalDefenderDamage,
-      damageSummary: primaryDefenderDamage?.summary,
-      defenderDamage: primaryDefenderDamage,
-      defenderDestroyed: allDefendersDestroyed,
-      retaliation: anyRetaliationOccurred && representativeRetaliationResult
-        ? {
-            damage: totalRetaliationDamage,
-            summary: primaryRetaliationDamage?.summary,
-            damageSummary: primaryRetaliationDamage,
-            terrainDefense: 0,
-            accuracyMod: Math.round(representativeRetaliationResult.accuracy * 100),
-            attackerStrengthAfter: updatedAttacker.strength
-          }
-        : undefined
-    };
+    return outcome.summary;
   }
 
   /** Ensures bot supply mirror tracks unit relocation after movement. */
@@ -16422,31 +16415,17 @@ private automateSupplyConvoys(
     // Keep its preceding baseline so unchanged totals retain recorded burn, depletion and alerts,
     // and unrecorded resource changes refresh that same interval without adding a trend point.
     const history = observation === "current" ? recordedHistory.slice(0, -1) : recordedHistory;
-    const frontlineUnits = this.getAllUnitsForFaction(faction);
-    const reserveUnits = faction === "Player"
-      ? this.reserves.map((reserve) => reserve.unit)
-      : [] as ScenarioUnit[];
-    const categories = this.buildSupplyCategories(faction, frontlineUnits, reserveUnits, history);
-    const alerts = this.deriveSupplyAlerts(categories, faction);
-
-    // Calculate total stockpile (depot reserves) from categories
-    const depotTotals = getInventoryTotals(this.supplyStateByFaction[faction], ["ammo", "fuel", "rations", "parts"]);
-
-    return {
+    return buildBattleSupplySnapshot({
       faction,
       turn: this._turnNumber,
       phase: this._phase,
-      updatedAt: new Date(Date.UTC(2000, 0, 1) + (Math.max(0, this._turnNumber) * 1_000_000)).toISOString(),
-      categories,
-      alerts,
-      stockpile: {
-        ammo: depotTotals.ammo ?? 0,
-        fuel: depotTotals.fuel ?? 0,
-        rations: depotTotals.rations ?? 0,
-        parts: depotTotals.parts ?? 0
-      },
-      ledger: this.supplyStateByFaction[faction].ledger.map((entry) => ({ ...entry }))
-    } satisfies SupplySnapshot;
+      frontlineUnits: this.getAllUnitsForFaction(faction),
+      reserveUnits: faction === "Player"
+        ? this.reserves.map((reserve) => reserve.unit)
+        : [],
+      history,
+      supplyState: this.supplyStateByFaction[faction]
+    });
   }
 
   private recordSupplySnapshot(faction: TurnFaction): void {
@@ -16464,189 +16443,6 @@ private automateSupplyConvoys(
     if (overflow > 0) {
       history.splice(0, overflow);
     }
-  }
-
-  private buildSupplyCategories(
-    faction: TurnFaction,
-    frontlineUnits: ScenarioUnit[],
-    reserveUnits: ScenarioUnit[],
-    history: SupplySnapshot[]
-  ): SupplyCategorySnapshot[] {
-    const totalUnits = frontlineUnits.length + reserveUnits.length;
-    const stockpileTotals = this.getFactionStockpileTotals(faction);
-    const ammoCategory = this.composeTrackedCategory(
-      "ammo",
-      "Ammunition",
-      frontlineUnits,
-      reserveUnits,
-      history,
-      totalUnits,
-      stockpileTotals.ammo
-    );
-    const fuelCategory = this.composeTrackedCategory(
-      "fuel",
-      "Fuel",
-      frontlineUnits,
-      reserveUnits,
-      history,
-      totalUnits,
-      stockpileTotals.fuel
-    );
-
-    const medicalCategory: SupplyCategorySnapshot = {
-      resource: "medical",
-      label: "Field Medical",
-      total: 0,
-      frontlineTotal: 0,
-      reserveTotal: 0,
-      // No depot stockpile tracked yet; explicit zero keeps UI cards consistent and satisfies typing.
-      stockpileTotal: 0,
-      averagePerUnit: 0,
-      consumptionPerTurn: 0,
-      estimatedDepletionTurns: null,
-      trend: history
-        .slice(-(GameEngine.SUPPLY_TREND_WINDOW - 1))
-        .map((entry) => entry.categories.find((category) => category.resource === "medical")?.total ?? 0)
-        .concat(0),
-      status: "unknown",
-      notes: faction === "Player"
-        ? "Medical logistics tracking is pending implementation."
-        : "Enemy medical reserves unavailable without recon confirmation."
-    };
-
-    const emergencyCategory: SupplyCategorySnapshot = {
-      resource: "emergency",
-      label: "Emergency Reserve",
-      total: 0,
-      frontlineTotal: 0,
-      reserveTotal: 0,
-      // Placeholder zero until logistics production populates emergency caches.
-      stockpileTotal: 0,
-      averagePerUnit: 0,
-      consumptionPerTurn: 0,
-      estimatedDepletionTurns: null,
-      trend: history
-        .slice(-(GameEngine.SUPPLY_TREND_WINDOW - 1))
-        .map((entry) => entry.categories.find((category) => category.resource === "emergency")?.total ?? 0)
-        .concat(0),
-      status: "unknown",
-      notes: faction === "Player"
-        ? "Emergency caches are placeholders until logistics production is wired."
-        : "Enemy emergency stores cannot be estimated with current intel."
-    };
-
-    return [ammoCategory, fuelCategory, medicalCategory, emergencyCategory];
-  }
-
-  private composeTrackedCategory(
-    resource: Extract<SupplyResourceKey, "ammo" | "fuel">,
-    label: string,
-    frontlineUnits: ScenarioUnit[],
-    reserveUnits: ScenarioUnit[],
-    history: SupplySnapshot[],
-    totalUnits: number,
-    stockpileDepot: number
-  ): SupplyCategorySnapshot {
-    const frontlineTotal = frontlineUnits.reduce<number>((sum, unit) => sum + (unit[resource] ?? 0), 0);
-    const reserveTotal = reserveUnits.reduce<number>((sum, unit) => sum + (unit[resource] ?? 0), 0);
-    const total = frontlineTotal + reserveTotal;
-    const previousSnapshot = history.length > 0 ? history[history.length - 1] : undefined;
-    const previous = previousSnapshot?.categories.find((category) => category.resource === resource);
-    const rawConsumption = previous ? previous.total - total : 0;
-    const consumptionPerTurn = Number(rawConsumption.toFixed(2));
-    const estimatedDepletionTurns = consumptionPerTurn > 0
-      ? Number((total / consumptionPerTurn).toFixed(1))
-      : null;
-    const trendWindow = GameEngine.SUPPLY_TREND_WINDOW - 1;
-    const trendHistory = trendWindow > 0 ? history.slice(-trendWindow) : [];
-    const trend = trendHistory
-      .map((entry) => entry.categories.find((category) => category.resource === resource)?.total ?? 0)
-      .concat(total);
-    const averagePerUnit = totalUnits === 0 ? 0 : Number((total / totalUnits).toFixed(2));
-
-    let status: SupplyCategorySnapshot["status"] = "stable";
-    if (totalUnits === 0) {
-      status = "unknown";
-    } else if (total <= totalUnits) {
-      status = "critical";
-    } else if (total <= totalUnits * 2) {
-      status = "warning";
-    }
-    if (estimatedDepletionTurns !== null) {
-      if (estimatedDepletionTurns <= 1) {
-        status = "critical";
-      } else if (estimatedDepletionTurns <= 3 && status !== "critical") {
-        status = "warning";
-      }
-    }
-    if (total > 0 && consumptionPerTurn <= 0) {
-      status = "stable";
-    }
-
-    return {
-      resource,
-      label,
-      total,
-      frontlineTotal,
-      reserveTotal,
-      // Track depot reserves alongside unit-held stock so UI can reflect overall availability for this resource.
-      stockpileTotal: stockpileDepot,
-      averagePerUnit,
-      consumptionPerTurn,
-      estimatedDepletionTurns,
-      trend,
-      status
-    } satisfies SupplyCategorySnapshot;
-  }
-
-  private deriveSupplyAlerts(categories: SupplyCategorySnapshot[], faction: TurnFaction): SupplyAlert[] {
-    const alerts: SupplyAlert[] = [];
-    categories.forEach((category: SupplyCategorySnapshot) => {
-      if (category.resource === "medical" || category.resource === "emergency") {
-        if (category.status === "unknown") {
-          alerts.push({
-            resource: category.resource,
-            level: "info",
-            message: category.notes
-              ?? (faction === "Player"
-                ? "Medical and emergency inventories are pending future integration."
-                : "Enemy emergency reserves require higher intel confidence.")
-          });
-        }
-        return;
-      }
-
-      if (category.status === "critical") {
-        const turns = category.estimatedDepletionTurns ?? 0;
-        alerts.push({
-          resource: category.resource,
-          level: "critical",
-          message: `${category.label} projected to run dry in ${turns <= 0 ? "under one" : turns} turns.`
-        });
-      } else if (category.status === "warning") {
-        alerts.push({
-          resource: category.resource,
-          level: "warning",
-          message: `${category.label} reserves trending low; resupply within the next few turns.`
-        });
-      } else if (category.consumptionPerTurn <= 0 && category.total > 0) {
-        alerts.push({
-          resource: category.resource,
-          level: "info",
-          message: `${category.label} consumption stabilized after recent resupply.`
-        });
-      }
-    });
-
-    if (faction === "Bot") {
-      alerts.push({
-        resource: "ammo",
-        level: "info",
-        message: "Enemy supply estimates reflect known deployments; confidence varies with recon coverage."
-      });
-    }
-
-    return alerts;
   }
 
   /**
@@ -17027,27 +16823,7 @@ private automateSupplyConvoys(
   /**
    * Records a detailed combat engagement for post-battle analysis and reporting.
    */
-  private recordCombatReport(engagement: {
-    attacker: {
-      unit: ScenarioUnit;
-      hex: Axial;
-      faction: TurnFaction;
-      strengthBefore: number;
-      strengthAfter: number;
-    };
-    defender: {
-      unit: ScenarioUnit;
-      hex: Axial;
-      faction: TurnFaction;
-      strengthBefore: number;
-      strengthAfter: number;
-      destroyed: boolean;
-    };
-    attackResult: AttackResult;
-    retaliationResult?: AttackResult;
-    damage?: CombatDamageSummary;
-    retaliationDamage?: CombatDamageSummary;
-  }): void {
+  private recordCombatReport(engagement: BattleCombatReportProjection): void {
     this.combatReportIdCounter += 1;
 
     const report: CombatReportEntry = {
@@ -17197,17 +16973,7 @@ private automateSupplyConvoys(
    * Classifies the unit's current suppression state for UI and rule queries.
    */
   private resolveUnitSuppressionState(unit: ScenarioUnit): { state: UnitSuppressionState; count: number } {
-    const count = unit.suppressedBy?.length ?? 0;
-    if (count >= 2) {
-      if (unit.strength < 25) {
-        return { state: "broken", count };
-      }
-      return { state: "pinned", count };
-    }
-    if (count === 1) {
-      return { state: "suppressed", count };
-    }
-    return { state: "clear", count: 0 };
+    return resolveBattleUnitSuppressionState(unit);
   }
 
   private isPinnedOrBroken(state: UnitSuppressionState): boolean {
@@ -17719,6 +17485,17 @@ private automateSupplyConvoys(
     const facingAvailability = this.resolveSetFacingAvailability(hex, unit, flags);
     const existingHexModifications = this.getHexModifications(hex);
     const existingHexModification = existingHexModifications[0] ?? null;
+    const mobility = resolveMobilityBurden(unit.status, definition.moveType ?? "track");
+    const leavePreview = this.previewLeaveCasualtiesBehind(hex, unit.unitId);
+    const leaveReason = this._phase !== "playerTurn" || this._activeFaction !== "Player"
+      ? "Casualties can be separated only during the player turn."
+      : this.isAutomatedPlayerUnit(unit)
+        ? "Automated support formations do not accept casualty-separation orders."
+        : definition.moveType === "air"
+          ? "Air formations cannot establish ground recovery sites."
+          : !leavePreview
+            ? "This formation has no wounded personnel or damaged equipment to leave behind."
+            : null;
 
     return {
       unitId: this.getSquadronId(unit),
@@ -17749,7 +17526,12 @@ private automateSupplyConvoys(
       smokeReason: smokeAvailability.reason,
       canSetFacing: facingAvailability.available,
       setFacingReason: facingAvailability.reason,
-      currentFacing: unit.facing
+      currentFacing: unit.facing,
+      mobilityBurdenPercent: Number((mobility.burdenRatio * 100).toFixed(2)),
+      mobilityBasis: mobility.basis,
+      canLeaveCasualtiesBehind: leaveReason === null,
+      leaveCasualtiesBehindReason: leaveReason,
+      leaveCasualtiesBehindPreview: leavePreview ? structuredClone(leavePreview) : null
     };
   }
 
@@ -17975,11 +17757,15 @@ private automateSupplyConvoys(
     unit.towState = "towed";
     unit.onSentry = false;
     unit.entrench = 0;
+    const hookupCost = this.resolveTowHookupCost(definition, flags);
+    if (typeof unit.movementCredit === "number") {
+      unit.movementCredit = Math.max(0, Number((unit.movementCredit - hookupCost).toFixed(4)));
+    }
     this.replaceUnitInFactionHex("Player", unit);
     this.syncPlayerEntrench(hex, unit.entrench, this.getSquadronId(unit));
     this.setUnitActionFlags("Player", unit, {
       ...flags,
-      movementPointsUsed: flags.movementPointsUsed + this.resolveTowHookupCost(definition, flags),
+      movementPointsUsed: flags.movementPointsUsed + hookupCost,
       isRushing: false
     });
     this.updateIdleRegistryFor(key);

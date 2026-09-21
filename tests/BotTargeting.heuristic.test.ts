@@ -9,6 +9,7 @@ import type {
   UnitTypeDictionary
 } from "../src/core/types";
 import {
+  computeReachableHexes,
   planHeuristicBotTurn,
   type BotPlannerInput,
   type PlannerUnitSnapshot,
@@ -462,6 +463,47 @@ registerTest("BOT_PLANNER_PATHS_THROUGH_FRIENDLY_HEXES_TO_JOIN_THE_ASSAULT_LINE"
   await Then("the rear tank should plan through the friendly screen instead of stalling in place", async () => {
     if (plannedDestination !== "2,0") {
       throw new Error(`Expected the rear tank to form up at 2,0, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});
+
+registerTest("BOT_PLANNER_ROUTES_AROUND_PLAYER_UNITS", async ({ Given, When, Then }) => {
+  let plannedPath: string[] = [];
+
+  await Given("a bot formation with a player unit blocking the direct route", async () => {
+    const botUnit = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 1 });
+    const playerBlocker = createPlannerSnapshot("PlayerInfantry", playerInfantryDef, { q: 1, r: 1 });
+    const input: BotPlannerInput = {
+      botUnits: [botUnit],
+      playerUnits: [playerBlocker],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botUnit.unit.hex), "bot"],
+        [axialKey(playerBlocker.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 2 && hex.r >= 0 && hex.r <= 2,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: () => true,
+      movementAllowance: () => 3,
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const reachable = computeReachableHexes(botUnit.unit.hex, 3, botUnit.definition.moveType, input, axialKey(botUnit.unit.hex));
+    plannedPath = (reachable.get("2,1")?.path ?? []).map((hex) => axialKey(hex));
+  });
+
+  await When("the bot computes its reachable movement paths", async () => {});
+
+  await Then("the route to the far side should detour instead of crossing the player unit", async () => {
+    if (plannedPath.length === 0) {
+      throw new Error("Expected the bot to find a legal detour to 2,1.");
+    }
+    if (plannedPath.includes("1,1")) {
+      throw new Error(`Expected bot route to avoid the player at 1,1, received ${plannedPath.join(" -> ")}.`);
     }
   });
 });

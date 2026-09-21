@@ -644,13 +644,14 @@ registerTest("UNIT_STATUS_PLATFORM_DAMAGE_LOSS_DOES_NOT_DECLINE_FROM_EXISTING_DA
   });
 });
 
-registerTest("DAMAGED_PLATFORM_PREVIEWS_EXPLAIN_LOWER_INCREMENTAL_LOSS_WITH_TRANSITIONS", async ({ Given, When, Then }) => {
+registerTest("DAMAGED_PLATFORM_PREVIEWS_RETAIN_BASELINE_DAMAGE_WITH_TRANSITIONS", async ({ Given, When, Then }) => {
   const artilleryHex: Axial = { q: -10, r: 0 };
   const freshTarget = makeUnit("Supply_Truck", defenderHex, "howitzer-fresh-supply");
   const damagedTarget = makeUnit("Supply_Truck", defenderHex, "howitzer-damaged-supply");
   const howitzer = makeUnit("Howitzer_105", artilleryHex, "howitzer-transition-attacker");
   let freshPacket: DamagePacket | null = null;
   let damagedPacket: DamagePacket | null = null;
+  let damagedReadinessBefore = 0;
 
   await Given("one fresh and one already-damaged supply convoy are both under the same howitzer mission", async () => {
     applyDamagePacketToUnit(damagedTarget, {
@@ -662,6 +663,7 @@ registerTest("DAMAGED_PLATFORM_PREVIEWS_EXPLAIN_LOWER_INCREMENTAL_LOSS_WITH_TRAN
       weaponHits: []
     });
     const damagedSummary = summarizeFormationStatus(damagedTarget.status, damagedTarget.strength);
+    damagedReadinessBefore = damagedSummary.readiness;
     if (damagedSummary.readiness > 60 || damagedSummary.readiness < 45) {
       throw new Error(`Expected the damaged convoy to mirror a roughly half-strength target, got ${damagedSummary.readiness}.`);
     }
@@ -707,9 +709,10 @@ registerTest("DAMAGED_PLATFORM_PREVIEWS_EXPLAIN_LOWER_INCREMENTAL_LOSS_WITH_TRAN
     if (!damagedTransitions.includes("damaged->")) {
       throw new Error(`Damaged convoy packet should record worsening of existing equipment damage, got ${damagedTransitions}.`);
     }
-    if (damagedPacket.readinessLoss < freshPacket.readinessLoss - 3 && !describeDamagePacket(damagedPacket).includes("worsened existing damage")) {
+    const requiredDamagedLoss = Math.min(freshPacket.readinessLoss, damagedReadinessBefore);
+    if (damagedPacket.readinessLoss < requiredDamagedLoss - 0.01) {
       throw new Error(
-        `Lower follow-up loss must be explained by transition detail. Fresh ${describeDamagePacket(freshPacket)}, damaged ${describeDamagePacket(damagedPacket)}.`
+        `Existing damage must not protect a target from the same attack. Fresh ${describeDamagePacket(freshPacket)}, damaged ${describeDamagePacket(damagedPacket)}.`
       );
     }
   });
@@ -1522,6 +1525,7 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
       targetFacing: defender.facing
     });
     applyDamagePacketToUnit(defender, firstPacket);
+    const readinessBeforeSecond = summarizeFormationStatus(defender.status, defender.strength).readiness;
 
     const secondRequest: AttackRequest = {
       ...firstRequest,
@@ -1545,9 +1549,10 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
     if (Math.abs(secondResult.expectedHits - firstResult.expectedHits) > 1) {
       throw new Error(`Expected repeat-hit coverage to stay comparable, saw ${firstResult.expectedHits.toFixed(1)} then ${secondResult.expectedHits.toFixed(1)} hits.`);
     }
-    if (secondPacket.readinessLoss < firstPacket.readinessLoss * 0.7) {
+    const requiredSecondLoss = Math.min(firstPacket.readinessLoss, readinessBeforeSecond);
+    if (secondPacket.readinessLoss < requiredSecondLoss - 0.01) {
       throw new Error(
-        `Repeat strikes should not lose most of their applied status damage once a unit is already hurt. First ${describeDamagePacket(firstPacket)}, second ${describeDamagePacket(secondPacket)}.`
+        `An identical repeat strike must retain baseline damage until the terminal cap. First ${describeDamagePacket(firstPacket)}, second ${describeDamagePacket(secondPacket)}.`
       );
     }
   });

@@ -1,5 +1,5 @@
 import type { DeploymentState, ReserveUnitSnapshot } from "../../state/DeploymentState";
-import type { ReserveUnit } from "../../game/GameEngine";
+import type { ReserveUnit } from "../../contracts/BattleSidebarEngine";
 
 /**
  * Renders the deployment reserve queue using mirrored snapshots from `DeploymentState`.

@@ -12,6 +12,7 @@ import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge, type Airsh
 import { buildAirshowPlaybackCaptureFixture } from "./airshowPlaybackCaptureFixture";
 import { getScenarioByMissionKey } from "../data/scenarioRegistry";
 import { normalizeScenarioSource, type RawScenarioInput } from "../data/scenarioNormalizer";
+import { AIR_SHOW_TEMPORAL_SAMPLE_INTERVAL_MS } from "../ui/airshow/AirShowTimeline";
 
 interface AirshowActorSnapshot {
   readonly actorId: string;
@@ -102,7 +103,6 @@ declare global {
   }
 }
 
-const POSITION_SAMPLE_INTERVAL_MS = 100;
 const DEFAULT_PHASE_WAIT_TIMEOUT_MS = 45000;
 const PHASE_WAIT_BUFFER_MS = 4000;
 const COMPLETION_WAIT_BUFFER_MS = 10000;
@@ -287,7 +287,6 @@ async function captureSceneFromFixture(harnessFixture: AirshowHarnessFixture): P
       fallbackLaneOffsetPx: number,
       skipEscortFlights: boolean,
       announceEvent: boolean,
-      bomberArrivalDelayMs: number,
       allowBomberDefensePass: boolean,
       bomberOriginKey: string | null,
       linkedEscortFlights: readonly Record<string, unknown>[],
@@ -302,7 +301,6 @@ async function captureSceneFromFixture(harnessFixture: AirshowHarnessFixture): P
     0,
     false,
     false,
-    harnessFixture.bomberArrivalDelayMs,
     true,
     harnessFixture.bomberOriginKey,
     harnessFixture.linkedEscortFlights as readonly Record<string, unknown>[],
@@ -463,7 +461,7 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
       if (!previous || sample.elapsedMs > previous.elapsedMs) {
         positionTimeline.push(sample);
       }
-    }, POSITION_SAMPLE_INTERVAL_MS);
+      }, AIR_SHOW_TEMPORAL_SAMPLE_INTERVAL_MS);
   }
 
   function stopPositionSampler(): void {

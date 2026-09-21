@@ -84,6 +84,11 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
     if (!root || root.dataset.intelKind !== "battle") {
       throw new Error("Expected overlay root to track that battle intel is currently displayed.");
     }
+    const body = document.getElementById("battleIntelOverlayBody");
+    if (body?.tabIndex !== 0 || body.getAttribute("role") !== "region"
+      || body.getAttribute("aria-label") !== "Selected hex intel details") {
+      throw new Error("Expected long tactical intel to expose one named, cross-browser keyboard scroll owner.");
+    }
 
     const actions = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-selection-action]"));
     if (actions.length !== 2) {

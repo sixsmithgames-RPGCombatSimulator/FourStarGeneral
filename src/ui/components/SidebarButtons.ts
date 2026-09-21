@@ -1,4 +1,5 @@
 import type { IPopupManager, PopupKey } from "../../contracts/IPopupManager";
+import { ListenerLifecycle } from "../lifecycle/ListenerLifecycle";
 
 /**
  * Manages sidebar button interactions and active state synchronization.
@@ -6,7 +7,9 @@ import type { IPopupManager, PopupKey } from "../../contracts/IPopupManager";
  */
 export class SidebarButtons {
   private readonly buttons: HTMLButtonElement[];
+  private readonly lifecycle = new ListenerLifecycle();
   private popupManager: IPopupManager | null = null;
+  private bound = false;
 
   constructor(buttonSelector: string = ".sidebar-button") {
     this.buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(buttonSelector));
@@ -16,10 +19,14 @@ export class SidebarButtons {
    * Binds events and connects to the popup manager.
    */
   bindEvents(popupManager: IPopupManager): void {
+    if (this.bound) {
+      throw new Error("SidebarButtons: bindEvents may only be called once per lifecycle.");
+    }
+    this.bound = true;
     this.popupManager = popupManager;
 
     this.buttons.forEach((button) => {
-      button.addEventListener("click", () => this.handleButtonClick(button));
+      this.lifecycle.addEventListener(button, "click", () => this.handleButtonClick(button));
     });
 
     // Register with PopupManager so it can drive active-state updates after open/close events.
@@ -27,6 +34,12 @@ export class SidebarButtons {
 
     // Initialize button states in case a popup is already active when binding occurs.
     this.syncActiveState(this.popupManager.getActivePopup());
+  }
+
+  /** Idempotently releases sidebar listeners before a failed bootstrap can be retried. */
+  dispose(): void {
+    this.lifecycle.dispose();
+    this.popupManager = null;
   }
 
   /**

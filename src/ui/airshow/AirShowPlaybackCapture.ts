@@ -3,7 +3,7 @@ import type {
   AirEngagementEvent,
   AirMissionArrival,
   SerializedAirMission
-} from "../../game/GameEngine";
+} from "../../game/battle/air/AirCombatContracts";
 import type { ResolvedAirShowScene } from "./AirShowPlaybackScene";
 
 export interface AirShowPlaybackOperationSnapshot {
@@ -26,8 +26,6 @@ export interface AirShowCoordinatedPlanSnapshot {
   readonly strikeMissionIds: readonly string[];
   readonly handledOperationIndices: readonly number[];
   readonly residualOperationIndices: readonly number[];
-  readonly bomberStartDelayMs: number;
-  readonly fighterIngressLeadMs: number;
   readonly scene: ResolvedAirShowScene | null;
 }
 

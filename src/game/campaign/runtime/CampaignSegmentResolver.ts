@@ -13,6 +13,7 @@ import type {
   CampaignFactionKey,
   ProductionAllocation
 } from "../../../core/campaignTypes";
+import { SEGMENTS_PER_DAY } from "../../../core/campaignTypes";
 import type { CampaignMapViewModel } from "../../../core/campaignIntelTypes";
 import {
   buildCampaignMapView,
@@ -355,7 +356,7 @@ function resolveLogistics(
   targetSegment: number,
   events: CampaignDomainEventDraft[]
 ): string[] {
-  if (targetSegment % 8 !== 0) return [];
+  if (targetSegment % SEGMENTS_PER_DAY !== 0) return [];
   const capacityByFaction = new Map<string, number>();
   source.tileOrder.forEach((hexKey) => {
     const tile = source.tiles[hexKey];

@@ -7,28 +7,28 @@ import type { AirEngagementEvent, AirMissionArrival } from "../src/game/GameEngi
 import type { ScenarioUnit } from "../src/core/types";
 import type { AirShowPlaybackCallbacks, ResolvedAirShowScene } from "../src/rendering/HexMapRenderer";
 import type { CoordinatedAirClusterPlaybackPlan, ClusterPlaybackFlight, ClusterPlaybackOperation } from "../src/ui/airshow/ClusterAirPlaybackPlanner";
-import { resolveAirInterceptBomberArrivalDelayMs } from "../src/ui/airshow/AirShowPlaybackPolicy";
-import {
-  buildCoordinatedAirClusterTimingPolicy,
-  buildResolvedAirCombatSceneTimingPolicy,
-  resolveCoordinatedAirClusterLeadWindow
-} from "../src/ui/airshow/AirShowTimingPolicies.js";
 
 /** Checks the renderer handoff itself; it must never manufacture legacy animation calls. */
 function singleScene(scenes: readonly ResolvedAirShowScene[]): ResolvedAirShowScene {
   assert.equal(scenes.length, 1, "The package must have exactly one resolved renderer owner.");
   const scene = scenes[0];
-  assert.ok(scene.bombers, "The authoritative bomber collection must be supplied.");
-  assert.strictEqual(scene.bomber, scene.bombers[0] ?? null, "The primary bomber must alias the authoritative collection.");
+  assert.ok(Array.isArray(scene.bombers), "The authoritative bomber collection must be supplied.");
   return scene;
 }
 
-/** Ensures the screen passes every shared timing field without substituting browser waits. */
-function assertSceneTiming(scene: ResolvedAirShowScene, arrivalDelayMs: number): void {
-  const policy = buildResolvedAirCombatSceneTimingPolicy(arrivalDelayMs);
-  for (const key of Object.keys(policy) as Array<keyof typeof policy>) {
-    assert.equal(scene[key], policy[key], `Resolved scene timing: ${key}`);
-  }
+/** Prevents fixed-duration policy from becoming a second authority beside AirShowDirector. */
+function assertNoLegacyTimingFields(scene: ResolvedAirShowScene): void {
+  const legacyFields = [
+    "fighterIngressDurationMs",
+    "escortClashDurationMs",
+    "bomberIngressDurationMs",
+    "bomberPassDurationMs",
+    "strikeRunDurationMs",
+    "egressDurationMs",
+    "bomberArrivalDelayMs",
+    "bombReleaseProgress"
+  ];
+  legacyFields.forEach((field) => assert.equal(field in scene, false, `${field} must not compete with the canonical timeline.`));
 }
 
 /** An explicit barrier keeps lifecycle assertions independent of microtask counts. */
@@ -37,6 +37,77 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   const promise = new Promise<void>((complete) => { resolve = complete; });
   return { promise, resolve };
 }
+
+registerTest("BATTLESCREEN_STANDALONE_FIGHTERS_AND_ESCORTS_USE_THE_RESOLVED_AIRSHOW_PLAYER", async ({ Given, When, Then }) => {
+  const scenes: ResolvedAirShowScene[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+  const fakeRenderer = {
+    async animateResolvedAirCombatShow(scene: ResolvedAirShowScene): Promise<void> {
+      scenes.push(scene);
+    }
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+  const fakeEngine = {
+    getScheduledAirMissions: () => []
+  } as any;
+  let screen: BattleScreen;
+
+  await Given("standalone CAP and escort flights with no combat event", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine: () => fakeEngine } as any,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+  });
+
+  await When("each flight is played", async () => {
+    const base = {
+      missionId: "solo-cap",
+      faction: "Player" as const,
+      unitKey: "cap-1",
+      originKey: "0,0",
+      destKey: "3,0",
+      unitType: "Fighter",
+      strength: 75,
+      laneOffsetPx: 0,
+      targetHex: { q: 3, r: 0 }
+    };
+    await (screen as any).playStandaloneAirMissionFlight({ ...base, kind: "airCover" }, fakeRenderer, fakeEngine, true);
+    await (screen as any).playStandaloneAirMissionFlight({
+      ...base,
+      missionId: "solo-escort",
+      kind: "escort",
+      unitKey: "escort-1",
+      faction: "Bot",
+      originKey: "6,0",
+      laneOffsetPx: 12
+    }, fakeRenderer, fakeEngine, true);
+  });
+
+  await Then("both should be complete resolved scenes with no legacy timing authority", async () => {
+    assert.equal(scenes.length, 2);
+    assert.deepEqual(scenes.map((scene) => ({
+      kind: scene.kind,
+      hexKey: scene.hexKey,
+      interceptors: scene.interceptors.map((flight) => [flight.id, flight.role, flight.combatRole]),
+      escorts: scene.escorts.map((flight) => [flight.id, flight.role, flight.combatRole]),
+      bombers: scene.bombers
+    })), [
+      { kind: "capClash", hexKey: "3,1", interceptors: [["cap-1", "interceptor", "cap"]], escorts: [], bombers: [] },
+      { kind: "capClash", hexKey: "3,1", interceptors: [], escorts: [["escort-1", "escort", "escort"]], bombers: [] }
+    ]);
+    scenes.forEach(assertNoLegacyTimingFields);
+  });
+});
 
 registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LINKED_ESCORTS", async ({ Given, When, Then }) => {
   const originalSetTimeout = window.setTimeout;
@@ -120,13 +191,6 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LIN
         scenes.push(scene);
         playbackOptions.push(options);
         await options.onImpact?.();
-      },
-      async animateAircraftFlyover(
-        fromKey: string,
-        toKey: string,
-        unitType: string
-      ): Promise<void> {
-        callOrder.push(`flyover:${unitType}:${fromKey}->${toKey}`);
       },
       async playFlakBurstAt(): Promise<void> {},
       async playExplosion(hexKey: string): Promise<void> {
@@ -227,7 +291,7 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LIN
       await (screen as any).playAirOperations(arrivals, events);
     });
 
-    await Then("the camera, impact, and escort flight should all use the live resolved target hex", async () => {
+    await Then("the camera, impact, and escort flight should share one resolved target scene", async () => {
       if (!callOrder.includes("focus:2,0")) {
         throw new Error(`Expected focus on the live resolved target hex 2,0, saw ${JSON.stringify(callOrder)}.`);
       }
@@ -240,7 +304,7 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LIN
       assert.equal(scene.hexKey, "2,0");
       assert.equal(scene.bomberTargetHexKey, "2,0");
       assert.equal(scene.bombers?.length, 1);
-      assert.deepEqual(scene.bomber, {
+      assert.deepEqual(scene.bombers[0], {
         id: "bomber-1", scenarioType: "Bomber", faction: "Bot", originHexKey: "0,0", targetHexKey: "2,0",
         strengthBefore: 100, strengthAfterEscortPhase: 100, finalStrength: 100,
         laneOffsetPx: 0, role: "bomber", combatRole: "strike"
@@ -250,18 +314,17 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LIN
       assert.equal(scene.flakBursts[0].bomberUnitKey, "bomber-1");
       assert.equal(scene.flakBursts[0].targetHexKey, "2,0");
       assert.equal(scene.flakBursts[0].batteryHexKey, "2,0");
+      assert.deepEqual(scene.escorts.map((escort) => ({
+        id: escort.id,
+        originHexKey: escort.originHexKey,
+        role: escort.role,
+        combatRole: escort.combatRole
+      })), [{ id: "escort-1", originHexKey: "1,0", role: "escort", combatRole: "escort" }]);
       assert.equal(playbackOptions[0].playImpactEffects, true);
       assert.equal(typeof playbackOptions[0].onImpact, "function");
-
-      if (!callOrder.includes("flyover:Fighter:1,0->2,0")) {
-        throw new Error(`Expected linked escort ingress to be painted toward the same target, saw ${JSON.stringify(callOrder)}.`);
-      }
-
-      assert.equal(callOrder.filter((entry) => entry === "flyover:Fighter:1,0->2,0").length, 1);
-      assert.equal(callOrder.filter((entry) => entry === "flyover:Fighter:2,0->1,0").length, 1);
       assert.equal(callOrder.filter((entry) => entry === "markDamaged:2,0").length, 1);
-      assert.deepEqual(callOrder.filter((entry) => /^(impact|dust):|^flyover:Bomber:/.test(entry)), [],
-        "Impact FX and bomber motion belong to the resolved renderer; the callback only synchronizes aftermath.");
+      assert.deepEqual(callOrder.filter((entry) => /^(impact|dust|flyover):/.test(entry)), [],
+        "All aircraft motion and impact FX belong to the resolved renderer; the callback only synchronizes aftermath.");
     });
   } finally {
     window.setTimeout = originalSetTimeout;
@@ -410,7 +473,7 @@ registerTest("BATTLESCREEN_STANDALONE_STRIKE_KEEPS_BOMBER_VISIBLE_THROUGH_IMPACT
   await Then("the resolved renderer should own the live bomber through impact and completion", async () => {
     try {
       const scene = singleScene(scenes);
-      assert.deepEqual(scene.bomber, {
+      assert.deepEqual(scene.bombers[0], {
         id: "tutorial-bomber-1", scenarioType: "Bomber", faction: "Player", originHexKey: "0,0", targetHexKey: "2,0",
         strengthBefore: 100, strengthAfterEscortPhase: 100, finalStrength: 100,
         laneOffsetPx: 0, role: "bomber", combatRole: "strike"
@@ -639,19 +702,19 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENS
     assert.deepEqual(scene.escorts.map((flight) => [flight.id, flight.faction, flight.scenarioType, flight.originHexKey]),
       [["escort-1", "Bot", "Fighter", "1,-2"]]);
     assert.equal(scene.bombers?.length, 1);
-    assert.equal(scene.bomber?.id, "bomber-1");
+    assert.equal(scene.bombers[0]?.id, "bomber-1");
     assert.strictEqual(scene.escortExchanges, event.escortExchanges, "The authoritative escort exchanges must retain identity.");
     assert.equal(scene.escortExchanges?.length, 1);
     assert.deepEqual(callOrder, [], "BattleScreen must not also drive legacy flight or gun-pass animations.");
-    assert.equal(scene.bomber?.originHexKey, "-1,-2");
+    assert.equal(scene.bombers[0]?.originHexKey, "-1,-2");
     assert.strictEqual(scene.bomberPassExchanges, event.bomberPassExchanges);
     assert.equal(scene.bomberPassExchanges?.length, 1);
     assert.equal(scene.escorts[0].strengthAfterEscortPhase, 83);
     assert.equal(scene.escorts[0].finalStrength, 83);
     assert.equal(scene.interceptors[0].strengthAfterEscortPhase, 100);
     assert.equal(scene.interceptors[0].finalStrength, 88);
-    assert.equal(scene.bomber?.finalStrength, 78);
-    assertSceneTiming(scene, 0);
+    assert.equal(scene.bombers[0]?.finalStrength, 78);
+    assertNoLegacyTimingFields(scene);
   });
 });
 
@@ -849,7 +912,7 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_STOP_DESTROYED_ESCORTS_FROM_CONTINUING
   };
 
   await When("the mission air intercept event is played through both phases", async () => {
-    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, true);
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, true);
   });
 
   await Then("the scene should retain the destroyed escort for the opening clash with zero strength thereafter", async () => {
@@ -861,7 +924,7 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_STOP_DESTROYED_ESCORTS_FROM_CONTINUING
     assert.deepEqual(scene.escorts.map((flight) => [flight.id, flight.faction, flight.scenarioType, flight.originHexKey]),
       [["escort-1", "Bot", "Fighter", "1,-2"]]);
     assert.equal(scene.bombers?.length, 1);
-    assert.equal(scene.bomber?.id, "bomber-1");
+    assert.equal(scene.bombers[0]?.id, "bomber-1");
     assert.strictEqual(scene.escortExchanges, event.escortExchanges, "The authoritative escort exchanges must retain identity.");
     assert.equal(scene.escortExchanges?.length, 1);
     assert.deepEqual(callOrder, [], "BattleScreen must not also drive legacy flight or gun-pass animations.");
@@ -873,12 +936,12 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_STOP_DESTROYED_ESCORTS_FROM_CONTINUING
     assert.equal(scene.escortExchanges[0].attackerDestroyed, true);
     assert.equal(scene.interceptors[0].strengthAfterEscortPhase, 82);
     assert.equal(scene.interceptors[0].finalStrength, 61);
-    assert.equal(scene.bomber?.finalStrength, 74);
+    assert.equal(scene.bombers[0]?.finalStrength, 74);
     assert.equal(scene.bomberPassExchanges[0].attackerUnitKey, "cap-1");
     assert.equal(scene.bomberPassExchanges[0].defenderUnitKey, "bomber-1");
     assert.ok(scene.bomberPassExchanges.every((exchange) =>
       exchange.attackerUnitKey !== "escort-1" && exchange.defenderUnitKey !== "escort-1"));
-    assertSceneTiming(scene, 900);
+    assertNoLegacyTimingFields(scene);
   });
 });
 
@@ -1214,11 +1277,11 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
     ]
   };
 
-  await When("the mission air intercept event is played with a delayed bomber arrival window", async () => {
-    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, true);
+  await When("the mission air intercept event is played through the resolved scene", async () => {
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, true);
   });
 
-  await Then("the renderer should receive the complete delayed bomber timing policy and both resolved phases", async () => {
+  await Then("the renderer should receive both resolved phases without a competing fixed-duration policy", async () => {
     const scene = singleScene(scenes);
     assert.equal(scene.kind, "airToAir");
     assert.equal(scene.hexKey, "0,0");
@@ -1227,7 +1290,7 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
     assert.deepEqual(scene.escorts.map((flight) => [flight.id, flight.faction, flight.scenarioType, flight.originHexKey]),
       [["escort-1", "Bot", "Fighter", "1,-2"]]);
     assert.equal(scene.bombers?.length, 1);
-    assert.equal(scene.bomber?.id, "bomber-1");
+    assert.equal(scene.bombers[0]?.id, "bomber-1");
     assert.strictEqual(scene.escortExchanges, event.escortExchanges, "The authoritative escort exchanges must retain identity.");
     assert.equal(scene.escortExchanges?.length, 1);
     assert.deepEqual(callOrder, [], "BattleScreen must not also drive legacy flight or gun-pass animations.");
@@ -1235,10 +1298,8 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
     assert.equal(scene.bomberPassExchanges?.length, 1);
     assert.equal(scene.interceptors[0].finalStrength, 90);
     assert.equal(scene.escorts[0].finalStrength, 86);
-    assert.equal(scene.bomber?.finalStrength, 76);
-    assertSceneTiming(scene, 900);
-    assert.ok(scene.bomberArrivalDelayMs! > buildResolvedAirCombatSceneTimingPolicy(0).bomberArrivalDelayMs,
-      "A delayed bomber must receive a later renderer arrival window.");
+    assert.equal(scene.bombers[0]?.finalStrength, 76);
+    assertNoLegacyTimingFields(scene);
     assert.deepEqual(waits, [], "The resolved renderer owns phase timing without additional BattleScreen waits.");
   });
 });
@@ -1406,7 +1467,7 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
   };
 
   await When("the air intercept playback is told the bomber-defense pass is unavailable", async () => {
-    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, false);
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, false);
   });
 
   await Then("the scene should retain the escort clash and destroyed bomber without replaying its defense pass", async () => {
@@ -1418,7 +1479,7 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
     assert.deepEqual(scene.escorts.map((flight) => [flight.id, flight.faction, flight.scenarioType, flight.originHexKey]),
       [["escort-1", "Bot", "Fighter", "1,-2"]]);
     assert.equal(scene.bombers?.length, 1);
-    assert.equal(scene.bomber?.id, "bomber-1");
+    assert.equal(scene.bombers[0]?.id, "bomber-1");
     assert.strictEqual(scene.escortExchanges, event.escortExchanges, "The authoritative escort exchanges must retain identity.");
     assert.equal(scene.escortExchanges?.length, 1);
     assert.deepEqual(callOrder, [], "BattleScreen must not also drive legacy flight or gun-pass animations.");
@@ -1427,9 +1488,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
     assert.equal(scene.escorts[0].strengthBefore, 100);
     assert.equal(scene.escorts[0].finalStrength, 100);
     assert.equal(scene.interceptors[0].finalStrength, 100);
-    assert.equal(scene.bomber?.strengthBefore, 100);
-    assert.equal(scene.bomber?.finalStrength, 0);
-    assertSceneTiming(scene, 900);
+    assert.equal(scene.bombers[0]?.strengthBefore, 100);
+    assert.equal(scene.bombers[0]?.finalStrength, 0);
+    assertNoLegacyTimingFields(scene);
   });
 });
 
@@ -1895,7 +1956,7 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_USE_CHOREOGRAPHED_SHOW_PATHS_WHEN_AVAI
   };
 
   await When("the mission air intercept event is played", async () => {
-    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, true);
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, true);
   });
 
   await Then("the screen should hand the renderer every resolved participant and exchange exactly once", async () => {
@@ -1906,17 +1967,17 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_USE_CHOREOGRAPHED_SHOW_PATHS_WHEN_AVAI
     assert.deepEqual(scene.escorts.map((flight) => [flight.id, flight.originHexKey, flight.strengthAfterEscortPhase, flight.finalStrength]),
       [["escort-1", "1,-2", 0, 0]]);
     assert.equal(scene.bombers?.length, 1);
-    assert.equal(scene.bomber?.id, "bomber-1");
-    assert.equal(scene.bomber?.originHexKey, "-1,-2");
-    assert.equal(scene.bomber?.strengthBefore, 100);
-    assert.equal(scene.bomber?.finalStrength, 44);
+    assert.equal(scene.bombers[0]?.id, "bomber-1");
+    assert.equal(scene.bombers[0]?.originHexKey, "-1,-2");
+    assert.equal(scene.bombers[0]?.strengthBefore, 100);
+    assert.equal(scene.bombers[0]?.finalStrength, 44);
     assert.strictEqual(scene.escortExchanges, event.escortExchanges);
     assert.strictEqual(scene.bomberPassExchanges, event.bomberPassExchanges);
     assert.deepEqual(scene.escortExchanges?.map((exchange) => [exchange.attackerUnitKey, exchange.defenderUnitKey]),
       [["escort-1", "cap-1"]]);
     assert.deepEqual(scene.bomberPassExchanges?.map((exchange) => [exchange.attackerUnitKey, exchange.defenderUnitKey]),
       [["cap-1", "bomber-1"], ["cap-2", "bomber-1"]]);
-    assertSceneTiming(scene, 900);
+    assertNoLegacyTimingFields(scene);
     assert.deepEqual(callOrder, [], "The resolved renderer must own all gun passes.");
   });
 });
@@ -2072,7 +2133,7 @@ registerTest("BATTLESCREEN_LINKED_STRIKES_KEEP_ESCORT_SORTIES_INSIDE_INTERCEPTED
   });
 });
 
-registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_DEFERS_TIMING_TO_THE_DIRECTOR", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let coordinatedPlan: CoordinatedAirClusterPlaybackPlan | null = null;
   let coordinatedScene: ResolvedAirShowScene | null = null;
@@ -2224,7 +2285,7 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
     coordinatedScene = coordinatedPlan?.scene ?? null;
   });
 
-  await Then("the coordinated scene should inherit the shared timing policy and HQ context", async () => {
+  await Then("the coordinated scene should leave timing to the director and retain HQ context", async () => {
     if (!coordinatedScene) {
       throw new Error("Expected BattleScreen to build a coordinated airshow scene.");
     }
@@ -2241,68 +2302,9 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
     assert.strictEqual(coordinatedScene.escortExchanges[0], coordinatedEvent.escortExchanges?.[0]);
     assert.strictEqual(coordinatedScene.bomberPassExchanges[0], coordinatedEvent.bomberPassExchanges?.[0]);
 
-    const expectedPolicy = buildCoordinatedAirClusterTimingPolicy();
-    if (coordinatedScene.fighterIngressDurationMs !== expectedPolicy.fighterIngressDurationMs) {
-      throw new Error(
-        `Expected coordinated fighter ingress ${expectedPolicy.fighterIngressDurationMs}, ` +
-        `saw ${coordinatedScene.fighterIngressDurationMs ?? "<missing>"}.`
-      );
-    }
-    if (coordinatedScene.escortClashDurationMs !== expectedPolicy.escortClashDurationMs) {
-      throw new Error(
-        `Expected coordinated escort clash ${expectedPolicy.escortClashDurationMs}, ` +
-        `saw ${coordinatedScene.escortClashDurationMs ?? "<missing>"}.`
-      );
-    }
-    if (coordinatedScene.bomberIngressDurationMs !== expectedPolicy.bomberIngressDurationMs) {
-      throw new Error(
-        `Expected coordinated bomber ingress ${expectedPolicy.bomberIngressDurationMs}, ` +
-        `saw ${coordinatedScene.bomberIngressDurationMs ?? "<missing>"}.`
-      );
-    }
-    if (coordinatedScene.bomberPassDurationMs !== expectedPolicy.bomberPassDurationMs) {
-      throw new Error(
-        `Expected coordinated bomber pass ${expectedPolicy.bomberPassDurationMs}, ` +
-        `saw ${coordinatedScene.bomberPassDurationMs ?? "<missing>"}.`
-      );
-    }
-    if (coordinatedScene.strikeRunDurationMs !== expectedPolicy.strikeRunDurationMs) {
-      throw new Error(
-        `Expected coordinated strike run ${expectedPolicy.strikeRunDurationMs}, ` +
-        `saw ${coordinatedScene.strikeRunDurationMs ?? "<missing>"}.`
-      );
-    }
-    if (coordinatedScene.egressDurationMs !== expectedPolicy.egressDurationMs) {
-      throw new Error(
-        `Expected coordinated egress ${expectedPolicy.egressDurationMs}, ` +
-        `saw ${coordinatedScene.egressDurationMs ?? "<missing>"}.`
-      );
-    }
-    if (coordinatedScene.bombReleaseProgress !== expectedPolicy.bombReleaseProgress) {
-      throw new Error(
-        `Expected coordinated bomb release progress ${expectedPolicy.bombReleaseProgress}, ` +
-        `saw ${coordinatedScene.bombReleaseProgress ?? "<missing>"}.`
-      );
-    }
-    const expectedComputedLeadMs = resolveCoordinatedAirClusterLeadWindow(
-      true,
-      1,
-      expectedPolicy.fighterIngressDurationMs,
-      expectedPolicy.escortClashDurationMs,
-      expectedPolicy.bomberStartDelayMs
-    ).bomberStartDelayMs;
-    if (coordinatedPlan?.bomberStartDelayMs !== expectedComputedLeadMs) {
-      throw new Error(
-        `Expected coordinated computed bomber start delay ${expectedComputedLeadMs}, ` +
-        `saw ${coordinatedPlan?.bomberStartDelayMs ?? "<missing>"}.`
-      );
-    }
-    if (coordinatedScene.bomberArrivalDelayMs !== coordinatedPlan?.bomberStartDelayMs) {
-      throw new Error(
-        `Expected scene bomber arrival delay ${coordinatedPlan?.bomberStartDelayMs ?? "<missing>"}, ` +
-        `saw ${coordinatedScene.bomberArrivalDelayMs ?? "<missing>"}.`
-      );
-    }
+    assertNoLegacyTimingFields(coordinatedScene);
+    assert.equal("bomberStartDelayMs" in coordinatedPlan, false);
+    assert.equal("fighterIngressLeadMs" in coordinatedPlan, false);
     const playerHqOffset = CoordinateSystem.axialToOffset(fakeEngine.getPlayerHq().q, fakeEngine.getPlayerHq().r);
     const botHqOffset = CoordinateSystem.axialToOffset(fakeEngine.getBotHq().q, fakeEngine.getBotHq().r);
     const expectedPlayerHqKey = CoordinateSystem.makeHexKey(playerHqOffset.col, playerHqOffset.row);
@@ -2430,7 +2432,6 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEP
         0,
         false,
         false,
-        900,
         true,
         "-1,-2",
         linkedEscortFlights,
@@ -2710,7 +2711,6 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_KEEPS_BOMBER_VISIBLE_EVEN_WITHOUT_A_
       0,
       false,
       false,
-      0,
       false,
       "-1,-2",
       [],
@@ -2721,13 +2721,13 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_KEEPS_BOMBER_VISIBLE_EVEN_WITHOUT_A_
   await Then("the bomber should still be present in the resolved scene so the strike run and flak phase can render", async () => {
     const resolvedScene = singleScene(scenes);
     assert.equal(resolvedScene.bombers?.length, 1);
-    assert.equal(resolvedScene.bomber?.originHexKey, "-1,-2");
-    assert.equal(resolvedScene.bomber?.strengthBefore, 100);
-    assert.equal(resolvedScene.bomber?.finalStrength, 100);
+    assert.equal(resolvedScene.bombers[0]?.originHexKey, "-1,-2");
+    assert.equal(resolvedScene.bombers[0]?.strengthBefore, 100);
+    assert.equal(resolvedScene.bombers[0]?.finalStrength, 100);
     assert.deepEqual(resolvedScene.interceptors.map((flight) => [flight.id, flight.finalStrength]), [["cap-1", 0]]);
     assert.deepEqual(resolvedScene.escorts.map((flight) => [flight.id, flight.finalStrength]), [["escort-1", 100]]);
-    assertSceneTiming(resolvedScene, 0);
-    if (!resolvedScene.bomber || resolvedScene.bomber.id !== "bomber-1") {
+    assertNoLegacyTimingFields(resolvedScene);
+    if (resolvedScene.bombers[0]?.id !== "bomber-1") {
       throw new Error(`Expected bomber-1 to remain in the resolved scene, saw ${JSON.stringify(resolvedScene)}.`);
     }
     if ((resolvedScene.bomberPassExchanges ?? []).length !== 0) {
@@ -2780,15 +2780,9 @@ registerTest("BATTLESCREEN_INTERCEPTED_LINKED_STRIKES_KEEP_BOMBER_RUN_INSIDE_THE
     (screen as any).publishActivityEvent = () => {};
     (screen as any).playMissionAirInterceptEvent = async (...args: unknown[]) => {
       interceptCalls.push(args);
-      callOrder.push(`intercept:${(args[12] as { type?: string } | null)?.type ?? "none"}`);
+      callOrder.push(`intercept:${(args[11] as { type?: string } | null)?.type ?? "none"}`);
       interceptStarted.resolve();
       await interceptFinished.promise;
-    };
-    (screen as any).animateAircraftLeg = async () => {
-      callOrder.push("legacyLeg");
-    };
-    (screen as any).playDamagedAircraftReturn = async () => {
-      callOrder.push("legacyReturn");
     };
     (screen as any).playResolvedAirStrikeImpact = async (
       _flight: unknown,
@@ -2901,12 +2895,11 @@ registerTest("BATTLESCREEN_INTERCEPTED_LINKED_STRIKES_KEEP_BOMBER_RUN_INSIDE_THE
       assert.equal(args[4], flight.laneOffsetPx);
       assert.equal(args[5], false, "Keep escorts in the resolved package.");
       assert.equal(args[6], true, "Announce the linked event once.");
-      assert.equal(args[7], resolveAirInterceptBomberArrivalDelayMs());
-      assert.equal(args[8], true);
-      assert.equal(args[9], flight.originKey);
-      assert.strictEqual(args[10], escorts);
-      assert.equal(args[11], flight.destKey);
-      assert.strictEqual(args[12], events[0], "The exact linked flak event must be handed off.");
+      assert.equal(args[7], true);
+      assert.equal(args[8], flight.originKey);
+      assert.strictEqual(args[9], escorts);
+      assert.equal(args[10], flight.destKey);
+      assert.strictEqual(args[11], events[0], "The exact linked flak event must be handed off.");
     } finally {
       interceptFinished.resolve();
       await playback;
@@ -3009,10 +3002,7 @@ registerTest("BATTLESCREEN_COMPLEX_AIR_COMBAT_CLUSTERS_OVERLAP_NEARBY_PACKAGES_A
       assert.strictEqual(scene.bomberPassExchanges[0], event.bomberPassExchanges?.[0]);
       assert.equal(announcements.length, 1);
       assert.strictEqual(announcements[0], event);
-      const policy = buildCoordinatedAirClusterTimingPolicy();
-      assert.equal(scene.bomberArrivalDelayMs, resolveCoordinatedAirClusterLeadWindow(
-        true, 2, policy.fighterIngressDurationMs, policy.escortClashDurationMs, policy.bomberStartDelayMs
-      ).bomberStartDelayMs);
+      assertNoLegacyTimingFields(scene);
     } finally {
       rendererFinished.resolve();
       await playback;

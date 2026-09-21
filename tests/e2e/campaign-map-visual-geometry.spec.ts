@@ -93,7 +93,8 @@ async function evidence(page: Page, info: TestInfo, name: string): Promise<void>
 }
 
 async function assertHexRasterPaintClipped(page: Page, info: TestInfo): Promise<void> {
-  const isolation = await page.locator('#campaignHexMap').evaluate(svg => {
+  const flattenedBackground = info.project.name === 'firefox' ? [255, 255, 255] as const : null;
+  const isolation = await page.locator('#campaignHexMap').evaluate((svg, background) => {
     const runtime = window as unknown as MapFixture;
     runtime.camera.dispose();
     const image = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="28,23"]')!;
@@ -124,6 +125,11 @@ async function assertHexRasterPaintClipped(page: Page, info: TestInfo): Promise<
         element.style.setProperty('border-color', 'transparent', 'important');
       }
     }
+    if (background) {
+      const color = `rgb(${background.join(',')})`;
+      document.documentElement.style.setProperty('background', color, 'important');
+      document.body.style.setProperty('background', color, 'important');
+    }
     const box = image.getBoundingClientRect();
     const left = Math.max(0, Math.floor(box.left - 3));
     const top = Math.max(0, Math.floor(box.top - 3));
@@ -133,10 +139,14 @@ async function assertHexRasterPaintClipped(page: Page, info: TestInfo): Promise<
       clip: { x: left, y: top, width: right - left, height: bottom - top },
       polygon: polygon.map(point => ({ x: point.x - left, y: point.y - top }))
     };
+  }, flattenedBackground);
+  const screenshot = await page.screenshot({
+    clip: isolation.clip,
+    ...(flattenedBackground ? {} : { omitBackground: true }),
+    scale: 'css'
   });
-  const screenshot = await page.screenshot({ clip: isolation.clip, omitBackground: true, scale: 'css' });
   await info.attach('hex-art-effective-alpha-clip.png', { body: screenshot, contentType: 'image/png' });
-  const pixels = await page.evaluate(async ({ dataUrl, polygon }) => {
+  const pixels = await page.evaluate(async ({ dataUrl, polygon, background }) => {
     const source = new Image();
     source.src = dataUrl;
     await source.decode();
@@ -164,14 +174,25 @@ async function assertHexRasterPaintClipped(page: Page, info: TestInfo): Promise<
     let outside = 0;
     for (let y = 0; y < canvas.height; y += 1) {
       for (let x = 0; x < canvas.width; x += 1) {
-        const alpha = data[(y * canvas.width + x) * 4 + 3]!;
-        if (alpha < 8) continue;
+        const offset = (y * canvas.width + x) * 4;
+        const paintedPixel = background
+          ? Math.max(
+            Math.abs(data[offset]! - background[0]),
+            Math.abs(data[offset + 1]! - background[1]),
+            Math.abs(data[offset + 2]! - background[2])
+          ) >= 8
+          : data[offset + 3]! >= 8;
+        if (!paintedPixel) continue;
         painted += 1;
         if (!inside(x + 0.5, y + 0.5) && distanceToEdge(x + 0.5, y + 0.5) > 1.5) outside += 1;
       }
     }
     return { painted, outside };
-  }, { dataUrl: `data:image/png;base64,${screenshot.toString('base64')}`, polygon: isolation.polygon });
+  }, {
+    dataUrl: `data:image/png;base64,${screenshot.toString('base64')}`,
+    polygon: isolation.polygon,
+    background: flattenedBackground
+  });
   expect(pixels.painted, 'Isolated shipped raster must produce visible pixels').toBeGreaterThan(100);
   expect(pixels.outside, 'No nontransparent shipped-raster pixels may escape the effective cell clip').toBe(0);
 }
@@ -368,6 +389,22 @@ test('FSG_CAM_107 hex artwork aligns to flat-top cells and follows map zoom', as
   await evidence(page, info, 'grid-registered-opening');
   const geometry = await page.locator('#campaignHexMap').evaluate(async svg => {
     const runtime = window as unknown as MapFixture;
+    const projectedBounds = (element: SVGGraphicsElement) => {
+      const box = element.getBBox();
+      const matrix = element.getScreenCTM();
+      if (!matrix) throw new Error(`Missing screen transform for ${element.tagName}.`);
+      const corners = [
+        new DOMPoint(box.x, box.y),
+        new DOMPoint(box.x + box.width, box.y),
+        new DOMPoint(box.x + box.width, box.y + box.height),
+        new DOMPoint(box.x, box.y + box.height)
+      ].map(point => point.matrixTransform(matrix));
+      const left = Math.min(...corners.map(point => point.x));
+      const right = Math.max(...corners.map(point => point.x));
+      const top = Math.min(...corners.map(point => point.y));
+      const bottom = Math.max(...corners.map(point => point.y));
+      return { left, right, top, bottom, width: right - left, height: bottom - top };
+    };
     const tile = svg.querySelector<SVGImageElement>('#campaign-map-sprites .campaign-map-tile-symbol[data-hex="28,23"]')!;
     const tileHex = svg.querySelector<SVGPolygonElement>('.campaign-hex[data-hex="28,23"] polygon')!;
     const base = svg.querySelector<SVGImageElement>('.campaign-base-marker__sprite')!;
@@ -416,15 +453,15 @@ test('FSG_CAM_107 hex artwork aligns to flat-top cells and follows map zoom', as
         : [`${image.getAttribute('class')}:extent-or-transform`];
     });
     const read = () => {
-      const tileBox = tile.getBoundingClientRect();
-      const tileHexBox = tileHex.getBoundingClientRect();
-      const baseBox = base.getBoundingClientRect();
-      const baseHexBox = baseHex.getBoundingClientRect();
-      const knownSiteBox = knownSite.getBoundingClientRect();
-      const knownSiteHexBox = knownSiteHex.getBoundingClientRect();
-      const boundedBox = boundedTile.getBoundingClientRect();
-      const forceBox = force.getBoundingClientRect();
-      const forceHexBox = forceHex.getBoundingClientRect();
+      const tileBox = projectedBounds(tile);
+      const tileHexBox = projectedBounds(tileHex);
+      const baseBox = projectedBounds(base);
+      const baseHexBox = projectedBounds(baseHex);
+      const knownSiteBox = projectedBounds(knownSite);
+      const knownSiteHexBox = projectedBounds(knownSiteHex);
+      const boundedBox = projectedBounds(boundedTile);
+      const forceBox = projectedBounds(force);
+      const forceHexBox = projectedBounds(forceHex);
       const forceToCell = forceHex.getScreenCTM()!.inverse();
       const forceContained = Array.from({ length: 32 }, (_, index) => new DOMPoint(
         forceBox.left + forceBox.width / 2 + Math.cos(index * Math.PI / 16) * forceBox.width / 2,

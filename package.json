@@ -9,7 +9,7 @@
     "dev": "vite",
     "canon:export": "python tools/export_weapon_canon.py",
     "canon:check": "python tools/export_weapon_canon.py --check",
-    "build": "tsc && vite build && node tools/verify-production-bundle.mjs",
+    "build": "npm run verify:gates && tsc && vite build && node tools/verify-production-bundle.mjs",
     "preview": "vite preview",
     "test": "node -e \"require('node:fs').rmSync('dist-tsc', { recursive: true, force: true })\" && tsc --outDir dist-tsc && xcopy /E /I /Y \"src\\assets\" \"dist-tsc\\src\\assets\" && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/index.js",
     "test:campaign": "node -e \"require('node:fs').rmSync('dist-tsc', { recursive: true, force: true })\" && tsc --outDir dist-tsc && xcopy /E /I /Y \"src\\assets\" \"dist-tsc\\src\\assets\" && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/campaign-only-tests.js",
@@ -28,7 +28,11 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "report:air-scenario": "node -e \"require('node:fs').rmSync('dist-tsc', { recursive: true, force: true })\" && tsc --outDir dist-tsc && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/AirScenario.report.js --fail-on-anomalies",
-    "lint": "eslint . --ext .ts"
+    "lint": "eslint . --ext .ts",
+    "verify:gates": "npm run verify:gates:self-test && npm run verify:architecture && npm run verify:assets",
+    "verify:gates:self-test": "node tools/verify-repository-gates.self-test.mjs",
+    "verify:architecture": "node tools/verify-architecture.mjs",
+    "verify:assets": "node tools/verify-source-assets.mjs"
   },
   "dependencies": {
     "zustand": "^5.0.0"

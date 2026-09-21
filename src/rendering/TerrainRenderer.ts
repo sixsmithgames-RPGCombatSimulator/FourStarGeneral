@@ -1,4 +1,5 @@
 import type { TileDetails } from "./CoordinateSystem";
+import { resolveTerrainFill } from "./TerrainFillPalette";
 
 /**
  * Terrain sprite variant sets.
@@ -148,23 +149,6 @@ function variantIndexForHex(col: number, row: number, count: number): number {
  * Handles terrain fill colors, sprite selection, and tooltip generation.
  */
 export class TerrainRenderer {
-  private readonly terrainPalette: Record<string, string> = {
-    sea: "#1c3a5d",
-    beach: "#c79d67",
-    plains: "#4f7a3a",
-    grass: "#4f7a3a",
-    forest: "#1f4f3c",
-    hill: "#7a6a4d",
-    road: "#bfae97",
-    city: "#7e7b8b",
-    town: "#8a8590",
-    hamlet: "#9e9a8a",
-    mountain: "#65616a",
-    marsh: "#4a6145",
-    muddy: "#6b5c40",
-    river: "#1c4d6e"
-  };
-
   /**
    * Returns the fill color for a terrain type.
    * @param terrain - Primary terrain identifier
@@ -172,15 +156,7 @@ export class TerrainRenderer {
    * @returns Hex color string
    */
   getTerrainFill(terrain: string, terrainType: string): string {
-    if (this.terrainPalette[terrain]) {
-      return this.terrainPalette[terrain];
-    }
-
-    if (this.terrainPalette[terrainType]) {
-      return this.terrainPalette[terrainType];
-    }
-
-    return "#3c445c";
+    return resolveTerrainFill(terrain, terrainType, "battle");
   }
 
   /**

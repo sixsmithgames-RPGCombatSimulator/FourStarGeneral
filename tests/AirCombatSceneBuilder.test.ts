@@ -4,23 +4,18 @@
  * Specification: docs/AIR_SHOW_NORTH_STAR_SPEC.md
  * Implementation Status: See "Implementation Status & Recent Fixes" section in spec
  *
- * These tests validate scene building, ingress timing, and formation spacing.
+ * These tests validate scene building and formation spacing.
  */
 
 import { registerTest } from "./harness.js";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder";
-import type { AirEngagementEvent } from "../src/game/GameEngine";
-import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
+import type { AirEngagementEvent } from "../src/game/battle/air/AirCombatContracts";
 
 // HEX constants for distance calculations (from balance.ts)
 const HEX_RADIUS = 48;
 const HEX_WIDTH = Math.sqrt(3) * HEX_RADIUS; // ~83.14px
 const MINIMUM_INGRESS_DISTANCE_HEXES = 8;
 const _MINIMUM_INGRESS_DISTANCE_PX = MINIMUM_INGRESS_DISTANCE_HEXES * HEX_WIDTH; // ~665px
-
-// Timing requirements per North Star Spec
-const _MINIMUM_FIGHTER_INGRESS_MS = 1250;
-const _MINIMUM_BOMBER_INGRESS_MS = 3000;
 
 registerTest("AIRCOMBATSCENEBUILDER_FLAGS_LINKED_ESCORTS_MISSING_FROM_RESOLVED_EVENT_AND_DOES_NOT_INJECT_THEM", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof buildResolvedAirCombatScene> | null = null;
@@ -95,7 +90,7 @@ registerTest("AIRCOMBATSCENEBUILDER_MARKS_CAP_CLASH_OPPOSITION_AS_CAP_NOT_ESCORT
     if (!result) {
       throw new Error("Expected a built scene result.");
     }
-    if (result.scene.bomber !== null) {
+    if (result.scene.bombers.length !== 0) {
       throw new Error("Did not expect a bomber in a CAP clash scene.");
     }
     const escortFlight = result.scene.escorts[0];
@@ -220,8 +215,8 @@ registerTest("AIR_SHOW_MAX_DENSITY_THRESHOLD_6_AIRCRAFT", async ({ Given, When, 
     let totalAircraft = 0;
     result.scene.interceptors.forEach(i => totalAircraft += Math.max(1, Math.round((i.strengthBefore || 100) / 25)));
     result.scene.escorts.forEach(e => totalAircraft += Math.max(1, Math.round((e.strengthBefore || 100) / 25)));
-    if (result.scene.bomber) {
-      totalAircraft += Math.max(1, Math.round((result.scene.bomber.strengthBefore || 100) / 25));
+    if (result.scene.bombers[0]) {
+      totalAircraft += Math.max(1, Math.round((result.scene.bombers[0].strengthBefore || 100) / 25));
     }
 
     // Verify density threshold detection
@@ -230,10 +225,8 @@ registerTest("AIR_SHOW_MAX_DENSITY_THRESHOLD_6_AIRCRAFT", async ({ Given, When, 
     if (totalAircraft > DENSITY_THRESHOLD) {
       console.log(`[DIAGNOSTIC] High density detected: ${totalAircraft} aircraft. Altitude lanes should be applied.`);
 
-      // The scene should have been built with considerations for high density
-      // This is validated by ensuring the scene doesn't fail to build
-      if (!result.scene.fighterIngressDurationMs || !result.scene.bomberIngressDurationMs) {
-        throw new Error("Scene timing metadata missing - required for spacing coordination.");
+      if (result.scene.interceptors.length + result.scene.escorts.length < 2) {
+        throw new Error("Expected the resolved scene to preserve the high-density fighter package.");
       }
     }
   });
@@ -276,7 +269,7 @@ registerTest("AIR_SHOW_NO_OVERLAP_STACK_EXCEEDS_3_SILHOUETTES", async ({ Given, 
     const allFlights = [
       ...result.scene.interceptors,
       ...result.scene.escorts,
-      ...(result.scene.bomber ? [result.scene.bomber] : [])
+      ...result.scene.bombers
     ];
 
     allFlights.forEach(flight => {
@@ -329,7 +322,7 @@ registerTest("AIR_SHOW_COMBAT_ELLIPSE_EXPANDS_FOR_HIGH_DENSITY", async ({ Given,
  * Per North Star Spec §Technical Foundation §2. Progress-Based Timing
  */
 
-registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_PROGRESS_BASED_TIMING_METADATA", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_SCENE_BUILDER_DEFERS_ALL_TIMING_TO_THE_DIRECTOR", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof buildResolvedAirCombatScene> | null = null;
 
   const event: AirEngagementEvent = {
@@ -348,7 +341,7 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_PROGRESS_BASED_TIMING_METADATA", a
     ]
   };
 
-  await Given("a contested strike package requiring progress-based timing", async () => {});
+  await Given("a contested strike package whose timing belongs to the geometry planner", async () => {});
 
   await When("the resolved air combat scene is built", async () => {
     result = buildResolvedAirCombatScene(event, {
@@ -359,36 +352,22 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_PROGRESS_BASED_TIMING_METADATA", a
     });
   });
 
-  await Then("the scene should include timing metadata for progress-based choreography", async () => {
+  await Then("the scene should not carry a competing fixed-duration policy", async () => {
     if (!result) {
       throw new Error("Expected a built scene result.");
     }
+    const scene = result.scene;
 
-    const expectedPolicy = buildResolvedAirCombatSceneTimingPolicy();
-
-    // Validate scene has duration metadata
-    if (!result.scene.fighterIngressDurationMs || !result.scene.bomberIngressDurationMs) {
-      throw new Error("Expected scene to include ingress duration metadata for progress calculation.");
-    }
-
-    if (result.scene.fighterIngressDurationMs !== expectedPolicy.fighterIngressDurationMs) {
-      throw new Error(
-        `Expected fighter ingress timing to inherit the shared policy ${expectedPolicy.fighterIngressDurationMs}ms, ` +
-        `saw ${result.scene.fighterIngressDurationMs}ms.`
-      );
-    }
-    if (result.scene.bomberIngressDurationMs !== expectedPolicy.bomberIngressDurationMs) {
-      throw new Error(
-        `Expected bomber ingress timing to inherit the shared policy ${expectedPolicy.bomberIngressDurationMs}ms, ` +
-        `saw ${result.scene.bomberIngressDurationMs}ms.`
-      );
-    }
-
-    console.log(`[PROGRESS TIMING] Scene includes timing metadata:`);
-    console.log(`  - Fighter ingress: ${result.scene.fighterIngressDurationMs}ms`);
-    console.log(`  - Bomber ingress: ${result.scene.bomberIngressDurationMs}ms`);
-    console.log(`  - Shared policy fighter ingress: ${expectedPolicy.fighterIngressDurationMs}ms`);
-    console.log(`  - Shared policy bomber ingress: ${expectedPolicy.bomberIngressDurationMs}ms`);
+    const legacyTimingFields = [
+      "fighterIngressDurationMs", "escortClashDurationMs", "bomberIngressDurationMs",
+      "bomberPassDurationMs", "strikeRunDurationMs", "egressDurationMs",
+      "bomberArrivalDelayMs", "bombReleaseProgress"
+    ];
+    legacyTimingFields.forEach((field) => {
+      if (field in scene) {
+        throw new Error(`Did not expect resolved scene timing field ${field}.`);
+      }
+    });
   });
 });
 
@@ -432,7 +411,7 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_ESCORT_METADATA_FOR_PATHING", asyn
       throw new Error("Expected escort flights in scene.");
     }
 
-    // Validate escort metadata includes role and timing info
+    // Validate escort metadata includes the role and origin needed by the timeline planner.
     for (const escort of result.scene.escorts) {
       if (!escort.role) {
         throw new Error(`Escort flight ${escort.id} missing role metadata.`);
@@ -489,7 +468,7 @@ registerTest("AIR_SHOW_SCENE_BUILDER_PROGRESS_ANCHOR_REFERENCE", async ({ Given,
       console.log(`    ${k}: ${v}`);
     });
 
-    // Scene builder validates these anchors exist in timing metadata
+    // Scene builder validates the spatial anchors consumed by the timeline planner.
     console.log(`  ✓ All progress anchors validated`);
   });
 });

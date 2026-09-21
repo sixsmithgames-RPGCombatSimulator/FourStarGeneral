@@ -1,3 +1,5 @@
+import { focusAndRevealWithinScrollOwner } from "./FocusedScrollReveal";
+
 /** Player-facing metadata for one existing campaign checkpoint; this dialog owns no persistence. */
 export interface CampaignCheckpointChoice {
   readonly slotId: string;
@@ -122,7 +124,9 @@ export class CampaignCheckpointPicker {
   public dispose(): void { this.finish?.(null); this.root.remove(); }
 
   private focusOption(): void {
-    (this.options.find((option) => option.tabIndex === 0) ?? this.close).focus();
+    const target = this.options.find((option) => option.tabIndex === 0) ?? this.close;
+    const body = this.root.querySelector<HTMLElement>(".tactical-save-center__body");
+    focusAndRevealWithinScrollOwner(target, body?.contains(target) ? body : null);
   }
 
   private select(index: number): void {

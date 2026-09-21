@@ -14,11 +14,13 @@ const plains: TerrainDefinition = {
   blocksLOS: false
 };
 
+type SequentialUnitType = "Infantry_42" | "Engineer" | "Light_Tank" | "Tank_Destroyer";
+
 function formationKeyForType(type: string): string | undefined {
   return formationList.find((formation) => formation.tacticalUnitType === type)?.key;
 }
 
-function makeScenarioUnit(typeKey: "Infantry_42" | "Light_Tank" | "Tank_Destroyer", hex: Axial, id: string): ScenarioUnit {
+function makeScenarioUnit(typeKey: SequentialUnitType, hex: Axial, id: string): ScenarioUnit {
   const definition = unitTypes[typeKey];
   if (!definition) {
     throw new Error(`Missing '${typeKey}' definition for sequential damage progression test.`);
@@ -41,7 +43,7 @@ function makeScenarioUnit(typeKey: "Infantry_42" | "Light_Tank" | "Tank_Destroye
   };
 }
 
-function makeCombatState(typeKey: "Infantry_42" | "Light_Tank" | "Tank_Destroyer"): UnitCombatState {
+function makeCombatState(typeKey: SequentialUnitType): UnitCombatState {
   const definition = unitTypes[typeKey];
   if (!definition) {
     throw new Error(`Missing '${typeKey}' combat definition for sequential damage progression test.`);
@@ -54,8 +56,8 @@ function makeCombatState(typeKey: "Infantry_42" | "Light_Tank" | "Tank_Destroyer
   };
 }
 
-function buildAttackRequest(attackerType: "Light_Tank" | "Tank_Destroyer", attackerHex: Axial, defender: ScenarioUnit): AttackRequest {
-  const defenderType = unitTypes.Infantry_42;
+function buildAttackRequest(attackerType: SequentialUnitType, attackerHex: Axial, defender: ScenarioUnit): AttackRequest {
+  const defenderType = unitTypes[defender.type];
   return {
     attacker: makeCombatState(attackerType),
     defender: {
@@ -64,7 +66,7 @@ function buildAttackRequest(attackerType: "Light_Tank" | "Tank_Destroyer", attac
       experience: defender.experience,
       general: { accBonus: 0, dmgBonus: 0 }
     },
-    attackerCtx: { hex: attackerHex },
+    attackerCtx: { hex: attackerHex, stance: "assault" },
     defenderCtx: {
       terrain: plains,
       class: defenderType.class,
@@ -74,90 +76,199 @@ function buildAttackRequest(attackerType: "Light_Tank" | "Tank_Destroyer", attac
       isSpottedOnly: false
     },
     targetFacing: defender.facing,
-    isSoftTarget: true,
+    isSoftTarget: defenderType.class === "infantry" || defenderType.class === "specialist",
     useTheoreticalShots: false
   };
 }
 
-registerTest("SEQUENTIAL_MULTI_ATTACKER_DAMAGE_REMAINS_STABLE_UNTIL_FIT_POOL_IS_NEAR_EXHAUSTED", async ({ Given, When, Then }) => {
+registerTest("SEQUENTIAL_IDENTICAL_ATTACK_DAMAGE_IS_MONOTONIC_UNTIL_TERMINAL_CAP", async ({ Given, When, Then }) => {
   const defender = makeScenarioUnit("Infantry_42", { q: 11, r: 9 }, "seq-defender");
-  applyDamagePacketToUnit(defender, {
-    personnel: { injured: 120, wounded: 80, severelyWounded: 20, killed: 10 },
-    equipment: { damaged: 0, disabled: 0, destroyed: 0 },
-    suppression: 0,
-    fortificationDamage: 0,
-    readinessLoss: 0,
-    weaponHits: []
-  });
-
-  const sequence: Array<{ type: "Light_Tank" | "Tank_Destroyer"; hex: Axial; id: string }> = [
-    { type: "Light_Tank", hex: { q: 12, r: 9 }, id: "seq-lt-1" },
-    { type: "Light_Tank", hex: { q: 10, r: 9 }, id: "seq-lt-2" },
-    { type: "Light_Tank", hex: { q: 11, r: 8 }, id: "seq-lt-3" },
-    { type: "Light_Tank", hex: { q: 11, r: 10 }, id: "seq-lt-4" },
-    { type: "Tank_Destroyer", hex: { q: 12, r: 10 }, id: "seq-td-5" }
-  ];
+  const attackerHex: Axial = { q: 12, r: 9 };
+  const strikeCount = 7;
 
   const losses: number[] = [];
-  const fitBeforeStrike: number[] = [];
+  const readinessBeforeStrike: number[] = [];
   const expectedHits: number[] = [];
+  const appliedLosses: number[] = [];
+  const transitionReplayMismatches: number[] = [];
 
-  await Given("an already-damaged infantry battalion with a substantial remaining fit pool", async () => {
+  await Given("a fresh infantry formation and one unchanged adjacent infantry assault profile", async () => {
     const summary = summarizeFormationStatus(defender.status, defender.strength);
-    if (summary.personnel.fit < 450 || summary.readiness > 85 || summary.readiness < 70) {
+    if (summary.personnel.fit !== summary.personnel.total || summary.readiness !== 100) {
       throw new Error(`Unexpected starting state for sequential progression test (fit ${summary.personnel.fit}, readiness ${summary.readiness}).`);
     }
   });
 
-  await When("several armored attackers strike the same defender in sequence", async () => {
-    sequence.forEach((entry) => {
-      const attacker = makeScenarioUnit(entry.type, entry.hex, entry.id);
+  await When("fresh identical infantry attackers strike that defender repeatedly from the same range", async () => {
+    Array.from({ length: strikeCount }, (_, index) => index).forEach((index) => {
+      const attacker = makeScenarioUnit("Infantry_42", attackerHex, `seq-inf-${index + 1}`);
       const before = summarizeFormationStatus(defender.status, defender.strength);
-      const attackResult = resolveAttack(buildAttackRequest(entry.type, entry.hex, defender));
+      const attackResult = resolveAttack(buildAttackRequest("Infantry_42", attackerHex, defender));
       const packet = resolveDamagePacket({
         attacker,
-        attackerDefinition: unitTypes[entry.type],
-        attackerHex: entry.hex,
+        attackerDefinition: unitTypes.Infantry_42,
+        attackerHex,
         defender,
         defenderDefinition: unitTypes.Infantry_42,
         defenderHex: defender.hex,
         attackResult,
-        targetFacing: defender.facing
+        targetFacing: defender.facing,
+        attackerStance: "assault"
       });
-      fitBeforeStrike.push(before.personnel.fit);
+      readinessBeforeStrike.push(before.readiness);
       expectedHits.push(attackResult.expectedHits);
       losses.push(packet.readinessLoss);
+      const transitionReplay = structuredClone(defender);
+      applyDamagePacketToUnit(transitionReplay, {
+        ...packet,
+        personnel: { injured: 0, wounded: 0, severelyWounded: 0, killed: 0 },
+        equipment: { damaged: 0, disabled: 0, destroyed: 0 }
+      });
       applyDamagePacketToUnit(defender, packet);
+      const after = summarizeFormationStatus(defender.status, defender.strength);
+      appliedLosses.push(Math.round((before.readiness - after.readiness) * 100) / 100);
+      if (JSON.stringify(transitionReplay.status) !== JSON.stringify(defender.status)
+        || transitionReplay.strength !== defender.strength) {
+        transitionReplayMismatches.push(index + 1);
+      }
     });
   });
 
-  await Then("damage does not prematurely collapse while many fit personnel remain and only falls once fit is nearly exhausted", async () => {
-    if (losses.length < 5) {
+  await Then("each identical follow-up removes at least the baseline readiness unless only a smaller terminal remainder exists", async () => {
+    if (losses.length !== strikeCount) {
       throw new Error("Sequential progression test did not execute all planned strikes.");
     }
 
-    if (expectedHits[1] < expectedHits[0] * 0.95 || expectedHits[2] < expectedHits[1] * 0.95) {
-      throw new Error(`Unexpected hit-chance collapse during adjacent light-tank sequence (${expectedHits.map((value) => value.toFixed(1)).join(", ")}).`);
+    const firstLoss = losses[0] ?? 0;
+    if (firstLoss <= 0) {
+      throw new Error("The baseline identical assault must inflict measurable readiness loss.");
     }
+    expectedHits.forEach((hits, index) => {
+      if (Math.abs(hits - (expectedHits[0] ?? hits)) > 0.01) {
+        throw new Error(`Identical assault inputs produced different expected hits at strike ${index + 1}: ${expectedHits.map((value) => value.toFixed(2)).join(", ")}.`);
+      }
+      if (Math.abs((appliedLosses[index] ?? 0) - (losses[index] ?? 0)) > 0.01) {
+        throw new Error(`Resolved and applied readiness diverged at strike ${index + 1}: packets ${losses.join(", ")}, applied ${appliedLosses.join(", ")}.`);
+      }
+      const terminalCap = Math.min(firstLoss, readinessBeforeStrike[index] ?? 0);
+      if ((losses[index] ?? 0) < terminalCap - 0.01) {
+        throw new Error(
+          `Identical strike ${index + 1} fell below the baseline before the terminal cap: ` +
+          `readiness before ${readinessBeforeStrike[index]?.toFixed(2)}, expected at least ${terminalCap.toFixed(2)}, ` +
+          `losses ${losses.map((value) => value.toFixed(2)).join(", ")}.`
+        );
+      }
+      if ((losses[index] ?? 0) > (readinessBeforeStrike[index] ?? 0) + 0.01) {
+        throw new Error(`Strike ${index + 1} exceeded the defender's remaining readiness.`);
+      }
+    });
 
-    if (losses[1] < losses[0] * 0.85) {
-      throw new Error(`Second adjacent light-tank strike degraded too early (${losses.map((value) => value.toFixed(2)).join(", ")}).`);
+    if (!readinessBeforeStrike.some((readiness) => readiness > 0 && readiness < firstLoss)) {
+      throw new Error(`Sequence never exercised the terminal readiness cap (${readinessBeforeStrike.join(", ")}).`);
     }
-
-    if (fitBeforeStrike[2] > 180 && losses[2] < losses[1] * 0.85) {
-      throw new Error(`Third light-tank strike should stay stable while fit reserves remain (${fitBeforeStrike[2]} fit, losses ${losses.map((value) => value.toFixed(2)).join(", ")}).`);
+    if (transitionReplayMismatches.length > 0) {
+      throw new Error(`Authoritative transition replay diverged on strikes ${transitionReplayMismatches.join(", ")}.`);
     }
+  });
+});
 
-    if (fitBeforeStrike[3] >= fitBeforeStrike[2]) {
-      throw new Error(`Expected fit pool to continue depleting across sustained strikes (${fitBeforeStrike.join(", ")}).`);
+registerTest("RESOLVED_DAMAGE_TRANSITION_VALIDATION_IS_ATOMIC", async ({ When, Then }) => {
+  const defender = makeScenarioUnit("Infantry_42", { q: 11, r: 9 }, "invalid-transition-defender");
+  const statusBefore = structuredClone(defender.status);
+  const strengthBefore = defender.strength;
+  let errorMessage = "";
+
+  await When("a corrupted resolved packet requires more fit personnel than the formation contains", async () => {
+    const fit = summarizeFormationStatus(defender.status, defender.strength).personnel.fit;
+    try {
+      applyDamagePacketToUnit(defender, {
+        personnel: { injured: 0, wounded: 0, severelyWounded: 0, killed: fit + 1 },
+        equipment: { damaged: 0, disabled: 0, destroyed: 0 },
+        suppression: 10,
+        fortificationDamage: 0,
+        readinessLoss: 100,
+        weaponHits: [],
+        statusTransitions: {
+          personnel: [{ from: "fit", to: "killed", count: fit + 1 }],
+          equipment: []
+        }
+      });
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
     }
+  });
 
-    if (losses[3] >= losses[2] * 0.9) {
-      throw new Error(`Expected fourth strike to begin tapering once fit pool is nearly depleted (${losses.map((value) => value.toFixed(2)).join(", ")}).`);
+  await Then("the engine rejects the ledger before changing status, strength, or suppression", async () => {
+    if (!errorMessage.includes("Cannot apply") || !errorMessage.includes("only")) {
+      throw new Error(`Expected an actionable transition-integrity error, got '${errorMessage}'.`);
     }
+    if (JSON.stringify(defender.status) !== JSON.stringify(statusBefore) || defender.strength !== strengthBefore) {
+      throw new Error("Invalid resolved transitions partially mutated the defender before rejection.");
+    }
+  });
+});
 
-    if (losses[4] <= 0) {
-      throw new Error("Final mixed-unit follow-up strike should still inflict measurable readiness loss.");
+registerTest("SEQUENTIAL_DAMAGE_MONOTONICITY_COVERS_PERSONNEL_COMBINED_AND_PLATFORM_UNITS", async ({ When, Then }) => {
+  const attackerHex: Axial = { q: 12, r: 9 };
+  const defenderHex: Axial = { q: 11, r: 9 };
+  const cases: ReadonlyArray<{
+    readonly attackerType: SequentialUnitType;
+    readonly defenderType: SequentialUnitType;
+  }> = [
+    { attackerType: "Infantry_42", defenderType: "Infantry_42" },
+    { attackerType: "Infantry_42", defenderType: "Engineer" },
+    { attackerType: "Light_Tank", defenderType: "Light_Tank" },
+    { attackerType: "Tank_Destroyer", defenderType: "Light_Tank" }
+  ];
+  const failures: string[] = [];
+
+  await When("identical attacks are replayed against personnel, combined, and platform readiness models", async () => {
+    cases.forEach(({ attackerType, defenderType }) => {
+      const defender = makeScenarioUnit(defenderType, defenderHex, `seq-${defenderType}-defender`);
+      let baselineLoss = 0;
+      let baselineHits = 0;
+      for (let strike = 1; strike <= 8 && defender.strength > 0; strike += 1) {
+        const attacker = makeScenarioUnit(attackerType, attackerHex, `seq-${attackerType}-${strike}`);
+        const before = summarizeFormationStatus(defender.status, defender.strength).readiness;
+        const attackResult = resolveAttack(buildAttackRequest(attackerType, attackerHex, defender));
+        const packet = resolveDamagePacket({
+          attacker,
+          attackerDefinition: unitTypes[attackerType],
+          attackerHex,
+          defender,
+          defenderDefinition: unitTypes[defenderType],
+          defenderHex,
+          attackResult,
+          targetFacing: defender.facing,
+          attackerStance: "assault"
+        });
+        if (strike === 1) {
+          baselineLoss = packet.readinessLoss;
+          baselineHits = attackResult.expectedHits;
+        } else {
+          const requiredLoss = Math.min(baselineLoss, before);
+          if (Math.abs(attackResult.expectedHits - baselineHits) > 0.01) {
+            failures.push(`${attackerType}->${defenderType} strike ${strike} changed expected hits ${baselineHits.toFixed(2)}->${attackResult.expectedHits.toFixed(2)}`);
+          }
+          if (packet.readinessLoss < requiredLoss - 0.01) {
+            failures.push(`${attackerType}->${defenderType} strike ${strike} fell ${baselineLoss.toFixed(2)}->${packet.readinessLoss.toFixed(2)} with ${before.toFixed(2)} remaining`);
+          }
+        }
+        applyDamagePacketToUnit(defender, packet);
+        const after = summarizeFormationStatus(defender.status, defender.strength).readiness;
+        if (Math.abs((before - after) - packet.readinessLoss) > 0.01) {
+          failures.push(`${attackerType}->${defenderType} strike ${strike} preview/application mismatch ${packet.readinessLoss.toFixed(2)} vs ${(before - after).toFixed(2)}`);
+        }
+      }
+      if (baselineLoss <= 0) {
+        failures.push(`${attackerType}->${defenderType} did not establish a positive baseline loss`);
+      }
+    });
+  });
+
+  await Then("no tracked readiness model turns accumulated damage into protection", async () => {
+    if (failures.length > 0) {
+      throw new Error(`Sequential readiness invariants failed:\n${failures.join("\n")}`);
     }
   });
 });

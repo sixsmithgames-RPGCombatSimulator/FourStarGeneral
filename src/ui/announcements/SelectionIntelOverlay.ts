@@ -7,6 +7,7 @@ import type {
   SelectionIntel,
   TerrainSelectionIntel
 } from "./AnnouncementTypes";
+import { revealElementWithinScrollOwner } from "../components/FocusedScrollReveal";
 
 /**
  * Renders the centered intel card that summarizes the currently highlighted hex.
@@ -29,6 +30,7 @@ export class SelectionIntelOverlay {
   private readonly handlePointerDownBound = (event: PointerEvent) => this.handlePointerDown(event);
   private readonly handlePointerMoveBound = (event: PointerEvent) => this.handlePointerMove(event);
   private readonly handlePointerUpBound = (event: PointerEvent) => this.handlePointerUp(event);
+  private readonly handleBodyFocusBound = (event: FocusEvent) => this.handleBodyFocus(event);
 
   private lastSignature: string | null = null;
   private suppressedSignature: string | null = null;
@@ -67,6 +69,14 @@ export class SelectionIntelOverlay {
     this.headerElement = this.root?.querySelector<HTMLElement>(".battle-intel-overlay__header") ?? null;
     this.dismissButton = document.querySelector<HTMLButtonElement>(dismissSelector);
     this.toggleButton = document.querySelector<HTMLButtonElement>(toggleSelector);
+    if (this.bodyElement) {
+      // A named, explicit tab stop gives keyboard users one stable owner for scrolling
+      // long intel in every browser instead of relying on engine-specific overflow rules.
+      this.bodyElement.tabIndex = 0;
+      this.bodyElement.setAttribute("role", "region");
+      this.bodyElement.setAttribute("aria-label", "Selected hex intel details");
+      this.bodyElement.addEventListener("focusin", this.handleBodyFocusBound);
+    }
 
     if (this.root) {
       this.root.setAttribute("aria-hidden", "true");
@@ -87,6 +97,7 @@ export class SelectionIntelOverlay {
     this.toggleButton?.removeEventListener("click", this.handleToggleBound);
     this.root?.removeEventListener("keydown", this.handleKeydownBound);
     this.root?.removeEventListener("click", this.handleRootClickBound);
+    this.bodyElement?.removeEventListener("focusin", this.handleBodyFocusBound);
     window.removeEventListener("pointermove", this.handlePointerMoveBound);
     window.removeEventListener("pointerup", this.handlePointerUpBound);
   }
@@ -293,6 +304,11 @@ export class SelectionIntelOverlay {
     this.root.style.top = `${clampedTop}px`;
   }
 
+  private handleBodyFocus(event: FocusEvent): void {
+    if (!this.bodyElement || !(event.target instanceof HTMLElement) || event.target === this.bodyElement) return;
+    revealElementWithinScrollOwner(this.bodyElement, event.target);
+  }
+
   /** Reveal selected intel in the existing command/map scroll owner, without moving the world view. */
   private revealWithinPane(): void {
     if (!this.root || this.root.classList.contains("hidden") || this.activeIntel?.kind !== "battle") return;
@@ -430,7 +446,7 @@ export class SelectionIntelOverlay {
       {
         label: "Move",
         value: intel.movementRemaining !== null
-          ? `${Math.max(0, Math.round(intel.movementRemaining))}${typeof intel.movementMax === "number" ? `/${Math.max(0, Math.round(intel.movementMax))}` : ""}`
+          ? `${this.formatResourceValue(intel.movementRemaining)}${typeof intel.movementMax === "number" ? `/${this.formatResourceValue(intel.movementMax)}` : ""}`
           : "—"
       },
       { label: "Range", value: intel.rangeLabel },

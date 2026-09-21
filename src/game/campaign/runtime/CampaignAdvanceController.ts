@@ -8,6 +8,7 @@
  */
 
 import { createStableCampaignRecordId } from "./CampaignCanonical";
+import { SEGMENTS_PER_DAY } from "../../../core/campaignTypes";
 import { resolveCampaignSegment, type CampaignSegmentResolutionResult } from "./CampaignSegmentResolver";
 import {
   CampaignRuntimeError,
@@ -73,12 +74,12 @@ export type CampaignAdvanceResult = CampaignAdvanceCommitted | CampaignAdvanceRe
 /** Calculates the exact named boundary for modes with a finite target. */
 export function getCampaignAdvanceTargetSegment(currentSegment: number, mode: CampaignAdvanceMode): number | null {
   if (mode === "segment") return currentSegment + 1;
-  if (mode === "day") return currentSegment + 8;
+  if (mode === "day") return currentSegment + SEGMENTS_PER_DAY;
   if (mode === "nextReport") return null;
   const boundary = mode === "dawn" ? 2 : 6;
-  const segmentOfDay = currentSegment % 8;
-  const rawDelta = (boundary - segmentOfDay + 8) % 8;
-  return currentSegment + (rawDelta === 0 ? 8 : rawDelta);
+  const segmentOfDay = currentSegment % SEGMENTS_PER_DAY;
+  const rawDelta = (boundary - segmentOfDay + SEGMENTS_PER_DAY) % SEGMENTS_PER_DAY;
+  return currentSegment + (rawDelta === 0 ? SEGMENTS_PER_DAY : rawDelta);
 }
 
 function normalizeMaximum(request: CampaignAdvanceRequest, targetSegment: number | null, currentSegment: number): number {

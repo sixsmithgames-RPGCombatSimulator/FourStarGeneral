@@ -5,6 +5,7 @@ import { InitiativeQueueManager } from "../src/core/InitiativeQueue";
 import type { ScenarioUnit } from "../src/core/types";
 import { ensureTutorialState } from "../src/state/TutorialState";
 import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
+import { resolveTutorialNextGroupIntent } from "../src/ui/controllers/TutorialInitiativeHandoff";
 
 function mountBattleScreenRoot(): HTMLElement {
   document.body.innerHTML = "<div id=\"battleScreen\"></div>";
@@ -1260,6 +1261,17 @@ registerTest("BATTLESCREEN_TUTORIAL_NEXT_GROUP_FINISHES_ONLY_THE_GUIDED_INITIATI
     tutorialState.jumpToPhase("spend_activation");
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => ({
+        currentIndex: 1,
+        activations: [
+          { unitId: "u_firing", ownerId: "player", initiative: 4, isActivated: true },
+          { unitId: "u_peer", ownerId: "player", initiative: 4, isActivated: false },
+          { unitId: "u_smoke", ownerId: "player", initiative: 3, isActivated: false }
+        ]
+      })
+    };
     (screen as any).handleProceedToNext = async (options?: { bypassConfirmation?: boolean }) => {
       observedOptions = options;
       return true;
@@ -1282,6 +1294,147 @@ registerTest("BATTLESCREEN_TUTORIAL_NEXT_GROUP_FINISHES_ONLY_THE_GUIDED_INITIATI
     }
     if (completedPhase !== "spend_activation") {
       throw new Error(`Expected spend_activation to complete, received ${completedPhase ?? "<none>"}.`);
+    }
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_NEXT_GROUP_SURVIVES_INTERLEAVED_AUTOMATED_ACTIVATION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedPhase: string | null = null;
+  let normalAdvanceCalls = 0;
+  const queue = {
+    currentIndex: 1,
+    activations: [
+      { unitId: "u_firing", ownerId: "player" as const, initiative: 4, isActivated: true },
+      { unitId: "u_enemy", ownerId: "bot" as const, initiative: 4, isActivated: false },
+      { unitId: "u_peer", ownerId: "player" as const, initiative: 4, isActivated: false },
+      { unitId: "u_smoke", ownerId: "player" as const, initiative: 3, isActivated: false }
+    ]
+  };
+  const tutorialState = ensureTutorialState();
+
+  await Given("the guided firing unit has completed while an enemy activation separates its pending peer", () => {
+    tutorialState.endTutorial();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("spend_activation");
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => queue.activations
+        .find((activation, index) => index >= queue.currentIndex && !activation.isActivated) ?? null,
+      completeUnitActivation: (unitId: string) => {
+        const activation = queue.activations[queue.currentIndex];
+        if (!activation || activation.unitId !== unitId) {
+          throw new Error(`Expected to complete ${activation?.unitId ?? "none"}, received ${unitId}.`);
+        }
+        activation.isActivated = true;
+        queue.currentIndex += 1;
+      }
+    };
+    (screen as any).handleProceedToNext = async () => {
+      normalAdvanceCalls += 1;
+      return false;
+    };
+    (screen as any).completeTutorialPhase = (phase: string) => {
+      completedPhase = phase;
+    };
+  });
+
+  await When("the commander selects the still-highlighted Next Group control", async () => {
+    await (screen as any).handleTutorialAwareNextGroup();
+    queue.activations[1].isActivated = true;
+    queue.currentIndex = 2;
+    (screen as any).flushSkippedInitiativeActivations();
+  });
+
+  await Then("the click queues only the remaining peer from the taught band and advances the tutorial", () => {
+    const skippedIds = Array.from((screen as any).initiativeSkippedUnitIds as Set<string>);
+    if (normalAdvanceCalls !== 0) {
+      throw new Error("Expected the interleaved enemy activation to remain authoritative.");
+    }
+    if (JSON.stringify(skippedIds) !== JSON.stringify(["u_peer"])) {
+      throw new Error(`Expected only the initiative-4 peer to be deferred, received ${JSON.stringify(skippedIds)}.`);
+    }
+    if (!queue.activations[2].isActivated || queue.activations[3].isActivated || queue.currentIndex !== 3) {
+      throw new Error("Expected deferred flush to consume the same-band peer and stop before the smoke band.");
+    }
+    if (completedPhase !== "spend_activation") {
+      throw new Error(`Expected spend_activation to complete, received ${completedPhase ?? "<none>"}.`);
+    }
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("TUTORIAL_NEXT_GROUP_INTENT_DISTINGUISHES_ACTIVE_INTERLEAVED_AND_UNOWNED_BANDS", async ({ Then }) => {
+  await Then("the projection preserves all four handoff ownership states", () => {
+    const activePlayer = resolveTutorialNextGroupIntent({
+      currentIndex: 1,
+      activations: [
+        { unitId: "firing", ownerId: "player", initiative: 4, isActivated: true },
+        { unitId: "peer", ownerId: "player", initiative: 4, isActivated: false }
+      ]
+    });
+    const interleavedPeer = resolveTutorialNextGroupIntent({
+      currentIndex: 1,
+      activations: [
+        { unitId: "firing", ownerId: "player", initiative: 4, isActivated: true },
+        { unitId: "enemy", ownerId: "bot", initiative: 4, isActivated: false },
+        { unitId: "peer", ownerId: "player", initiative: 4, isActivated: false },
+        { unitId: "smoke", ownerId: "player", initiative: 3, isActivated: false }
+      ]
+    });
+    const interleavedComplete = resolveTutorialNextGroupIntent({
+      currentIndex: 1,
+      activations: [
+        { unitId: "firing", ownerId: "player", initiative: 4, isActivated: true },
+        { unitId: "enemy", ownerId: "bot", initiative: 4, isActivated: false },
+        { unitId: "smoke", ownerId: "player", initiative: 3, isActivated: false }
+      ]
+    });
+    const unowned = resolveTutorialNextGroupIntent(null);
+
+    if (!activePlayer.activePlayerBandMatches || activePlayer.taughtInitiative !== 4) {
+      throw new Error("Expected the active same-band player group to use the normal command path.");
+    }
+    if (interleavedPeer.activePlayerBandMatches || JSON.stringify(interleavedPeer.deferredPlayerUnitIds) !== JSON.stringify(["peer"])) {
+      throw new Error("Expected the interleaved peer to be deferred within initiative 4.");
+    }
+    if (interleavedComplete.activePlayerBandMatches || interleavedComplete.deferredPlayerUnitIds.length !== 0) {
+      throw new Error("Expected a fully completed player band to advance without deferring the later smoke group.");
+    }
+    if (unowned.taughtInitiative !== null || unowned.activePlayerBandMatches || unowned.deferredPlayerUnitIds.length !== 0) {
+      throw new Error("Expected a missing queue to remain inert without inventing tutorial ownership.");
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_NEXT_GROUP_WITHOUT_QUEUE_OWNERSHIP_REMAINS_INERT", async ({ Given, When, Then }) => {
+  let completedPhase: string | null = null;
+  let screen: BattleScreen;
+  const tutorialState = ensureTutorialState();
+
+  await Given("the tutorial has no initiative queue from which to identify the taught player band", () => {
+    tutorialState.endTutorial();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("spend_activation");
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeMethods = null;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    (screen as any).completeTutorialPhase = (phase: string) => {
+      completedPhase = phase;
+    };
+  });
+
+  await When("the orphaned action handler is invoked", async () => {
+    await (screen as any).handleTutorialAwareNextGroup();
+  });
+
+  await Then("the tutorial does not invent a completed handoff", () => {
+    if (completedPhase !== null) {
+      throw new Error(`Expected no tutorial completion without queue ownership, received ${completedPhase}.`);
     }
     tutorialState.endTutorial();
   });
@@ -1626,9 +1779,7 @@ registerTest("BATTLESCREEN_SMOKE_TARGETS_USE_MAP_COORDINATES", async ({ Given, W
   await Given("a smoke-capable unit whose engine targets are axial keys", async () => {
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).battleState = {
-      ensureGameEngine: () => ({
-        resolveSmokeTargetHexKeys: () => ["4,2", "5,2"]
-      })
+      resolveBattleSmokeTargetHexKeys: () => ["4,2", "5,2"]
     };
     (screen as any).beginSmokeTargeting = (
       _callerHexKey: string,

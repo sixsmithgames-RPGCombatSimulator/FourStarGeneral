@@ -152,9 +152,22 @@ export interface VehicleStatusPool {
   destroyed: number;
 }
 
+/**
+ * Authorized strength retained independently from the people and equipment that
+ * are physically present in a tactical detachment. Legacy/full formations omit
+ * this field until their status is normalized, at which point it is derived from
+ * the formation template.
+ */
+export interface FormationStatusCapacity {
+  personnel: Record<string, number>;
+  equipment: Record<string, number>;
+}
+
 export interface FormationStatus {
   personnel: Record<string, PersonnelStatusPool>;
   equipment: Record<string, VehicleStatusPool>;
+  /** Readiness denominator. Present pools may be lower after a tactical detachment leaves casualties behind. */
+  capacity?: FormationStatusCapacity;
   ammo: Record<string, number>;
   suppression: number;
   fatigue?: number;
@@ -238,6 +251,12 @@ export interface ScenarioUnit {
   earnedExperience?: number;
   /** Status pools are the authoritative damage store for new unit-system code. */
   status?: FormationStatus;
+  /** Fractional tactical movement saved between activations after casualty burden is applied. */
+  movementCredit?: number;
+  /** Battle-local recovery origin for a detachment formed from a casualty site. */
+  reconstitutedFromSiteId?: string;
+  /** Original tactical element used only to reconcile battle-local detachments at campaign battle end. */
+  recoverySourceUnitId?: string;
   /** Allocation/formation key that produced this scenario unit, when known. */
   formationKey?: string;
   /** Save-stable campaign identity when this unit represents a persistent campaign formation. */

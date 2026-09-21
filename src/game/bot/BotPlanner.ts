@@ -1338,7 +1338,7 @@ function calculateThreatProjection(defender: PlannerUnitSnapshot | null): number
   let threat = 0;
   threat += def.softAttack * 0.45;
   threat += def.hardAttack * 0.75;
-  threat += def.ap * 0.7;
+  threat += (def.ap ?? 0) * 0.7;
   threat += (def.rangeMax ?? 1) * 2.5;
   threat += Math.max(def.armor.front, def.armor.side, def.armor.top) * 0.8;
 
@@ -2919,21 +2919,20 @@ export function planHeuristicBotTurn(input: BotPlannerInput): PlannedBotAction[]
     const originKey = axialKey(snapshot.unit.hex);
     const reachable = computeReachableHexes(snapshot.unit.hex, allowance, snapshot.definition.moveType, input, originKey);
     const bestCandidate = pickBestCandidate(snapshot, input, reachable, activeObjectives, eliminationObjectiveEnabled, strongholds);
-    if (bestCandidate) {
-      actions.push({
-        unit: snapshot,
-        unitKey: originKey,
-        origin: snapshot.unit.hex,
-        destination: bestCandidate.destination,
-        path: bestCandidate.path,
-        attackTarget: bestCandidate.attackTarget,
-        fieldAction: bestCandidate.fieldAction ?? null,
-        expectedDamage: bestCandidate.expectedDamage,
-        expectedRetaliation: bestCandidate.expectedRetaliation,
-        score: bestCandidate.score,
-        rationale: bestCandidate.rationale
-      });
-    }
+    if (!bestCandidate || !Number.isFinite(bestCandidate.score)) { return; }
+    actions.push({
+      unit: snapshot,
+      unitKey: originKey,
+      origin: snapshot.unit.hex,
+      destination: bestCandidate.destination,
+      path: bestCandidate.path,
+      attackTarget: bestCandidate.attackTarget,
+      fieldAction: bestCandidate.fieldAction ?? null,
+      expectedDamage: bestCandidate.expectedDamage,
+      expectedRetaliation: bestCandidate.expectedRetaliation,
+      score: bestCandidate.score,
+      rationale: bestCandidate.rationale
+    });
   });
 
   return actions.sort((a, b) => b.score - a.score);

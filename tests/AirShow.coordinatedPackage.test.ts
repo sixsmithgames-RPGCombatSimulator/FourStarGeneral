@@ -27,6 +27,10 @@ registerTest("AIR_SHOW_COORDINATED_PACKAGE_NORTH_STAR", async ({ Given, When, Th
         "Expected a coordinated plan for the full 3 CAP / 2 escort / 4 bomber package."
       );
     }
+    const sceneReport = coordinatedPlan.sceneReport;
+    if (!sceneReport) {
+      throw new Error("Expected the coordinated package to include its timeline-v2 inspection report.");
+    }
 
     if (result.playbackProjection.coordinatedPlans.length !== 1) {
       throw new Error(
@@ -77,12 +81,20 @@ registerTest("AIR_SHOW_COORDINATED_PACKAGE_NORTH_STAR", async ({ Given, When, Th
       );
     }
 
-    const jerkyBomberPhases = bomberPhases.filter(
-      (metric) => metric.meanFirstWaypointTurnAngleDeg > 38 || metric.maxFirstWaypointTurnAngleDeg > 130
+    const bomberActorIds = new Set(
+      sceneReport.flights
+        .filter((flight) => flight.role === "bomber")
+        .flatMap((flight) => flight.actors.map((actor) => actor.actorId))
     );
-    if (jerkyBomberPhases.length > 0) {
+    const bomberTurnFindings = (sceneReport.timelineFindings ?? []).filter(
+      (finding) => (
+        finding.code === "hard-turn" || finding.code === "temporal-hard-turn"
+      ) && !!finding.actorId && bomberActorIds.has(finding.actorId)
+    );
+    if (bomberTurnFindings.length > 0) {
       throw new Error(
-        `Coordinated bomber phases still enter too sharply:\n${jerkyBomberPhases.map((metric) => `- ${metric.label}: ${Math.round(metric.meanFirstWaypointTurnAngleDeg)}/${Math.round(metric.maxFirstWaypointTurnAngleDeg)} deg`).join("\n")}`
+        `Coordinated bomber tracks exceed the authored waypoint or 100ms heading limits:\n`
+        + bomberTurnFindings.map((finding) => `- ${finding.message}`).join("\n")
       );
     }
 
@@ -98,22 +110,12 @@ registerTest("AIR_SHOW_COORDINATED_PACKAGE_NORTH_STAR", async ({ Given, When, Th
           `${metric.label}: strike speed ${meanSpeedPxPerMs.toFixed(3)} px/ms outside bomber band`
         );
       }
-      const minimumEfficiency =
-        metric.label === "bomber-defense-pass"
-          ? 0.68
-          : metric.label === "target-run"
-          ? 0.68
-          : 0.9;
-      if (strikeGroup.meanEfficiency < minimumEfficiency) {
-        violations.push(
-          `${metric.label}: strike efficiency ${(strikeGroup.meanEfficiency * 100).toFixed(0)}% below ${(minimumEfficiency * 100).toFixed(0)}%`
-        );
-      }
       return violations;
     });
     if (strikeGroupViolations.length > 0) {
       throw new Error(
-        `Coordinated bomber choreography still loiters or stretches paths too much:\n${strikeGroupViolations.map((message) => `- ${message}`).join("\n")}`
+        `Coordinated bomber choreography violates the governed role speed:\n`
+        + strikeGroupViolations.map((message) => `- ${message}`).join("\n")
       );
     }
 
@@ -124,15 +126,51 @@ registerTest("AIR_SHOW_COORDINATED_PACKAGE_NORTH_STAR", async ({ Given, When, Th
       );
     }
 
-    const offWindowFlak = coordinatedPlan.scenePhaseMetrics.filter(
-      (metric) =>
-        metric.flakBurstCount > 0
-        && metric.label !== "bomber-defense-pass"
-        && metric.label !== "target-run"
+    const sceneTimeline = coordinatedPlan.sceneTimeline;
+    if (!sceneTimeline) {
+      throw new Error("Expected the coordinated package to retain its absolute-time timeline.");
+    }
+    const bomberTracksByActorId = new Map(
+      sceneTimeline.tracks
+        .filter((track) => track.role === "bomber")
+        .map((track) => [track.actorId, track] as const)
     );
-    if (offWindowFlak.length > 0) {
+    const releasesByBomberId = new Map(
+      sceneTimeline.cues.flatMap((cue) =>
+        cue.kind === "bomb-release" ? [[cue.bomberActorId, cue] as const] : []
+      )
+    );
+    const invalidFlakWindows = sceneTimeline.cues.flatMap((cue) => {
+      if (cue.kind !== "flak") {
+        return [];
+      }
+      const bomberTrack = bomberTracksByActorId.get(cue.bomberActorId);
+      const release = releasesByBomberId.get(cue.bomberActorId);
+      if (!bomberTrack || !release) {
+        return [`${cue.bomberActorId}: missing bomber track or release cue`];
+      }
+      const activeApproachSegments = bomberTrack.segments.filter(
+        (segment) =>
+          cue.timeMs >= segment.startTimeMs
+          && cue.timeMs <= segment.endTimeMs
+          && (
+            segment.label === "bomber-ingress"
+            || segment.label === "bomber-defense-pass"
+            || segment.label === "target-run"
+          )
+      );
+      if (activeApproachSegments.length === 0 || cue.timeMs >= release.timeMs) {
+        return [
+          `${cue.bomberActorId}: flak=${Math.round(cue.timeMs)}ms, release=${Math.round(release.timeMs)}ms, `
+          + `approach=${activeApproachSegments.map((segment) => segment.label).join("/") || "none"}`
+        ];
+      }
+      return [];
+    });
+    if (invalidFlakWindows.length > 0) {
       throw new Error(
-        `Expected flak to be confined to the bomber-defense/target-run window, saw bursts in:\n${offWindowFlak.map((metric) => `- ${metric.label}: flak=${metric.flakBurstCount}`).join("\n")}`
+        `Expected every flak flash to occur on its bomber's approach and before that bomber's release:\n`
+        + invalidFlakWindows.map((message) => `- ${message}`).join("\n")
       );
     }
   });

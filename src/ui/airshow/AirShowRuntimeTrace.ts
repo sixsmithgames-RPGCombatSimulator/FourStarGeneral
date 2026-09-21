@@ -1,23 +1,5 @@
-import type { PlannedAirShowScene, ResolvedAirShowScene } from "./AirShowPlaybackScene";
-
-export interface AirShowRuntimeTraceActorState {
-  readonly actorId: string;
-  readonly flightId: string;
-  readonly role: "interceptor" | "escort" | "bomber";
-  readonly active: boolean;
-  readonly headingDegrees: number;
-  readonly cx: number;
-  readonly cy: number;
-  readonly opacity: string | null;
-  readonly dataAirshowActive: string | null;
-}
-
-export interface AirShowRuntimeTracePhaseSummary {
-  readonly label: string;
-  readonly durationMs: number;
-  readonly visibleActorIds: readonly string[];
-  readonly assignmentActorIds: readonly string[];
-}
+import { resolvePrimaryResolvedAirShowBomber, type PlannedAirShowScene, type ResolvedAirShowScene } from "./AirShowPlaybackScene";
+import type { AirShowScenarioFamily, AirShowTimeline, AirShowTimelineCue } from "./AirShowTimeline";
 
 export interface AirShowRuntimeTraceFlightSummary {
   readonly flightId: string;
@@ -39,62 +21,30 @@ export type AirShowRuntimeTraceEvent =
       readonly reason: string;
     }
   | {
-      readonly kind: "runtime-flight-built";
-      readonly flightId: string;
-      readonly role: "interceptor" | "escort" | "bomber";
-      readonly combatRole: string;
-      readonly faction: string;
-      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
+      readonly kind: "timeline-start";
+      readonly timelineVersion: 2;
+      readonly scenario: AirShowScenarioFamily;
+      readonly totalDurationMs: number;
+      readonly actorIds: readonly string[];
+      readonly beatLabels: readonly string[];
+      readonly cueCount: number;
     }
   | {
-      readonly kind: "phase-start";
+      readonly kind: "beat-entered";
       readonly label: string;
-      readonly durationMs: number;
-      readonly assignmentActorIds: readonly string[];
-      readonly visibleActorIds: readonly string[];
-      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
-    }
-  | {
-      readonly kind: "phase-visibility-sync";
-      readonly label: string;
-      readonly visibleActorIds: readonly string[];
-      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
-    }
-  | {
-      readonly kind: "phase-visibility-expanded";
-      readonly label: string;
-      readonly requestedVisibleActorIds: readonly string[];
-      readonly resolvedVisibleActorIds: readonly string[];
-      readonly addedActiveActorIds: readonly string[];
-      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
-    }
-  | {
-      readonly kind: "phase-complete";
-      readonly label: string;
-      readonly requestedDurationMs: number;
-      readonly elapsedMs: number;
-      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
-    }
-  | {
-      readonly kind: "strength-sync";
-      readonly flightId: string;
-      readonly previousStrength: number;
-      readonly targetStrength: number;
-      readonly targetVisibleCount: number;
+      readonly timeMs: number;
       readonly activeActorIds: readonly string[];
-      readonly removedActorIds: readonly string[];
     }
   | {
-      readonly kind: "actor-fade-out";
-      readonly actorState: AirShowRuntimeTraceActorState;
+      readonly kind: "cue-fired";
+      readonly cueKind: AirShowTimeline["cues"][number]["kind"];
+      readonly timeMs: number;
+      readonly subjectActorIds: readonly string[];
     }
   | {
-      readonly kind: "scene-complete";
-      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
-    }
-  | {
-      readonly kind: "scene-cleanup";
-      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
+      readonly kind: "timeline-complete";
+      readonly elapsedMs: number;
+      readonly firedCueCount: number;
     };
 
 export interface AirShowRuntimeTraceEventRecord {
@@ -103,9 +53,9 @@ export interface AirShowRuntimeTraceEventRecord {
 }
 
 export interface AirShowRuntimeTrace {
-  readonly version: 1;
+  readonly version: 2;
   readonly recordedAtIso: string;
-  readonly source: "HexMapRenderer.animatePlannedResolvedAirCombatShow";
+  readonly source: "AirShowTimelinePlayer";
   readonly scene: {
     readonly hexKey: string;
     readonly kind: ResolvedAirShowScene["kind"] | null;
@@ -113,9 +63,13 @@ export interface AirShowRuntimeTrace {
     readonly playerHqKey: string | null;
     readonly botHqKey: string | null;
   };
-  readonly planned: {
+  readonly timeline: {
+    readonly version: 2;
+    readonly scenario: AirShowScenarioFamily;
+    readonly totalDurationMs: number;
     readonly flights: readonly AirShowRuntimeTraceFlightSummary[];
-    readonly phases: readonly AirShowRuntimeTracePhaseSummary[];
+    readonly beats: ReadonlyArray<{ readonly label: string; readonly startTimeMs: number; readonly endTimeMs: number }>;
+    readonly cueCounts: Readonly<Record<AirShowTimeline["cues"][number]["kind"], number>>;
   };
   readonly events: readonly AirShowRuntimeTraceEventRecord[];
   readonly status: "success" | "error";
@@ -135,11 +89,11 @@ export interface AirShowRuntimeTraceDebugHook {
 
 export interface AirShowRuntimeTraceSession {
   trace: {
-    version: 1;
+    version: 2;
     recordedAtIso: string;
-    source: "HexMapRenderer.animatePlannedResolvedAirCombatShow";
+    source: "AirShowTimelinePlayer";
     scene: AirShowRuntimeTrace["scene"];
-    planned: AirShowRuntimeTrace["planned"];
+    timeline: AirShowRuntimeTrace["timeline"];
     events: AirShowRuntimeTraceEventRecord[];
     status: "success" | "error";
     error: string | null;
@@ -227,6 +181,7 @@ export function installAirShowRuntimeTraceDebugHook(
 
 export function beginAirShowRuntimeTrace(
   scene: ResolvedAirShowScene,
+  timeline: AirShowTimeline,
   plannedScene: PlannedAirShowScene
 ): AirShowRuntimeTraceSession | null {
   if (!runtimeTraceStore.enabled) {
@@ -234,17 +189,20 @@ export function beginAirShowRuntimeTrace(
   }
   return {
     trace: {
-      version: 1,
+      version: 2,
       recordedAtIso: new Date().toISOString(),
-      source: "HexMapRenderer.animatePlannedResolvedAirCombatShow",
+      source: "AirShowTimelinePlayer",
       scene: {
         hexKey: scene.hexKey,
         kind: scene.kind ?? null,
-        bomberTargetHexKey: scene.bomberTargetHexKey ?? scene.bomber?.targetHexKey ?? null,
+        bomberTargetHexKey: scene.bomberTargetHexKey ?? resolvePrimaryResolvedAirShowBomber(scene)?.targetHexKey ?? null,
         playerHqKey: scene.playerHqKey ?? null,
         botHqKey: scene.botHqKey ?? null
       },
-      planned: {
+      timeline: {
+        version: timeline.version,
+        scenario: timeline.scenario,
+        totalDurationMs: timeline.totalDurationMs,
         flights: plannedScene.flights.map((flight) => ({
           flightId: flight.id,
           role: flight.role,
@@ -252,12 +210,17 @@ export function beginAirShowRuntimeTrace(
           faction: flight.faction ?? "",
           actorIds: flight.actors.map((actor) => actor.actorId)
         })),
-        phases: plannedScene.phases.map((phase) => ({
-          label: phase.label,
-          durationMs: phase.durationMs,
-          visibleActorIds: [...phase.visibleActorIds],
-          assignmentActorIds: phase.assignments.map((assignment) => assignment.actorId)
-        }))
+        beats: timeline.beats.map((beat) => ({ ...beat })),
+        cueCounts: timeline.cues.reduce<AirShowRuntimeTrace["timeline"]["cueCounts"]>((counts, cue) => ({
+          ...counts,
+          [cue.kind]: counts[cue.kind] + 1
+        }), {
+          tracer: 0,
+          flak: 0,
+          "bomb-release": 0,
+          impact: 0,
+          destruction: 0
+        })
       },
       events: [],
       status: "success",
@@ -277,6 +240,57 @@ export function recordAirShowRuntimeTraceEvent(
     index: session.trace.events.length,
     event: cloneTrace(event)
   });
+}
+
+export function recordAirShowTimelineStart(
+  session: AirShowRuntimeTraceSession | null,
+  timeline: AirShowTimeline
+): void {
+  recordAirShowRuntimeTraceEvent(session, {
+    kind: "timeline-start",
+    timelineVersion: timeline.version,
+    scenario: timeline.scenario,
+    totalDurationMs: timeline.totalDurationMs,
+    actorIds: timeline.actors.map((actor) => actor.actorId),
+    beatLabels: timeline.beats.map((beat) => beat.label),
+    cueCount: timeline.cues.length
+  });
+}
+
+export function recordAirShowTimelineBeat(
+  session: AirShowRuntimeTraceSession | null,
+  label: string,
+  timeMs: number,
+  activeActorIds: readonly string[]
+): void {
+  recordAirShowRuntimeTraceEvent(session, { kind: "beat-entered", label, timeMs, activeActorIds });
+}
+
+export function recordAirShowTimelineCue(
+  session: AirShowRuntimeTraceSession | null,
+  cue: AirShowTimelineCue
+): void {
+  const subjectActorIds = cue.kind === "tracer"
+    ? [cue.sourceActorId, cue.targetActorId]
+    : cue.kind === "flak" || cue.kind === "bomb-release"
+      ? [cue.bomberActorId]
+      : cue.kind === "destruction"
+        ? [cue.actorId]
+        : [];
+  recordAirShowRuntimeTraceEvent(session, {
+    kind: "cue-fired",
+    cueKind: cue.kind,
+    timeMs: cue.timeMs,
+    subjectActorIds
+  });
+}
+
+export function recordAirShowTimelineComplete(
+  session: AirShowRuntimeTraceSession | null,
+  elapsedMs: number,
+  firedCueCount: number
+): void {
+  recordAirShowRuntimeTraceEvent(session, { kind: "timeline-complete", elapsedMs, firedCueCount });
 }
 
 export function completeAirShowRuntimeTrace(

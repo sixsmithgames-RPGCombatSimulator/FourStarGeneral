@@ -1,5 +1,5 @@
 import { getFormation } from "../../data/unitSystem/formations";
-import type { SupportAssetSnapshot } from "../GameEngine";
+import type { SupportAssetSnapshot } from "../battle/BattleRuntimeContracts";
 
 /** Build one off-map tactical asset from the same definition used by precombat requisitions. */
 export function createOffMapSupportAsset(

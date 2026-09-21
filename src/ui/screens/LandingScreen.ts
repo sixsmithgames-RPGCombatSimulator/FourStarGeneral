@@ -22,8 +22,9 @@ import {
 } from "../../data/commissioningOptions";
 import type { GeneralRosterEntry } from "../../utils/rosterStorage";
 import { ensureUnlockState } from "../../state/UnlockState";
-import { PrecombatScreen } from "./PrecombatScreen";
-import { CampaignScreen } from "./CampaignScreen";
+import type { PrecombatScreen } from "./PrecombatScreen";
+import type { CampaignScreen } from "./CampaignScreen";
+import type { TacticalBattleFlow } from "../../contracts/TacticalBattleFlow";
 import { createFieldCommanderGeneral, isFieldCommander, GUEST_MODE_MESSAGES, buildSignInUrl } from "../../utils/guestMode";
 
 interface GeneralFormData {
@@ -95,7 +96,11 @@ export class LandingScreen {
 
   private disclosedGeneralId: string | null | undefined;
   private precombatScreen: PrecombatScreen | null = null;
+  private tacticalBattleFlowLoader: (() => Promise<TacticalBattleFlow>) | null = null;
+  private tacticalTransitionPending = false;
   private campaignScreen: CampaignScreen | null = null;
+  private campaignScreenLoader: (() => Promise<CampaignScreen>) | null = null;
+  private campaignTransitionPending = false;
   private readonly unlockState = ensureUnlockState();
   private isGuestMode = false;
   private signInBanner: HTMLElement | null = null;
@@ -104,8 +109,18 @@ export class LandingScreen {
     this.precombatScreen = precombatScreen;
   }
 
+  /** Defers tactical screens and engine infrastructure until a tactical route is requested. */
+  attachTacticalBattleFlowLoader(loader: () => Promise<TacticalBattleFlow>): void {
+    this.tacticalBattleFlowLoader = loader;
+  }
+
   attachCampaignScreen(campaignScreen: CampaignScreen): void {
     this.campaignScreen = campaignScreen;
+  }
+
+  /** Defers the heavyweight strategic shell until the player actually enters campaign mode. */
+  attachCampaignScreenLoader(loader: () => Promise<CampaignScreen>): void {
+    this.campaignScreenLoader = loader;
   }
 
   /**
@@ -438,9 +453,31 @@ export class LandingScreen {
         this.showFeedback("Campaign battle saves require full-game campaign access.");
         return;
       }
-      document.dispatchEvent(new CustomEvent("campaign:battle:saves-open", {
-        detail: { invokerId: this.resumeTacticalBattleButton?.id ?? null }
-      }));
+      const openSaveCenter = (): void => {
+        document.dispatchEvent(new CustomEvent("campaign:battle:saves-open", {
+          detail: { invokerId: this.resumeTacticalBattleButton?.id ?? null }
+        }));
+      };
+      if (!this.tacticalBattleFlowLoader) {
+        openSaveCenter();
+        return;
+      }
+      if (this.tacticalTransitionPending) return;
+      this.tacticalTransitionPending = true;
+      this.screenManager.beginTransition?.("Preparing saved tactical engagements…");
+      void this.tacticalBattleFlowLoader()
+        .then(() => {
+          this.screenManager.endTransition?.();
+          openSaveCenter();
+        })
+        .catch((error) => {
+          this.screenManager.endTransition?.();
+          console.error("[BattleResumeRoute] Tactical save center failed to load safely", error);
+          this.showFeedback("Saved tactical engagements could not be prepared. Please try again.");
+        })
+        .finally(() => {
+          this.tacticalTransitionPending = false;
+        });
     });
   }
 
@@ -1061,16 +1098,34 @@ export class LandingScreen {
       return;
     }
 
-    // Mark this mission as NOT from campaign
+    // Mark this mission as NOT from campaign.
     this.uiState.isFromCampaign = false;
 
     if (this.precombatScreen) {
       this.precombatScreen.setup(missionKey, this.uiState.selectedGeneralId, this.uiState.selectedDifficulty);
-    } else {
-      console.warn("Precombat screen reference missing; skipping setup before transition.");
+      this.screenManager.showScreenById("precombat");
+      return;
     }
-
-    this.screenManager.showScreenById("precombat");
+    if (!this.tacticalBattleFlowLoader) {
+      console.warn("Precombat screen reference missing; skipping setup before transition.");
+      this.screenManager.showScreenById("precombat");
+      return;
+    }
+    if (this.tacticalTransitionPending) return;
+    this.tacticalTransitionPending = true;
+    const generalId = this.uiState.selectedGeneralId;
+    const difficulty = this.uiState.selectedDifficulty;
+    this.screenManager.beginTransition?.("Preparing the tactical command view…");
+    void this.tacticalBattleFlowLoader()
+      .then((tacticalBattleFlow) => tacticalBattleFlow.enterPrecombat(missionKey, generalId, difficulty))
+      .catch((error) => {
+        this.screenManager.endTransition?.();
+        console.error("[BattleRoute] Tactical command view failed to load safely", error);
+        this.showFeedback("Tactical command view could not be prepared. Please try again.");
+      })
+      .finally(() => {
+        this.tacticalTransitionPending = false;
+      });
   }
 
   private transitionToCampaign(): void {
@@ -1078,10 +1133,31 @@ export class LandingScreen {
       this.showFeedback("Assign a commander to continue to the campaign map.");
       return;
     }
-    if (!this.campaignScreen) {
-      console.warn("Campaign screen reference missing; cannot render campaign scenario.");
+    if (this.campaignScreen) {
+      this.screenManager.showScreenById("campaign");
+      return;
     }
-    this.screenManager.showScreenById("campaign");
+    if (!this.campaignScreenLoader) {
+      console.warn("Campaign screen reference missing; cannot render campaign scenario.");
+      this.screenManager.showScreenById("campaign");
+      return;
+    }
+    if (this.campaignTransitionPending) return;
+    this.campaignTransitionPending = true;
+    this.screenManager.beginTransition?.("Preparing the campaign command view…");
+    void this.campaignScreenLoader()
+      .then((campaignScreen) => {
+        this.campaignScreen = campaignScreen;
+        this.screenManager.showScreenById("campaign");
+      })
+      .catch((error) => {
+        this.screenManager.endTransition?.();
+        console.error("[CampaignRoute] Campaign command view failed to load safely", error);
+        this.showFeedback("Campaign command view could not be prepared. Please try again.");
+      })
+      .finally(() => {
+        this.campaignTransitionPending = false;
+      });
   }
 
   /**

@@ -9,6 +9,11 @@ import {
   type AirshowTemporalSpawn
 } from "./support/airshowTemporalAudit";
 
+test.skip(
+  ({ browserName }) => browserName !== "chromium",
+  "Painted-frame baselines are Chromium/Windows-specific; Firefox and WebKit remain covered by the non-visual gameplay E2E matrix."
+);
+
 const AIRSHOW_BROWSER_TIMEOUT_MS = 120_000;
 const LATEST_PAINTED_FRAME_DIR = path.resolve(process.cwd(), "diagnostics", "playwright", "screenshots", "latest");
 const PAINTED_FRAME_PROGRESS = 0.5;
@@ -25,7 +30,10 @@ function prepareLatestPaintedFrameDir(): void {
 }
 
 async function gotoAirshowHarness(page: Page, url = "/?codex-test=airshow"): Promise<void> {
-  await page.goto(url);
+  // The explicit DOM and harness readiness checks below are the authoritative
+  // boundary. Waiting for every deferred media request makes Firefox navigation
+  // nondeterministic without adding coverage of the playable scene.
+  await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#battleHexMap", { state: "attached", timeout: 15000 });
   await page.waitForFunction(() => Boolean((window as Window & { __FSG_AIRSHOW_E2E__?: unknown }).__FSG_AIRSHOW_E2E__), null, {
     timeout: 15000

@@ -6,7 +6,6 @@ export interface AirshowHarnessFixture {
   readonly locKey: string;
   readonly bomberOriginKey: string;
   readonly bomberTargetKey: string;
-  readonly bomberArrivalDelayMs: number;
   readonly renderScenario: ScenarioData;
   readonly engagement: AirEngagementEvent;
   readonly flakEvent: AirEngagementEvent;
@@ -53,7 +52,6 @@ export function buildAirshowHarnessFixture(): AirshowHarnessFixture {
   const locKey = "5,7";
   const bomberOriginKey = "1,7";
   const bomberTargetKey = "7,8";
-  const bomberArrivalDelayMs = 220;
   const playerHqKey = "0,0";
   const botHqKey = "9,9";
 
@@ -269,7 +267,6 @@ export function buildAirshowHarnessFixture(): AirshowHarnessFixture {
     locKey,
     bomberOriginKey,
     bomberTargetKey,
-    bomberArrivalDelayMs,
     renderScenario,
     engagement,
     flakEvent,
@@ -309,7 +306,6 @@ export function buildAirshowHarnessFixtureLarge(): AirshowHarnessFixture {
   const locKey = "10,10";
   const bomberOriginKey = "2,10";
   const bomberTargetKey = "15,10";
-  const bomberArrivalDelayMs = 220;
   const playerHqKey = "0,0";
   const botHqKey = "19,19";
 
@@ -525,7 +521,6 @@ export function buildAirshowHarnessFixtureLarge(): AirshowHarnessFixture {
     locKey,
     bomberOriginKey,
     bomberTargetKey,
-    bomberArrivalDelayMs,
     renderScenario,
     engagement,
     flakEvent,

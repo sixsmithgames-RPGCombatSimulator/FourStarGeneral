@@ -494,6 +494,74 @@ registerTest("CAMPAIGN_COMMAND_SHELL_RENDERS_OBJECTIVE_PROGRESS_AND_TERMINAL_REC
   });
 });
 
+registerTest("CAMPAIGN_COMMAND_SHELL_OUTCOME_SAVE_MIRRORS_PERSISTENCE_BUSY_STATE", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+  let shell: CampaignCommandShell;
+  let saveRequests = 0;
+  const outcome = {
+    key: "victory:busy-save",
+    result: "victory" as const,
+    grade: "Decisive victory",
+    title: "Operation complete",
+    summary: "The campaign record is ready for archival.",
+    score: "200 / 200",
+    completed: 2,
+    failed: 0
+  };
+  const view = (saveStatus: "Saved" | "Saving" | "Loading") => ({
+    theaterTitle: "Operation Test",
+    campaignPhase: "Campaign complete",
+    timeLabel: "Day 2, 03:00-06:00",
+    commandStatus: "Campaign Ended" as const,
+    saveStatus,
+    unreadReports: 0,
+    resources: [],
+    objectives: [],
+    outcome,
+    forces: [],
+    airPower: 0,
+    navalPower: 0,
+    intelligenceCapacity: "0/0 available",
+    orders: [],
+    advance: {
+      mode: "segment" as const,
+      enabled: false,
+      pauseAfterEveryResolution: false,
+      summary: "Campaign ended.",
+      alerts: [],
+      timeline: []
+    }
+  });
+
+  await Given("a terminal outcome with one canonical save action", () => {
+    root = mountCommandShellFixture();
+    root.querySelector("#campaignSave")?.addEventListener("click", () => { saveRequests += 1; });
+    shell = new CampaignCommandShell(root);
+    if (!shell.initialize()) throw new Error("Campaign command shell did not initialize.");
+    shell.render(view("Saved"));
+  });
+
+  await When("persistence becomes busy and then returns to an available state", () => {
+    root.querySelector<HTMLButtonElement>("#campaignOutcomeSave")?.click();
+    shell.render(view("Saving"));
+    root.querySelector<HTMLButtonElement>("#campaignOutcomeSave")?.click();
+  });
+
+  await Then("the outcome save action is disabled rather than enabled and inert", () => {
+    const save = root.querySelector<HTMLButtonElement>("#campaignOutcomeSave");
+    if (!save?.disabled
+      || save.getAttribute("aria-disabled") !== "true"
+      || !save.textContent?.includes("Saving")
+      || saveRequests !== 1) {
+      throw new Error("Outcome save did not mirror the canonical persistence busy state.");
+    }
+    shell.render(view("Saved"));
+    if (save.disabled || save.getAttribute("aria-disabled") !== "false" || save.textContent !== "Save campaign record") {
+      throw new Error("Outcome save did not recover after persistence completed.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_COMMAND_SHELL_PRESENTS_ACCESSIBLE_AFTER_ACTION_ARCHIVE", async ({ Given, When, Then }) => {
   let root: HTMLElement;
   let acknowledged = "";
@@ -680,11 +748,13 @@ registerTest("CAMPAIGN_COMMAND_SHELL_EMPHASIZES_AFFECTED_FORMATIONS_WITHOUT_HIDI
     const commands = Array.from(root.querySelectorAll<HTMLElement>(".campaign-aar-command"));
     const affected = root.querySelectorAll<HTMLElement>("[data-material-change='true']");
     const disclosures = Array.from(root.querySelectorAll<HTMLDetailsElement>(".campaign-aar-unchanged"));
+    const disclosureSummaries = disclosures.map((details) => details.querySelector<HTMLElement>("summary"));
     const exactIds = Array.from(root.querySelectorAll<HTMLElement>("[data-formation-id]"), (row) => row.dataset.formationId);
     if (commands.length !== 2
       || affected.length !== 2
       || disclosures.length !== 2
       || disclosures.some((details) => details.open)
+      || disclosureSummaries.some((summary) => summary?.tabIndex !== 0)
       || !root.textContent?.includes("2 field guns lost")
       || !disclosures.some((details) => details.textContent?.includes("1 formation returned with no reported loss or condition change"))
       || !disclosures.some((details) => details.textContent?.includes("3 formations returned with no reported loss or condition change"))
@@ -965,6 +1035,133 @@ registerTest("CAMPAIGN_MAP_CLICK_IS_SELECTION_ONLY", async ({ Given, When, Then 
     }
     campaignState.reset();
   });
+});
+
+registerTest("CAMPAIGN_SCREEN_SITUATION_CONSUMES_CANONICAL_PROJECTION_WITHOUT_MUTATION", () => {
+  const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  state.setScenario(scenario);
+  const { root, screen } = mountIsolatedCampaignScreen(state);
+  try {
+    screen.renderScenario(scenario);
+    const before = state.getRuntimeSnapshot();
+    const activeObjective = state.getCampaignObjectivePresentations()
+      .find((objective) => objective.category === "primary" && objective.status === "active");
+    assert.ok(before && activeObjective, "The shipped campaign must expose its opening primary objective.");
+
+    (screen as unknown as { renderCommandShell(): void }).renderCommandShell();
+
+    const priority = root.querySelector<HTMLElement>(`.campaign-command-priority[data-priority-id="objective:${activeObjective.key}"]`);
+    assert.ok(priority, "The real screen must consume the canonical active-objective priority.");
+    assert.equal(priority.querySelector("strong")?.textContent, activeObjective.label);
+    assert.equal(
+      priority.querySelector(`[aria-label="${activeObjective.label} progress"]`)?.getAttribute("aria-valuenow"),
+      String(Math.round(activeObjective.progress * 100))
+    );
+    assert.deepEqual(
+      Array.from(root.querySelectorAll<HTMLElement>("#campaignSituationFronts [data-front-key]"))
+        .map((front) => front.dataset.frontKey),
+      scenario.fronts.map((front) => front.key),
+      "The real screen must preserve authored front order through the pure projection."
+    );
+    const counterattack = root.querySelector<HTMLElement>("[data-front-key='caen_airborne_flank']");
+    assert.match(counterattack?.textContent ?? "", /Enemy counterattack/);
+    assert.deepEqual(state.getRuntimeSnapshot(), before, "Projection and rendering must not mutate campaign authority.");
+
+    priority.querySelector<HTMLButtonElement>(`[data-objective-key="${activeObjective.key}"]`)?.click();
+    assert.equal(root.querySelector<HTMLElement>("#campaignContextInspector")?.dataset.selectionKind, "objective");
+    assert.deepEqual(state.getRuntimeSnapshot(), before, "The canonical Situation review route must remain selection-only.");
+  } finally {
+    screen.disposeCampaignAccessGate();
+  }
+});
+
+registerTest("CAMPAIGN_COMMAND_SHELL_SAMPLES_TIME_AT_THE_PUBLICATION_BOUNDARY", () => {
+  const state = new CampaignState({ saveBackend: new InMemoryCampaignSaveBackend(), legacyStorage: null });
+  const scenario = structuredClone(campaignScenarioData) as CampaignScenarioData;
+  state.setScenario(scenario);
+  const { screen } = mountIsolatedCampaignScreen(state);
+  const stateReader = state as unknown as {
+    getCampaignMapView: CampaignState["getCampaignMapView"];
+    getRuntimeSnapshot: CampaignState["getRuntimeSnapshot"];
+    getScenarioDefinitionSnapshot: CampaignState["getScenarioDefinitionSnapshot"];
+    getCampaignFormationRoster: CampaignState["getCampaignFormationRoster"];
+    getIntelBriefEvents: CampaignState["getIntelBriefEvents"];
+    getProductionReport: CampaignState["getProductionReport"];
+    getCurrentSegment: CampaignState["getCurrentSegment"];
+    getPlayerNavalSupport: CampaignState["getPlayerNavalSupport"];
+    getCurrentTimeDisplay: CampaignState["getCurrentTimeDisplay"];
+  };
+  const lifecycle = screen as unknown as {
+    commandInterface: CampaignCommandShell | null;
+    renderCommandShell(): void;
+  };
+  const events: string[] = [];
+  try {
+    screen.renderScenario(scenario);
+    const commandInterface = lifecycle.commandInterface;
+    assert.ok(commandInterface, "The real campaign shell must own its command renderer.");
+    const originalView = stateReader.getCampaignMapView.bind(state);
+    const originalRuntime = stateReader.getRuntimeSnapshot.bind(state);
+    const originalDefinition = stateReader.getScenarioDefinitionSnapshot.bind(state);
+    const originalFormationRoster = stateReader.getCampaignFormationRoster.bind(state);
+    const originalIntelBriefEvents = stateReader.getIntelBriefEvents.bind(state);
+    const originalProductionReport = stateReader.getProductionReport.bind(state);
+    const originalCurrentSegment = stateReader.getCurrentSegment.bind(state);
+    const originalNavalSupport = stateReader.getPlayerNavalSupport.bind(state);
+    const originalRender = commandInterface.render.bind(commandInterface);
+    stateReader.getCampaignMapView = ((faction) => {
+      events.push("view");
+      return originalView(faction);
+    }) as CampaignState["getCampaignMapView"];
+    stateReader.getRuntimeSnapshot = (() => {
+      events.push("runtime");
+      return originalRuntime();
+    }) as CampaignState["getRuntimeSnapshot"];
+    stateReader.getScenarioDefinitionSnapshot = (() => {
+      events.push("definition");
+      return originalDefinition();
+    }) as CampaignState["getScenarioDefinitionSnapshot"];
+    stateReader.getCampaignFormationRoster = ((faction) => {
+      events.push("formations");
+      return originalFormationRoster(faction);
+    }) as CampaignState["getCampaignFormationRoster"];
+    stateReader.getIntelBriefEvents = ((faction) => {
+      events.push("intelligence");
+      return originalIntelBriefEvents(faction);
+    }) as CampaignState["getIntelBriefEvents"];
+    stateReader.getProductionReport = (() => {
+      events.push("production");
+      return originalProductionReport();
+    }) as CampaignState["getProductionReport"];
+    stateReader.getCurrentSegment = (() => {
+      events.push("segment");
+      return originalCurrentSegment();
+    }) as CampaignState["getCurrentSegment"];
+    stateReader.getPlayerNavalSupport = ((options) => {
+      events.push("naval");
+      return originalNavalSupport(options);
+    }) as CampaignState["getPlayerNavalSupport"];
+    stateReader.getCurrentTimeDisplay = (() => {
+      events.push("time");
+      return "Fresh publication clock";
+    }) as CampaignState["getCurrentTimeDisplay"];
+    commandInterface.render = ((view) => {
+      events.push(`render:${view.timeLabel}`);
+    }) as CampaignCommandShell["render"];
+
+    lifecycle.renderCommandShell();
+
+    assert.deepEqual(events.slice(0, 3), ["view", "runtime", "definition"]);
+    assert.deepEqual(events.filter((event) => [
+      "formations", "intelligence", "production", "segment", "naval"
+    ].includes(event)), ["formations", "intelligence", "production", "segment", "naval"]);
+    assert.deepEqual(events.slice(-2), ["time", "render:Fresh publication clock"]);
+    assert.equal(events.filter((event) => event === "time").length, 1);
+    commandInterface.render = originalRender;
+  } finally {
+    screen.disposeCampaignAccessGate();
+  }
 });
 
 registerTest("CAMPAIGN_MULTI_TARGET_FRONT_ACCEPTS_VISIBLE_MAP_AND_CONTACT_SELECTION", async ({ Given, When, Then }) => {
@@ -2665,6 +2862,18 @@ registerTest("FSG_CAM_059_TASK_FORCE_AND_LOGISTICS_RENDER_THE_SAME_CAMPAIGN_AUTH
       || root.querySelector("#campaignNavalPowerValue")?.textContent !== naval.availableFireMissions.toLocaleString()) {
       throw new Error("Campaign producer failed to join the exact fleet's authority into both naval UI surfaces.");
     }
+    const view = campaignState.getCampaignMapView("Player");
+    const economy = view?.scenario.economies.find((entry) => entry.faction === "Player");
+    const resourceValues = new Map(Array.from(root.querySelectorAll<HTMLElement>("#campaignCommandResources [data-resource-key]"))
+      .map((entry) => [entry.dataset.resourceKey, entry.querySelector("strong")?.textContent]));
+    if (!economy
+      || resourceValues.get("manpower") !== economy.manpower.toLocaleString()
+      || resourceValues.get("supplies") !== economy.supplies.toLocaleString()
+      || resourceValues.get("fuel") !== economy.fuel.toLocaleString()
+      || resourceValues.get("ammo") !== economy.ammo.toLocaleString()
+      || root.querySelector("#campaignAirPowerValue")?.textContent !== economy.airPower.toLocaleString()) {
+      throw new Error(`The real command shell did not preserve exact Player logistics stocks: ${JSON.stringify(Object.fromEntries(resourceValues))}.`);
+    }
     if (inspector?.dataset.routeMode !== "projected"
       || inspector.querySelector("h2")?.textContent !== "Western Naval Force"
       || !route?.textContent?.includes("English Channel")
@@ -2673,6 +2882,17 @@ registerTest("FSG_CAM_059_TASK_FORCE_AND_LOGISTICS_RENDER_THE_SAME_CAMPAIGN_AUTH
       || compatibilityActions?.hidden !== true
       || hiddenSelectionCopy.includes("ORDER_FORCE_UNAVAILABLE")) {
       throw new Error(`The fleet marker remained ambiguous or exposed ground-action clutter: '${inspector?.textContent ?? ""}'.`);
+    }
+    const production = campaignState.getProductionReport();
+    const source = production?.sources[0];
+    if (!source || !onHexClick) throw new Error("The real Logistics workspace has no projected production source.");
+    onHexClick(source.offsetKey);
+    const nextAllocation = campaignState.segmentToTimeDisplay(
+      campaignState.getCurrentSegment() + production.segmentsUntilNextTick
+    );
+    if (!route?.textContent?.includes(`+${source.capacity.toLocaleString()} Allied support points daily`)
+      || !route.textContent.includes(`next allocation ${nextAllocation}`)) {
+      throw new Error(`The real source capability lost its exact capacity or next-delivery time: '${route?.textContent ?? ""}'.`);
     }
     campaignState.reset();
   });

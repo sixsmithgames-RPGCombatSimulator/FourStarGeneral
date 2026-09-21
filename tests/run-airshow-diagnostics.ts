@@ -22,6 +22,7 @@ import "./AirShow.bomberSpeed.validation.test.js";
 
 // Core air show choreography and motion tests
 import "./AirShow.fighterMotion.test.js";
+import "./AirShowCombatPassGeometry.test.js";
 
 // Scene building and formation spacing tests
 import "./AirCombatSceneBuilder.test.js";

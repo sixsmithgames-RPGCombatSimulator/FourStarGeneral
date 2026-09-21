@@ -244,6 +244,24 @@ async function bounds(locator: Locator) {
   });
 }
 
+async function wheelUntilContained(page: Page, owner: Locator, target: Locator): Promise<void> {
+  const ownerBox = await bounds(owner);
+  await page.mouse.move(ownerBox.x + ownerBox.width / 2, ownerBox.y + ownerBox.height / 2);
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const frame = await bounds(owner);
+    const item = await bounds(target);
+    if (item.y >= frame.y - 1 && item.bottom <= frame.bottom + 1) return;
+    const distance = item.bottom > frame.bottom ? item.bottom - frame.bottom + 8 : item.y - frame.y - 8;
+    const direction = Math.sign(distance) || 1;
+    await page.mouse.wheel(0, direction * Math.min(360, Math.max(96, Math.abs(distance))));
+    await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame())));
+  }
+  const frame = await bounds(owner);
+  const item = await bounds(target);
+  expect(item.y, 'Repeated real wheel gestures reveal the target from above').toBeGreaterThanOrEqual(frame.y - 1);
+  expect(item.bottom, 'Repeated real wheel gestures reveal the target from below').toBeLessThanOrEqual(frame.bottom + 1);
+}
+
 for (const defense of [false, true]) {
 for (const viewport of [
   { width: 600, height: 900 },
@@ -404,9 +422,7 @@ for (const viewport of [
         }
 
         const finalAction = body.locator('[data-selection-action="clear-path"]');
-        const bodyBox = await bounds(body);
-        await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2);
-        await page.mouse.wheel(0, 10000);
+        await wheelUntilContained(page, body, finalAction);
         await expect.poll(async () => (await bounds(finalAction)).bottom - (await bounds(body)).bottom).toBeLessThanOrEqual(1);
         await expectReadable(finalAction, [body, overlay, map, pane]);
         await expectReadable(finalAction.locator('.battle-intel-overlay__action-detail'), [finalAction, body, pane]);
@@ -414,6 +430,8 @@ for (const viewport of [
         // Tab traverses real enabled actions and scrolls each focused control into view.
         await page.keyboard.press('Tab');
         await expect(dismiss).toBeFocused();
+        await page.keyboard.press('Tab');
+        await expect(body).toBeFocused();
         const enabledActions = await body.locator('button:enabled').all();
         for (const action of enabledActions) {
           await page.keyboard.press('Tab');
@@ -421,6 +439,8 @@ for (const viewport of [
         }
         await expectReadable(finalAction, [body, overlay, map, pane]);
         for (const _action of enabledActions) await page.keyboard.press('Shift+Tab');
+        await expect(body).toBeFocused();
+        await page.keyboard.press('Shift+Tab');
         await expect(dismiss).toBeFocused();
         await page.keyboard.press('Enter');
         await expect(overlay).toBeHidden();

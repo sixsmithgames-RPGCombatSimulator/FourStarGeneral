@@ -2012,3 +2012,496 @@ Current behavior: tactical Bot formations intentionally reuse the same determini
 Expected behavior: known Bot unit types use concise Axis nomenclature consistent with the German sprite/equipment counterpart, while Player and Ally labels, combat data, unit IDs, campaign provenance, reconnaissance disclosure, saves, and results remain unchanged. Unidentified contacts must remain `Enemy Unit`; a presentation label must never reveal persistent campaign formation identity or hidden force truth.
 
 Impact: add a pure data-layer resolver for Bot type labels and use it only at BattleScreen enemy-presentation boundaries (contact intel, attack preview/details, conventional and initiative enemy activity). The resolver is deterministic and state-free. Risks are inconsistent wording across enemy surfaces or accidental relabeling of friendly units; focused semantic tests cover the reported `Infantry_42` contact, representative German armor/artillery/recon/air mappings, hidden-contact behavior, and Player fallback preservation.
+
+### Monotonic repeated combat damage — FSG-CAM-001 before high-risk edit
+
+Intended behavior: when attacker type, range, strength, stance, target type, and expected hits are identical, a later strike against the same increasingly damaged formation inflicts at least the first strike's readiness loss until the target has less readiness remaining than that baseline. Existing wounds make personnel and equipment more vulnerable to further effects; only the target's terminal remaining readiness may cap the result.
+
+Current behavior: damage outcomes are absolute destinations. `PERSONNEL_TRANSITIONS` and `EQUIPMENT_TRANSITIONS` reapply a wound or damage result to existing degraded pools with very small exposure weights, while readiness measures only the effectiveness removed from the source state. Identical hit pressure therefore removes less readiness as the fit/operational pools empty. `resolveDamagePacket` previews that taper accurately, and `applyDamagePacketToUnit` then reconstructs state from aggregate destination counts instead of treating the resolver's source→target transitions as authoritative. Existing repeat-strike assertions permit a 15–30% collapse, one test explicitly expects later taper, and that sequential test is absent from the main runner.
+
+Expected correction: resolved combat outcomes advance each affected member or equipment item by the outcome's severity relative to its source state, allocate each item at most once per packet, and select transitions by actual readiness removed so accumulated injury cannot provide protection. The packet reports the actual resulting destination counts and exact source→target transitions; applying a resolved packet replays those transitions, while legacy/manual packets without transitions keep their existing absolute-destination semantics. Per-weapon attribution falls back to the contributing hit pressure when a promoted destination had no raw same-destination weight.
+
+Edge cases: preserve deterministic integer allocation across multiple personnel/equipment pools; never transition killed/destroyed items; never apply more outcomes than living/non-destroyed capacity; avoid hitting one entity twice within one packet; preserve manual packet/setup compatibility; keep preview and committed status/readiness identical; cap only by remaining readiness at force collapse; preserve suppression, fortification, armor, attack accuracy, ammunition, retaliation, persistence schema, and UI consumers.
+
+Impact analysis: `GameEngine.previewAttack`, attack resolution, AI targeting, BattleScreen expected-outcome copy, activity/AAR casualties, save/resume state, and campaign consequence calculations consume `DamagePacket.readinessLoss`, aggregate deltas, or the mutated formation status. No event or public packet schema changes are planned; existing optional `statusTransitions` becomes authoritative for resolved packets. The visual shape is unchanged, but projected loss numbers and source→target explanation text will rise on later identical attacks. Risk is highest in packet/application parity, weapon-hit attribution, platform equipment readiness, multi-pool formation allocation, and terminal overkill. Verification adds a pre-fix-failing deterministic sequential replay, tightens the unit damage matrix invariants, registers the replay in the standard suite, and runs focused, campaign, build, zero-warning lint, and full test gates.
+
+### Tactical casualty burden, separation, and recovery
+
+Scope: wounded personnel and damaged or disabled equipment remain with their tactical formation by default. A player may order all recoverable casualties left at the formation's current hex; a formation that breaks and routs does this automatically before retreating. Killed personnel and destroyed equipment remain permanent losses and never enter a recovery site. Sites do not occupy stacking capacity, are visibly marked on the tactical map, survive save/resume, and are erased with all pending and staged recovery when a hostile ground unit enters the hex.
+
+Mobility: leg formations multiply their movement allowance by `1 - wounded-survivor ratio`; wheeled, truck, and tracked formations use `1 - damaged-or-disabled surviving-platform ratio`. Permanent losses are excluded from both denominators. Fractional allowance is banked deterministically between activations so a 10% burden is exactly 10% slower over time and a 90% burden is exactly 90% slower rather than being rounded back to a free hex. The existing difficult-terrain first-step guarantee remains only for formations with no casualty burden.
+
+Care and reconstitution: medical and maintenance detachments remain physical map units. They select a viable casualty demand, path toward the site's service radius, consume ordinary movement/fuel, and apply only their authored treatment or repair capacity. Returned-to-fit personnel and returned-to-operational equipment form a new battle-local detachment at the site with readiness proportional to the recovered complement; blocked stacking stages the output until space becomes available. The new unit has no campaign identity, ammo, or fuel and cannot act on the formation turn in which it appears.
+
+Campaign boundary: campaign results aggregate surviving sites, staged recoveries, and battle-local recovered detachments back into the one original committed formation solely for accounting. If a proper same-faction medical or maintenance support unit survived the battle, its corresponding recoverable casualty categories are fully recovered at battle end. Unsupported wounded/damaged states persist, overrun site contents remain lost, and no tactical recovery site or detachment becomes a new campaign formation.
+
+Integration and verification: recovery state is included in complete tactical serialization, logistics projections, initiative and conventional movement, Bot/Ally movement, assaults, routs, terrain intel, command UI, map rendering, campaign extraction, and deterministic event evidence. Regression coverage includes exact 10%/90% mobility, permanent-loss exclusion, manual separation, rout separation and retreat, save round-trip, hostile overrun, physical medical and maintenance movement, proportional personnel/equipment detachments, campaign support recovery, and campaign formation-count conservation.
+
+### Non-finite Bot plan scores — AUD-005
+
+Implemented result (2026-09-17): reproduced the passing-run defect with the complete tactical-save fixture and traced it to `calculateThreatProjection`: shipped `Infantry_42` intentionally has no legacy top-level `ap`, so `def.ap * 0.7` changed a finite `{ expectedDamage: 0.17, expectedRetaliation: 0.03 }` estimate into `NaN`. The threat projection now treats absent top-level AP as zero. `planHeuristicBotTurn` rejects non-finite final candidates before publication and sorting, and both Bot and Ally execution paths independently filter non-finite plan scores before prioritization, logging, or mutation. The boundary uses `Number.isFinite`, so finite negative scores and their deterministic ordering remain valid.
+
+Regression evidence: the registered shipped-infantry characterization requires a nonempty finite plan, one executed attack, and finite-only Bot plan logs; boundary characterization rejects `NaN`, `+Infinity`, and `-Infinity` while retaining a legitimate negative score. Direct coverage passes **2/2**, broader Bot-planner/save integration passes **18/18**, and the campaign suite passes **414/414** with both former `NaN` lines now logging `88.6`. Strict TypeScript, owned zero-warning lint, repository gates, and diff validation pass. `GameEngine.ts` remains at its 18,449-line ceiling; no RNG, combat estimate, movement, ammunition, initiative, event, or mutation ordering changed.
+
+### Core-module regression multiplier — AUD-009 architecture slice before high-risk edit
+
+Current behavior: `BattleScreen.ts` owns mission-outcome calculation, unit-loss aggregation, ammunition estimation, objective summarization, air-operations aggregation, engine access, roster persistence, and DOM orchestration in one class. It directly calls `BattleState.ensureGameEngine()` 76 times. The repository has written separation rules, but no executable size or UI-to-engine import gate, so the three largest modules can keep growing while ordinary build/lint/tests remain green.
+
+Intended behavior: mission reporting becomes a deterministic game-layer capability. `BattleState` exposes one immutable mission-reporting snapshot instead of requiring the reporting path to inspect `GameEngine`; `BattleScreen` only supplies presentation-owned title/status and persists the returned record. A build-time architecture verifier ratchets current core-file line counts, the remaining direct engine-access count, and the exact existing UI-to-engine import allowlist. New coupling or growth fails the production build until accompanied by an extraction and a lower baseline.
+
+Impact analysis: mission completion, headquarters handoff, general service records, mission history, air-loss accounting, ammunition estimates, and objective totals consume this slice. No combat, campaign, save, mission-rule, air-resolution, roster schema, DOM, or player-facing behavior changes are authorized. `BattleState` owns cloning at the engine boundary; the extracted assembler is pure and deterministic except for the explicit completion timestamp supplied by its caller.
+
+Edge cases and regression risk: missing engine returns no mission record and zero casualty fallback; empty supply history returns zero ammunition; only resolved Player air reports count; refit entries remain excluded; reserve aircraft still count as live; objective tiers retain exact completed/total semantics; unit losses never go negative; terminal and manual/in-progress mission outcomes retain existing copy. Characterization tests cover the pure assembler and the existing BattleScreen mission-history path. Focused tests, architecture verification, TypeScript/build, zero-warning lint, campaign tests, and the complete suite are required.
+
+Implemented result (2026-09-17): extracted deterministic mission reporting to `src/game/battle/reporting/BattleMissionReport.ts`; added the detached `BattleState.getMissionReportingSnapshot()` boundary; extracted damage and generic activity formatting into presentation modules; and moved screen-only operation contracts into `src/contracts/BattleScreenContracts.ts`. `BattleScreen.ts` fell from 15,484 to 14,995 lines and direct `ensureGameEngine()` calls fell from 76 to 74. `tools/verify-architecture.mjs` now gates the production build against six core-file ceilings, the direct-access ceiling, and the exact 11-pair grandfathered UI-to-engine import set. Verification: focused reporting/presentation 21/21, campaign 414/414, complete suite 833/833, architecture PASS, production build PASS with the pre-existing missing-large-explosion and chunk-size advisories, and zero-warning lint PASS.
+
+### Core architecture continuation — supply, map markup, and tactical-save seams
+
+Current behavior: three high-risk coordinators still own deterministic calculation or UI session responsibilities that do not require their mutable cores. `GameEngine.ts` computes supply categories, trends, alerts, and display timestamps inline; `HexMapRenderer.ts` builds deterministic terrain/fringe SVG strings alongside DOM lifecycle and animation; `BattleScreen.ts` owns roughly 300 lines of tactical-save-center subscriptions, polling, persistence commands, and browser state even though save serialization and reconstruction already have dedicated services. The current architecture gate prevents growth, but these responsibilities still enlarge review blast radius.
+
+Intended behavior: extract three behavior-preserving vertical slices. A pure `BattleSupplySnapshot` builder receives explicit immutable battle facts while `GameEngine` retains history mutation and observation selection. A pure `HexMapMarkupBuilder` produces exactly the existing terrain and fringe SVG while `HexMapRenderer` retains DOM mutation, caches, recon, effects, and renderer instances. A `BattleTacticalSaveController` owns save-center lifecycle and persistence session orchestration through narrow callbacks while `BattleScreen` retains complete-state capture and resume reconstruction. `BattleState` exposes a detached turn projection so the save controller never receives a `GameEngine` reference.
+
+Consumers and events: supply snapshots feed BattleState caches, War Room, popup/reserve logistics, saves, and campaign/tactical reporting; their order, copy, trend, alert, and timestamp contracts must remain exact. Map markup feeds the SVG viewport, hex interaction cache, terrain overlays, engineering overlays, and visual tests; attribute names, clip IDs, iteration order, and asset resolution must not move. Tactical-save orchestration feeds save-center models, queued-write polling, autosaves, load/recovery, focus restoration, navigation, and announcements; subscription count and async ordering must remain exact.
+
+Edge cases and regression risk: supply current reads omit the newest recorded sample from their comparison baseline; top-level inventory totals and rounded category depot totals intentionally differ; no-consumption status can override low-stock severity; Bot snapshots append recon-confidence copy; returned data must remain detached. Fringe generation depends on `Set` and axial-direction order; beach-water orientation and five-ring noninteractive fringe must remain deterministic; renderer services must not be duplicated. Tactical save must not double-subscribe or leak intervals, load during a write, lose invoker focus, read stale campaign truth after awaits, reorder resume/navigation/close/announce, or move serialization/reconstruction in the same refactor.
+
+Verification: add direct pure-builder/controller characterization tests, retain existing supply/history/hydration, renderer double-render/terrain, and tactical-save/resume/disposal suites, lower all three line ceilings and add a `tryGetGameEngine()` coupling ceiling, then run focused tests, architecture verification, TypeScript/build, zero-warning lint, campaign tests, and the complete suite. This is structural refactoring only; gameplay, copy, save format, rendering output, and timing remain unchanged.
+
+Implemented result (2026-09-17):
+
+- Added cycle-free battle runtime contracts and the pure `BattleSupplySnapshot` builder. `GameEngine` retains authoritative history mutation and sample selection, then delegates projection. Direct tests lock category order, trend/no-consumption precedence, Bot intel copy, deterministic timestamps, rounding behavior, and detached ledger data.
+- Added the pure `HexMapMarkupBuilder` and kept DOM lifecycle, viewport, cache, recon, interaction, effects, and renderer-service ownership in `HexMapRenderer`. Tests lock terrain metadata/features, all six beach-water rotations, deterministic noninteractive fringe, and the repeated-render DOM boundary.
+- Added `BattleTacticalSaveController` and a detached `BattleState.getBattleTurnSnapshot()` boundary. Save-center subscriptions, queued-write polling, browsing, recovery, and autosave orchestration no longer live in `BattleScreen` and the controller has no `GameEngine` import. Complete-state capture and resume reconstruction remain in the screen as planned.
+- Lowered the ratchets to `GameEngine.ts` 18,604 lines, `HexMapRenderer.ts` 15,782, and `BattleScreen.ts` 14,686. `BattleScreen` direct access is capped at 74 `ensureGameEngine()` and 3 `tryGetGameEngine()` calls.
+- Extended the architecture verifier from file/import counts to TypeScript-AST method budgets. The build now enforces 10 file ceilings, 2 coupling ceilings, the exact 11 grandfathered UI-to-engine imports, 63 exact inherited oversized-method ceilings, and a 120-line ceiling for every new method or module function.
+- Verification passed: integrated focused regressions 27/27, campaign 414/414, complete suite 842/842, architecture verification, TypeScript, production build, and zero-warning lint. The production build still reports the pre-existing unresolved `FSG_Explosion_Large.png` reference and oversized main-chunk advisories; neither was in this structural slice.
+
+### Core architecture continuation — support commands, public UI contracts, and air-show planning
+
+Current behavior: the no-growth ratchet now prevents the largest coordinators from expanding, but `BattleScreen` still reaches into the engine repeatedly to calculate support-command availability and targeting; reserve/popup UI modules still import concrete engine modules; and air-show planning/rendering retains multi-hundred-line methods that combine deterministic geometry with mutable playback ownership. The file budgets are exact today, but the verifier does not yet require a lowered file budget when a tracked file shrinks, so an improvement could be accidentally surrendered later.
+
+Intended behavior: move support targeting and command availability behind a typed projection/controller seam while `BattleScreen` retains interaction and presentation ownership. Introduce cycle-safe public battle contracts so reserve and popup UI consumers depend on narrow data/command capabilities rather than the concrete engine module. Extract one characterized deterministic air-show calculation into a pure module while renderer/planner lifecycle and DOM mutation stay in their existing owner. Make every tracked file budget bidirectional: growth fails, and shrinkage also fails until the baseline is lowered to lock the improvement.
+
+Consumers and events: support actions feed selection intel, target highlighting, confirmation, announcements, activity logs, and queued support resolution. Reserve and popup surfaces consume snapshots, previews, reports, and command callbacks, but must not gain mutable engine ownership. Air-show calculations feed phase assignments, actor continuity, paths, timing, tracers, flak, and destruction cues; exact actor identity and phase ordering must remain stable.
+
+Edge cases and regression risk: unavailable support must retain its exact actionable reason and must never expose hidden contacts; stale selection or faction/phase changes must fail closed before a command is queued. Public contracts must preserve structural typing without introducing a dependency cycle or broad `any` escape hatch. Air-show extraction must preserve deterministic output, formation spacing, headings, phase joins, and loss continuity. Constructor-bypassing test fixtures must receive explicit dependencies instead of making production initialization optional.
+
+Verification: add direct characterization tests for every new boundary, register them in the complete suite, lower file/import/method budgets immediately, and run focused tests, architecture verification, strict TypeScript, zero-warning lint, campaign tests, production build, and the complete registered suite. No gameplay, copy, DOM, persistence schema, serialized identity, or animation timing change is authorized in this tranche.
+
+Implemented result (2026-09-17):
+
+- Added cycle-safe `BattleRuntimeContracts` and pure `BattleSupportTargeting`. `BattleState` now owns support command forwarding and returns detached support, smoke-target, impact, command-state, and Bot-unit projections. Boundary tests assert all command arguments and detachment paths.
+- Added the cycle-safe `BattleSidebarEngine` contract and cached state-owned `BattleSidebarEngineFacade`. Popup/reserve consumers receive detached readonly models and exact delegated commands rather than concrete mutable `GameEngine` identity. Removed the unreferenced 3,138-line duplicate `ReserveList.ts`/`PopupManager` implementation after proving it had no production references.
+- Added pure `AirShowTimelineInspection`; `HexMapRenderer` delegates deterministic inspection/playback projection while retaining mutable playback and DOM ownership.
+- Tightened the ratchets to `GameEngine.ts` 18,516 lines, `HexMapRenderer.ts` 15,580, `BattleScreen.ts` 14,641, 63 direct `ensureGameEngine()` calls, 3 `tryGetGameEngine()` calls, 15 bidirectional file budgets, 62 inherited oversized-method budgets, and 8 grandfathered UI-to-engine import pairs. A tracked-file reduction now fails until its baseline is lowered.
+- Hardened the architecture scanner against `.tsx`, re-export, import-equals, and literal dynamic-import bypasses. Added gate self-tests, including an exact-pair allowlist check.
+- Verification passed: support boundary **4/4**, sidebar facade/contract **2/2**, air-show inspection **2/2**, animation fixtures **10/10**, gate self-tests, architecture, TypeScript, zero-warning lint, production build, campaign **414/414**, and complete suite **850/850**. Gameplay, copy, persistence, serialized identity, and animation timing remain unchanged.
+
+### Missing large-explosion asset reference — release advisory cleanup
+
+Current behavior: `SpriteSheetAnimator` registers a 24-frame `explosionLarge` sheet at a path that does not exist. The only production branch that appears to select that animation returns earlier into the characterized five-impact bomb-stick path, while tests explicitly require large explosions to avoid the obsolete animation. A layout test nevertheless mocks the missing sheet and makes the dead registry entry appear valid, so Vite warns on every production build.
+
+Intended behavior: remove the nonexistent asset URL and obsolete registry entry, retain the real small-impact bomb-stick behavior, and convert the false layout characterization into a contract that the runtime registry cannot advertise the missing large sheet. Do not substitute the unrelated eight-frame `explosion_large.png`, change impact timing, or alter active combat visuals. Verify focused sprite/combat animation tests, TypeScript, lint, build, and the complete suite.
+
+Implemented result (2026-09-17): removed the nonexistent URL, registry entry, timing helper, and dead procedural-effect case while preserving the characterized five-small-impact bomb-stick path. Replaced the mocked missing-sheet layout test with a registry absence contract. Added a source/public asset verifier covering 348 explicit import-meta, composed unit/formation/directional sprite, runtime JSON, public audio, and sound-catalog references, plus self-tests for the former bypass classes. The production build no longer reports the missing asset; its only remaining Vite advisory is the oversized main chunk. TypeScript, zero-warning lint, build, campaign **414/414**, and complete suite **850/850** pass.
+
+### Core architecture continuation — air-show phases, attack resolution, and campaign shell
+
+Current behavior: the ratchet now prevents growth, but three extreme methods still make unrelated changes expensive. `planResolvedAirCombatShowScene` owns 5,956 lines of actor construction, timing, geometry, phase composition, tracers, flak, loss cues, and audit data. `GameEngine.resolvePlayerAttack` and `resolveBotAttack` each mix command validation, resource mutation, shared combat calculation, damage application, retaliation, activity events, initiative, and mission aftermath. `CampaignScreen.renderCommandShell` owns 840 lines of workspace selection, projections, DOM assembly, accessibility state, event binding, focus, and report-modal routing.
+
+Intended behavior: extract one independently characterized deterministic seam from each coordinator without changing gameplay or presentation. Air-show work must move a coherent phase/projection builder behind explicit immutable inputs while retaining canonical actor identity, path, timing, and cue ordering. Combat work must move shared calculation/event projection behind a pure battle-domain service while `GameEngine` retains authoritative mutation and transaction order. Campaign work must move one complete command workspace projection/markup/binding responsibility into a typed presentation module while `CampaignScreen` retains state ownership, navigation, and lifecycle.
+
+Consumers and events: the air-show scene feeds renderer playback, capture, diagnostics, and loss continuity. Attack resolution feeds preview parity, damage/status transitions, ammunition, retaliation, initiative, activity logs, saves, campaign extraction, and mission results. The campaign shell feeds Situation, Operations, Forces, Intelligence, Logistics, Reports, order tray, AAR, keyboard/focus behavior, and map selection. Extraction boundaries must not reorder RNG, mutate detached inputs, introduce UI-to-engine imports, or conceal required state transitions.
+
+Regression strategy: characterize every extracted function directly and retain the existing end-to-end consumers. Lower file and oversized-method budgets immediately; never increase a ceiling. Constructor-bypassing tests receive explicit dependencies. Run focused direct tests, relevant integration suites, repository-gate self-tests, architecture and asset verification, strict TypeScript, zero-warning lint, production build, campaign **414/414**, and the complete registered suite on the combined final tree.
+
+### Campaign command shell — Reports and formation-roster projection results (2026-09-17)
+
+- Extracted the complete after-action Reports workspace projection into `CampaignReportsWorkspaceProjection.ts`. The module receives immutable reports and narrow lookup/format callbacks; it has no `CampaignState`, DOM, or `GameEngine` dependency. `CampaignScreen` still owns state reads, historical-location resolution, map/navigation callbacks, modal/focus lifecycle, and the single shell render call.
+- Preserved report titles and geography validation, checkpoint status, resource/loss/score copy, infrastructure and naval effects, formation identity/effects, objective changes, decision filtering/routes, array order, and unescaped text-as-data consumed by the shell's safe DOM builders. The existing formation-effects export remains source-compatible through `CampaignScreen`.
+- `CampaignScreen.ts` fell from 5,284 to 5,156 lines (−128). `CampaignScreen.renderCommandShell` fell from 840 to 747 lines (−93). The new pure presentation module is 192 lines; its largest function is 90 lines, below the 120-line new-method limit. All three exact ceilings are ratcheted.
+- Direct Reports projection characterization passes **1/1**; actual CampaignScreen report refresh, acknowledgement, map/recovery routing, modal keyboard/focus restoration, disposal, and scoring pass **12/12**; accessible archive, safe text, condition evidence, and named-sector integration pass **3/3**; the campaign-wide suite passes **414/414**.
+- Extracted persistent formation identity, posture, placement, condition, availability, history, and capacity-record filtering into the typed pure `CampaignFormationRosterProjection.ts`. `CampaignScreen` retains the authoritative roster read plus location, historical-battle, and time-format callbacks; DOM, accessibility, selection, navigation, focus, order state, and event ownership remain unchanged.
+- The second seam lowers `CampaignScreen.ts` from 5,156 to 5,105 lines (−51) and `CampaignScreen.renderCommandShell` from 747 to 695 lines (−52). The new projection is 116 verifier lines and is ratcheted. Direct detached-input coverage plus the actual canonical Forces workspace and formation-selection/order integrations pass **3/3**; strict TypeScript, owned zero-warning lint, repository gates, architecture, asset verification, and diff validation pass.
+
+Attack-resolution result (2026-09-17): extracted the four duplicated air-result multiplier paths into the cycle-free pure `AirAttackResultScaling` battle-domain module. Tactical player attacks, tactical Bot attacks, retaliation, resolved strike missions, and Bot strike estimation now share the same explicit aircraft/bomber/defender classification contract. `GameEngine` still owns classification, every RNG call, ammunition/resource debit, state mutation, initiative, event publication, and transaction ordering. The engine fell by 67 lines (18,516 to 18,449); `resolveAirStrikeMission` fell by 17 (551 to 534), and both `resolvePlayerAttack` and `resolveBotAttack` fell by 14 (727 to 713 and 657 to 643). Direct characterization locks bomber-to-ground ×10, fighter-to-air ×4, unchanged bomber-to-air and ground-to-ground identity, and input immutability; existing strike, interception, Bot-air, stance, sequential-damage, and campaign regressions remain the integration certificate.
+
+Air-show phase projection result (2026-09-17): extracted deterministic phase inspection, assignment sampling, tracer geometry projection, flak target precedence/wave projection, visible-actor continuity, and timing audit construction into the pure `AirShowPhaseProjection`. Shared planner/projection types and host capabilities now live in the cycle-free `AirShowPhaseProjectionContracts`; the projection no longer imports the planner, while planner type re-exports preserve compatibility. The planner still owns phase sequencing, actor/flight mutation, seeded choreography, loss application, and assignment commits. `AirShowPlaybackPlanner.ts` fell from 6,376 to 6,101 verifier lines (−275), and `planResolvedAirCombatShowScene` fell from 5,956 to 5,782 lines (−174); both exact ceilings were lowered. The 269-line projection (largest function 64) and 125-line contracts module are ratcheted. The remaining largest nested responsibility is `finalizeCorridorPhaseAssignments` at 752 lines inside the 4,309-line `buildCorridorContestedAirShowPlan`. Direct phase/speed/capture regressions passed **15/15**, renderer air-show visual regressions passed **8/8**, and repository gates, strict TypeScript, owned zero-warning lint, and diff validation passed. Actor IDs, coordinates, sample timing, semantic phase/cue order, inactive-loss visibility, deterministic output, RNG ownership, and diagnostics remain unchanged.
+
+Air-show spatial gate result (2026-09-17): reproduced the inert `AIR_SHOW_SPATIAL_SEPARATION_REPORT` result at **96% / 2.6px** overlap with **331** reported proximity events. The root cause was formation members alternating scramble-turn sides and folding through one another; the report also overstated overlap by assuming every aircraft used a 60px sprite and comparing different painted times in coarse 50ms buckets. Fighter formations now keep one coherent deterministic fold while escorts target a faction-separated lane before rejoining the bomber screen. The enforced gate compares exact painted frames using each actor's rendered size and fails above **75%** overlap, below **25% of the smaller sprite diameter**, or above the **41-event** ratchet at 40% overlap. Its only exclusions are semantic attack crossings between opposing actors during the head-on merge, fighter combat, or bomber interception. The final non-exempt worst case is **75% / 11.6px**, with **41** notable events. Actor/loss identity, seeded RNG ownership, phase and cue order, role-speed budgets, tracer/flak/bomb behavior, and leader turn-mask selection remain unchanged. Legacy phase-aggregate diagnostics were migrated to exact immutable timeline-v2 tracks and cues for bomber-specific turn findings, clash timing, tracer origin/aim, target-run/egress continuity, flak flash/smoke timing, and continuous visibility. The complete diagnostics pass **84/84**, renderer visuals pass **8/8**, the anomaly report has no findings, and seven visually reviewed Chromium painted-frame baselines pass **7/7** at deterministic current desktop, large-map, and mobile dimensions.
+
+### Campaign startup lazy-loading boundary
+
+Current behavior before this slice: `main.ts` imported and constructed the campaign screen eagerly even for landing and direct tactical startup. That pulled the strategic screen, campaign renderer, scenario data, and campaign map asset into the initial browser chunk and coupled campaign initialization to unrelated entry paths.
+
+Intended behavior: campaign code must cross one explicit asynchronous bootstrap boundary and load only when the player enters campaign mode. Preserve the synchronous `LandingScreen.attachCampaignScreen` integration once loaded, the singleton `CampaignState`, auth gating, direct `?mode=campaign` entry, battle resume, and campaign-to-precombat handoff. Multiple clicks or entry signals must share one in-flight import, and a load failure must leave a deliberate recoverable state rather than silently booting an incomplete screen.
+
+Implemented result (2026-09-17): added `CampaignScreenBootstrap.ts` as the campaign construction boundary, changed `main.ts` to memoize its dynamic import, and added a deduplicated async campaign loader to `LandingScreen`. Landing and tactical startup no longer eagerly load the strategic screen stack. The final integrated build is **2,635.80 kB / 647.39 kB gzip**, down **426.58 kB raw / 111.69 kB gzip** from the historical **3,062.38 kB / 759.08 kB gzip** baseline (approximately **13.9% / 14.7%**). Campaign code now ships as a **428.16 kB / 112.70 kB gzip** on-demand chunk. Direct lazy-route characterization passes **4/4**; real Chromium direct campaign entry and campaign-to-tactical geography both pass. Build, TypeScript, zero-warning lint, repository gates, asset verification, and static chunk-cycle verification pass. The next delivery slice is an explicit async boundary around the still-eager battle, War Room, and air-show stacks.
+
+### Tutorial objective rail state consistency
+
+Current behavior: an unoccupied tactical point is emitted with authoritative `data-state="inProgress"`, but the same objective card visibly and accessibly labels it `Open`. The governed tutorial requires `In Progress` or `Secured`, so the first-session acceptance journey fails despite the underlying state already being correct.
+
+Intended behavior: the visible status, `aria-label`, title, and `data-state` must agree. Unoccupied actionable tactical points remain in progress; player-held secured points remain `Secured`; defender-only visited-state wording and enemy-held recapture wording remain unchanged. This is presentation-only and must not change objective ownership, mission rules, victory, movement, marker geometry, or persistence.
+
+Regression strategy: update the actual objective-summary characterization to require `In Progress` for an unoccupied in-progress point, retain marker/defender objective suites, and rerun the tutorial-focused contract, TypeScript, lint, build, campaign, and complete suite. The external three-viewport browser certificate remains a separate deployment gate.
+
+The governed local Chromium replay subsequently passed wide desktop and desktop, then exposed a separate compact-layout collision: the 44px activity-log toggle is restored by the later responsive drawer rule, but the mobile header overrides the base toggle clearance with only 0.5rem right padding. At 390px the visible toggle occupies the same horizontal command lane. Preserve the reachable activity drawer and reserve its full 44px target plus a gap in the mobile header; do not hide the control or relax the geometry assertion. Retain failure-only geometry evidence in the acceptance helper and rerun all three viewports.
+
+After clearing that collision, the same real mobile journey exposed the open activity drawer intercepting the first map order. Desktop intentionally opens the side-by-side log after deployment, but the compact layout presents it as a map-covering drawer. Start the compact drawer collapsed while retaining its visible 44px toggle; desktop keeps the existing expanded behavior. Add a direct responsive orchestration regression and continue the governed mobile journey without force-clicking through the overlay.
+
+Implemented result (2026-09-17): the unoccupied objective's player-facing state now reads `In Progress` instead of `Open`, with its visible label, `aria-label`, title, and authoritative `data-state="inProgress"` in agreement. The compact battle header reserves right padding for the visible 44px activity-log toggle. `BattleActivityLog.show` accepts an initial collapsed state, and battle-start orchestration now matches the actual CSS overlay breakpoint: the map-covering drawer starts collapsed through 980px, including intermediate tablet widths, while viewports above 980px preserve the expanded desktop presentation. The direct regression exercises the real activity-log host and toggle state at 390px, 800px, and 1024px. The browser acceptance helper captures failure-only geometry diagnostics without weakening its collision assertions.
+
+Certification status: the final integrated tree passes the complete governed local Chromium tutorial at **1680×857, 1440×900, and 390×844 (3/3)**. This includes every command step and rail mini-tutorial after the objective semantics, compact header, 980px drawer breakpoint, cycle-free air-show contracts, and finite Bot-score corrections. Exact public-deployment replay remains a separate release gate.
+
+### Tactical runtime lazy-loading boundary (2026-09-19)
+
+Current behavior before this slice: campaign entry was lazy, but `main.ts` still imported and constructed BattleState, precombat, BattleScreen, War Room, map rendering, tutorial, and related tactical infrastructure during every landing-page boot. The production initial script remained **2,635.80 kB / 647.39 kB gzip** even for a player who had not requested tactical play.
+
+Implemented result: `TacticalBattleFlowBootstrap.ts` now owns tactical construction behind the narrow `TacticalBattleFlow` contract. A retryable memoized loader deduplicates concurrent requests and clears failed imports for a later retry. Landing training/mission entry, campaign-to-precombat bridge, saved-battle hydration, and direct air-show test routes await the same initialized flow. BattleState remains a singleton; the campaign handoff keeps its two-animation-frame sequencing; `setMissionStartedUI`, synchronous test attachment, auth gating, transition feedback, and boot-ready semantics remain intact.
+
+The final initial script is **80.38 kB raw / 21.61 kB gzip**, a reduction of **2,555.42 kB raw / 625.78 kB gzip** from the campaign-only split. Tactical code is deferred into a **363.96 / 79.40 kB** bootstrap, **764.40 / 178.20 kB** shared map/runtime chunk, and **1,431.04 / 372.55 kB** BattleScreen chunk. Production verification requires a distinct tactical bootstrap chunk, rejects an initial script above **100 KiB raw**, and retains static chunk-cycle detection. Focused lazy lifecycle tests pass **7/7**; real Chromium passes landing-to-training, direct campaign/auth entry, campaign-to-precombat, and full direct air-show harness playback **4/4**.
+
+### Air-show corridor finalizer extraction (2026-09-19)
+
+Implemented result: the former 752-line nested `finalizeCorridorPhaseAssignments` responsibility now lives in the cycle-free `AirShowCorridorPhaseFinalizer.ts` behind explicit immutable input, typed services, and typed geometry capabilities. Phase-specific helpers preserve prepare/alignment/pacing/speed-restoration/separation order without recreating a replacement mega-method. `AirShowPlaybackPlanner` retains seeded RNG, semantic phase composition, actor/loss identity, cue ownership, and final assignment commits.
+
+`AirShowPlaybackPlanner.ts` fell from **6,101 to 5,365** lines (−736), and `planResolvedAirCombatShowScene` fell from **5,782 to 5,058** lines (−724). The 648-line finalizer is itself ratcheted. Direct deterministic, immutability, actor-order/loss-continuity, and pipeline-order characterization adds two registered tests. Air diagnostics pass **86/86** with the governed result unchanged at **75% / 11.6 px / 41 events**; renderer visuals remain **8/8** and the seven painted-frame baselines remain unchanged.
+
+### Campaign Intelligence workspace extraction (2026-09-19)
+
+Implemented result: `CampaignIntelligenceWorkspaceProjection.ts` now owns the complete pure player-safe Intelligence projection for known sites, regions, contacts, brief history, capacity, and strategic geography. It receives authorized snapshots plus narrow location/format callbacks and returns detached arrays. `CampaignScreen` retains every authoritative state read, DOM/event/focus/navigation responsibility, and command-shell lifecycle.
+
+`CampaignScreen.ts` fell from **5,105 to 5,017** lines (−88), while `renderCommandShell` fell from **695 to 633** lines (−62). The new 199-line projection is ratcheted. Direct projection/detachment and real-screen integration pass **4/4**; the final integrated campaign certificate passes **418/418** and the complete registered suite passes **864/864**.
+
+### Single-authority combat, Logistics, and War Room continuation (2026-09-19)
+
+Intended behavior: reduce the cost of changes in `GameEngine`, `CampaignScreen`, and the tactical UI boundary without creating competing sources of truth. Every moved rule must have one canonical owner. The old inline implementation, direct-engine fallback, or duplicate cache must be deleted in the same slice; pure projections may detach and format explicit inputs but may not own mutable game state.
+
+Implemented combat result:
+
+- Added the cycle-safe `BattleAttackOutcomeProjection.ts` as the canonical pure assembler for player attack summaries, Bot attack summaries, and combat-report payloads.
+- `resolvePlayerAttack` and `resolveBotAttack` each delegate exactly once. Their former inline output/report assembly is absent and source-characterized.
+- `GameEngine` remains the sole authority for validation, RNG order, ammunition/resources, damage mutation, retaliation, initiative, aftermath, and event publication.
+- `GameEngine.ts` fell from **18,449 to 18,356** lines; `resolvePlayerAttack` fell from **713 to 707**; `resolveBotAttack` fell from **643 to 632**. The new module is ratcheted at 206 verifier lines.
+
+Implemented campaign result:
+
+- Added `CampaignLogisticsWorkspaceProjection.ts` as the canonical detached projection for command resources and held capacity, production capability, air power, exact naval-source authority, and ordered per-hex Logistics copy.
+- `CampaignScreen` remains the only reader of `CampaignState` for this view and retains DOM composition, interaction, focus, navigation, and command-shell lifecycle.
+- Naval readiness is never inferred from `economy.navalPower`; a disagreement regression proves the supplied naval-support view is authoritative.
+- `CampaignScreen.ts` fell from **5,017 to 5,008** lines and `renderCommandShell` from **633 to 623**. The new projection is ratcheted at 113 verifier lines.
+
+Implemented War Room result:
+
+- Added the cycle-free `BattleWarRoomSnapshot.ts` contract and state-side `BattleWarRoomSnapshotProjection.ts`.
+- `BattleWarRoomDataProvider` now performs one `BattleState.getWarRoomInputSnapshot()` read and has no direct `GameEngine`, readiness, precombat, campaign-bridge, or fallback read.
+- The snapshot detaches turn, roster, reserves, damage, reconnaissance, combat/air reports, logistics, supply, mission, and frozen campaign timing while preserving provider subscriptions and directive behavior.
+- Removed the unused `supplySnapshotByFaction` parallel cache. `supplySnapshotCache` is the sole cache/reset path, and a zero-count architecture budget prevents the removed authority from returning.
+- `BattleState.ts` fell from **688 to 680** lines; the UI-to-engine allowlist fell from **8 to 7** pairs. The new contract/projection are ratcheted at 115/46 verifier lines.
+
+Regression result: direct boundary tests cover output parity, input/output detachment, exactly-once delegation, authoritative naval disagreement, War Room campaign timing, subscription disposal, cache reset, and fallback rejection. The final integrated campaign suite passes **422/422**, the complete registered suite passes **870/870**, strict TypeScript and zero-warning lint pass, all repository/asset/architecture gates pass, and the production build verifies a **80,404-byte** initial script with a lazy tactical chunk and no static chunk cycles. Six Campaign command-shell Chromium viewport checks pass. The obsolete War Room query-route check was replaced by a shipped-DOM component certificate that validates every authored hotspot's unique identity, accessible label, visibility, non-zero geometry, and layer containment; it passes **1/1**.
+
+### Canonical Situation, unit-stack, and air-contract continuation (2026-09-19)
+
+Intent: continue reducing regression blast radius without moving mutable game authority or allowing a second implementation to survive beside an extraction. Each slice must delete the former inline path, receive immutable/detached inputs, preserve compatibility where required, and gain an executable ownership or parity guard.
+
+Implemented Campaign Situation result:
+
+- Added `CampaignSituationWorkspaceProjection.ts` as the canonical pure projection for objectives, priority-force hexes, command priorities, front posture, counterattack stage, alerts, timeline, Situation brief/outlook, score/grade, and latest checkpoint.
+- `CampaignScreen` retains all authoritative `CampaignState` reads and all DOM, event, focus, navigation, map, and lifecycle ownership. Callback-returned locations and nested uncertainty values are detached.
+- An adversarial review found two copies of the alert severity ranking during integration. They now share one module-level rank/comparator, and a table-driven test proves timeline and command-priority selection agree for routine, notable, critical, and decision-required alerts.
+- `CampaignScreen.ts` fell from **5,008 to 4,751** lines (−257), and `renderCommandShell` fell from **623 to 399** (−224). The new module is 502 verifier lines; its largest function is 66 lines.
+
+Implemented renderer result:
+
+- Added `UnitStackPresentation.ts` as the canonical deterministic owner of visible-member priority/cap, strength-to-actor count, diamond/corner geometry, recon normalization, sprite/facing selection, suppression/sentry/entrenchment state, and decoration offsets.
+- `HexMapRenderer` retains SVG/DOM creation, caches, transforms, effects, errors, and lifecycle; the former inline preparation path is deleted.
+- `HexMapRenderer.ts` fell from **15,580 to 15,396** lines (−184), while `renderUnitStack` fell from **169 to 61** and lost its oversized-method exemption. The new pure module is 186 verifier lines.
+
+Implemented air-contract result:
+
+- Added `AirCombatContracts.ts` as the sole declaration owner for nine air mission/event contracts. `GameEngine` and `BattleSidebarEngine` retain source-compatible type re-exports only.
+- `AirShowPlaybackCapture`, `ClusterAirPlaybackPlanner`, and `ResolvedAirCombatSceneBuilder` now import the cycle-free contract directly. Their type imports erase at compilation, so the extraction adds no runtime edge or cycle.
+- Source guards reject duplicate definitions for all nine symbols and compile-check exact bidirectional compatibility through every `GameEngine` export. The architecture baseline separately holds duplicate declarations at zero in both former owners.
+- `GameEngine.ts` fell from **18,356 to 18,213** lines and `BattleSidebarEngine.ts` from **397 to 332**; three more UI-to-engine exceptions were removed, leaving four.
+
+Regression result: the final tree passes the complete registered suite **878/878**, the campaign suite **426/426**, air-show diagnostics **86/86**, strict TypeScript, zero-warning lint, repository/asset gates, and the production build. Architecture verification now enforces **29 file budgets, 5 coupling/symbol budgets, 61 inherited oversized-method ceilings, and exactly 4 grandfathered UI-to-engine import pairs**. The six real Campaign command-shell Chromium checks pass at 1920×1080, 1506×768, 1440×900, 1280×720, 800×900, and 640×360. Production verification retains the **80,404-byte** initial script, lazy tactical delivery, and no static chunk cycles.
+
+### Canonical retaliation, combat-pass geometry, and Campaign Operations continuation (2026-09-19)
+
+Intent: reduce the remaining large coordinators through three behavior-preserving seams while making split-brain ownership a build failure. Each extraction must delete the displaced rule path, keep mutable state/RNG/DOM ownership in its coordinator, return detached outputs, and survive an independent adversarial review before the architecture ceilings move.
+
+Implemented retaliation result:
+
+- Added `BattleRetaliationProjection.ts` as the canonical deterministic preparation for previewed, Player, and Bot retaliation. It owns ordered break, aircraft/ground, tow, pin, range, retaliation-limit, rearm, and ammunition gates plus the detached defender snapshot and reason copy.
+- `GameEngine` remains the sole owner of live state reads, `resolveAttack` RNG calls, ammo/resource debits, damage/status mutation, retaliation counts, initiative, reports, and events. All three callers delegate once; their former inline policy paths are absent.
+- Cross-agent review caught a critical sentry drift before integration: post-hit breakage had suppressed a simultaneous sentry shot and would have shifted the RNG stream. The final policy explicitly allows sentry fire from the pre-hit snapshot and preserves the historical preview pin-before-tow versus live tow-before-pin ordering.
+- `GameEngine.ts` fell from **18,213 to 18,121** lines. `previewRetaliationForPlayerAttack` fell from **162 to 119** and lost its oversized exemption; `resolvePlayerAttack` fell from **707 to 665** and `resolveBotAttack` from **632 to 628**. The new module is 182 verifier lines and its largest function is 104 lines.
+
+Implemented renderer result:
+
+- Added `AirShowCombatPassGeometry.ts` as the canonical pure decision owner for dogfight and bomber-intercept paths behind explicit immutable inputs and injected geometry services.
+- `HexMapRenderer` retains viewport/SVG bounds, DOM, animation lifecycle, actor mutation, caches, and service implementation. Its duplicate `AirShowCorridor` shape was removed in favor of the canonical readonly corridor contract.
+- Real-renderer adapter coverage now exercises dogfight plus forward and reverse bomber passes, exact goldens, input non-mutation, and point/output detachment. Source guards reject direct runtime globals, retained policy literals, duplicate corridor declarations, or noncanonical delegation.
+- `HexMapRenderer.ts` fell from **15,396 to 14,766** lines. Its dogfight/bomber path methods fell from **353/351 to 23/18** and both lost their oversized exemptions. The new module is 815 verifier lines; its largest function is 54 lines.
+
+Implemented Campaign Operations result:
+
+- Added `CampaignOperationsWorkspaceProjection.ts` as the canonical detached projection for all five order kinds, reservation labels, status/ETA/route/cost/risk/objective/dependency copy, cancellation capability, transport-return state, and atomic commit presentation.
+- The Operations tray and cancellation review share `projectCampaignOperationOrder`; `CampaignScreen` remains the only `CampaignState` reader and owns DOM, focus, events, command mutation, navigation, and lifecycle. The former 128-line `projectCommandOrder` implementation is deleted.
+- `CampaignScreen.ts` fell from **4,751 to 4,654** lines and `renderCommandShell` from **399 to 382**. The new module is 304 verifier lines; its largest function is 48 lines.
+
+No-split-brain prevention:
+
+- Repository-wide AST gates now require the canonical retaliation function, both combat-pass builders, and all three Operations entry functions to be declared exactly once by their expected modules. The same gate already enforces sole ownership of the nine air mission/event types.
+- Gate self-tests create duplicate declarations in unrelated `src` modules and prove both type and runtime ownership checks fail closed. Boundary tests separately characterize exact delegation and reject the known former inline/fallback paths.
+- Architecture verification now locks **32 file budgets, 5 coupling/symbol budgets, 1 canonical type-owner contract, 3 canonical runtime-owner contracts, 57 inherited oversized-method ceilings, and exactly 4 grandfathered UI-to-engine import pairs**.
+
+Regression result: the consolidated tree passes the complete registered suite **887/887**, campaign **429/429**, air-show diagnostics **90/90**, strict TypeScript, zero-warning lint, all repository/asset/architecture gates, and the production build. The bundle retains the **80,404-byte** initial script, lazy tactical delivery, and no static chunk cycles. Real Chromium passes the seven painted-frame air-show baselines plus Campaign Operations at 1920×1080, 1506×768, 1440×900, 1280×720, 800×900, and 640×360 (**13/13** combined).
+
+### Canonical air events, roster presentation, and production air-show authority (2026-09-20)
+
+Intent: continue reducing regression cost in `GameEngine` and `PopupManager`, while enforcing the user's explicit requirement that no extraction leave a second authority behind. A slice is accepted only after independent adversarial review, executable behavior parity, removal of its old implementation, and a lower architecture ceiling.
+
+Implemented air-engagement result:
+
+- Added `BattleAirEngagementProjection.ts` as the single detached payload projector for every flak, air-to-air, and CAP-clash event.
+- Routed all nine production event producers through it: two scheduled-mission strike paths, the CAP-clash builder, the global strike air phase, the global flak helper, two Player direct-attack paths, and two Bot direct-attack paths.
+- Removed redundant fact inputs. Ordered flak entries determine top-level damage/final strength/destruction; the interception result determines air-to-air final state; one final-strength pair determines CAP survivor counts and arrays.
+- `GameEngine` retains all validation, combat/RNG calls, ammo/resources, live mutations, mission state, initiative, reports, and exact queue publication timing.
+- Executable deterministic Player/Bot attacks lock full consumed-event SHA-256 digests, bomber/CAP post-state, ammo/suppression/mission commits, and unchanged RNG checkpoints. Source ownership additionally rejects an inline producer returning beside the projector.
+- `GameEngine.ts` fell from **18,121 to 18,013** lines. `resolveAirStrikeMission` fell **534→512**, `resolveStrikeMissionAirPhase` **229→212**, `resolvePlayerAttack` **665→632**, and `resolveBotAttack` **628→606**. The new 159-line projector's largest function is 25 lines.
+
+Implemented roster result:
+
+- Added `RosterEntryPresentation.ts` as the canonical populated-roster presenter for duplicate labels, statuses, stat thresholds, off-map support charges, personnel/equipment/suppression details, escaping, and deploy markup.
+- Added `InitialsPresentation.ts` as the one two-character fallback shared by roster tiles and general portraits after review found the old helper still had another caller.
+- `PopupManager` retains the empty state, DOM assignment, row pointer shortcut, accessible Deploy button, event publication, focus, and lifecycle. The former inline entry composer, disambiguator, and private initials copy are gone.
+- Focused coverage locks exact markup, support/air/exhausted branches, injection escaping, input/output detachment, empty state, keyboard-focusable Deploy control, and live event behavior.
+- `PopupManager.ts` fell from **4,594 to 4,450** lines. The presenter is 149 lines and the shared initials helper is 12 lines.
+
+No-split-brain correction:
+
+- An attempted egress extraction initially reduced `AirShowPlaybackPlanner`, but independent review proved that exported planner had no runtime caller. Production was already `HexMapRenderer → AirShowDirector.planAirShowTimeline`; the proposed “canonical” egress module would only have certified a dormant second planner.
+- A TypeScript import-graph audit from `src/main.ts` confirmed that `AirShowPlaybackPlanner` and the attempted egress helper were not runtime reachable. The only inbound source imports were type-only, and no dynamic import, package export, or caller existed.
+- Redirected the three surviving type imports to `AirShowPhaseProjectionContracts`, then deleted the dormant 3,899-line planner, attempted egress helper, orphaned rail/phase/finalizer/path/clash modules, dead-path tests, and stale tracked compiled artifacts.
+- `AirShowDirector.planAirShowTimeline` is now the repository-wide canonical function owner. Its 1,994-line file and four inherited functions above 120 lines have exact no-growth ceilings; future work must split the live planner rather than revive an alternate.
+
+Architecture result:
+
+- The baseline now enforces **33 file budgets, 5 coupling/symbol budgets, 1 canonical type-owner contract, 7 canonical runtime-function owner contracts, 60 inherited oversized-method ceilings, and exactly 4 grandfathered UI-to-engine import pairs**.
+- Canonical function ownership now includes `projectBattleAirEngagement`, `projectRosterSectionPresentation`, `extractDisplayInitials`, and the production `planAirShowTimeline`, in addition to the existing retaliation, combat-pass, and Campaign Operations functions.
+- Gate self-tests continue to prove duplicate function/type owners fail even when introduced in an unrelated source module.
+
+Regression result:
+
+- Complete registered suite: **892/892**.
+- Campaign suite: **429/429**.
+- Air diagnostics: **88/88** after removing dead-planner-only tests.
+- Direct production `AirShowDirector` Jest suite: **15/15** across all scenario families, origins, speed/duration, heading continuity, separation, escort synchronization, and zero-strength tutorial-bomber survival.
+- Chromium: **7/7** painted frames, **2/2** temporal air certificates, **3/3** full tutorial journeys, and **1/1** shipped War Room hotspot certificate.
+- Strict TypeScript, zero-warning lint, repository/asset/architecture gates, diff validation, and the production build pass. The build retains the **80,404-byte** initial script, lazy tactical chunk, and no static chunk cycles.
+
+### Canonical attacker preparation, command-hex projection, and live air-show synchronization (2026-09-20)
+
+Intent: continue reducing the two largest gameplay/UI transactions and the live air-show coordinator while preserving one authority for state, RNG, presentation facts, and choreography. Each extraction was independently reviewed for parity, detachment, and split-brain risk before acceptance.
+
+Implemented attacker-preparation result:
+
+- Added `BattleAttackerPreparation.ts` as the canonical pure projector for the detached attack-request unit, resolved facing, sentry clearing, clamped unit-ammunition commitment, and next core action flags.
+- Both `GameEngine.resolvePlayerAttack` and `resolveBotAttack` delegate exactly once. `GameEngine` retains RNG, registry-ammunition spending, live mutation, reports, events, initiative, and resource ordering.
+- Five focused tests lock legacy parity, input/output detachment, single source ownership, intentional optional-action-flag reset semantics, and complete seeded Player/Bot transaction signatures. The Player signature is `2f4d46abac37869687c1a8726c6acb8d998ace1daf01e4692ea6a5da3b6be0a7`; the Bot signature is `0f67465901f9bad937f09c11c2a3f4786afe880af45a95d8eefaf0e54d574d6b`. RNG checkpoints remain `0x12345678` and `0x0badc0de`.
+- `GameEngine.ts` fell **18,013→18,004** lines, `resolvePlayerAttack` **632→627**, and `resolveBotAttack` **606→601**. The new projector is 50 verifier lines.
+
+Implemented campaign command-hex result:
+
+- Added `CampaignCommandHexProjection.ts` as the canonical detached presenter for authored tiles, friendly-base action/summary precedence, infrastructure condition and recovery, geography/water, force/capability/objective/front facts, and supplemental briefed sites with deduplication.
+- `CampaignScreen` remains the only `CampaignState` reader and retains DOM, rendering, callbacks, focus, and lifecycle ownership.
+- Five focused tests lock damaged-base repair precedence, task-force/known-site deduplication, inactive-base explanation, source ownership, no state/DOM imports, axial-versus-offset coordinate semantics, the non-base engagement branch, callback isolation, and bidirectional capability detachment.
+- `CampaignScreen.ts` fell **4,654→4,521** lines and `renderCommandShell` **382→255**. The new projector is 227 verifier lines; its exported coordinator is 5 lines and every helper remains below 120.
+
+Implemented live air-show synchronization result:
+
+- Refactored only the production `AirShowDirector`; no replacement planner or parallel timeline path was introduced.
+- `synchronizeBomberTargetRunsForEscortArrival` fell **126→34** lines through bounded internal delay, defense-pass, and cue-retiming helpers. `AirShowDirector.ts` remains at its exact 1,994-line ceiling, and the oversized-method allowlist fell from 60 to 59.
+- A new multi-bomber regression proves every bomber receives a nonzero retime, each flak cue resolves to an actual containing visible segment at exact sampled progress, all flak remains within the authored `hypot(27, 56) + 0.001px` radius, and release/impact cues remain attached to their actors.
+- Existing calibrated painted snapshots pass unchanged. The full air-show path passes **88/88** diagnostics, **16/16** direct director tests, **8/8** rendered visual tests, **16/16** browser visual scenarios, the **1/1** 20x20 choreography run, and **2/2** temporal certificates overall.
+
+Architecture and regression result:
+
+- The build gate now enforces **35 file budgets, 5 coupling/symbol budgets, 1 canonical type-owner contract, 9 canonical runtime-function owner contracts, 59 inherited oversized-method ceilings, and exactly 4 grandfathered UI-to-engine import pairs**.
+- Complete registered suite: **902/902**. Campaign suite: **434/434**. Campaign command UI in Chromium: **27/27** across the governed viewport matrix.
+- Strict TypeScript, zero-warning lint, repository/asset/architecture gates, production build, lazy tactical delivery, and static-cycle checks pass. The initial production script remains **80,404 bytes**.
+
+### Canonical defender suppression, campaign command summary, and interceptor geometry (2026-09-20)
+
+Intent: remove another duplicated decision seam from each authoritative coordinator, then use adversarial cross-review to prove the extraction did not create a second state, presentation, or timeline authority.
+
+Implemented defender-damage and suppression result:
+
+- Added `BattleDefenderDamageProjection.ts` as the canonical detached post-damage projector for suppressor attribution and the newly-broken transition used by preview, Player, and Bot transactions.
+- Adversarial review found and corrected a real first-pass defect: suppression had been classified before the projector added the attacking formation, so a low-strength defender receiving its second suppressor could remain non-broken and fail to route.
+- Added `BattleSuppressionState.ts` as the one classification policy. `GameEngine.resolveUnitSuppressionState` is now a one-line delegate, and preview plus both live attack paths use the same post-attribution projection. Destroyed units are explicitly excluded from a newly-broken transition.
+- Regression coverage locks direct detachment and unique attribution, second-suppressor classification, preview retaliation denial, Player and Bot rout/retreat behavior, exact source ownership, seeded transaction signatures, and unchanged RNG checkpoints.
+- `GameEngine.ts` fell **18,004→17,989** lines. `resolvePlayerAttack` is now **623** lines and `resolveBotAttack` **598**. The projector and classifier are 42 and 16 verifier lines.
+
+Implemented Campaign command-summary result:
+
+- Added `CampaignCommandSummaryProjection.ts` as the canonical detached owner for priority-sorted force summaries, command-status precedence, unread aggregation, terminal outcome/service ordering, and advance state/copy.
+- `CampaignScreen` remains the only `CampaignState` reader and the sole final render, command, DOM, focus, and lifecycle owner. The location callback is bound to the pre-read Player view.
+- Five tests lock axial-to-offset location identity, priority/capacity filtering, uncertainty and bidirectional detachment, terminal/engagement/order precedence, exact unread math, sandbox suppression, alert/timeline ordering, `Automation continued` wording, stable service-record ties, and one runtime owner with no state/DOM imports.
+- `CampaignScreen.ts` fell **4,521→4,487** lines and `renderCommandShell` **255→223**. The new projection is 158 verifier lines; its largest helper is below 25 lines.
+
+Implemented live interceptor result:
+
+- Refactored only the production `AirShowDirector`; no alternate planner or exported choreography entrypoint was added.
+- `buildInterceptorPasses` fell **144→38** lines. A private 103-line `projectInterceptorPassGeometry` helper owns deterministic geometry while the coordinator retains track lookup, mutation, timing, and assembly. `AirShowDirector.ts` remains at its exact 1,994-line ceiling.
+- The captured single-interceptor hash remains `25fbf9019cbbe5a1a8452839df27e83a525f21d97c23b0fcb58022a070dc8c33`. Hardening adds a nine-interceptor full-track hash, `23464d345fc8a5d4e110abd6055317fe5f4155e14d36b06d82118646e3e803cf`, plus exact actor order, centered/mirrored lane, and fighter-clash continuation checks.
+- Full air certification passes **88/88** diagnostics, **19/19** direct director tests, **8/8** rendered visual tests, **16/16** browser visual scenarios, the **1/1** 20x20 choreography run, and **2/2** temporal certificates. All seven calibrated painted snapshots remain unchanged.
+
+Architecture and regression result:
+
+- The build gate now enforces **38 file budgets, 5 coupling/symbol budgets, 1 canonical type-owner contract, 12 canonical runtime-function owner contracts, 58 inherited oversized-method ceilings, and exactly 4 grandfathered UI-to-engine import pairs**.
+- Complete registered suite: **908/908**. Campaign suite: **439/439**. Campaign command UI remains **27/27** in Chromium.
+- Strict TypeScript, zero-warning lint, all repository/asset/architecture gates, the production build, lazy tactical delivery, and static-cycle checks pass. The initial script remains **80,404 bytes**.
+
+### Canonical attacker disposition, final command-shell assembly, and live fighter-clash ownership (2026-09-20)
+
+Intent: continue decomposing the three live coordinators while treating any duplicate state, presentation, or choreography formula as a release defect. Each slice must retain mutation and publication in its authoritative coordinator, remove the displaced inline rule, and survive independent adversarial review.
+
+Implemented attacker-disposition result:
+
+- Added `BattleAttackerDispositionProjection.ts` as the single pure decision owner for post-combat destruction, hold, and eligible ground-assault advance.
+- Both `GameEngine.resolvePlayerAttack` and `resolveBotAttack` delegate exactly once. `GameEngine` retains validation, live state reads, RNG, damage/resources, removal, movement, recovery-site overrun, supply synchronization, action flags, reports, events, and publication order.
+- Review removed a redundant `finalHex` result and its unused origin input, eliminating a future disagreement surface. Pure coverage locks destruction precedence, attacker-aircraft and primary-defender-aircraft hold gates, advance entrench reset, and detachment. Seeded real Player and Bot transactions lock hold signatures `b60a12bab8a2ec17286e636541b855ebf72d9e497deb5cd4414927af2b6730d0` and `1cb60ad8c7385cd7fe0e6d8123c18753e3f2b52d67a9750f3a7d2f5f2f465732`, plus assault-advance signatures `fef10f86c15281112ec587214018e0cf4d0216a99449b0139eababd483e2dadb` and `c2e345f56046b4ab1e73089e9bc5945645c050d34cc9ac2a2496a9f11afbaf29`.
+- `GameEngine.ts` fell **17,989→17,988** lines, `resolvePlayerAttack` **623→622**, and `resolveBotAttack` **598→597**. The new projector is 53 verifier lines.
+
+Implemented final command-shell result:
+
+- Added `CampaignCommandShellViewProjection.ts` as the canonical detached assembler for both the no-campaign and loaded campaign shell payloads.
+- `CampaignScreen` remains the only `CampaignState` reader and owns rendering, callbacks, DOM, accessibility, focus, navigation, and lifecycle. All state reads complete before projection, and the current time remains read immediately before the terminal render.
+- Four tests lock exact payload parity, status precedence, objective/hex ordering and coordinate identity, bidirectional nested detachment, fresh empty collections, and one runtime owner with no state or DOM authority. The final implementation uses the platform structured clone instead of a hand-written plain-object clone, avoiding silent flattening if richer DTO values appear later.
+- `CampaignScreen.ts` fell **4,487→4,458** lines and `renderCommandShell` **223→193**. The new projector is 110 verifier lines.
+
+Implemented live fighter-clash result:
+
+- Refactored only production `AirShowDirector`; `planAirShowTimeline` remains the sole exported timeline planner and `HexMapRenderer` remains its sole playback consumer.
+- `buildFighterClash` fell **181→88** lines, with a private 73-line turn-side optimizer. Existing cap-clash and full-engagement hashes remain `66a92433c35fca6e77ef289d7edd453a3e6890a5757d3367485dc601f8d3a09f` and `5e840281833984353eba6494315aa5f7fb9c44b540176ecd94e7fd47c81a7cc3`.
+- Adversarial review found the scramble geometry formula was still duplicated between candidate scoring and published track construction. A single private 14-line `projectFighterScrambleGeometry` now owns final heading, escort clearance, switched lane, and scramble-path construction for both callers. The source tripwire requires exactly one definition, exactly two calls, and no retained formula copy.
+- Added a mirrored Player-interceptor/Bot-escort/Bot-bomber multi-flight certificate with 12 fighter actors, exact faction/role assertions, every phase continuation, and full fighter-track hash `a866f694fe65ffdb580bce5d6fc79616beceb1ebc5ced7011668d8235edca647`.
+- `AirShowDirector.ts` fell **1,994→1,992** verifier lines. Its oversized-function allowlist loses `buildFighterClash`; only `planAirShowTimeline` remains above 120 lines in the live director.
+
+Architecture and regression result:
+
+- The build gate now enforces **40 file budgets, 5 coupling/symbol budgets, 1 canonical type-owner contract, 14 canonical runtime-function owner contracts, 57 inherited oversized-method ceilings, and exactly 4 grandfathered UI-to-engine import pairs**.
+- Complete registered suite: **914/914**. Campaign suite: **443/443**. Campaign command UI: **27/27** in Chromium across the governed viewport matrix.
+- Full air certification passes **88/88** diagnostics with no findings, **21/21** direct director tests, **8/8** rendered visual tests, **16/16** browser visual scenarios, the **1/1** 20x20 choreography run, and **2/2** temporal certificates overall. All seven calibrated painted snapshots remain unchanged.
+- Strict TypeScript, zero-warning lint, all repository/asset/architecture gates, the production build, lazy tactical delivery, and static-cycle checks pass. The initial script remains **80,404 bytes**.
+
+### Sole live air-show authority, staged aircraft readiness, and command-shell workspace orchestration (2026-09-20)
+
+Intent: finish the current decomposition without allowing a helper extraction to become a second source of timeline, combat-readiness, or campaign-presentation truth. The live coordinators retain mutation, authoritative reads, RNG, rendering, and publication; pure helpers own only the detached decisions explicitly delegated to them.
+
+Implemented live air-show authority result:
+
+- `AirShowDirector.planAirShowTimeline` remains the sole exported and live timeline authority. A private planning-context resolver reduced that entrypoint from **159 to 101** lines without changing phase order, seeded RNG, tracks, cues, sorting, verification, or publication.
+- A deterministic all-fallback certificate, with null headquarters and target positions and an omitted seed, is locked to SHA-256 `c4747fe1662f979c2988e16e97c8926b9c3e2ceb0a000a740f476b5a158cfd37`. The direct production director suite now passes **22/22**.
+- A complete TypeScript class call-graph audit found the old private AirShow planner stack in `HexMapRenderer` was unreachable from every public method, constructor, and property-member root. The 150-method closure was deleted instead of retained as a dormant parallel authority.
+- `HexMapRenderer.ts` fell **14,766→8,027** verifier lines and its class method count fell **364→214**. Production retains one director import and one planner call; source guards reject restoration of the removed roots or another live planner.
+
+Implemented aircraft-readiness result:
+
+- Added `BattleAircraftAttackReadinessProjection.ts` with two ordered pure stages: maneuver readiness first, ammunition readiness second.
+- Adversarial review caught an eager ammunition-state read that would have initialized a missing legacy ammo record before a movement rejection. The final integration now projects movement first and reads/initializes live ammunition only after that stage succeeds, preserving exact rejected-attack serialization for both Player and Bot paths.
+- `GameEngine` remains the only live-state, mutation, RNG, resource, report, and publication owner. It is now **17,987** verifier lines; `resolvePlayerAttack` and `resolveBotAttack` are **618** and **596** lines. Source ownership and real transaction tests reject a second readiness implementation or rejection-time registry mutation.
+
+Implemented command-shell workspace result:
+
+- Added `CampaignCommandShellWorkspaceProjection.ts` as the reader-free coordinator for objectives, formations, intelligence, logistics, and command-hex workspaces in the established order.
+- `CampaignScreen` remains the only `CampaignState` reader and the sole DOM, rendering, focus, navigation, and lifecycle owner. Lazy reader closures keep the existing read sequence, each child projection runs exactly once, and time is sampled once immediately before the final render.
+- `CampaignScreen.ts` is now **4,437** verifier lines and `renderCommandShell` fell **193→38**. Real-screen publication/freshness, ordering, coordinate-identity, and detachment regressions cover the new seam.
+
+Architecture and regression result:
+
+- The build gate now enforces **42 file budgets, 5 coupling budgets, 1 canonical type ownership contract, 16 canonical function ownership contracts, 47 oversized-method budgets, and exactly 4 grandfathered UI-to-engine import pairs**.
+- Complete registered suite: **915/915**. Campaign suite: **444/444**. Campaign command UI: **27/27** in Chromium. Zero-warning lint and the production build pass.
+- The production initial script remains **80,404 bytes**, campaign remains lazy, static chunk-cycle checks pass, and the `BattleScreen` chunk is reduced to **1,335.18 kB** raw.
+- Full AirShow recertification passes **88/88** diagnostics with no findings, **22/22** direct director tests, **8/8** rendered visual tests, **16/16** Chromium visual scenarios, **1/1** 20x20 choreography, and the independently rerun **2/2** temporal certificates. `npm run test:airshow` passes end to end, with all seven calibrated painted snapshots unchanged.
+
+### Canonical Air Support target-tile presentation continuation (2026-09-20)
+
+Intent: remove `PopupManager`'s last inherited oversized method without moving live battle reads, planner state, commands, DOM insertion, event binding, focus, or lifecycle out of the manager. One pure presentation module will own the complete target-card branch and its copy, selectors, accessibility attributes, escaping, and enabled/disabled policy; the displaced inline implementation must be deleted in the same slice so no parallel markup authority remains.
+
+Current state: `PopupManager.ts` is **4,450** verifier lines. `renderAirSortieTargetTileMarkup` is **126** AST lines and is the file's only oversized-method exception. It currently combines unavailable and committed states, escort-package selection, strike/drop-zone/CAP target states, mission-specific button labels, target validity, escaping, and markup. `PopupManager` separately owns the authoritative per-mission/per-squadron target map and resolves engine-backed target labels.
+
+Expected boundary: add `AirSortieTargetTilePresentation.ts` with one exported canonical `renderAirSortieTargetTileMarkup` entrypoint and sub-120-line private branch renderers. `PopupManager` will read the live target value, validate it with the existing parser, resolve its current engine-backed label, and invoke the presenter exactly once. The presenter receives only detached readonly strings, booleans, mission facts, assignment facts, and escort choices; it must not import `BattleSidebarEngine`, battle state, DOM types, or command services.
+
+Parity edges: preserve empty CAP as an enabled base patrol; keep empty or malformed required strike/transport targets disabled; preserve nonempty malformed target display while rejecting submission; committed squadrons expose no action controls; escort choices remain squadron-scoped; mission/squadron target keys do not bleed between cards; all engine-derived labels and data attributes remain escaped; and every `data-air-*`, `aria-pressed`, and `disabled` behavior remains byte-for-byte compatible apart from insignificant surrounding whitespace.
+
+Risk and regression strategy: characterize every branch directly, including hostile strings, and lock one aggregate markup SHA-256 before accepting the move. Prove input detachment and determinism, exercise the real `PopupManager` adapter with independent squadron targets, and add source tripwires for one declaration owner, one production call, deleted inline copy policy, and absence of engine/state/DOM authority in the presenter. Lower the exact file and method ceilings only after focused behavior, TypeScript, scoped zero-warning lint, architecture verification, and diff validation pass.
+
+Implemented result:
+
+- Added the 187-line `AirSortieTargetTilePresentation.ts`. Its exported 18-line entrypoint and sub-120-line branch renderers are the sole target-card markup, copy, escaping, selector, ARIA, and enablement owner. `PopupManager` retains the target registry, existing axial validator, current engine-backed label read, DOM insertion, events, commands, focus, and lifecycle.
+- The live manager adapter fell **126→23** AST lines. Source review also found the uncalled 91-line `renderAirTargetPanelMarkup` method, which contained an older second CAP/escort/target presentation path; it was deleted rather than left as a dormant split-brain implementation. A second reachability audit proved `populateAirMissionKind` (8 AST lines), `updateAirSupportBrief` (57), `disableEscortUnlessBomberScheduled` (17), `populateEligibleSquadrons` (47), and `populateTargets` (97) were definition-only. Their complete contiguous 235-source-line legacy form closure was deleted, and forbidden-root source guards now prevent definitions or calls from returning.
+- `PopupManager.ts` fell **4,450→4,008** verifier lines (−442) and no longer has an oversized-method exception. The architecture gate now enforces **43** file budgets, **5** coupling budgets, **1** canonical type-owner contract, **17** canonical function-owner contracts, **46** oversized-method budgets, and the exact **4** grandfathered UI-to-engine imports.
+- Separate behavior-hardening rationale: the former text escape policy did not encode quotes for double-quoted `data-air-*` attributes, so malicious or malformed squadron/package identifiers could break attribute boundaries even though ordinary legacy markup was unchanged. Every dynamic double-quoted `data-air-*` value now uses attribute-context escaping including `&quot;`; DOM-parsed regression cases prove both payloads round-trip exactly without creating `autofocus`, `onclick`, or injected data attributes. A nonempty malformed CAP mark also remains visible and clearable but can no longer be submitted; empty base CAP and valid marked CAP remain enabled.
+- Final surrounding-row hardening: `renderAirSortieRowMarkup` also emits the engine-derived squadron identity in `data-air-squadron`. It now consumes the same exported Air Support attribute encoder as the target-tile presenter, so quote handling has one policy owner. A DOM-parsed adversarial row regression proves the exact quote-bearing identity round-trips without synthesizing `autofocus`, `onclick`, or injected data attributes. Legacy dead-root guards now reject each identifier anywhere in the manager source, not merely method-shaped occurrences. This row-only hardening did not alter the target-tile presentation golden.
+- Five focused tests preserve all original ten branch lengths and lock the hardened twelve-case aggregate markup SHA-256 `5e214529915d91ad98065cfafcf73c861751c304a6a4b6ce9cf33b948a161cd3`, committed/escort/strike/CAP/transport action and ARIA states, context-correct hostile-string escaping in both the tile and surrounding squadron row, determinism, input non-mutation, real per-squadron target isolation, and one engine/state/DOM-free presentation owner. Focused tests pass **5/5**; TypeScript, scoped zero-warning lint, architecture verification, and diff validation pass.
+
+### Release-gate determinism and tutorial-overlay readiness hardening (2026-09-20)
+
+- The complete Playwright matrix now runs with one worker locally and in CI. Painted-frame and temporal certificates depend on real browser cadence, so isolating browser load removes scheduler-induced false failures and makes the default release command match the dedicated Airshow gates.
+- `openTrainingRequisition` now waits for `#tutorialOverlayContainer:not(.hidden)` instead of checking a title-dependent dialog before its asynchronous publication. After Skip, it waits for the base overlay container to become hidden before interacting with requisition controls.
+- Requisition browser checks derive unit costs from the canonical formation catalog and conserve the budget observed at mission entry. They no longer duplicate obsolete 1,200-RP or label-first display contracts after the authored training budget moved to 1,300 RP.
+- Focused allocation coverage passes **9/9** and focused requisition coverage passes **8/8**. The registered suite passes **920/920**, campaign passes **444/444**, Jest passes **30/30**, and Airshow passes **86/86** diagnostics, a clean anomaly report, **8/8** renderer visual tests, **16/16** browser visual scenarios, and **1/1** choreography.
+
+### Firefox precombat responsiveness and canonical inert minimap (2026-09-20)
+
+Observed failure: the Firefox requisition journey reached tactical initialization and published precombat, but the browser main thread then stopped servicing both Playwright visibility checks and in-page heartbeat evaluation. Runtime tracing isolated the feedback to the combat-overlay viewport observer: `SVGTransformList.consolidate()` was used as a read, but Firefox normalized the observed SVG `transform` attribute during consolidation and immediately retriggered the same `MutationObserver` path.
+
+Implemented viewport result:
+
+- Added `ViewportTransform.ts` as the sole pure reader for the exact transform forms authored by `MapViewport`: identity, translate/scale, and matrix. It reads the attribute string without touching `SVGTransformList`, rejects non-finite or unowned forms explicitly, and cannot mutate the observed element.
+- `HexMapRenderer` now resolves the combat-overlay matrix through that parser and stores the last exact observed transform value. Same-value observer notifications return before layout synchronization, preventing redundant feedback even if a browser reports an unchanged attribute.
+- Architecture and source tests require the pure parser to remain the only `parseViewportTransform` owner, prove 50 repeated reads cause zero observed writes, and hold `.consolidate()` at zero occurrences in `HexMapRenderer`.
+
+Implemented precombat minimap result:
+
+- Added `HexMapLayout.ts` as the canonical finite hex-layout/bounds owner shared by full battle rendering and the briefing overview. Added `TerrainFillPalette.ts` as the canonical terrain-fill owner with explicit battle and briefing themes.
+- Added `PrecombatMiniMapRenderer.ts` as a dedicated inert presentation boundary. It builds deterministic theater markup and a thin DOM application from normalized `ScenarioData`, using the shared layout and fill owners plus the existing road, river, crossing, and terrain-feature projectors.
+- `PrecombatScreen` no longer constructs the full `HexMapRenderer`, queries/removes its battle-only layers, owns a duplicate muted palette, or schedules viewport-dependent rerenders. It invokes the inert renderer once per setup. The overview contains no units, effects, caches, interaction handlers, or alternate gameplay state.
+- Single-authority coverage locks all 320 training hexes, deterministic finite bounds, geography metadata, stale-DOM replacement, accessibility labeling, absence of battle sprites/effects, and removal of the former full-renderer/fallback-palette roots. Canonical function ownership now covers layout, both minimap functions, terrain fill, and viewport parsing.
+
+Verified result:
+
+- Complete registered suite: **927/927**; campaign remains **444/444**.
+- Architecture verification: **48 file budgets / 7 coupling budgets / 1 canonical type owner / 21 canonical function owners / 46 oversized-method budgets / 4 grandfathered UI-to-engine import pairs**.
+- Focused Firefox requisition: **9/9**, including a post-entry event-loop heartbeat proving the precombat screen remains responsive.
+- This section does not claim the final full cross-browser E2E run, deployment, or live production acceptance; those remain release gates.
+## WebKit Tutorial Initiative Handoff Stability Plan
+
+### Intended behavior
+- The tutorial's Next Group click remains bound to the player initiative band that just completed the firing lesson.
+- An interleaved enemy or automated activation cannot turn the highlighted control into an inert action or cause a later smoke group to be skipped.
+
+### Impact analysis
+- `BattleScreen` consumes the initiative queue projection to route one tutorial-only handoff; normal initiative commands keep their existing behavior.
+- The initiative queue and engine remain authoritative. The fix records deferred same-band player peers without mutating later initiative bands.
+- Visible behavior changes only in the race window: the accepted click advances to the Initiative Advances lesson while automated activity finishes.
+
+### Verification
+- Add a deterministic regression for an activated firing unit, interleaved enemy activation, pending same-band peer, and later smoke unit.
+- Run focused BattleScreen tests, TypeScript, lint, architecture gates, and repeated WebKit wide-desktop tutorial journeys.
+
+### Release-candidate completion (2026-09-21)
+
+- Implemented `TutorialInitiativeHandoff.ts` as a narrow reader of the canonical initiative queue. It defers only same-band Player peers during a Bot interleave, preserves later smoke bands, and remains inert when the taught band cannot be proven. Normal initiative ownership and command ordering remain unchanged.
+- Corrected WebKit compact tactical layout anchoring by making the battle UI a bounded, non-minimum-height layout participant. The exact 640x360 and 753x356 collapsed/expanded log paths now keep status, initiative, selected intel, and commands visible.
+- Centralized campaign segment-time projection, removed the Airshow fallback coordinate formula in favor of `HexMapLayout`, made terminal outcome Save mirror persistence busy state, and routed tactical casualties through the same deployed-plus-reserve mission-reporting snapshot. These changes close the final reviewed split-brain and enabled-but-inert seams.
+- Architecture verification now enforces **48 file budgets / 7 coupling budgets / 1 canonical type owner / 22 canonical function owners / 41 oversized-method budgets / 4 grandfathered UI-to-engine import pairs**. `HexMapRenderer` is held to 6,558 verifier lines and `BattleScreen` to 14,383.
+- Final local certification is green: strict TypeScript, zero-warning lint, repository gates, **949/949** registered tests, **449/449** campaign tests, and a production build with an **81,182-byte** initial script, lazy campaign/tactical entry, and no static chunk cycles.
+- Airshow certification is green at **87/87** diagnostics with no findings, a clean anomaly report, **8/8** renderer visual tests, **16/16** production-build browser visuals across desktop/large-map/mobile, and **1/1** full temporal choreography.
+- The complete one-worker Playwright release matrix is green across Chromium, Firefox, and WebKit: **365 passed**, **34 intentional project skips**, **0 failed** in 50.6 minutes. All three browsers pass campaign, requisition, tactical geometry, complete tutorial, and War Room journeys; Chromium owns the calibrated Airshow screenshots and cadence certificates.
+- Deployment and same-artifact live acceptance remain the only pending steps for this release candidate.

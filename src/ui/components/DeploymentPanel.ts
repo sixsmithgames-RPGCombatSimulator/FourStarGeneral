@@ -1,4 +1,5 @@
 import { ensureDeploymentState, type DeploymentPoolEntry, type ReserveUnitSnapshot } from "../../state/DeploymentState";
+import { ListenerLifecycle } from "../lifecycle/ListenerLifecycle";
 
 /**
  * Layout guardrails:
@@ -54,6 +55,7 @@ type DeploymentPanelListener = (event: DeploymentPanelEventMap) => void;
  * Handles deployment zones, unit selection, and placement validation without touching engine state.
  */
 export class DeploymentPanel {
+  private readonly lifecycle = new ListenerLifecycle();
   private readonly panel: HTMLElement;
   private readonly statusElement: HTMLElement;
   private readonly zoneList: HTMLElement;
@@ -96,7 +98,7 @@ export class DeploymentPanel {
     this.panel.removeAttribute("data-zone-locked");
 
     this.refreshZoneMetadata();
-    this.panel.addEventListener("click", (event) => this.handlePanelClick(event));
+    this.lifecycle.addEventListener(this.panel, "click", (event) => this.handlePanelClick(event));
   }
 
   /** Builds the reserve list markup so commanders can deploy reinforcements directly from the panel once battle begins. */
@@ -155,7 +157,7 @@ export class DeploymentPanel {
 
   /** Wires reserve clicks (and keyboard activation) to emit call-up events once battle phase allows them. */
   private bindReserveEvents(): void {
-    this.reserveList.addEventListener("click", (event) => {
+    this.lifecycle.addEventListener(this.reserveList, "click", (event) => {
       const target = event.target as HTMLElement;
       const deployBtn = target.closest<HTMLButtonElement>(".reserve-deploy");
       if (deployBtn) {
@@ -181,8 +183,9 @@ export class DeploymentPanel {
       this.emit("callReserve", { unitKey });
     });
 
-    this.reserveList.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
+    this.lifecycle.addEventListener(this.reserveList, "keydown", (event) => {
+      const keyboardEvent = event as KeyboardEvent;
+      if (keyboardEvent.key !== "Enter" && keyboardEvent.key !== " ") {
         return;
       }
       const target = event.target as HTMLElement;
@@ -194,7 +197,7 @@ export class DeploymentPanel {
       if (!unitKey) {
         return;
       }
-      event.preventDefault();
+      keyboardEvent.preventDefault();
       this.emit("callReserve", { unitKey });
     });
   }
@@ -212,6 +215,12 @@ export class DeploymentPanel {
     this.renderDeploymentUnits();
     this.renderReserveList();
     this.bindReserveEvents();
+  }
+
+  /** Releases panel event ownership before a failed tactical bootstrap retries. */
+  dispose(): void {
+    this.lifecycle.dispose();
+    this.listeners.clear();
   }
 
   update(): void {

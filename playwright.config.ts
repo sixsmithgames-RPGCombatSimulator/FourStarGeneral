@@ -24,8 +24,13 @@ export default defineConfig({
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
   
-  /* Opt out of parallel tests on CI */
-  workers: process.env.CI ? 1 : undefined,
+  /*
+   * Temporal and painted-frame certificates measure real browser cadence.
+   * Keep the complete matrix isolated from unrelated browser load so a local
+   * release run exercises the same deterministic worker policy as CI and the
+   * dedicated Airshow visual gate.
+   */
+  workers: 1,
   
   /* Reporter to use */
   reporter: [['html', { outputFolder: 'diagnostics/playwright/report', open: 'never' }]],

@@ -5,11 +5,16 @@
  */
 
 import type { CampaignFactionKey } from "../../../core/campaignTypes";
-import type { PersonnelStatusPool, ScenarioUnit, VehicleStatusPool } from "../../../core/types";
+import type { FormationStatus, PersonnelStatusPool, ScenarioUnit, VehicleStatusPool } from "../../../core/types";
 import type { SupplyKey } from "../../../core/SupplyState";
 import { getAllocationOption } from "../../../data/unitAllocation";
-import { calculateFormationReadiness } from "../../../data/unitSystem/status";
+import {
+  applyEquipmentRepairToStatus,
+  applyMedicalRecoveryToStatus,
+  calculateFormationReadiness
+} from "../../../data/unitSystem/status";
 import type { SerializedBattleState, TurnFaction } from "../../GameEngine";
+import { mergeFormationStatusPools } from "../../tacticalRecovery";
 import type { MissionStatus } from "../../../state/missionRules";
 import { campaignPackageNavalSources, CAMPAIGN_NAVAL_SUPPORT_ALLOCATION_KEY } from "../logistics/CampaignNavalSupportService";
 import {
@@ -49,6 +54,7 @@ export interface CampaignBattleResultExtractionInput {
 interface LocatedTacticalUnit {
   readonly unit: ScenarioUnit;
   readonly disposition: CampaignTacticalUnitDisposition;
+  readonly faction: TurnFaction;
 }
 
 const SUPPLY_KEYS: readonly SupplyKey[] = ["ammo", "fuel", "rations", "parts"];
@@ -84,22 +90,62 @@ function equipmentSurvivorsByType(
 
 function locateTacticalUnits(state: SerializedBattleState): Map<string, LocatedTacticalUnit> {
   const located = new Map<string, LocatedTacticalUnit>();
-  const add = (unit: ScenarioUnit, disposition: CampaignTacticalUnitDisposition): void => {
+  const add = (unit: ScenarioUnit, disposition: CampaignTacticalUnitDisposition, faction: TurnFaction): void => {
     const unitId = unit.unitId?.trim();
     if (!unitId) return;
     const prior = located.get(unitId);
     if (prior) {
       throw new Error(`Tactical unit ${unitId} appears in both ${prior.disposition} and ${disposition} result sources.`);
     }
-    located.set(unitId, { unit: structuredClone(unit), disposition });
+    located.set(unitId, { unit: structuredClone(unit), disposition, faction });
   };
-  state.playerPlacements.forEach((unit) => add(unit, "deployed"));
-  state.botPlacements.forEach((unit) => add(unit, "deployed"));
-  (state.allyPlacements ?? []).forEach((unit) => add(unit, "deployed"));
-  state.reserves.forEach((unit) => add(unit, "reserve"));
-  (state.airborneReserves ?? []).forEach((unit) => add(unit, "airborneReserve"));
-  (state.casualtyLog ?? []).forEach((entry) => add(entry.unit, "casualty"));
+  state.playerPlacements.forEach((unit) => add(unit, "deployed", "Player"));
+  state.botPlacements.forEach((unit) => add(unit, "deployed", "Bot"));
+  (state.allyPlacements ?? []).forEach((unit) => add(unit, "deployed", "Ally"));
+  state.reserves.forEach((unit) => add(unit, "reserve", "Player"));
+  (state.airborneReserves ?? []).forEach((unit) => add(unit, "airborneReserve", "Player"));
+  (state.casualtyLog ?? []).forEach((entry) => {
+    const faction = entry.unit.campaignProvenance?.faction === "Bot"
+      ? "Bot"
+      : entry.unit.controlledBy === "Player" ? "Player" : "Bot";
+    add(entry.unit, "casualty", faction);
+  });
   return located;
+}
+
+function aggregateBattleLocalRecovery(
+  state: SerializedBattleState,
+  locatedUnits: ReadonlyMap<string, LocatedTacticalUnit>,
+  sourceUnitId: string,
+  status: FormationStatus
+): void {
+  (state.recoverySites ?? [])
+    .filter((site) => site.sourceUnitId === sourceUnitId)
+    .sort((left, right) => left.siteId.localeCompare(right.siteId))
+    .forEach((site) => {
+      mergeFormationStatusPools(status, site.status);
+      mergeFormationStatusPools(status, site.staged);
+    });
+  Array.from(locatedUnits.values())
+    .filter(({ unit }) => unit.recoverySourceUnitId === sourceUnitId && Boolean(unit.status))
+    .sort((left, right) => (left.unit.unitId ?? "").localeCompare(right.unit.unitId ?? ""))
+    .forEach(({ unit }) => mergeFormationStatusPools(status, unit.status!));
+}
+
+function recoverCampaignCasualtiesWhenSupported(
+  locatedUnits: ReadonlyMap<string, LocatedTacticalUnit>,
+  faction: TurnFaction,
+  status: FormationStatus
+): void {
+  const survivingSupport = Array.from(locatedUnits.values())
+    .filter((entry) => entry.faction === faction && entry.disposition !== "casualty")
+    .map((entry) => entry.unit);
+  if (survivingSupport.some((unit) => unit.type === "Supply_Truck" && unit.formationKey === "medic")) {
+    applyMedicalRecoveryToStatus(status, Number.MAX_SAFE_INTEGER);
+  }
+  if (survivingSupport.some((unit) => unit.type === "Supply_Truck" && unit.formationKey === "maintenance")) {
+    applyEquipmentRepairToStatus(status, Number.MAX_SAFE_INTEGER);
+  }
 }
 
 function assertCommittedUnit(
@@ -126,10 +172,14 @@ function assertCommittedUnit(
 function extractFormationDelta(
   pkg: CampaignBattlePackage,
   commitment: CampaignFormationCommitment,
-  located: LocatedTacticalUnit
+  located: LocatedTacticalUnit,
+  locatedUnits: ReadonlyMap<string, LocatedTacticalUnit>,
+  state: SerializedBattleState
 ): CampaignFormationBattleDelta {
   const unit = assertCommittedUnit(pkg, commitment, located).unit;
   const status = structuredClone(unit.status!);
+  aggregateBattleLocalRecovery(state, locatedUnits, commitment.tacticalUnitId, status);
+  recoverCampaignCasualtiesWhenSupported(locatedUnits, located.faction, status);
   const personnelAfter = personnelSurvivors(status.personnel);
   const equipmentAfter = equipmentSurvivorsByType(status.equipment);
   const survivingEquipment = Object.values(equipmentAfter).reduce((sum, value) => sum + value, 0);
@@ -414,7 +464,9 @@ export function extractCampaignBattleResultPackage(
   const formationDeltas = pkg.formationCommitments.map((commitment) => extractFormationDelta(
     pkg,
     commitment,
-    assertCommittedUnit(pkg, commitment, locatedUnits.get(commitment.tacticalUnitId))
+    assertCommittedUnit(pkg, commitment, locatedUnits.get(commitment.tacticalUnitId)),
+    locatedUnits,
+    state
   ));
   const tacticalStateHash = computeCampaignContentHash(state);
   const resolutionId = createStableCampaignRecordId(

@@ -1,5 +1,7 @@
 import "./domEnvironment.js";
 import { LandingScreen, resolveSelectedOperationDestination } from "../src/ui/screens/LandingScreen.js";
+import type { CampaignScreen } from "../src/ui/screens/CampaignScreen.js";
+import type { TacticalBattleFlow } from "../src/contracts/TacticalBattleFlow.js";
 import { UIState } from "../src/state/UIState.js";
 import { registerTest } from "./harness.js";
 
@@ -138,6 +140,102 @@ registerTest("LANDING_COMMANDER_ADMINISTRATION_OPENS_ONLY_WHEN_ASSIGNMENT_IS_REQ
       || root.querySelectorAll("[data-mission-list] button[data-mission]").length !== 3
       || !root.querySelector(".general-roster-assigned")) {
       throw new Error("Landing did not return focus to playable choices after commander assignment.");
+    }
+  });
+});
+
+registerTest("LANDING_LAZY_CAMPAIGN_ROUTE_LOADS_ONCE_BEFORE_NAVIGATION", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+  const events: string[] = [];
+  let loaderCalls = 0;
+  let finishLoading!: (screen: CampaignScreen) => void;
+
+  await Given("the strategic shell has not been loaded during landing startup", async () => {
+    root = mountLandingClarityFixture();
+    const screen = new LandingScreen({
+      beginTransition: (message) => events.push(`begin:${message}`),
+      endTransition: () => events.push("end"),
+      showScreen() {},
+      showScreenById: (id) => events.push(`show:${id}`),
+      getCurrentScreen: () => null
+    }, new UIState());
+    screen.attachCampaignScreenLoader(() => {
+      loaderCalls += 1;
+      return new Promise<CampaignScreen>((resolve) => {
+        finishLoading = resolve;
+      });
+    });
+    screen.initialize();
+  });
+
+  await When("the player activates campaign entry twice before its chunk finishes loading", async () => {
+    const campaignButton = root.querySelector<HTMLButtonElement>("[data-mission='campaign']");
+    campaignButton?.click();
+    campaignButton?.click();
+    await Promise.resolve();
+  });
+
+  await Then("one load blocks navigation until the campaign screen is ready", async () => {
+    if (loaderCalls !== 1
+      || events.filter((event) => event.startsWith("begin:")).length !== 1
+      || events.some((event) => event === "show:campaign")) {
+      throw new Error(`Campaign lazy-route boundary drifted before resolution: ${events.join(", ")}`);
+    }
+    finishLoading(Object.create(null) as CampaignScreen);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (events.filter((event) => event === "show:campaign").length !== 1) {
+      throw new Error(`Campaign route did not navigate exactly once after resolution: ${events.join(", ")}`);
+    }
+  });
+});
+
+registerTest("LANDING_LAZY_TACTICAL_ROUTE_INITIALIZES_BEFORE_PRECOMBAT", async ({ Given, When, Then }) => {
+  let root: HTMLElement;
+  const events: string[] = [];
+  let loaderCalls = 0;
+  let finishLoading!: (flow: TacticalBattleFlow) => void;
+
+  await Given("the tactical runtime has not been loaded on the operation screen", async () => {
+    root = mountLandingClarityFixture();
+    const screen = new LandingScreen({
+      beginTransition: () => events.push("transition-started"),
+      endTransition: () => events.push("transition-ended"),
+      showScreen() {},
+      showScreenById: (id) => events.push(`legacy-show:${id}`),
+      getCurrentScreen: () => null
+    }, new UIState());
+    screen.attachTacticalBattleFlowLoader(() => {
+      loaderCalls += 1;
+      return new Promise<TacticalBattleFlow>((resolve) => { finishLoading = resolve; });
+    });
+    screen.initialize();
+  });
+
+  await When("the player selects the training operation twice while tactical code is loading", async () => {
+    const training = root.querySelector<HTMLButtonElement>("[data-mission='training']");
+    training?.click();
+    training?.click();
+    await Promise.resolve();
+  });
+
+  await Then("one load completes before the precombat setup is invoked", async () => {
+    if (loaderCalls !== 1 || events.join(",") !== "transition-started") {
+      throw new Error(`Tactical route did not remain behind one pending load: ${events.join(",")}`);
+    }
+    finishLoading({
+      dispose() {},
+      enterPrecombat: (missionKey, generalId, difficulty) => {
+        events.push(`enter:${missionKey}:${generalId ? "assigned" : "missing"}:${difficulty}`);
+      },
+      enterCampaignPrecombat() {},
+      resumeActiveCampaignBattle() {}
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    if (events.join(",") !== "transition-started,enter:training:assigned:Normal"
+      || events.some((event) => event.startsWith("legacy-show:"))) {
+      throw new Error(`Precombat navigation escaped the tactical flow boundary: ${events.join(",")}`);
     }
   });
 });

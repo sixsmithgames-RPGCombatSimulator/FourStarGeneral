@@ -1,4 +1,5 @@
 import type { IMapViewport } from "../../contracts/IMapViewport";
+import { ListenerLifecycle } from "../lifecycle/ListenerLifecycle";
 
 /**
  * Manages zoom and pan control buttons for the battle map.
@@ -6,6 +7,7 @@ import type { IMapViewport } from "../../contracts/IMapViewport";
  */
 export class ZoomPanControls {
   private readonly viewport: IMapViewport;
+  private readonly lifecycle = new ListenerLifecycle();
   private cycleObjectiveHandler: (() => void) | null = null;
 
   // Control configuration
@@ -49,13 +51,17 @@ export class ZoomPanControls {
    * Binds zoom in/out buttons.
    */
   bindZoomButtons(): void {
-    this.zoomInButton?.addEventListener("click", () => {
-      this.viewport.adjustZoom(this.ZOOM_INCREMENT);
-    });
+    if (this.zoomInButton) {
+      this.lifecycle.addEventListener(this.zoomInButton, "click", () => {
+        this.viewport.adjustZoom(this.ZOOM_INCREMENT);
+      });
+    }
 
-    this.zoomOutButton?.addEventListener("click", () => {
-      this.viewport.adjustZoom(-this.ZOOM_INCREMENT);
-    });
+    if (this.zoomOutButton) {
+      this.lifecycle.addEventListener(this.zoomOutButton, "click", () => {
+        this.viewport.adjustZoom(-this.ZOOM_INCREMENT);
+      });
+    }
   }
 
   /**
@@ -63,7 +69,7 @@ export class ZoomPanControls {
    */
   bindPanButtons(): void {
     this.panButtons.forEach((button) => {
-      button.addEventListener("click", () => {
+      this.lifecycle.addEventListener(button, "click", () => {
         const direction = button.dataset.pan;
 
         switch (direction) {
@@ -88,13 +94,21 @@ export class ZoomPanControls {
    * Binds the cycle objective button.
    */
   bindCycleObjectiveButton(): void {
-    this.cycleObjectiveButton?.addEventListener("click", () => {
-      if (this.cycleObjectiveHandler) {
-        this.cycleObjectiveHandler();
-      } else {
-        // Fallback to reset view if no handler registered
-        this.viewport.reset();
-      }
-    });
+    if (this.cycleObjectiveButton) {
+      this.lifecycle.addEventListener(this.cycleObjectiveButton, "click", () => {
+        if (this.cycleObjectiveHandler) {
+          this.cycleObjectiveHandler();
+        } else {
+          // Fallback to reset view if no handler registered
+          this.viewport.reset();
+        }
+      });
+    }
+  }
+
+  /** Releases control listeners before the tactical runtime is replaced. */
+  dispose(): void {
+    this.lifecycle.dispose();
+    this.cycleObjectiveHandler = null;
   }
 }

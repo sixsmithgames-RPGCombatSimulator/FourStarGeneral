@@ -329,17 +329,9 @@ export async function sliceSpriteSheet(
 // Import animation assets using Vite's new URL() syntax for proper bundling
 const muzzleFlashUrl = new URL("../assets/combat animations/muzzle_flash.png", import.meta.url).href;
 const explosionSmallUrl = new URL("../assets/combat animations/FSG_Explosion_Small_6_x_4.png", import.meta.url).href;
-const explosionLargeUrl = new URL("../assets/combat animations/FSG_Explosion_Large.png", import.meta.url).href;
 const impactHitsUrl = new URL("../assets/combat animations/FSG_Sparks_and_Hits.png", import.meta.url).href;
 const dustCloudUrl = new URL("../assets/combat animations/dust_cloud.png", import.meta.url).href;
 const tracerUrl = new URL("../assets/combat animations/tracer.png", import.meta.url).href;
-
-function largeExplosionFrameDuration(frameIndex: number): number {
-  if (frameIndex < 3) return 40;
-  if (frameIndex < 9) return 58;
-  if (frameIndex < 16) return 72;
-  return 96;
-}
 
 function smallExplosionFrameDuration(frameIndex: number): number {
   if (frameIndex < 4) return 34;
@@ -380,20 +372,6 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
     logicalFrameWidth: 96,   // Display size (source cells 256×256, output 254×254 after 1px inset)
     logicalFrameHeight: 96,
     getFrameDuration: (frameIndex) => smallExplosionFrameDuration(frameIndex)
-  },
-  explosionLarge: {
-    imagePath: explosionLargeUrl,
-    columns: 6,
-    rows: 4,
-    frameCount: 24,
-    loop: false,
-    renderScale: 2.0,
-    anchorX: 0.5,
-    anchorY: 0.8,
-    fadeOutStartFrame: 15,
-    logicalFrameWidth: 128,  // Display size (source cells are 256x256)
-    logicalFrameHeight: 128,
-    getFrameDuration: (frameIndex) => largeExplosionFrameDuration(frameIndex)
   },
   impactHits: {
     imagePath: impactHitsUrl,

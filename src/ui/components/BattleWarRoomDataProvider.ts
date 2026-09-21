@@ -1,8 +1,22 @@
-import { createEmptyWarRoomData, type WarRoomData } from "../../data/warRoomTypes";
+import { createEmptyWarRoomData, type CampaignTiming, type WarRoomData } from "../../data/warRoomTypes";
+import { formatCampaignSegmentTime } from "../../game/campaign/CampaignSegmentTime";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import type { BattleState } from "../../state/BattleState";
 import type { WarRoomDataProvider } from "./WarRoomDataProvider";
-import type { BattleRosterSnapshot, CombatReportEntry, LogisticsSnapshot, ReserveUnit, RosterUnitSummary, SupplyCategorySnapshot, SupplySnapshot } from "../../game/GameEngine";
+import type {
+  BattleRosterSnapshot,
+  BattleWarRoomAirMissionReport,
+  BattleWarRoomCampaignSnapshot,
+  BattleWarRoomCombatReport,
+  BattleWarRoomInputSnapshot,
+  BattleWarRoomMissionSnapshot,
+  BattleWarRoomReconUnitSnapshot,
+  BattleWarRoomReserveSnapshot,
+  LogisticsSnapshot,
+  RosterUnitSummary,
+  SupplyCategorySnapshot,
+  SupplySnapshot
+} from "../../contracts/BattleWarRoomSnapshot";
 
 interface ForceDamageTotals {
   injured: number;
@@ -80,17 +94,14 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
   getSnapshot(): WarRoomData {
     const snapshot = createEmptyWarRoomData();
 
-    if (!this.battleState.hasEngine()) {
+    const input = this.battleState.getWarRoomInputSnapshot();
+    if (!input) {
       return snapshot;
     }
 
-    const engine = this.battleState.ensureGameEngine();
-    const turn = engine.getTurnSummary();
-    const roster = this.battleState.getRosterSnapshot?.() ?? engine.getRosterSnapshot();
-    const reserves = engine.getReserveSnapshot();
-    const mission = this.battleState.getPrecombatMissionInfo();
-    const logisticsSnapshot = engine.getLogisticsSnapshot();
-    const supplySnapshot = engine.getSupplySnapshot("Player");
+    const { turn, roster, reserves, mission } = input;
+    const logisticsSnapshot = input.logistics;
+    const supplySnapshot = input.playerSupply;
     const forceDamage = this.summarizeForceDamage(roster);
 
     // Compose high-level intel briefs combining precombat mission intel with the evolving turn context.
@@ -112,7 +123,11 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     });
 
     // Generate reconnaissance reports from recon and air units
-    snapshot.reconReports = this.composeReconReports(engine);
+    snapshot.reconReports = this.composeReconReports(
+      input.enemyContacts,
+      input.reconnaissanceUnits,
+      turn.turnNumber
+    );
 
     const totalForces = Math.max(1, roster.metrics.totalUnits);
     const reserveRatio = reserves.length / totalForces;
@@ -141,11 +156,24 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       updatedAt: new Date().toISOString()
     };
 
-    snapshot.engagementLog = this.composeEngagementLog(engine, mission, forceDamage.personnelCasualties);
+    snapshot.engagementLog = this.composeEngagementLog(
+      input.combatReports,
+      input.airMissionReports,
+      turn.turnNumber,
+      mission,
+      forceDamage.personnelCasualties
+    );
 
     snapshot.logisticsSummary = logisticsBoard.logisticsSummary;
 
-    snapshot.commandOrders = this.composeFieldReports(engine, mission, roster, logisticsSnapshot);
+    snapshot.commandOrders = this.composeFieldReports(
+      input.combatReports,
+      input.airMissionReports,
+      turn.turnNumber,
+      mission,
+      roster,
+      logisticsSnapshot
+    );
 
     const readinessPercentage = forceDamage.averageReadiness;
     const readinessLevel = readinessPercentage >= 90
@@ -169,25 +197,53 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       destroyedUnits: forceDamage.destroyedUnits
     };
 
-    // Campaign timeline only relevant for campaign mode, not standalone missions
-    const isCampaignMode = false; // TODO: Wire up actual campaign mode detection
-    snapshot.campaignClock = isCampaignMode
-      ? {
-          day: Math.max(1, turn.turnNumber),
-          time: `${6 + turn.turnNumber % 12}00`,
-          note: `Campaign Day ${Math.max(1, turn.turnNumber)}`,
-          phase: "Offensive"
-        }
-      : {
-          day: turn.turnNumber,
-          time: "",
-          note: mission?.turnLimit
-            ? `Mission Turn ${turn.turnNumber} of ${mission.turnLimit}`
-            : `Mission Turn ${turn.turnNumber}`,
-          phase: undefined
-        };
+    snapshot.campaignClock = this.composeOperationalTiming(mission, turn.turnNumber, input.campaign);
 
     return snapshot;
+  }
+
+  /**
+   * Preserves the campaign clock frozen into the engagement package instead of mistaking
+   * tactical turns for campaign days. Standalone missions retain their own turn counter.
+   */
+  private composeOperationalTiming(
+    mission: BattleWarRoomMissionSnapshot | null,
+    tacticalTurn: number,
+    campaign: BattleWarRoomCampaignSnapshot | null
+  ): CampaignTiming {
+    if (mission?.missionKey !== "campaign") {
+      const turnLabel = mission?.turnLimit
+        ? `Mission Turn ${tacticalTurn} of ${mission.turnLimit}`
+        : `Mission Turn ${tacticalTurn}`;
+      return {
+        day: tacticalTurn,
+        dayLabel: turnLabel,
+        time: "",
+        note: turnLabel
+      };
+    }
+
+    const committedSegment = campaign?.committedSegment;
+    if (!Number.isInteger(committedSegment) || (committedSegment ?? -1) < 0) {
+      return {
+        day: 1,
+        dayLabel: "Campaign time unavailable",
+        time: "",
+        note: "Return to Headquarters and reopen this engagement to restore its campaign timing.",
+        phase: "Tactical Engagement"
+      };
+    }
+
+    const calendar = campaign?.historicalCalendar;
+    const segmentTime = formatCampaignSegmentTime(committedSegment as number, calendar);
+
+    return {
+      day: segmentTime.day,
+      dayLabel: calendar ? segmentTime.dayLabel : `Campaign ${segmentTime.dayLabel}`,
+      time: segmentTime.timeLabel,
+      note: campaign?.scenarioTitle?.trim() || mission.campaignTitle?.trim() || "Campaign Operation",
+      phase: "Tactical Engagement"
+    };
   }
 
   private getRosterUnits(roster: BattleRosterSnapshot): RosterUnitSummary[] {
@@ -320,13 +376,13 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
   }
 
   private composeRequisitions(
-    reserves: readonly ReserveUnit[],
+    reserves: readonly BattleWarRoomReserveSnapshot[],
     reserveRatio: number,
     logisticsSnapshot: LogisticsSnapshot | null
   ): WarRoomData["requisitions"] {
     const updatedAt = new Date().toISOString();
     const reserveRequests = reserves.slice(0, 5).map((reserve) => ({
-      item: reserve.allocationKey ?? reserve.unit.type,
+      item: reserve.allocationKey ?? reserve.unitType,
       quantity: 1,
       status: reserveRatio > 0.25 ? "approved" as const : "pending" as const,
       requestedBy: "Reserve Pool",
@@ -447,7 +503,11 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     return Number(value.toFixed(1)).toString();
   }
 
-  private composeReconReports(engine: ReturnType<typeof this.battleState.ensureGameEngine>): Array<{
+  private composeReconReports(
+    enemyContacts: BattleWarRoomInputSnapshot["enemyContacts"],
+    playerUnits: readonly BattleWarRoomReconUnitSnapshot[],
+    currentTurn: number
+  ): Array<{
     sector: string;
     finding: string;
     confidence?: string;
@@ -463,12 +523,10 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     }> = [];
 
     // Get enemy contact reports from recon system
-    const enemyContacts = engine.getEnemyContactSnapshot();
     const recentContacts = enemyContacts.slice(0, 5);
 
     for (const contact of recentContacts) {
       const sector = this.formatDisplayHex(contact.hex);
-      const currentTurn = engine.getTurnSummary().turnNumber;
       const turnsAgo = currentTurn - contact.lastSeenTurn;
       const isFresh = turnsAgo === 0;
 
@@ -507,7 +565,6 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
 
     // If no enemy contacts, show recon unit patrol status
     if (reports.length === 0) {
-      const playerUnits = engine.playerUnits;
       const reconUnits = playerUnits.filter((u) => {
         const unitType = u.type.toLowerCase();
         return unitType.includes("recon") || unitType.includes("scout") ||
@@ -545,7 +602,7 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     return reports;
   }
 
-  private countPersonnelCasualties(personnel: CombatReportEntry["attackResult"]["personnel"] | undefined): number {
+  private countPersonnelCasualties(personnel: BattleWarRoomCombatReport["attackResult"]["personnel"] | undefined): number {
     if (!personnel) {
       return 0;
     }
@@ -557,7 +614,7 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     );
   }
 
-  private countEquipmentEffects(equipment: CombatReportEntry["attackResult"]["equipment"] | undefined): number {
+  private countEquipmentEffects(equipment: BattleWarRoomCombatReport["attackResult"]["equipment"] | undefined): number {
     if (!equipment) {
       return 0;
     }
@@ -569,14 +626,15 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
   }
 
   private composeEngagementLog(
-    engine: ReturnType<typeof this.battleState.ensureGameEngine>,
+    combatReports: readonly BattleWarRoomCombatReport[],
+    airReports: readonly BattleWarRoomAirMissionReport[],
+    turnNumber: number,
     mission: { title: string } | null,
     casualtyCount: number
   ): WarRoomData["engagementLog"] {
     const engagements: WarRoomData["engagementLog"] = [];
 
     // Get ground combat reports
-    const combatReports = engine.getCombatReports();
     const recentCombat = combatReports.slice(-5); // Last 5 ground engagements
 
     for (const combat of recentCombat) {
@@ -629,7 +687,6 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     }
 
     // Get air mission reports - event defaults to "resolved" when undefined
-    const airReports = engine.getAirMissionReports();
     const recentAirMissions = airReports.slice(-3); // Last 3 missions
 
     for (const airMission of recentAirMissions) {
@@ -656,13 +713,12 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
 
     // Add current turn summary if no specific engagements
     if (engagements.length === 0) {
-      const turn = engine.getTurnSummary();
       engagements.push({
         theater: mission?.title ?? "Current Operations",
         result: "ongoing",
         note: casualtyCount > 0
-          ? `Turn ${turn.turnNumber} operations in progress. ${casualtyCount} casualties sustained.`
-          : `Turn ${turn.turnNumber} operations proceeding. All units operational.`,
+          ? `Turn ${turnNumber} operations in progress. ${casualtyCount} casualties sustained.`
+          : `Turn ${turnNumber} operations proceeding. All units operational.`,
         casualties: casualtyCount,
         timestamp: new Date().toISOString()
       });
@@ -700,7 +756,9 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
   }
 
   private composeFieldReports(
-    engine: ReturnType<typeof this.battleState.ensureGameEngine>,
+    combatReports: readonly BattleWarRoomCombatReport[],
+    airReports: readonly BattleWarRoomAirMissionReport[],
+    turnNumber: number,
     mission: { objectives: readonly string[] } | null,
     roster: BattleRosterSnapshot,
     logisticsSnapshot: LogisticsSnapshot | null
@@ -708,7 +766,6 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     const reports: WarRoomData["commandOrders"] = [];
 
     // Get ground combat activity reports - separate player attacks from enemy attacks
-    const combatReports = engine.getCombatReports();
     const playerAttacks = combatReports.filter(c => c.attacker.faction === "Player").slice(-2);
     const enemyAttacks = combatReports.filter(c => c.attacker.faction === "Bot").slice(-2);
 
@@ -745,7 +802,6 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     }
 
     // Get air mission reports for recent activity - event defaults to "resolved" when undefined
-    const airReports = engine.getAirMissionReports();
     const recentAir = airReports.slice(-3); // Last 3 missions
 
     for (const airMission of recentAir) {
@@ -817,10 +873,9 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
 
     // If no recent activity, provide status reports
     if (reports.length === 0) {
-      const turn = engine.getTurnSummary();
       reports.push({
         title: "Sector Status Report",
-        objective: `Turn ${turn.turnNumber}: All units maintaining positions. No significant enemy contact.`,
+        objective: `Turn ${turnNumber}: All units maintaining positions. No significant enemy contact.`,
         priority: "low"
       });
     }

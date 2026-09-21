@@ -120,7 +120,7 @@ export interface DamagePacket {
   componentDamage?: ComponentDamageDelta;
   /** Set of damage types that contributed to this packet (for activity logging). */
   damageTypesUsed?: ReadonlySet<WeaponDamageType>;
-  /** Exact status shifts applied by the packet so readiness changes can be audited. */
+  /** Authoritative status shifts applied by a resolved packet so preview and commitment remain identical. */
   statusTransitions?: DamageStatusTransitions;
 }
 
@@ -503,6 +503,70 @@ const EQUIPMENT_TRANSITIONS: Record<EquipmentDamageKey, EquipmentTransition> = {
   },
   damaged: { sources: ["operational"], target: "damaged", sourceWeights: { operational: 1 } }
 };
+
+const RELATIVE_PERSONNEL_TARGETS: Record<
+  PersonnelDamageKey,
+  Record<PersonnelSourceKey, PersonnelTargetKey>
+> = {
+  killed: {
+    fit: "killed",
+    injured: "killed",
+    wounded: "killed",
+    severelyWounded: "killed"
+  },
+  severelyWounded: {
+    fit: "severelyWounded",
+    injured: "killed",
+    wounded: "killed",
+    severelyWounded: "killed"
+  },
+  wounded: {
+    fit: "wounded",
+    injured: "severelyWounded",
+    wounded: "killed",
+    severelyWounded: "killed"
+  },
+  injured: {
+    fit: "injured",
+    injured: "wounded",
+    wounded: "severelyWounded",
+    severelyWounded: "killed"
+  }
+};
+
+const RELATIVE_EQUIPMENT_TARGETS: Record<
+  EquipmentDamageKey,
+  Record<EquipmentSourceKey, EquipmentTargetKey>
+> = {
+  destroyed: {
+    operational: "destroyed",
+    damaged: "destroyed",
+    disabled: "destroyed"
+  },
+  disabled: {
+    operational: "disabled",
+    damaged: "destroyed",
+    disabled: "destroyed"
+  },
+  damaged: {
+    operational: "damaged",
+    damaged: "disabled",
+    disabled: "destroyed"
+  }
+};
+
+const PERSONNEL_SOURCE_ORDER: readonly PersonnelSourceKey[] = ["fit", "injured", "wounded", "severelyWounded"];
+const EQUIPMENT_SOURCE_ORDER: readonly EquipmentSourceKey[] = ["operational", "damaged", "disabled"];
+
+interface PersonnelResolutionPool {
+  readonly pool: PersonnelStatusPool;
+  readonly remaining: Record<PersonnelSourceKey, number>;
+}
+
+interface EquipmentResolutionPool {
+  readonly pool: VehicleStatusPool;
+  readonly remaining: Record<EquipmentSourceKey, number>;
+}
 
 interface MutableDamageStatusTransitions {
   personnel: PersonnelStatusTransitionDelta[];
@@ -912,9 +976,12 @@ function getDefaultComponentSpec(role: string): ComponentDamageSpec {
 function distributeAppliedField(
   hits: readonly WeaponHitSummary[],
   total: number,
-  readField: (hit: WeaponHitSummary) => number
+  readField: (hit: WeaponHitSummary) => number,
+  readFallbackField: (hit: WeaponHitSummary) => number
 ): number[] {
-  return allocate(total, hits.map(readField));
+  const directWeights = hits.map(readField);
+  const directWeightTotal = directWeights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  return allocate(total, directWeightTotal > 0 ? directWeights : hits.map(readFallbackField));
 }
 
 function scaleComponentDamage(delta: ComponentDamageDelta | undefined, scalar: number): ComponentDamageDelta | undefined {
@@ -962,16 +1029,18 @@ function alignWeaponHitsToAppliedDamage(
   rawEquipment: EquipmentDamageDelta,
   appliedEquipment: EquipmentDamageDelta
 ): WeaponHitSummary[] {
+  const personnelPressure = (hit: WeaponHitSummary): number => countPersonnelDelta(hit.personnel);
+  const equipmentPressure = (hit: WeaponHitSummary): number => countEquipmentDelta(hit.equipment);
   const personnelAllocations: Record<PersonnelDamageKey, number[]> = {
-    killed: distributeAppliedField(hits, appliedPersonnel.killed, (hit) => hit.personnel.killed),
-    severelyWounded: distributeAppliedField(hits, appliedPersonnel.severelyWounded, (hit) => hit.personnel.severelyWounded),
-    wounded: distributeAppliedField(hits, appliedPersonnel.wounded, (hit) => hit.personnel.wounded),
-    injured: distributeAppliedField(hits, appliedPersonnel.injured, (hit) => hit.personnel.injured)
+    killed: distributeAppliedField(hits, appliedPersonnel.killed, (hit) => hit.personnel.killed, personnelPressure),
+    severelyWounded: distributeAppliedField(hits, appliedPersonnel.severelyWounded, (hit) => hit.personnel.severelyWounded, personnelPressure),
+    wounded: distributeAppliedField(hits, appliedPersonnel.wounded, (hit) => hit.personnel.wounded, personnelPressure),
+    injured: distributeAppliedField(hits, appliedPersonnel.injured, (hit) => hit.personnel.injured, personnelPressure)
   };
   const equipmentAllocations: Record<EquipmentDamageKey, number[]> = {
-    destroyed: distributeAppliedField(hits, appliedEquipment.destroyed, (hit) => hit.equipment.destroyed),
-    disabled: distributeAppliedField(hits, appliedEquipment.disabled, (hit) => hit.equipment.disabled),
-    damaged: distributeAppliedField(hits, appliedEquipment.damaged, (hit) => hit.equipment.damaged)
+    destroyed: distributeAppliedField(hits, appliedEquipment.destroyed, (hit) => hit.equipment.destroyed, equipmentPressure),
+    disabled: distributeAppliedField(hits, appliedEquipment.disabled, (hit) => hit.equipment.disabled, equipmentPressure),
+    damaged: distributeAppliedField(hits, appliedEquipment.damaged, (hit) => hit.equipment.damaged, equipmentPressure)
   };
   const rawEquipmentEvents = Math.max(1, countEquipmentDelta(rawEquipment));
   const componentScalar = countEquipmentDelta(appliedEquipment) / rawEquipmentEvents;
@@ -1119,12 +1188,14 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
 
   const capStatus = structuredClone(status);
   const statusTransitions = createEmptyStatusTransitions();
-  const appliedPersonnel = applyPersonnelDelta(capStatus, personnel, statusTransitions);
-  const appliedEquipment = applyEquipmentDelta(capStatus, equipment, statusTransitions);
+  const appliedPersonnel = applyResolvedPersonnelDelta(capStatus, personnel, statusTransitions);
+  const appliedEquipment = applyResolvedEquipmentDelta(capStatus, equipment, statusTransitions);
   const appliedWeaponHits = alignWeaponHitsToAppliedDamage(weaponHits, appliedPersonnel, equipment, appliedEquipment);
   const appliedComponentDamage = aggregateComponentDamage(appliedWeaponHits);
 
-  const readinessLoss = estimateReadinessLoss(request.defender, appliedPersonnel, appliedEquipment);
+  const beforeStrength = deriveStrengthFromStatus(status, request.defender.strength);
+  const afterStrength = deriveStrengthFromStatus(capStatus, beforeStrength);
+  const readinessLoss = Math.max(0, Math.round((beforeStrength - afterStrength) * 100) / 100);
   return {
     personnel: appliedPersonnel,
     equipment: appliedEquipment,
@@ -1136,25 +1207,6 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
     damageTypesUsed,
     statusTransitions
   };
-}
-
-function estimateReadinessLoss(
-  defender: ScenarioUnit,
-  personnel: PersonnelDamageDelta,
-  equipment: EquipmentDamageDelta
-): number {
-  synchronizeUnitStatusWithStrength(defender, defender.formationKey);
-  const beforeStrength = deriveStrengthFromStatus(ensureFormationStatus(defender, defender.formationKey), defender.strength);
-  const clone = structuredClone(defender);
-  applyDamagePacketToUnit(clone, {
-    personnel,
-    equipment,
-    suppression: 0,
-    fortificationDamage: 0,
-    readinessLoss: 0,
-    weaponHits: []
-  });
-  return Math.max(0, Math.round((beforeStrength - clone.strength) * 100) / 100);
 }
 
 function allocate(total: number, weights: readonly number[]): number[] {
@@ -1310,6 +1362,375 @@ function scaleEquipmentDeltaToCapacity(delta: EquipmentDamageDelta, capacity: nu
   }, totalRequested, maxCapacity);
 }
 
+function personnelStateEffectiveness(state: PersonnelSourceKey | PersonnelTargetKey): number {
+  if (state === "fit") return 1;
+  if (state === "injured") return 0.75;
+  return 0;
+}
+
+function equipmentStateEffectiveness(state: EquipmentSourceKey | EquipmentTargetKey): number {
+  if (state === "operational") return 1;
+  if (state === "damaged") return 0.5;
+  return 0;
+}
+
+function personnelEffectiveStrength(status: FormationStatus): number {
+  return Object.values(status.personnel).reduce(
+    (sum, pool) => sum + pool.fit + pool.injured * personnelStateEffectiveness("injured"),
+    0
+  );
+}
+
+function equipmentEffectiveStrength(status: FormationStatus): number {
+  return Object.values(status.equipment).reduce(
+    (sum, pool) => sum + pool.operational + pool.damaged * equipmentStateEffectiveness("damaged"),
+    0
+  );
+}
+
+function createPersonnelResolutionPools(status: FormationStatus): PersonnelResolutionPool[] {
+  return Object.values(status.personnel).map((pool) => ({
+    pool,
+    remaining: {
+      fit: roundDamageCount(pool.fit),
+      injured: roundDamageCount(pool.injured),
+      wounded: roundDamageCount(pool.wounded),
+      severelyWounded: roundDamageCount(pool.severelyWounded)
+    }
+  }));
+}
+
+function createEquipmentResolutionPools(status: FormationStatus): EquipmentResolutionPool[] {
+  return Object.values(status.equipment).map((pool) => ({
+    pool,
+    remaining: {
+      operational: roundDamageCount(pool.operational),
+      damaged: roundDamageCount(pool.damaged),
+      disabled: roundDamageCount(pool.disabled)
+    }
+  }));
+}
+
+function movePersonnelResolutionStatus(
+  pools: readonly PersonnelResolutionPool[],
+  source: PersonnelSourceKey,
+  target: PersonnelTargetKey,
+  amount: number
+): number {
+  const requested = roundDamageCount(amount);
+  const allocations = allocate(requested, pools.map((entry) => entry.remaining[source]));
+  let applied = 0;
+  pools.forEach((entry, index) => {
+    const taken = Math.min(entry.remaining[source], allocations[index] ?? 0);
+    if (taken <= 0) return;
+    entry.remaining[source] -= taken;
+    entry.pool[source] -= taken;
+    entry.pool[target] += taken;
+    applied += taken;
+  });
+  return applied;
+}
+
+function moveEquipmentResolutionStatus(
+  pools: readonly EquipmentResolutionPool[],
+  source: EquipmentSourceKey,
+  target: EquipmentTargetKey,
+  amount: number
+): number {
+  const requested = roundDamageCount(amount);
+  const allocations = allocate(requested, pools.map((entry) => entry.remaining[source]));
+  let applied = 0;
+  pools.forEach((entry, index) => {
+    const taken = Math.min(entry.remaining[source], allocations[index] ?? 0);
+    if (taken <= 0) return;
+    entry.remaining[source] -= taken;
+    entry.pool[source] -= taken;
+    entry.pool[target] += taken;
+    applied += taken;
+  });
+  return applied;
+}
+
+function remainingPersonnelResolutionSource(
+  pools: readonly PersonnelResolutionPool[],
+  source: PersonnelSourceKey
+): number {
+  return pools.reduce((sum, entry) => sum + entry.remaining[source], 0);
+}
+
+function remainingEquipmentResolutionSource(
+  pools: readonly EquipmentResolutionPool[],
+  source: EquipmentSourceKey
+): number {
+  return pools.reduce((sum, entry) => sum + entry.remaining[source], 0);
+}
+
+function promoteResolvedPersonnelInjuries(
+  status: FormationStatus,
+  transitions: MutableDamageStatusTransitions,
+  applied: PersonnelDamageDelta,
+  missingEffectiveLoss: number
+): number {
+  const entryIndex = transitions.personnel.findIndex((entry) => entry.from === "fit" && entry.to === "injured");
+  const entry = transitions.personnel[entryIndex];
+  if (!entry || entry.count <= 0) return 0;
+  const promoted = Math.min(entry.count, Math.max(1, Math.ceil(missingEffectiveLoss / 0.75)));
+  if (promoted === entry.count) {
+    transitions.personnel.splice(entryIndex, 1);
+  } else {
+    transitions.personnel[entryIndex] = { ...entry, count: entry.count - promoted };
+  }
+  let remaining = promoted;
+  Object.values(status.personnel).forEach((pool) => {
+    if (remaining <= 0) return;
+    const moved = Math.min(pool.injured, remaining);
+    pool.injured -= moved;
+    pool.wounded += moved;
+    remaining -= moved;
+  });
+  if (remaining > 0) {
+    throw new Error(`[DamagePackets] Could not promote ${promoted} resolved personnel injuries; ${remaining} were missing.`);
+  }
+  applied.injured -= promoted;
+  applied.wounded += promoted;
+  addPersonnelStatusTransition(transitions, "fit", "wounded", promoted);
+  return promoted * 0.75;
+}
+
+function promoteResolvedEquipmentDamage(
+  status: FormationStatus,
+  transitions: MutableDamageStatusTransitions,
+  applied: EquipmentDamageDelta,
+  missingEffectiveLoss: number
+): number {
+  const entryIndex = transitions.equipment.findIndex((entry) => entry.from === "operational" && entry.to === "damaged");
+  const entry = transitions.equipment[entryIndex];
+  if (!entry || entry.count <= 0) return 0;
+  const promoted = Math.min(entry.count, Math.max(1, Math.ceil(missingEffectiveLoss / 0.5)));
+  if (promoted === entry.count) {
+    transitions.equipment.splice(entryIndex, 1);
+  } else {
+    transitions.equipment[entryIndex] = { ...entry, count: entry.count - promoted };
+  }
+  let remaining = promoted;
+  Object.values(status.equipment).forEach((pool) => {
+    if (remaining <= 0) return;
+    const moved = Math.min(pool.damaged, remaining);
+    pool.damaged -= moved;
+    pool.disabled += moved;
+    remaining -= moved;
+  });
+  if (remaining > 0) {
+    throw new Error(`[DamagePackets] Could not promote ${promoted} resolved equipment effects; ${remaining} were missing.`);
+  }
+  applied.damaged -= promoted;
+  applied.disabled += promoted;
+  addEquipmentStatusTransition(transitions, "operational", "disabled", promoted);
+  return promoted * 0.5;
+}
+
+function applyResolvedPersonnelDelta(
+  status: FormationStatus,
+  delta: PersonnelDamageDelta,
+  transitions: MutableDamageStatusTransitions
+): PersonnelDamageDelta {
+  const applied: PersonnelDamageDelta = { ...EMPTY_PERSONNEL_DELTA };
+  const requested = scalePersonnelDeltaToCapacity(
+    roundPersonnelDeltaPreservingMass(delta),
+    livingPersonnel(status)
+  );
+  const effectiveBefore = personnelEffectiveStrength(status);
+  const minimumEffectiveLoss = Math.min(
+    effectiveBefore,
+    requested.killed + requested.severelyWounded + requested.wounded + requested.injured * 0.25
+  );
+  const pools = createPersonnelResolutionPools(status);
+  const directOrder: readonly PersonnelDamageKey[] = ["killed", "severelyWounded", "wounded", "injured"];
+
+  directOrder.forEach((outcome) => {
+    let remaining = requested[outcome];
+    const rankedSources = PERSONNEL_SOURCE_ORDER
+      .map((source, sourceIndex) => {
+        const target = RELATIVE_PERSONNEL_TARGETS[outcome][source];
+        return {
+          source,
+          sourceIndex,
+          target,
+          effectiveLoss: personnelStateEffectiveness(source) - personnelStateEffectiveness(target),
+          available: remainingPersonnelResolutionSource(pools, source)
+        };
+      })
+      .filter((candidate) => candidate.available > 0)
+      .sort((left, right) => (
+        right.effectiveLoss - left.effectiveLoss ||
+        right.available - left.available ||
+        left.sourceIndex - right.sourceIndex
+      ));
+
+    rankedSources.forEach((candidate) => {
+      if (remaining <= 0) return;
+      const moved = movePersonnelResolutionStatus(
+        pools,
+        candidate.source,
+        candidate.target,
+        Math.min(remaining, candidate.available)
+      );
+      if (moved <= 0) return;
+      applied[candidate.target] += moved;
+      addPersonnelStatusTransition(transitions, candidate.source, candidate.target, moved);
+      remaining -= moved;
+    });
+  });
+
+  // Outcome counts are expected effects, not protected identities. If a severe
+  // result lands on somebody already injured, that person has less readiness left
+  // to remove; carry the unused effect into another still-effective member instead
+  // of allowing accumulated casualties to become armor against the next strike.
+  let missingEffectiveLoss = minimumEffectiveLoss - (effectiveBefore - personnelEffectiveStrength(status));
+  while (missingEffectiveLoss > 0.001) {
+    const candidates = [
+      { source: "fit", target: "wounded", effectiveLoss: 1 },
+      { source: "injured", target: "wounded", effectiveLoss: 0.75 },
+      { source: "fit", target: "injured", effectiveLoss: 0.25 }
+    ] satisfies ReadonlyArray<{
+      source: PersonnelSourceKey;
+      target: PersonnelTargetKey;
+      effectiveLoss: number;
+    }>;
+    const available = candidates
+      .filter((candidate) => remainingPersonnelResolutionSource(pools, candidate.source) > 0)
+      .sort((left, right) => {
+        const leftFits = left.effectiveLoss <= missingEffectiveLoss + 0.001;
+        const rightFits = right.effectiveLoss <= missingEffectiveLoss + 0.001;
+        if (leftFits !== rightFits) return leftFits ? -1 : 1;
+        return leftFits
+          ? right.effectiveLoss - left.effectiveLoss
+          : left.effectiveLoss - right.effectiveLoss;
+      });
+    const candidate = available[0];
+    if (!candidate) {
+      const promotedLoss = promoteResolvedPersonnelInjuries(status, transitions, applied, missingEffectiveLoss);
+      if (promotedLoss > 0) {
+        missingEffectiveLoss -= promotedLoss;
+        continue;
+      }
+      throw new Error(
+        `[DamagePackets] Personnel damage could not satisfy its readiness-effect invariant: ` +
+        `required ${minimumEffectiveLoss.toFixed(2)} effective loss, applied ` +
+        `${(effectiveBefore - personnelEffectiveStrength(status)).toFixed(2)}, missing ${missingEffectiveLoss.toFixed(2)}.`
+      );
+    }
+    const moved = movePersonnelResolutionStatus(pools, candidate.source, candidate.target, 1);
+    if (moved !== 1) {
+      throw new Error("[DamagePackets] Personnel damage lost an allocated readiness transition.");
+    }
+    applied[candidate.target] += moved;
+    addPersonnelStatusTransition(transitions, candidate.source, candidate.target, moved);
+    missingEffectiveLoss -= candidate.effectiveLoss;
+  }
+
+  return applied;
+}
+
+function applyResolvedEquipmentDelta(
+  status: FormationStatus,
+  delta: EquipmentDamageDelta,
+  transitions: MutableDamageStatusTransitions
+): EquipmentDamageDelta {
+  const applied: EquipmentDamageDelta = { ...EMPTY_EQUIPMENT_DELTA };
+  const requested = scaleEquipmentDeltaToCapacity(
+    roundEquipmentDeltaPreservingMass(delta),
+    nonDestroyedEquipment(status)
+  );
+  const effectiveBefore = equipmentEffectiveStrength(status);
+  const minimumEffectiveLoss = Math.min(
+    effectiveBefore,
+    requested.destroyed + requested.disabled + requested.damaged * 0.5
+  );
+  const pools = createEquipmentResolutionPools(status);
+  const directOrder: readonly EquipmentDamageKey[] = ["destroyed", "disabled", "damaged"];
+
+  directOrder.forEach((outcome) => {
+    let remaining = requested[outcome];
+    const rankedSources = EQUIPMENT_SOURCE_ORDER
+      .map((source, sourceIndex) => {
+        const target = RELATIVE_EQUIPMENT_TARGETS[outcome][source];
+        return {
+          source,
+          sourceIndex,
+          target,
+          effectiveLoss: equipmentStateEffectiveness(source) - equipmentStateEffectiveness(target),
+          available: remainingEquipmentResolutionSource(pools, source)
+        };
+      })
+      .filter((candidate) => candidate.available > 0)
+      .sort((left, right) => (
+        right.effectiveLoss - left.effectiveLoss ||
+        right.available - left.available ||
+        left.sourceIndex - right.sourceIndex
+      ));
+
+    rankedSources.forEach((candidate) => {
+      if (remaining <= 0) return;
+      const moved = moveEquipmentResolutionStatus(
+        pools,
+        candidate.source,
+        candidate.target,
+        Math.min(remaining, candidate.available)
+      );
+      if (moved <= 0) return;
+      applied[candidate.target] += moved;
+      addEquipmentStatusTransition(transitions, candidate.source, candidate.target, moved);
+      remaining -= moved;
+    });
+  });
+
+  let missingEffectiveLoss = minimumEffectiveLoss - (effectiveBefore - equipmentEffectiveStrength(status));
+  while (missingEffectiveLoss > 0.001) {
+    const candidates = [
+      { source: "operational", target: "disabled", effectiveLoss: 1 },
+      { source: "damaged", target: "disabled", effectiveLoss: 0.5 },
+      { source: "operational", target: "damaged", effectiveLoss: 0.5 }
+    ] satisfies ReadonlyArray<{
+      source: EquipmentSourceKey;
+      target: EquipmentTargetKey;
+      effectiveLoss: number;
+    }>;
+    const available = candidates
+      .filter((candidate) => remainingEquipmentResolutionSource(pools, candidate.source) > 0)
+      .sort((left, right) => {
+        const leftFits = left.effectiveLoss <= missingEffectiveLoss + 0.001;
+        const rightFits = right.effectiveLoss <= missingEffectiveLoss + 0.001;
+        if (leftFits !== rightFits) return leftFits ? -1 : 1;
+        return leftFits
+          ? right.effectiveLoss - left.effectiveLoss
+          : left.effectiveLoss - right.effectiveLoss;
+      });
+    const candidate = available[0];
+    if (!candidate) {
+      const promotedLoss = promoteResolvedEquipmentDamage(status, transitions, applied, missingEffectiveLoss);
+      if (promotedLoss > 0) {
+        missingEffectiveLoss -= promotedLoss;
+        continue;
+      }
+      throw new Error(
+        `[DamagePackets] Equipment damage could not satisfy its readiness-effect invariant: ` +
+        `required ${minimumEffectiveLoss.toFixed(2)} effective loss, applied ` +
+        `${(effectiveBefore - equipmentEffectiveStrength(status)).toFixed(2)}, missing ${missingEffectiveLoss.toFixed(2)}.`
+      );
+    }
+    const moved = moveEquipmentResolutionStatus(pools, candidate.source, candidate.target, 1);
+    if (moved !== 1) {
+      throw new Error("[DamagePackets] Equipment damage lost an allocated readiness transition.");
+    }
+    applied[candidate.target] += moved;
+    addEquipmentStatusTransition(transitions, candidate.source, candidate.target, moved);
+    missingEffectiveLoss -= candidate.effectiveLoss;
+  }
+
+  return applied;
+}
+
 function applyPersonnelDelta(
   status: FormationStatus,
   delta: PersonnelDamageDelta,
@@ -1375,11 +1796,95 @@ function applyEquipmentDelta(
   return applied;
 }
 
+function applyResolvedStatusTransitions(status: FormationStatus, transitions: DamageStatusTransitions): void {
+  const personnelRequirements = new Map<PersonnelSourceKey, number>();
+  transitions.personnel.forEach((transition) => {
+    if (!Number.isFinite(transition.count) || transition.count < 0 || !Number.isInteger(transition.count)) {
+      throw new Error(
+        `[DamagePackets] Invalid personnel transition count ${transition.count} for ${transition.from}->${transition.to}.`
+      );
+    }
+    personnelRequirements.set(
+      transition.from,
+      (personnelRequirements.get(transition.from) ?? 0) + transition.count
+    );
+  });
+  personnelRequirements.forEach((required, source) => {
+    const available = Object.values(status.personnel).reduce((sum, pool) => sum + pool[source], 0);
+    if (required > available) {
+      throw new Error(
+        `[DamagePackets] Cannot apply ${required} personnel transitions from ${source}; only ${available} source records exist.`
+      );
+    }
+  });
+
+  const equipmentRequirements = new Map<EquipmentSourceKey, number>();
+  transitions.equipment.forEach((transition) => {
+    if (!Number.isFinite(transition.count) || transition.count < 0 || !Number.isInteger(transition.count)) {
+      throw new Error(
+        `[DamagePackets] Invalid equipment transition count ${transition.count} for ${transition.from}->${transition.to}.`
+      );
+    }
+    equipmentRequirements.set(
+      transition.from,
+      (equipmentRequirements.get(transition.from) ?? 0) + transition.count
+    );
+  });
+  equipmentRequirements.forEach((required, source) => {
+    const available = Object.values(status.equipment).reduce((sum, pool) => sum + pool[source], 0);
+    if (required > available) {
+      throw new Error(
+        `[DamagePackets] Cannot apply ${required} equipment transitions from ${source}; only ${available} source records exist.`
+      );
+    }
+  });
+
+  const personnelPools = createPersonnelResolutionPools(status);
+  transitions.personnel.forEach((transition) => {
+    const expected = roundDamageCount(transition.count);
+    const applied = movePersonnelResolutionStatus(
+      personnelPools,
+      transition.from,
+      transition.to,
+      expected
+    );
+    if (applied !== expected) {
+      throw new Error(
+        `[DamagePackets] Cannot apply ${expected} ${transition.from}->${transition.to} personnel transitions; ` +
+        `only ${applied} source records remain.`
+      );
+    }
+  });
+
+  const equipmentPools = createEquipmentResolutionPools(status);
+  transitions.equipment.forEach((transition) => {
+    const expected = roundDamageCount(transition.count);
+    const applied = moveEquipmentResolutionStatus(
+      equipmentPools,
+      transition.from,
+      transition.to,
+      expected
+    );
+    if (applied !== expected) {
+      throw new Error(
+        `[DamagePackets] Cannot apply ${expected} ${transition.from}->${transition.to} equipment transitions; ` +
+        `only ${applied} source records remain.`
+      );
+    }
+  });
+}
+
 export function applyDamagePacketToUnit(unit: ScenarioUnit, packet: DamagePacket): void {
   synchronizeUnitStatusWithStrength(unit, unit.formationKey);
   const status = ensureFormationStatus(unit, unit.formationKey);
-  applyPersonnelDelta(status, packet.personnel);
-  applyEquipmentDelta(status, packet.equipment);
+  if (packet.statusTransitions) {
+    applyResolvedStatusTransitions(status, packet.statusTransitions);
+  } else {
+    // Setup, migration, and support-effect packets predate the transition ledger
+    // and intentionally retain their absolute-destination semantics.
+    applyPersonnelDelta(status, packet.personnel);
+    applyEquipmentDelta(status, packet.equipment);
+  }
   status.suppression = Math.max(0, Math.round((status.suppression ?? 0) + packet.suppression));
   unit.strength = deriveStrengthFromStatus(status, unit.strength);
 }
@@ -1398,7 +1903,7 @@ function summarizePersonnel(status: FormationStatus | undefined): PersonnelStatu
   );
   return {
     ...summary,
-    total: summary.fit + summary.injured + summary.wounded + summary.severelyWounded + summary.killed,
+    total: readiness.total,
     casualties: summary.injured + summary.wounded + summary.severelyWounded + summary.killed,
     nonEffective: Math.round((readiness.total - readiness.effective) * 10) / 10,
     effective: readiness.effective,
@@ -1419,7 +1924,7 @@ function summarizeEquipment(status: FormationStatus | undefined): EquipmentStatu
   );
   return {
     ...summary,
-    total: summary.operational + summary.damaged + summary.disabled + summary.destroyed,
+    total: readiness?.total ?? 0,
     losses: summary.disabled + summary.destroyed,
     nonOperational: summary.damaged + summary.disabled + summary.destroyed,
     effective: readiness?.effective ?? 0,

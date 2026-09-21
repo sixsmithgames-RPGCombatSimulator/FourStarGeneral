@@ -19,6 +19,11 @@ import { SeededRandom } from "../rendering/ProceduralPrimitives";
 
 export type SoundPlaybackMode = "full" | "weapon" | "impact" | "impact_only" | "transient_only";
 
+export interface CombatAudioAvailability {
+  readonly available: boolean;
+  readonly reason: string | null;
+}
+
 export interface QueuedWeaponSoundRequest {
   /** Weapon class to play */
   readonly weaponClass: WeaponSoundClass;
@@ -44,8 +49,10 @@ export interface WeaponSoundRequest extends QueuedWeaponSoundRequest {
 export class CombatSoundManager {
   static readonly DEFAULT_MASTER_VOLUME = 0.7;
 
-  private readonly audioContext: AudioContext;
-  private readonly masterGainNode: GainNode;
+  private readonly audioContext: AudioContext | null;
+  private readonly masterGainNode: GainNode | null;
+  private readonly availability: CombatAudioAvailability;
+  private masterVolume = CombatSoundManager.DEFAULT_MASTER_VOLUME;
   private readonly bufferCache: Map<string, AudioBuffer> = new Map();
   private soundCatalog: SoundCatalog | null = null;
   private preloadPromise: Promise<void> | null = null;
@@ -55,13 +62,40 @@ export class CombatSoundManager {
   private readonly impactHistory: Map<string, number[]> = new Map();
 
   constructor() {
-    // Create Web Audio context
-    this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    this.masterGainNode = this.audioContext.createGain();
-    this.masterGainNode.connect(this.audioContext.destination);
-    this.masterGainNode.gain.value = CombatSoundManager.DEFAULT_MASTER_VOLUME;
+    const AudioContextConstructor = typeof window !== "undefined"
+      ? window.AudioContext
+        ?? (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      : undefined;
+    let audioContext: AudioContext | null = null;
+    let masterGainNode: GainNode | null = null;
+    let unavailableReason: string | null = AudioContextConstructor
+      ? null
+      : "Web Audio API is unavailable in this browser.";
+    try {
+      if (AudioContextConstructor) {
+        audioContext = new AudioContextConstructor();
+        masterGainNode = audioContext.createGain();
+        masterGainNode.connect(audioContext.destination);
+        masterGainNode.gain.value = this.masterVolume;
+      }
+    } catch (error) {
+      console.warn("[CombatSoundManager] Web Audio API could not be initialized; continuing without combat audio", error);
+      unavailableReason = "Web Audio API could not be initialized in this browser.";
+      audioContext = null;
+      masterGainNode = null;
+    }
+    this.audioContext = audioContext;
+    this.masterGainNode = masterGainNode;
+    this.availability = Object.freeze({
+      available: audioContext !== null,
+      reason: audioContext ? null : unavailableReason ?? "Combat audio is unavailable in this browser."
+    });
 
-    console.log("[CombatSoundManager] Initialized with Web Audio API");
+    if (this.audioContext) {
+      console.log("[CombatSoundManager] Initialized with Web Audio API");
+    } else {
+      console.warn("[CombatSoundManager] Web Audio API unavailable; continuing without combat audio");
+    }
   }
 
   /**
@@ -94,6 +128,9 @@ export class CombatSoundManager {
    * Preload audio buffer for an asset.
    */
   private async loadAudioBuffer(asset: SoundAssetMeta): Promise<AudioBuffer | null> {
+    if (!this.audioContext) {
+      return null;
+    }
     // Check cache first
     if (this.bufferCache.has(asset.id)) {
       return this.bufferCache.get(asset.id)!;
@@ -327,6 +364,9 @@ export class CombatSoundManager {
    * Play a single sound layer with Web Audio API.
    */
   private async playLayer(layer: SelectedSoundLayer, masterGain: number): Promise<void> {
+    if (!this.audioContext || !this.masterGainNode) {
+      return;
+    }
     const buffer = await this.loadAudioBuffer(layer.asset);
     if (!buffer) {
       return; // Failed to load, skip
@@ -356,14 +396,22 @@ export class CombatSoundManager {
    * Set master volume (0.0 to 1.0).
    */
   setMasterVolume(volume: number): void {
-    this.masterGainNode.gain.value = Math.max(0, Math.min(1, volume));
+    this.masterVolume = Math.max(0, Math.min(1, volume));
+    if (this.masterGainNode) {
+      this.masterGainNode.gain.value = this.masterVolume;
+    }
   }
 
   /**
    * Get current master volume.
    */
   getMasterVolume(): number {
-    return this.masterGainNode.gain.value;
+    return this.masterVolume;
+  }
+
+  /** Reports immutable runtime capability without conflating it with the saved volume preference. */
+  getAvailability(): CombatAudioAvailability {
+    return this.availability;
   }
 
   /**
@@ -375,7 +423,7 @@ export class CombatSoundManager {
   }
 
   private async ensureAudioContextReady(): Promise<void> {
-    if (this.audioContext.state === "suspended") {
+    if (this.audioContext?.state === "suspended") {
       try {
         await this.audioContext.resume();
       } catch (error) {

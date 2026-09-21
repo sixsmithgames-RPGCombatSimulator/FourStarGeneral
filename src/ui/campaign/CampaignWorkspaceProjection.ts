@@ -8,6 +8,7 @@ import type {
   CampaignCommandIntelBriefView,
   CampaignCommandShellView
 } from "./CampaignCommandShell";
+import { CAMPAIGN_SEGMENT_HOURS } from "../../core/campaignTypes";
 
 /** Readiness categories reflect the supplied authoritative posture, never a percentage threshold. */
 export type CampaignForceFilter = "all" | "ready" | "committed" | "inTransit" | "arriving" | "recovering";
@@ -294,7 +295,7 @@ export function projectCampaignIntelligenceWorkspace(
       priority: contact.priority ?? "routine",
       threatLabel: contact.threatLabel ?? "Unclassified contact",
       state: contact.state,
-      ageLabel: contact.ageSegments === 0 ? "Observed this segment" : `${contact.ageSegments * 3}h since observation`,
+      ageLabel: contact.ageSegments === 0 ? "Observed this segment" : `${contact.ageSegments * CAMPAIGN_SEGMENT_HOURS}h since observation`,
       uncertaintyLabel: `${contact.confidenceBand} confidence · ${contact.uncertaintyRadius > 0 ? `location within ${contact.uncertaintyRadius} hex${contact.uncertaintyRadius === 1 ? "" : "es"}` : "reported position"}`,
       uncertain: contact.uncertaintyRadius > 0 || contact.confidenceBand !== "high" || contact.state !== "current",
       sourceLabel: contact.sourceLabels.length > 0 ? contact.sourceLabels.join(", ") : "Source not reported",

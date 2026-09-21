@@ -1,7 +1,7 @@
 import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS
-} from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+} from "../src/ui/airshow/AirShowTimeline.js";
 
 export type AirScenarioResult = ReturnType<(typeof import("./airScenarioSupport.js"))["runAirScenario"]>;
 

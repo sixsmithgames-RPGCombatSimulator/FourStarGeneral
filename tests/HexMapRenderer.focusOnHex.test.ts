@@ -3,8 +3,6 @@ import { registerTest } from "./harness.js";
 import { HexMapRenderer } from "../src/rendering/HexMapRenderer";
 import type { ScenarioData } from "../src/core/types";
 
-type RafCallback = (timestamp: number) => void;
-
 function installRendererDataFetchMock(): () => void {
   const originalFetch = globalThis.fetch;
   const mockJsonResponse = (payload: unknown): Response =>
@@ -145,119 +143,6 @@ registerTest("HEXMAP_AIRCRAFT_HEADINGS_ASSUME_NOSE_UP_SPRITES", async ({ When, T
     }
     if (eastHeading !== 90) {
       throw new Error(`Expected eastbound aircraft heading to rotate to 90 degrees, received ${eastHeading}.`);
-    }
-  });
-});
-
-registerTest("HEXMAP_AIRCRAFT_SORTIE_RETAINS_GHOST_DURING_TARGET_PASS_FX", async ({ Given, When, Then }) => {
-  const viewport = document.createElement("div");
-  viewport.style.width = "300px";
-  viewport.style.height = "200px";
-  viewport.style.overflow = "hidden";
-  Object.defineProperty(viewport, "clientWidth", { value: 300, configurable: true });
-  Object.defineProperty(viewport, "clientHeight", { value: 200, configurable: true });
-
-  const canvas = document.createElement("div");
-  canvas.id = "battleMapCanvas";
-
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.id = "battleHexMap";
-
-  canvas.appendChild(svg);
-  viewport.appendChild(canvas);
-  document.body.appendChild(viewport);
-
-  const scenario: ScenarioData = {
-    name: "Aircraft Sortie Harness",
-    size: { cols: 2, rows: 1 },
-    tilePalette: {
-      PLAINS: {
-        terrain: "plains",
-        terrainType: "grass",
-        density: "average",
-        features: [],
-        recon: "intel"
-      }
-    },
-    tiles: [[{ tile: "PLAINS" }, { tile: "PLAINS" }]],
-    objectives: [],
-    turnLimit: 1,
-    sides: {
-      Player: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] },
-      Bot: { hq: { q: 1, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] }
-    }
-  };
-
-  const renderer = new HexMapRenderer();
-  const rafCallbacks: RafCallback[] = [];
-  const originalRaf = window.requestAnimationFrame;
-  let restoreFetch: (() => void) | null = null;
-  let timestamp = performance.now();
-  let targetPassStarted = false;
-  let resolveHeldImpact: (() => void) | null = null;
-  let animation: Promise<void> | null = null;
-
-  const flushNextFrame = (deltaMs = 25): void => {
-    const callback = rafCallbacks.shift();
-    if (!callback) {
-      throw new Error("Expected a queued aircraft animation frame.");
-    }
-    timestamp += deltaMs;
-    callback(timestamp);
-  };
-
-  await Given("a rendered route for a bomber sortie", async () => {
-    restoreFetch = installRendererDataFetchMock();
-    renderer.render(svg as SVGSVGElement, canvas as HTMLDivElement, scenario);
-  });
-
-  await When("the sortie reaches the target while impact effects are still pending", async () => {
-    window.requestAnimationFrame = (callback: FrameRequestCallback): number => {
-      rafCallbacks.push(callback);
-      return rafCallbacks.length;
-    };
-
-    animation = renderer.animateAircraftSortie("0,0", "1,0", "0,0", "Bomber", {
-      ingressDurationMs: 50,
-      egressDurationMs: 50,
-      strength: 0,
-      faction: "Player",
-      role: "bomber",
-      onTargetPass: async () => {
-        targetPassStarted = true;
-        await new Promise<void>((resolve) => {
-          resolveHeldImpact = resolve;
-        });
-      }
-    });
-
-    for (let index = 0; index < 8 && (!targetPassStarted || rafCallbacks.length > 0); index += 1) {
-      flushNextFrame();
-    }
-  });
-
-  await Then("the aircraft formation should stay mounted until target effects finish", async () => {
-    try {
-      if (!targetPassStarted || !resolveHeldImpact || !animation) {
-        throw new Error("Expected the sortie target pass to be active.");
-      }
-
-      const mountedGhost = svg.querySelector(".aircraft-formation, .unit-move-ghost");
-      if (!mountedGhost) {
-        throw new Error("Expected bomber ghost to remain mounted while impact effects are unresolved.");
-      }
-
-      resolveHeldImpact();
-      await animation;
-
-      const remainingGhost = svg.querySelector(".aircraft-formation, .unit-move-ghost");
-      if (remainingGhost) {
-        throw new Error("Expected bomber ghost to be removed after the sortie and impact effects complete.");
-      }
-    } finally {
-      window.requestAnimationFrame = originalRaf;
-      restoreFetch?.();
-      viewport.remove();
     }
   });
 });

@@ -1,13 +1,9 @@
-import type { AirEngagementEvent, TurnFaction } from "../../game/GameEngine";
+import type { AirEngagementEvent, TurnFaction } from "../../game/battle/air/AirCombatContracts";
 import { axialKey } from "../../core/Hex";
 import type {
   ResolvedAirShowFlakBurst,
   ResolvedAirShowScene
 } from "./AirShowPlaybackScene";
-import {
-  buildResolvedAirCombatSceneTimingPolicy,
-  type ResolvedAirCombatSceneTimingOverrides
-} from "./AirShowTimingPolicies";
 
 export interface LinkedEscortFlightContext {
   readonly unitKey: string;
@@ -50,7 +46,6 @@ export interface BuildResolvedAirCombatSceneOptions {
   readonly bomberTargetKey?: string | null;
   readonly flakEvent?: AirEngagementEvent | null;
   readonly includeBomber?: boolean;
-  readonly phaseTimings?: ResolvedAirCombatSceneTimingOverrides;
   readonly playerHqKey?: string | null;
   readonly botHqKey?: string | null;
 }
@@ -263,11 +258,6 @@ export function buildResolvedAirCombatScene(
     (unitKey) => !eventEscortUnitKeys.includes(unitKey)
   );
 
-  const phaseTimings = {
-    ...buildResolvedAirCombatSceneTimingPolicy(),
-    ...(options.phaseTimings ?? {})
-  };
-
   return {
     scene: {
       kind: sceneKind,
@@ -275,18 +265,9 @@ export function buildResolvedAirCombatScene(
       interceptors,
       escorts,
       bombers: resolvedBombers,
-      bomber: resolvedBombers[0] ?? null,
       escortExchanges: event.escortExchanges ?? [],
       bomberPassExchanges: includeBomber ? (event.bomberPassExchanges ?? []) : [],
       bomberTargetHexKey: options.bomberTargetKey,
-      fighterIngressDurationMs: phaseTimings.fighterIngressDurationMs,
-      escortClashDurationMs: phaseTimings.escortClashDurationMs,
-      bomberIngressDurationMs: phaseTimings.bomberIngressDurationMs,
-      bomberPassDurationMs: phaseTimings.bomberPassDurationMs,
-      strikeRunDurationMs: phaseTimings.strikeRunDurationMs,
-      egressDurationMs: phaseTimings.egressDurationMs,
-      bomberArrivalDelayMs: phaseTimings.bomberArrivalDelayMs,
-      bombReleaseProgress: phaseTimings.bombReleaseProgress,
       playerHqKey: options.playerHqKey ?? null,
       botHqKey: options.botHqKey ?? null,
       flakBursts:

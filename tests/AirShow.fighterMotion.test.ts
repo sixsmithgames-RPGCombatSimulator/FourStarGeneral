@@ -634,9 +634,16 @@ registerTest("AIR_SHOW_REAL_ENGINE_SCENARIO_PROJECTS_ONE_NEARBY_PLAYBACK_BUCKET_
       throw new Error("Expected coordinated fighter scene diagnostics to schedule visible tracer bursts.");
     }
 
-    if (coordinatedPlan.bomberStartDelayMs < coordinatedPlan.fighterIngressLeadMs) {
+    const timeline = coordinatedPlan.sceneTimeline;
+    if (!timeline) {
+      throw new Error("Expected a finalized coordinated timeline.");
+    }
+    const fighterStartMs = Math.min(...timeline.tracks.filter((track) => track.role !== "bomber").map((track) => track.visibleFromMs));
+    const bomberStartMs = Math.min(...timeline.tracks.filter((track) => track.role === "bomber").map((track) => track.visibleFromMs));
+    if (!Number.isFinite(fighterStartMs) || !Number.isFinite(bomberStartMs) || !timeline.verification.valid) {
       throw new Error(
-        `Expected coordinated bomber lead ${coordinatedPlan.bomberStartDelayMs}ms to trail fighter ingress lead ${coordinatedPlan.fighterIngressLeadMs}ms.`
+        `Expected finite starts in a valid finalized timeline, saw fighter=${fighterStartMs}ms ` +
+        `bomber=${bomberStartMs}ms findings=${JSON.stringify(timeline.verification.findings)}.`
       );
     }
   });
@@ -730,38 +737,52 @@ registerTest("AIR_SHOW_SPATIAL_SEPARATION_REPORT", async ({ Given, When, Then })
     result = runAirScenario();
   });
 
-  await Then("actor overlap analysis should report separation distances and flag severe stacking", async () => {
+  await Then("painted-frame actor overlap should stay inside the rendered-size separation budget", async () => {
     const combatPhases = ["escort-clash-merge", "escort-clash-scramble", "bomber-defense-pass"];
-    const baseSpriteSizePx = 60;
-    const warningThresholdPx = baseSpriteSizePx * 0.5; // 50% overlap (30px) = warning
-    const failureThresholdPx = baseSpriteSizePx * 0.05; // 95%+ overlap (<3px) = severe stacking
+    const notableOverlapRatio = 0.4;
+    const maximumSevereOverlapRatio = 0.75;
+    // This is a deterministic regression ratchet over the corrected rendered-size, exact-frame metric.
+    const maximumNotableOverlapEvents = 41;
 
     const inspections = result?.airshowInspections.filter(
       (entry) => entry.eventType === "airToAir" && entry.report.phases.some((p) => combatPhases.includes(p.label))
     ) ?? [];
 
-    const warnings: Array<{ distancePx: number; overlapPercent: number; actors: string; timeMs: number; phase: string }> = [];
-    let worstFailure: { distancePx: number; overlapPercent: number; actors: string; timeMs: number; phase: string } | null = null;
+    type OverlapFinding = {
+      distancePx: number;
+      overlapRatio: number;
+      actors: string;
+      timeMs: number;
+      phase: string;
+    };
+    const notableOverlaps: OverlapFinding[] = [];
+    const severeOverlaps: OverlapFinding[] = [];
+    let worstOverlap: OverlapFinding | null = null;
+    let comparedPaintedPairs = 0;
 
     for (const inspection of inspections) {
+      const actorsById = new Map((inspection.timeline?.actors ?? []).map((actor) => [actor.actorId, actor] as const));
       for (const phase of inspection.report.phases.filter((p) => combatPhases.includes(p.label))) {
         const allSamples = phase.assignments.flatMap((assignment) =>
           assignment.sampledPositions.map((sample) => ({
             actorId: assignment.actorId,
             role: assignment.role,
+            size: actorsById.get(assignment.actorId)?.size ?? 0,
+            faction: actorsById.get(assignment.actorId)?.faction,
             timeMs: sample.timeMs,
             cx: sample.cx,
             cy: sample.cy
           }))
         );
 
-        // Group by 50ms time buckets for collision detection
-        const samplesByTime = new Map<number, typeof allSamples>();
+        // Inspection sampling is phase-relative. Exact keys compare actors painted on the same frame,
+        // rather than adjacent samples that merely happen to share a coarse time bucket.
+        const samplesByTime = new Map<string, typeof allSamples>();
         for (const sample of allSamples) {
-          const bucket = Math.floor(sample.timeMs / 50) * 50;
-          const existing = samplesByTime.get(bucket) ?? [];
+          const frameKey = sample.timeMs.toFixed(6);
+          const existing = samplesByTime.get(frameKey) ?? [];
           existing.push(sample);
-          samplesByTime.set(bucket, existing);
+          samplesByTime.set(frameKey, existing);
         }
 
         for (const [, samplesAtTime] of samplesByTime) {
@@ -769,36 +790,39 @@ registerTest("AIR_SHOW_SPATIAL_SEPARATION_REPORT", async ({ Given, When, Then })
             for (let j = i + 1; j < samplesAtTime.length; j += 1) {
               const a = samplesAtTime[i];
               const b = samplesAtTime[j];
+              if (a.actorId === b.actorId || a.size <= 0 || b.size <= 0) continue;
               const distancePx = Math.hypot(a.cx - b.cx, a.cy - b.cy);
 
-              // Skip legitimate attack passes (bomber vs interceptor proximity is expected)
-              const isAttackPass = (a.role === "bomber" && b.role === "interceptor") || (a.role === "interceptor" && b.role === "bomber");
-              if (isAttackPass && distancePx >= 0.5) continue;
+              const opposingSides = (a.faction === "Bot") !== (b.faction === "Bot");
+              const isHeadOnMergeCrossing = phase.label === "escort-clash-merge" && opposingSides;
+              const isBomberDefenseAttackPass = phase.label === "bomber-defense-pass"
+                && opposingSides
+                && ((a.role === "bomber" && b.role === "interceptor")
+                  || (a.role === "interceptor" && b.role === "bomber"));
+              const isOpposedFighterAttackCrossing = (
+                phase.label === "escort-clash-scramble" || phase.label === "bomber-defense-pass"
+              )
+                && opposingSides
+                && a.role !== "bomber"
+                && b.role !== "bomber";
+              if (isHeadOnMergeCrossing || isBomberDefenseAttackPass || isOpposedFighterAttackCrossing) continue;
 
-              // Skip same-role staging (formation positioning at phase start)
-              const isSameRoleStaging = a.role === b.role && a.timeMs < 200;
-              if (isSameRoleStaging && distancePx >= 2) continue;
-
-              // Calculate overlap percentage (0% = touching edges, 100% = complete overlap)
-              // Assuming both sprites are ~baseSpriteSizePx diameter
-              const overlapPercent = Math.max(0, Math.min(100, Math.round((1 - distancePx / baseSpriteSizePx) * 100)));
+              comparedPaintedPairs += 1;
+              const combinedRadiusPx = (a.size + b.size) * 0.5;
+              const overlapRatio = Math.max(0, Math.min(1, 1 - distancePx / combinedRadiusPx));
+              const minimumCenterSeparationPx = Math.min(a.size, b.size) * 0.25;
 
               const overlapInfo = {
                 distancePx,
-                overlapPercent,
+                overlapRatio,
                 actors: `${a.actorId}(${a.role}) vs ${b.actorId}(${b.role})`,
                 timeMs: a.timeMs,
                 phase: phase.label
               };
-
-              if (distancePx < failureThresholdPx) {
-                // Severe stacking (>75% overlap) - track worst case
-                if (!worstFailure || overlapPercent > worstFailure.overlapPercent) {
-                  worstFailure = overlapInfo;
-                }
-              } else if (distancePx < warningThresholdPx) {
-                // Moderate overlap (25-75%) - warning
-                warnings.push(overlapInfo);
+              if (!worstOverlap || overlapRatio > worstOverlap.overlapRatio) worstOverlap = overlapInfo;
+              if (overlapRatio >= notableOverlapRatio) notableOverlaps.push(overlapInfo);
+              if (overlapRatio > maximumSevereOverlapRatio || distancePx < minimumCenterSeparationPx) {
+                severeOverlaps.push(overlapInfo);
               }
             }
           }
@@ -806,57 +830,30 @@ registerTest("AIR_SHOW_SPATIAL_SEPARATION_REPORT", async ({ Given, When, Then })
       }
     }
 
-    // Report findings
-    const summaryLines: string[] = [];
-
-    if (worstFailure) {
-      summaryLines.push(`[FAILURE] Severe sprite stacking detected:`);
-      summaryLines.push(`  - ${worstFailure.actors}`);
-      summaryLines.push(`  - ${worstFailure.overlapPercent}% overlap (${worstFailure.distancePx.toFixed(1)}px distance)`);
-      summaryLines.push(`  - At t=${worstFailure.timeMs}ms in phase ${worstFailure.phase}`);
+    if (comparedPaintedPairs === 0 || !worstOverlap) {
+      throw new Error("Expected the spatial gate to compare painted actor pairs.");
     }
-
-    if (warnings.length > 0) {
-      // Group warnings by severity
-      const highOverlap = warnings.filter(w => w.overlapPercent >= 40);
-      const mediumOverlap = warnings.filter(w => w.overlapPercent >= 25 && w.overlapPercent < 40);
-
-      summaryLines.push(`[WARNINGS] ${warnings.length} proximity events detected:`);
-
-      if (highOverlap.length > 0) {
-        summaryLines.push(`  High overlap (40-75%): ${highOverlap.length} instances`);
-        // Show first 3 examples
-        highOverlap.slice(0, 3).forEach(w => {
-          summaryLines.push(`    - ${w.actors}: ${w.overlapPercent}% at t=${w.timeMs}ms (${w.phase})`);
-        });
-        if (highOverlap.length > 3) {
-          summaryLines.push(`    ... and ${highOverlap.length - 3} more`);
-        }
-      }
-
-      if (mediumOverlap.length > 0) {
-        summaryLines.push(`  Medium overlap (25-40%): ${mediumOverlap.length} instances`);
-      }
-    }
-
-    // Report worst failure as critical finding (but don't fail the test)
-    if (worstFailure) {
-      summaryLines.unshift(
-        `[CRITICAL] Near-complete sprite stacking: ${worstFailure.overlapPercent}% overlap`,
-        `  - ${worstFailure.actors}`,
-        `  - Distance: ${worstFailure.distancePx.toFixed(1)}px at t=${worstFailure.timeMs}ms in ${worstFailure.phase}`,
-        ``
+    const worstOverlapPercent = Math.round(worstOverlap.overlapRatio * 100);
+    console.log(
+      `\n[OVERLAP REPORT] Worst rendered overlap ${worstOverlapPercent}% `
+      + `(${worstOverlap.distancePx.toFixed(1)}px) for ${worstOverlap.actors} `
+      + `at t=${worstOverlap.timeMs.toFixed(1)}ms in ${worstOverlap.phase}; `
+      + `${notableOverlaps.length} governed events at or above 40%.`
+    );
+    if (severeOverlaps.length > 0) {
+      const worstSevere = severeOverlaps.sort((left, right) => right.overlapRatio - left.overlapRatio)[0]!;
+      throw new Error(
+        `Rendered actor separation exceeded the 75% overlap / 25%-of-smaller-sprite center-distance gate: `
+        + `${Math.round(worstSevere.overlapRatio * 100)}% at ${worstSevere.distancePx.toFixed(1)}px for `
+        + `${worstSevere.actors} in ${worstSevere.phase}.`
       );
     }
-
-    if (summaryLines.length > 0) {
-      console.log("\n[OVERLAP REPORT]\n" + summaryLines.join("\n"));
-    } else {
-      console.log("\n[OVERLAP REPORT] No sprite overlaps detected. All actors maintain proper separation.");
+    if (notableOverlaps.length > maximumNotableOverlapEvents) {
+      throw new Error(
+        `Rendered actor overlap frequency exceeded the approved ${maximumNotableOverlapEvents}-event budget: `
+        + `${notableOverlaps.length} painted frames were at least 40% overlapped.`
+      );
     }
-
-    // Never fail - this is a diagnostic report, not a pass/fail test
-    console.log(`\n[SUMMARY] ${warnings.length + (worstFailure ? 1 : 0)} total overlap events reported.`);
   });
 });
 

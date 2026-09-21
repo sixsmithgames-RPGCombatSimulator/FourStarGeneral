@@ -124,6 +124,7 @@ async function expectBattleTopRailToFit(page: Page): Promise<void> {
 
   await expect(header).toBeVisible();
   await expect(commandGroup).toBeVisible();
+  let lastFailureSignature = "";
   await expect.poll(async () => {
     const toggleVisible = await activityToggle.isVisible();
     const [headerBounds, titleBounds, operationBounds, objectiveBounds, turnBounds, commandBounds, toggleBounds] = await Promise.all([
@@ -147,8 +148,66 @@ async function expectBattleTopRailToFit(page: Page): Promise<void> {
     const commandsFitHeader = commandBounds.x + commandBounds.width <= headerBounds.x + headerBounds.width + 1;
     const commandsClearToggle = !toggleBounds || commandBounds.x + commandBounds.width <= toggleBounds.x + 1;
     const contextAligned = compactLayout || (objectiveSharesTitleRow && turnSharesTitleRow);
-    return titleClearsCommands && contextAligned && commandsFitHeader && commandsClearToggle;
+    const fits = titleClearsCommands && contextAligned && commandsFitHeader && commandsClearToggle;
+    if (!fits) {
+      const signature = JSON.stringify({
+        headerBounds,
+        titleBounds,
+        operationBounds,
+        objectiveBounds,
+        turnBounds,
+        commandBounds,
+        toggleBounds,
+        titleClearsCommands,
+        contextAligned,
+        commandsFitHeader,
+        commandsClearToggle
+      });
+      if (signature !== lastFailureSignature) {
+        lastFailureSignature = signature;
+        console.info(`[Tutorial geometry] Battle top rail does not fit: ${signature}`);
+      }
+    }
+    return fits;
   }).toBe(true);
+}
+
+async function expectBattleSoundCapabilityContract(page: Page): Promise<void> {
+  const soundToggle = page.locator("#battleSoundToggle");
+  const soundValue = soundToggle.locator("[data-settings-value]");
+  await expect(soundToggle).toContainText("Battle Sound");
+
+  if (await soundToggle.isEnabled()) {
+    await expect(soundValue).toHaveText("On");
+    await expect(soundToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(soundToggle).toHaveAttribute("aria-checked", "true");
+    await expect(soundToggle).toHaveAttribute("data-sound-enabled", "true");
+    await expect(soundToggle).toHaveAttribute("data-sound-preference", "true");
+    expect(
+      await soundToggle.getAttribute("aria-disabled"),
+      "Available battle audio must remain an operable settings control."
+    ).toBeNull();
+
+    await soundToggle.click();
+    await expect(soundValue).toHaveText("Off");
+    await expect(soundToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(soundToggle).toHaveAttribute("data-sound-enabled", "false");
+    await soundToggle.click();
+    await expect(soundValue).toHaveText("On");
+    await expect(soundToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(soundToggle).toHaveAttribute("data-sound-enabled", "true");
+    return;
+  }
+
+  await expect(soundToggle).toBeDisabled();
+  await expect(soundValue).toHaveText("Unavailable");
+  await expect(soundToggle).toHaveAttribute("aria-disabled", "true");
+  await expect(soundToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(soundToggle).toHaveAttribute("aria-checked", "false");
+  await expect(soundToggle).toHaveAttribute("data-sound-enabled", "false");
+  await expect(soundToggle).toHaveAttribute("data-sound-preference", "true");
+  await expect(soundToggle).toHaveAttribute("aria-label", /Web Audio API.+Use a browser with Web Audio support\./);
+  await expect(soundToggle).toHaveAttribute("title", /Web Audio API.+Use a browser with Web Audio support\./);
 }
 
 async function expectBattleTopRailContent(page: Page, outputPath: string): Promise<void> {
@@ -164,12 +223,8 @@ async function expectBattleTopRailContent(page: Page, outputPath: string): Promi
   await expect(page.locator("#battleSettingsMenu")).toBeVisible();
   await expect(page.locator("#battleSettingsMenu #endMissionButton")).toBeVisible();
   await expect(page.locator(".battle-map-title-row > #endMissionButton")).toHaveCount(0);
-  await expect(page.locator("#battleSoundToggle")).toContainText("Battle Sound");
   await expect(page.locator("#battleAnimationToggle")).toContainText("Movement Animation");
-  await page.locator("#battleSoundToggle").click();
-  await expect(page.locator("#battleSoundToggle [data-settings-value]")).toHaveText("Off");
-  await page.locator("#battleSoundToggle").click();
-  await expect(page.locator("#battleSoundToggle [data-settings-value]")).toHaveText("On");
+  await expectBattleSoundCapabilityContract(page);
   await page.locator("#battleAnimationToggle").click();
   await expect(page.locator("#battleAnimationToggle [data-settings-value]")).toHaveText("Quick Moves");
   await page.locator("#battleAnimationToggle").click();
@@ -355,6 +410,9 @@ async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promi
 }
 
 async function walkCompleteTutorial(page: Page, outputPath: (name: string) => string): Promise<void> {
+  // The product's reduced-motion contract freezes pulsing SVG target outlines,
+  // keeping tutorial input deterministic for users and browser engines alike.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   const trainingExercise = page.getByRole("button", { name: /Training Exercise/ });
   await expect(trainingExercise, "The Four Star General home screen must load before tutorial validation begins.").toBeVisible({
@@ -469,7 +527,9 @@ test.describe("Training tutorial", () => {
 
   for (const viewport of viewports) {
     test(`walks through the complete first-turn command sequence on ${viewport.name}`, async ({ page }, testInfo) => {
-      test.setTimeout(210_000);
+      // WebKit needs additional headroom to render the full 37-step journey and all six
+      // command-board briefs; keep the faster browser projects on the tighter budget.
+      test.setTimeout(testInfo.project.name === "webkit" ? 300_000 : 210_000);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await walkCompleteTutorial(page, (name) => testInfo.outputPath(name));
     });

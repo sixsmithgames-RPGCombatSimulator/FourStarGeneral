@@ -98,6 +98,7 @@ const FIGHTER_SIZE_MULTIPLIER = 0.75;
 const BOMBER_SIZE_MULTIPLIER = 1.5;
 const FIGHTER_LANE_SPACING_PX = 28;
 const BOMBER_LANE_SPACING_PX = 70;
+const ESCORT_SCREEN_CLEARANCE_LANE_PX = 72;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -354,7 +355,7 @@ function buildActors(
         laneOffsetPx,
         turnSide: spec.role === "bomber"
           ? (stableHash(`${seed}:${spec.id}:formation-turn`) % 2 === 0 ? -1 : 1)
-          : ((globalIndex + factionSide + 4) % 2 === 0 ? -1 : 1) as -1 | 1
+          : ((startIndex + factionSide + 4) % 2 === 0 ? -1 : 1) as -1 | 1
       });
     }
     roleFactionCounters.set(key, startIndex + count);
@@ -788,10 +789,99 @@ function buildScramblePath(
   return dedupePoints([...turn.points, ...extension.slice(1)]);
 }
 
+interface FighterClashEntry { readonly draft: ActorDraft; readonly incoming: Vector; readonly mergeLanePx: number; readonly mergePoint: AirShowPoint; readonly postMerge: AirShowPoint; }
+
+function projectFighterScrambleGeometry(
+  entry: FighterClashEntry, resolvedTurnSide: -1 | 1,
+  geometry: AirShowTimelineGeometry, unitPx: number
+): { readonly finalHeading: Vector; readonly path: AirShowPoint[] } {
+  const finalHeading = { x: -entry.incoming.x, y: -entry.incoming.y };
+  const switchedLanePx = -entry.mergeLanePx + resolvedTurnSide * 12
+    + (entry.draft.actor.role === "escort" ? -entry.draft.factionSide * ESCORT_SCREEN_CLEARANCE_LANE_PX : 0);
+  return {
+    finalHeading,
+    path: buildScramblePath(
+      entry.postMerge, entry.incoming, finalHeading, geometry.normal,
+      resolvedTurnSide, unitPx, switchedLanePx
+    ) };
+}
+
+function projectFighterClashTurnSides(
+  prepared: ReadonlyArray<FighterClashEntry>, geometry: AirShowTimelineGeometry, unitPx: number
+): ReadonlyMap<string, -1 | 1> {
+  const flightIds = [...new Set(prepared.map((entry) => entry.draft.actor.flightId))].sort();
+  const flightIndexById = new Map(flightIds.map((flightId, index) => [flightId, index] as const));
+  const turnSideForMask = (entry: FighterClashEntry, mask: number): -1 | 1 => {
+    const bitIndex = flightIndexById.get(entry.draft.actor.flightId) ?? -1;
+    return bitIndex >= 0 && bitIndex < 10 && (mask & (1 << bitIndex)) !== 0
+      ? (entry.draft.turnSide * -1) as -1 | 1
+      : entry.draft.turnSide;
+  };
+  const leaderEntries = prepared.filter((entry) => entry.draft.actor.formationIndex === 0);
+  const initialLeaderSamples = leaderEntries.map((entry) => ({
+    actorId: entry.draft.actor.actorId,
+    playerSide: isPlayerSide(entry.draft.actor.faction),
+    point: entry.mergePoint
+  }));
+  const nearestOpponentIds = (samples: typeof initialLeaderSamples): ReadonlyMap<string, string> =>
+    new Map(samples.map((source) => {
+      const nearest = samples
+        .filter((candidate) => candidate.playerSide !== source.playerSide)
+        .sort((left, right) =>
+          Math.hypot(left.point.cx - source.point.cx, left.point.cy - source.point.cy)
+          - Math.hypot(right.point.cx - source.point.cx, right.point.cy - source.point.cy)
+        )[0];
+      return [source.actorId, nearest?.actorId ?? ""] as const;
+    }));
+  const initialPairs = nearestOpponentIds(initialLeaderSamples);
+  let selectedTurnMask = 0;
+  let selectedTurnScore = Number.NEGATIVE_INFINITY;
+  const combinationCount = 1 << Math.min(10, flightIds.length);
+  for (let mask = 0; mask < combinationCount; mask += 1) {
+    const candidatePaths = leaderEntries.map((entry) => {
+      const resolvedTurnSide = turnSideForMask(entry, mask);
+      const { path } = projectFighterScrambleGeometry(entry, resolvedTurnSide, geometry, unitPx);
+      return { entry, path, lengthPx: measureAirShowPath(path) };
+    });
+    const sharedDistancePx = Math.min(...candidatePaths.map((candidate) => candidate.lengthPx)) * 0.5;
+    const candidateSamples = candidatePaths.map((candidate) => ({
+      actorId: candidate.entry.draft.actor.actorId,
+      playerSide: isPlayerSide(candidate.entry.draft.actor.faction),
+      point: sampleAirShowPathByDistance(
+        candidate.path, candidate.lengthPx > 0 ? sharedDistancePx / candidate.lengthPx : 0
+      ).point
+    }));
+    const candidatePairs = nearestOpponentIds(candidateSamples);
+    const eligible = candidateSamples.filter((source) =>
+      candidateSamples.filter((candidate) => candidate.playerSide !== source.playerSide).length >= 2
+    );
+    const switchedCount = eligible.filter((source) =>
+      initialPairs.get(source.actorId) !== candidatePairs.get(source.actorId)
+    ).length;
+    const playerPoints = candidateSamples.filter((sample) => sample.playerSide).map((sample) => sample.point);
+    const botPoints = candidateSamples.filter((sample) => !sample.playerSide).map((sample) => sample.point);
+    const centroid = (points: ReadonlyArray<AirShowPoint>): AirShowPoint => ({
+      cx: points.reduce((sum, point) => sum + point.cx, 0) / Math.max(1, points.length),
+      cy: points.reduce((sum, point) => sum + point.cy, 0) / Math.max(1, points.length)
+    });
+    const playerCentroid = centroid(playerPoints);
+    const botCentroid = centroid(botPoints);
+    const centroidDistancePx = Math.hypot(
+      playerCentroid.cx - botCentroid.cx, playerCentroid.cy - botCentroid.cy
+    );
+    const score = switchedCount * 10000 - centroidDistancePx - mask * 0.0001;
+    if (score > selectedTurnScore) {
+      selectedTurnMask = mask;
+      selectedTurnScore = score;
+    }
+  }
+  return new Map(prepared.map((entry) => [
+    entry.draft.actor.actorId, turnSideForMask(entry, selectedTurnMask)
+  ] as const));
+}
+
 function buildFighterClash(
-  drafts: ReadonlyArray<ActorDraft>,
-  geometry: AirShowTimelineGeometry,
-  unitPx: number
+  drafts: ReadonlyArray<ActorDraft>, geometry: AirShowTimelineGeometry, unitPx: number
 ): FighterClashPlan {
   const fighterDrafts = drafts.filter((draft) => draft.actor.role !== "bomber");
   const speed = resolveAirShowRoleSpeed("interceptor");
@@ -832,87 +922,8 @@ function buildFighterClash(
   const scrambleEndByActorId = new Map<string, number>();
   const scrambleEndPointByActorId = new Map<string, AirShowPoint>();
   const scrambleEndHeadingByActorId = new Map<string, Vector>();
-
-  const flightIds = [...new Set(prepared.map((entry) => entry.draft.actor.flightId))].sort();
-  const flightIndexById = new Map(flightIds.map((flightId, index) => [flightId, index] as const));
-  const turnSideForMask = (entry: typeof prepared[number], mask: number): -1 | 1 => {
-    const bitIndex = flightIndexById.get(entry.draft.actor.flightId) ?? -1;
-    return bitIndex >= 0 && bitIndex < 10 && (mask & (1 << bitIndex)) !== 0
-      ? (entry.draft.turnSide * -1) as -1 | 1
-      : entry.draft.turnSide;
-  };
-  const leaderEntries = prepared.filter((entry) => entry.draft.actor.formationIndex === 0);
-  const initialLeaderSamples = leaderEntries.map((entry) => ({
-    actorId: entry.draft.actor.actorId,
-    playerSide: isPlayerSide(entry.draft.actor.faction),
-    point: entry.mergePoint
-  }));
-  const nearestOpponentIds = (samples: typeof initialLeaderSamples): ReadonlyMap<string, string> =>
-    new Map(samples.map((source) => {
-      const nearest = samples
-        .filter((candidate) => candidate.playerSide !== source.playerSide)
-        .sort((left, right) =>
-          Math.hypot(left.point.cx - source.point.cx, left.point.cy - source.point.cy)
-          - Math.hypot(right.point.cx - source.point.cx, right.point.cy - source.point.cy)
-        )[0];
-      return [source.actorId, nearest?.actorId ?? ""] as const;
-    }));
-  const initialPairs = nearestOpponentIds(initialLeaderSamples);
-  let selectedTurnMask = 0;
-  let selectedTurnScore = Number.NEGATIVE_INFINITY;
-  const combinationCount = 1 << Math.min(10, flightIds.length);
-  for (let mask = 0; mask < combinationCount; mask += 1) {
-    const candidatePaths = leaderEntries.map((entry) => {
-      const resolvedTurnSide = turnSideForMask(entry, mask);
-      const finalHeading = { x: -entry.incoming.x, y: -entry.incoming.y };
-      const switchedLanePx = -entry.mergeLanePx + resolvedTurnSide * 12;
-      const path = buildScramblePath(
-        entry.postMerge,
-        entry.incoming,
-        finalHeading,
-        geometry.normal,
-        resolvedTurnSide,
-        unitPx,
-        switchedLanePx
-      );
-      return { entry, path, lengthPx: measureAirShowPath(path) };
-    });
-    const sharedDistancePx = Math.min(...candidatePaths.map((candidate) => candidate.lengthPx)) * 0.5;
-    const candidateSamples = candidatePaths.map((candidate) => ({
-      actorId: candidate.entry.draft.actor.actorId,
-      playerSide: isPlayerSide(candidate.entry.draft.actor.faction),
-      point: sampleAirShowPathByDistance(
-        candidate.path,
-        candidate.lengthPx > 0 ? sharedDistancePx / candidate.lengthPx : 0
-      ).point
-    }));
-    const candidatePairs = nearestOpponentIds(candidateSamples);
-    const eligible = candidateSamples.filter((source) =>
-      candidateSamples.filter((candidate) => candidate.playerSide !== source.playerSide).length >= 2
-    );
-    const switchedCount = eligible.filter((source) =>
-      initialPairs.get(source.actorId) !== candidatePairs.get(source.actorId)
-    ).length;
-    const playerPoints = candidateSamples.filter((sample) => sample.playerSide).map((sample) => sample.point);
-    const botPoints = candidateSamples.filter((sample) => !sample.playerSide).map((sample) => sample.point);
-    const centroid = (points: ReadonlyArray<AirShowPoint>): AirShowPoint => ({
-      cx: points.reduce((sum, point) => sum + point.cx, 0) / Math.max(1, points.length),
-      cy: points.reduce((sum, point) => sum + point.cy, 0) / Math.max(1, points.length)
-    });
-    const playerCentroid = centroid(playerPoints);
-    const botCentroid = centroid(botPoints);
-    const centroidDistancePx = Math.hypot(
-      playerCentroid.cx - botCentroid.cx,
-      playerCentroid.cy - botCentroid.cy
-    );
-    const score = switchedCount * 10000 - centroidDistancePx - mask * 0.0001;
-    if (score > selectedTurnScore) {
-      selectedTurnMask = mask;
-      selectedTurnScore = score;
-    }
-  }
-
-  prepared.forEach((entry, index) => {
+  const turnSideByActorId = projectFighterClashTurnSides(prepared, geometry, unitPx);
+  prepared.forEach((entry) => {
     const ingressLengthPx = measureAirShowPath([entry.originPoint, entry.preMerge]);
     const preMergeLengthPx = measureAirShowPath([entry.preMerge, entry.mergePoint]);
     const ingressStartMs = mergeTimeMs - (ingressLengthPx + preMergeLengthPx) / speed;
@@ -923,17 +934,12 @@ function buildFighterClash(
       [entry.preMerge, entry.mergePoint, entry.postMerge],
       entry.draft.actor.role
     );
-    const resolvedTurnSide = turnSideForMask(entry, selectedTurnMask);
-    const switchedLanePx = -entry.mergeLanePx + resolvedTurnSide * 12;
-    const finalHeading = { x: -entry.incoming.x, y: -entry.incoming.y };
-    const scramblePath = buildScramblePath(
-      entry.postMerge,
-      entry.incoming,
-      finalHeading,
-      geometry.normal,
+    const resolvedTurnSide = turnSideByActorId.get(entry.draft.actor.actorId) ?? entry.draft.turnSide;
+    const { finalHeading, path: scramblePath } = projectFighterScrambleGeometry(
+      entry,
       resolvedTurnSide,
-      unitPx,
-      switchedLanePx
+      geometry,
+      unitPx
     );
     const scramble = createSegment(
       "escort-clash-scramble",
@@ -952,7 +958,6 @@ function buildFighterClash(
     scrambleEndByActorId.set(entry.draft.actor.actorId, scramble.endTimeMs);
     scrambleEndPointByActorId.set(entry.draft.actor.actorId, scramble.points[scramble.points.length - 1]!);
     scrambleEndHeadingByActorId.set(entry.draft.actor.actorId, finalHeading);
-    void index;
   });
 
   return {
@@ -1091,43 +1096,12 @@ function findAlignedTracerTime(
   return bestAimErrorDegrees <= 34 ? bestTimeMs : null;
 }
 
-function buildInterceptorPasses(
-  drafts: ReadonlyArray<ActorDraft>,
-  existingTracks: MutableTrack[],
-  geometry: AirShowTimelineGeometry,
-  unitPx: number,
-  fallbackStartMs: number
-): { readonly crossTimeMs: number | null } {
-  const interceptors = drafts.filter((draft) => draft.actor.role === "interceptor");
-  let primaryCrossTimeMs: number | null = null;
-  interceptors.forEach((draft, index) => {
-    const existing = existingTracks.find((track) => track.actorId === draft.actor.actorId);
-    const track: MutableTrack = existing ?? {
-      actorId: draft.actor.actorId,
-      flightId: draft.actor.flightId,
-      role: draft.actor.role,
-      visibleFromMs: fallbackStartMs + index * 80,
-      visibleUntilMs: fallbackStartMs + index * 80,
-      segments: []
-    };
-    if (!existing) {
-      existingTracks.push(track);
-    }
-    const lastExistingSegment = track.segments[track.segments.length - 1];
-    const start = lastExistingSegment?.points[lastExistingSegment.points.length - 1]
-      ?? add(draft.origin, geometry.normal, draft.laneOffsetPx);
-    const previousExistingPoint = lastExistingSegment?.points[
-      Math.max(0, (lastExistingSegment?.points.length ?? 1) - 2)
-    ];
-    const startHeading = previousExistingPoint
-      ? normalize(start.cx - previousExistingPoint.cx, start.cy - previousExistingPoint.cy, {
-          x: -geometry.axis.x,
-          y: -geometry.axis.y
-        })
-      : normalize(geometry.defenseIntercept.cx - start.cx, geometry.defenseIntercept.cy - start.cy, {
-          x: -geometry.axis.x,
-          y: -geometry.axis.y
-        });
+interface InterceptorPassGeometry { readonly transitionPath: AirShowPoint[]; readonly passPoints: AirShowPoint[]; readonly exitPath: AirShowPoint[]; readonly crossDistancePx: number; }
+
+function projectInterceptorPassGeometry(
+  draft: ActorDraft, index: number, interceptorCount: number, start: AirShowPoint,
+  startHeading: Vector, geometry: AirShowTimelineGeometry, unitPx: number
+): InterceptorPassGeometry {
     const passHeading = { x: -geometry.axis.x, y: -geometry.axis.y };
     const passNormal = { x: -passHeading.y, y: passHeading.x };
     const turnDot = clamp(startHeading.x * passHeading.x + startHeading.y * passHeading.y, -1, 1);
@@ -1158,7 +1132,7 @@ function buildInterceptorPasses(
         ...(transitionTurn?.points.slice(leadDistancePx > 0 ? 1 : 0) ?? [])
       ]);
     };
-    const centeredIndex = index - (interceptors.length - 1) * 0.5;
+    const centeredIndex = index - (interceptorCount - 1) * 0.5;
     const passLanePx = centeredIndex * unitPx * 0.48 + draft.laneOffsetPx * 0.08;
     const cross = offset(
       geometry.defenseIntercept,
@@ -1217,21 +1191,52 @@ function buildInterceptorPasses(
           Math.max(Math.hypot(preCross.cx - start.cx, preCross.cy - start.cy), unitPx * 2),
           unitPx
         );
-    appendSegment(track, "bomber-defense-pass", transitionPath);
     const passPoints = [preCross, cross, postCross];
-    const pass = appendSegment(track, "bomber-defense-pass", passPoints);
     const crossDistancePx = measureAirShowPath([preCross, cross]);
-    const crossTimeMs = pass.startTimeMs + crossDistancePx / pass.speedPxPerMs;
-    if (primaryCrossTimeMs === null || crossTimeMs < primaryCrossTimeMs) {
-      primaryCrossTimeMs = crossTimeMs;
-    }
     const exitPath = buildSmoothExitPath(
       postCross,
       normalize(postCross.cx - cross.cx, postCross.cy - cross.cy, geometry.axis),
       add(draft.origin, geometry.normal, draft.laneOffsetPx),
       unitPx
     );
-    appendSegment(track, "egress", exitPath);
+    return { transitionPath, passPoints, exitPath, crossDistancePx };
+}
+
+function buildInterceptorPasses(
+  drafts: ReadonlyArray<ActorDraft>, existingTracks: MutableTrack[],
+  geometry: AirShowTimelineGeometry, unitPx: number, fallbackStartMs: number
+): { readonly crossTimeMs: number | null } {
+  const interceptors = drafts.filter((draft) => draft.actor.role === "interceptor");
+  let primaryCrossTimeMs: number | null = null;
+  interceptors.forEach((draft, index) => {
+    const existing = existingTracks.find((track) => track.actorId === draft.actor.actorId);
+    const track: MutableTrack = existing ?? {
+      actorId: draft.actor.actorId,
+      flightId: draft.actor.flightId,
+      role: draft.actor.role,
+      visibleFromMs: fallbackStartMs + index * 80,
+      visibleUntilMs: fallbackStartMs + index * 80,
+      segments: []
+    };
+    if (!existing) existingTracks.push(track);
+    const lastExistingSegment = track.segments[track.segments.length - 1];
+    const start = lastExistingSegment?.points[lastExistingSegment.points.length - 1]
+      ?? add(draft.origin, geometry.normal, draft.laneOffsetPx);
+    const previousExistingPoint = lastExistingSegment?.points[
+      Math.max(0, (lastExistingSegment?.points.length ?? 1) - 2)
+    ];
+    const fallbackHeading = { x: -geometry.axis.x, y: -geometry.axis.y };
+    const startHeading = previousExistingPoint
+      ? normalize(start.cx - previousExistingPoint.cx, start.cy - previousExistingPoint.cy, fallbackHeading)
+      : normalize(geometry.defenseIntercept.cx - start.cx, geometry.defenseIntercept.cy - start.cy, fallbackHeading);
+    const projected = projectInterceptorPassGeometry(
+      draft, index, interceptors.length, start, startHeading, geometry, unitPx
+    );
+    appendSegment(track, "bomber-defense-pass", projected.transitionPath);
+    const pass = appendSegment(track, "bomber-defense-pass", projected.passPoints);
+    const crossTimeMs = pass.startTimeMs + projected.crossDistancePx / pass.speedPxPerMs;
+    if (primaryCrossTimeMs === null || crossTimeMs < primaryCrossTimeMs) primaryCrossTimeMs = crossTimeMs;
+    appendSegment(track, "egress", projected.exitPath);
   });
   return { crossTimeMs: primaryCrossTimeMs };
 }
@@ -1389,25 +1394,17 @@ function buildBombers(
   return { tracks, cues, primaryReleaseTimeMs };
 }
 
-function synchronizeBomberTargetRunsForEscortArrival(
-  bomberPlan: BomberPlanResult,
-  bomberDrafts: ReadonlyArray<ActorDraft>,
-  escortDrafts: ReadonlyArray<ActorDraft>,
-  fighterTracks: ReadonlyArray<MutableTrack>,
-  geometry: AirShowTimelineGeometry,
-  unitPx: number
-): BomberPlanResult {
-  if (bomberPlan.tracks.length === 0 || escortDrafts.length === 0) {
-    return bomberPlan;
-  }
-
+function resolveEscortFormationDelayMs(
+  bomberTracks: ReadonlyArray<MutableTrack>, escortDrafts: ReadonlyArray<ActorDraft>,
+  fighterTracks: ReadonlyArray<MutableTrack>, geometry: AirShowTimelineGeometry, unitPx: number
+): number {
   let requestedFormationDelayMs = 0;
   for (let timingPass = 0; timingPass < 8; timingPass += 1) {
     let additionalDelayMs = 0;
     escortDrafts.forEach((draft, index) => {
       const fighterTrack = fighterTracks.find((track) => track.actorId === draft.actor.actorId);
       const last = fighterTrack?.segments[fighterTrack.segments.length - 1];
-      const bomberTrack = bomberPlan.tracks[index % bomberPlan.tracks.length];
+      const bomberTrack = bomberTracks[index % bomberTracks.length];
       const bomberTargetRun = bomberTrack?.segments.find((segment) => segment.label === "target-run");
       if (!fighterTrack || !last || !bomberTrack || !bomberTargetRun) {
         return;
@@ -1419,9 +1416,7 @@ function synchronizeBomberTargetRunsForEscortArrival(
       const screenPath = buildBomberScreenPath(bomberTargetRun, screenSide, unitPx, geometry);
       const screenStart = screenPath[0]!;
       const screenStartHeading = normalize(
-        screenPath[1]!.cx - screenStart.cx,
-        screenPath[1]!.cy - screenStart.cy,
-        geometry.axis
+        screenPath[1]!.cx - screenStart.cx, screenPath[1]!.cy - screenStart.cy, geometry.axis
       );
       const intendedStartMs = bomberTargetRun.startTimeMs + requestedFormationDelayMs;
       const availableLengthPx = Math.max(
@@ -1429,14 +1424,8 @@ function synchronizeBomberTargetRunsForEscortArrival(
         (intendedStartMs - last.endTimeMs) * resolveAirShowRoleSpeed(draft.actor.role)
       );
       const candidate = buildLengthGovernedRendezvousPath(
-        start,
-        startHeading,
-        screenStart,
-        screenStartHeading,
-        geometry.normal,
-        draft.turnSide,
-        availableLengthPx,
-        unitPx
+        start, startHeading, screenStart, screenStartHeading, geometry.normal,
+        draft.turnSide, availableLengthPx, unitPx
       );
       const arrivalMs = last.endTimeMs
         + measureAirShowPath(candidate) / resolveAirShowRoleSpeed(draft.actor.role);
@@ -1447,57 +1436,46 @@ function synchronizeBomberTargetRunsForEscortArrival(
     }
     requestedFormationDelayMs += additionalDelayMs;
   }
-  if (requestedFormationDelayMs <= 0.001) {
-    return bomberPlan;
+  return requestedFormationDelayMs;
+}
+
+function delayBomberDefensePass(
+  track: MutableTrack, requestedDelayMs: number, formationTurnSide: -1 | 1,
+  geometry: AirShowTimelineGeometry, unitPx: number
+): number | null {
+  const defenseIndex = track.segments.findIndex((segment) => segment.label === "bomber-defense-pass");
+  const targetRunIndex = track.segments.findIndex((segment) => segment.label === "target-run");
+  const defense = track.segments[defenseIndex];
+  const targetRun = track.segments[targetRunIndex];
+  if (!defense || !targetRun) {
+    return null;
   }
+  const previousSegment = track.segments[defenseIndex - 1];
+  const start = defense.points[0]!;
+  const end = defense.points[defense.points.length - 1]!;
+  const previousPoint = previousSegment?.points[Math.max(0, previousSegment.points.length - 2)] ?? start;
+  const nextPoint = targetRun.points[Math.min(1, targetRun.points.length - 1)] ?? end;
+  const startHeading = normalize(start.cx - previousPoint.cx, start.cy - previousPoint.cy, geometry.axis);
+  const endHeading = normalize(nextPoint.cx - end.cx, nextPoint.cy - end.cy, geometry.axis);
+  const governedPath = buildLengthGovernedRendezvousPath(
+    start, startHeading, end, endHeading, geometry.normal, formationTurnSide,
+    defense.lengthPx + requestedDelayMs * resolveAirShowRoleSpeed("bomber"), unitPx
+  );
+  const replacement = createSegment("bomber-defense-pass", defense.startTimeMs, governedPath, "bomber");
+  const realizedDelayMs = replacement.endTimeMs - defense.endTimeMs;
+  track.segments[defenseIndex] = replacement;
+  for (let segmentIndex = defenseIndex + 1; segmentIndex < track.segments.length; segmentIndex += 1) {
+    track.segments[segmentIndex]!.startTimeMs += realizedDelayMs;
+    track.segments[segmentIndex]!.endTimeMs += realizedDelayMs;
+  }
+  track.visibleUntilMs += realizedDelayMs;
+  return realizedDelayMs;
+}
 
-  const delayByBomberId = new Map<string, number>();
-  const formationTurnSide = bomberDrafts[0]?.turnSide ?? 1;
-  bomberPlan.tracks.forEach((track) => {
-    const defenseIndex = track.segments.findIndex((segment) => segment.label === "bomber-defense-pass");
-    const targetRunIndex = track.segments.findIndex((segment) => segment.label === "target-run");
-    const defense = track.segments[defenseIndex];
-    const targetRun = track.segments[targetRunIndex];
-    if (!defense || !targetRun) {
-      return;
-    }
-
-    const previousSegment = track.segments[defenseIndex - 1];
-    const nextSegment = track.segments[targetRunIndex];
-    const start = defense.points[0]!;
-    const end = defense.points[defense.points.length - 1]!;
-    const previousPoint = previousSegment?.points[Math.max(0, previousSegment.points.length - 2)] ?? start;
-    const nextPoint = nextSegment?.points[Math.min(1, (nextSegment?.points.length ?? 1) - 1)] ?? end;
-    const startHeading = normalize(start.cx - previousPoint.cx, start.cy - previousPoint.cy, geometry.axis);
-    const endHeading = normalize(nextPoint.cx - end.cx, nextPoint.cy - end.cy, geometry.axis);
-    const governedPath = buildLengthGovernedRendezvousPath(
-      start,
-      startHeading,
-      end,
-      endHeading,
-      geometry.normal,
-      formationTurnSide,
-      defense.lengthPx + requestedFormationDelayMs * resolveAirShowRoleSpeed("bomber"),
-      unitPx
-    );
-    const replacement = createSegment(
-      "bomber-defense-pass",
-      defense.startTimeMs,
-      governedPath,
-      "bomber"
-    );
-    const realizedDelayMs = replacement.endTimeMs - defense.endTimeMs;
-    track.segments[defenseIndex] = replacement;
-    for (let segmentIndex = defenseIndex + 1; segmentIndex < track.segments.length; segmentIndex += 1) {
-      track.segments[segmentIndex]!.startTimeMs += realizedDelayMs;
-      track.segments[segmentIndex]!.endTimeMs += realizedDelayMs;
-    }
-    track.visibleUntilMs += realizedDelayMs;
-    delayByBomberId.set(track.actorId, realizedDelayMs);
-  });
-
-  const primaryBomberId = bomberPlan.tracks[0]?.actorId;
-  const adjustedCues = bomberPlan.cues.map((cue): AirShowTimelineCue => {
+function retimeBomberCues(
+  cues: ReadonlyArray<AirShowTimelineCue>, delayByBomberId: ReadonlyMap<string, number>,
+  primaryBomberId: string | undefined): AirShowTimelineCue[] {
+  return cues.map((cue): AirShowTimelineCue => {
     if (cue.kind === "impact") {
       return { ...cue, timeMs: cue.timeMs + (primaryBomberId ? delayByBomberId.get(primaryBomberId) ?? 0 : 0) };
     }
@@ -1506,13 +1484,40 @@ function synchronizeBomberTargetRunsForEscortArrival(
     }
     return cue;
   });
+}
+
+function synchronizeBomberTargetRunsForEscortArrival(
+  bomberPlan: BomberPlanResult,
+  bomberDrafts: ReadonlyArray<ActorDraft>,
+  escortDrafts: ReadonlyArray<ActorDraft>,
+  fighterTracks: ReadonlyArray<MutableTrack>,
+  geometry: AirShowTimelineGeometry,
+  unitPx: number
+): BomberPlanResult {
+  if (bomberPlan.tracks.length === 0 || escortDrafts.length === 0) {
+    return bomberPlan;
+  }
+  const requestedDelayMs = resolveEscortFormationDelayMs(
+    bomberPlan.tracks, escortDrafts, fighterTracks, geometry, unitPx
+  );
+  if (requestedDelayMs <= 0.001) {
+    return bomberPlan;
+  }
+  const delayByBomberId = new Map<string, number>();
+  const formationTurnSide = bomberDrafts[0]?.turnSide ?? 1;
+  bomberPlan.tracks.forEach((track) => {
+    const realizedDelayMs = delayBomberDefensePass(track, requestedDelayMs, formationTurnSide, geometry, unitPx);
+    if (realizedDelayMs !== null) {
+      delayByBomberId.set(track.actorId, realizedDelayMs);
+    }
+  });
+  const primaryBomberId = bomberPlan.tracks[0]?.actorId;
   const primaryDelayMs = primaryBomberId ? delayByBomberId.get(primaryBomberId) ?? 0 : 0;
   return {
     tracks: bomberPlan.tracks,
-    cues: adjustedCues,
+    cues: retimeBomberCues(bomberPlan.cues, delayByBomberId, primaryBomberId),
     primaryReleaseTimeMs: bomberPlan.primaryReleaseTimeMs === null
-      ? null
-      : bomberPlan.primaryReleaseTimeMs + primaryDelayMs
+      ? null : bomberPlan.primaryReleaseTimeMs + primaryDelayMs
   };
 }
 
@@ -1825,12 +1830,9 @@ function immutableTrack(track: MutableTrack): AirShowTimelineTrack {
   };
 }
 
-export function planAirShowTimeline(input: AirShowDirectorInput): AirShowTimeline {
+function resolveAirShowTimelinePlanningContext(input: AirShowDirectorInput) {
   const { scene, mapBounds } = input;
-  const center = {
-    cx: (mapBounds.minX + mapBounds.maxX) * 0.5,
-    cy: (mapBounds.minY + mapBounds.maxY) * 0.5
-  };
+  const center = { cx: (mapBounds.minX + mapBounds.maxX) * 0.5, cy: (mapBounds.minY + mapBounds.maxY) * 0.5 };
   const fallbackInsetPx = Math.max(input.hexWidth, input.hexHeight) * 1.5;
   const playerHq = input.playerHq ?? { cx: mapBounds.minX + fallbackInsetPx, cy: center.cy };
   const botHq = input.botHq ?? { cx: mapBounds.maxX - fallbackInsetPx, cy: center.cy };
@@ -1845,15 +1847,12 @@ export function planAirShowTimeline(input: AirShowDirectorInput): AirShowTimelin
   const attackOrigin = isPlayerSide(attackFaction) ? hqAxis.playerOrigin : hqAxis.botOrigin;
   const defenseOrigin = isPlayerSide(attackFaction) ? hqAxis.botOrigin : hqAxis.playerOrigin;
   const target = input.target ?? input.engagement;
-  const axis = normalize(target.cx - attackOrigin.cx, target.cy - attackOrigin.cy, {
-    x: -hqAxis.axis.x,
-    y: -hqAxis.axis.y
-  });
+  const axis = normalize(target.cx - attackOrigin.cx, target.cy - attackOrigin.cy,
+    { x: -hqAxis.axis.x, y: -hqAxis.axis.y });
   const normal = { x: -axis.y, y: axis.x };
   const unitPx = Math.max(48, Math.max(input.hexWidth, input.hexHeight));
   const originToTargetPx = Math.hypot(target.cx - attackOrigin.cx, target.cy - attackOrigin.cy);
-  const mergeLeadPx = scenario === "cap-clash"
-    ? 0
+  const mergeLeadPx = scenario === "cap-clash" ? 0
     : clamp(originToTargetPx * 0.42, unitPx * 3.8, unitPx * 6.2);
   const merge = scenario === "cap-clash"
     ? input.engagement
@@ -1885,6 +1884,11 @@ export function planAirShowTimeline(input: AirShowDirectorInput): AirShowTimelin
     ...scene.escorts.map((flight) => flight.id),
     ...bombers.map((flight) => flight.id)
   ].join("|"));
+  return { scene, mapBounds, hqAxis, scenario, geometry, unitPx, sceneSeed };
+}
+
+export function planAirShowTimeline(input: AirShowDirectorInput): AirShowTimeline {
+  const { scene, mapBounds, hqAxis, scenario, geometry, unitPx, sceneSeed } = resolveAirShowTimelinePlanningContext(input);
   const built = buildActors(scene, hqAxis.playerOrigin, hqAxis.botOrigin, sceneSeed);
   const tracks: MutableTrack[] = [];
   let cues: AirShowTimelineCue[] = [];

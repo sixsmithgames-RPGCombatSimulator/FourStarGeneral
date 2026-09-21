@@ -1,4 +1,4 @@
-import { CAMPAIGN_HEX_SCALE_KM, type CampaignScenarioData, type CampaignTileInstance, type CampaignForceGroup } from "../core/campaignTypes";
+import { CAMPAIGN_HEX_SCALE_KM, CAMPAIGN_SEGMENT_HOURS, type CampaignScenarioData, type CampaignTileInstance, type CampaignForceGroup } from "../core/campaignTypes";
 import type { CampaignEnemyContactView, CampaignMapViewModel } from "../core/campaignIntelTypes";
 import { HEX_RADIUS, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem } from "./CoordinateSystem";
@@ -2030,7 +2030,7 @@ export class CampaignMapRenderer {
   }
 
   private describeContactForAccessibility(contact: CampaignEnemyContactView): string {
-    const age = contact.ageSegments === 0 ? "current observation" : `${contact.ageSegments * 3} hours old`;
+    const age = contact.ageSegments === 0 ? "current observation" : `${contact.ageSegments * CAMPAIGN_SEGMENT_HOURS} hours old`;
     const strength = contact.strengthBand ? `, ${contact.strengthBand} strength` : "";
     const radius = contact.uncertaintyRadius > 0
       ? `, within ${contact.uncertaintyRadius} ${contact.uncertaintyRadius === 1 ? "hex" : "hexes"}`

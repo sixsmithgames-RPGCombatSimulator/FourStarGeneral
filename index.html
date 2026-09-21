@@ -1420,7 +1420,7 @@
     .initiative-turn-controls-container .initiative-status,
     .enhanced-initiative-turn-controls .initiative-status {
       display: grid;
-      grid-template-columns: max-content minmax(7rem, 1fr) max-content;
+      grid-template-columns: max-content minmax(0, 1fr) max-content;
       align-items: center;
       gap: 0.75rem;
       flex: 1 1 15rem;
@@ -1444,6 +1444,7 @@
     }
 
     .initiative-status__value {
+      min-width: 0;
       font-size: 0.8rem;
       line-height: 1.1;
       color: #f4e6bb;
@@ -1451,6 +1452,7 @@
     }
 
     .initiative-status__detail {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       font-size: 0.68rem;
@@ -3147,6 +3149,8 @@
         "sidebar loadout";
       height: 100%;
       width: 100%;
+      min-height: 0;
+      overflow: clip;
     }
     .control-sidebar {
       grid-area: sidebar;
@@ -6810,7 +6814,8 @@
         border-bottom: 1px solid rgba(226, 205, 154, 0.14);
       }
       .battle-map-header.initiative-controls-active {
-        padding-right: 0.5rem;
+        /* The compact activity drawer restores a 44px toggle at the right edge. */
+        padding-right: calc(44px + 0.75rem);
       }
       .battle-map-header__primary,
       .battle-map-header__actions,
@@ -7866,6 +7871,20 @@
       stroke-dasharray: 8 5;
       stroke-width: 3;
       filter: drop-shadow(0 0 8px rgba(245, 202, 105, 0.55));
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .hex-cell.initiative-group-highlight .hex-tile,
+      .hex-tile.initiative-group-highlight,
+      .hex-tile.move-option-highlight,
+      .hex-cell.move-option-highlight .hex-tile,
+      .hex-tile.attack-target-highlight,
+      .hex-cell.attack-target-highlight .hex-tile,
+      .hex-tile.deployment-zone,
+      .hex-cell.deployment-zone .hex-tile,
+      .fortification-facing-preview-edge--recommended {
+        animation: none !important;
+      }
     }
 
     /* Campaign Map Editor Styles */
@@ -9805,7 +9824,7 @@
                   <h3 id="battleIntelOverlayTitle" class="battle-intel-overlay__title">Intel</h3>
                   <p id="battleIntelOverlayMeta" class="battle-intel-overlay__meta">Awaiting selection.</p>
                 </header>
-                <div id="battleIntelOverlayBody"></div>
+                <div id="battleIntelOverlayBody" tabindex="0" role="region" aria-label="Selected hex intel details"></div>
                 <div id="battleIntelOverlayNotes" class="battle-intel-overlay__notes hidden"></div>
               </section>
               <div id="battleMapCanvas" class="map-canvas">

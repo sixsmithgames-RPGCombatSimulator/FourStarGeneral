@@ -9,6 +9,39 @@ import { GameEngine } from "../src/game/GameEngine";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import type { SelectionIntel } from "../src/ui/announcements/AnnouncementTypes";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
+import { resolveFactionUnitTypeLabel } from "../src/data/unitSystem/factionUnitPresentation";
+
+registerTest("BOT_TACTICAL_TYPES_USE_AXIS_PRESENTATION_NAMES", async ({ Then }) => {
+  const describeEnemyContact = (BattleScreen.prototype as unknown as {
+    describeEnemyContact: (contact: {
+      unitId: string;
+      hex: { q: number; r: number };
+      state: "visible";
+      lastSeenTurn: number;
+      source: string;
+      unitType: "Infantry_42";
+      strengthEstimate: number;
+    }) => string;
+  }).describeEnemyContact;
+
+  await Then("known Bot types use Axis names while hidden and friendly labels remain safe", async () => {
+    assert.equal(describeEnemyContact.call({}, {
+      unitId: "bot-grenadier",
+      hex: { q: 1, r: 1 },
+      state: "visible",
+      lastSeenTurn: 1,
+      source: "Direct observation",
+      unitType: "Infantry_42",
+      strengthEstimate: 100
+    }), "Grenadier Battalion at 100% strength");
+    assert.equal(resolveFactionUnitTypeLabel("Medium_Tank", "Bot"), "Panzer IV Company");
+    assert.equal(resolveFactionUnitTypeLabel("Artillery_105mm", "Bot"), "10.5 cm leFH 18 Battery");
+    assert.equal(resolveFactionUnitTypeLabel("Recon_ArmoredCar", "Bot"), "Sd.Kfz. 222 Reconnaissance Troop");
+    assert.equal(resolveFactionUnitTypeLabel("Fighter", "Bot"), "Bf 109 Fighter Staffel");
+    assert.equal(resolveFactionUnitTypeLabel("Enemy Unit", "Bot"), "Enemy Unit");
+    assert.equal(resolveFactionUnitTypeLabel("Infantry_42", "Player"), "Infantry 42");
+  });
+});
 
 registerTest("BATTLE_SCREEN_BLOCKED_FRESH_SELECTION_REPORTS_LEGAL_OPTIONS_WITHOUT_SPENDING_ACTIONS", async ({ Given, When, Then }) => {
   const selectedHex = { q: 1, r: 1 };

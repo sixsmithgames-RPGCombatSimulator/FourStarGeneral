@@ -91,11 +91,11 @@ export class BattleActivityLog {
   }
 
   /** Allows BattleScreen to surface the log when the battle phase begins. */
-  show(): void {
+  show(collapsed = false): void {
     this.host?.classList.remove("hidden");
     this.host?.setAttribute("data-activity-visible", "true");
     this.toggleButton?.classList.remove("hidden");
-    this.setCollapsed(false);
+    this.setCollapsed(collapsed);
   }
 
   /** Mirrors the collapsed state on the host element and toggle button. */

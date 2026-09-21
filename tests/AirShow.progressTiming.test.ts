@@ -12,7 +12,6 @@
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
 import { getAuthoritativeContestedPlan } from "./airShowTestSupport.js";
-import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
 
 // Progress anchor reference per North Star Spec
 const _PROGRESS_ANCHORS = {
@@ -34,8 +33,6 @@ const _PROGRESS_ANCHORS = {
     complete: 1.0
   }
 } as const;
-
-const GOVERNED_BOMB_RELEASE_PROGRESS = buildResolvedAirCombatSceneTimingPolicy(0).bombReleaseProgress;
 
 registerTest("AIR_SHOW_PROGRESS_TIMING_ANCHORS_MATCH_SPEC", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
@@ -254,27 +251,65 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_TAPERS_AFTER_BOMB_R
       );
     }
 
-    const targetRunFlakBursts = targetRunPhase.flakBursts!;
-    const firstTargetRunFlakProgress = targetRunFlakBursts[0]?.progress ?? 0;
-    const lastTargetRunFlakProgress = targetRunFlakBursts[targetRunFlakBursts.length - 1]?.progress ?? 0;
-    const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
-    if (lastTargetRunFlakProgress <= bombReleaseProgress) {
-      throw new Error(
-        `Flak ends too early in target-run: last burst at ${(lastTargetRunFlakProgress * 100).toFixed(1)}% ` +
-        `(must persist past bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`
-      );
+    const timeline = strikeInspection.timeline;
+    if (!timeline) {
+      throw new Error("Expected timeline-v2 timing data for the flak visibility contract.");
     }
-    if (lastTargetRunFlakProgress > 0.86) {
-      throw new Error(
-        `Flak extends too far in target-run: last burst at ${(lastTargetRunFlakProgress * 100).toFixed(1)}% ` +
-        `(must taper before egress setup)`
+
+    const timingSummaries: string[] = [];
+    for (const track of timeline.tracks.filter((entry) => entry.role === "bomber")) {
+      const targetRun = track.segments.find((segment) => segment.label === "target-run");
+      const egress = track.segments.find((segment) => segment.label === "egress");
+      const release = timeline.cues.find(
+        (cue) => cue.kind === "bomb-release" && cue.bomberActorId === track.actorId
+      );
+      const bursts = timeline.cues
+        .filter((cue) => cue.kind === "flak" && cue.bomberActorId === track.actorId)
+        .sort((left, right) => left.timeMs - right.timeMs);
+      const first = bursts[0];
+      const last = bursts[bursts.length - 1];
+      if (!targetRun || !egress || !release || !first || !last || bursts.length < 2) {
+        throw new Error(`Expected complete target-run, release, egress, and sustained flak for ${track.actorId}.`);
+      }
+      if (last.timeMs < targetRun.startTimeMs || last.timeMs >= release.timeMs) {
+        throw new Error(`Expected ${track.actorId} flak flashes to continue into target-run and stop before release.`);
+      }
+
+      let visibleUntilMs = first.timeMs;
+      for (const burst of bursts) {
+        if (burst.kind !== "flak" || !Number.isFinite(burst.lingerMs) || burst.lingerMs <= 0) {
+          throw new Error(`Expected finite positive flak smoke linger for ${track.actorId}.`);
+        }
+        if (burst.timeMs > visibleUntilMs) {
+          throw new Error(`Expected uninterrupted visible flak coverage for ${track.actorId}.`);
+        }
+        visibleUntilMs = Math.max(visibleUntilMs, burst.timeMs + burst.lingerMs);
+      }
+      const targetRunDurationMs = targetRun.endTimeMs - targetRun.startTimeMs;
+      const lastFlashProgress = (last.timeMs - targetRun.startTimeMs) / targetRunDurationMs;
+      const releaseProgress = (release.timeMs - targetRun.startTimeMs) / targetRunDurationMs;
+      const visibleTaperProgress = (visibleUntilMs - targetRun.startTimeMs) / targetRunDurationMs;
+      if (
+        releaseProgress <= 0 || releaseProgress >= 1
+        || visibleUntilMs <= release.timeMs
+        || visibleUntilMs >= egress.startTimeMs
+        || visibleTaperProgress > 0.86
+      ) {
+        throw new Error(
+          `Expected ${track.actorId} flak smoke to cover release and taper before egress `
+          + `(flash ${lastFlashProgress.toFixed(3)}, release ${releaseProgress.toFixed(3)}, `
+          + `visible ${visibleTaperProgress.toFixed(3)}).`
+        );
+      }
+      timingSummaries.push(
+        `${track.actorId} flash ${(lastFlashProgress * 100).toFixed(0)}%, `
+        + `release ${(releaseProgress * 100).toFixed(0)}%, smoke ${(visibleTaperProgress * 100).toFixed(0)}%`
       );
     }
 
     console.log(
-      `[FLAK TIMING] phases=${phasesWithFlak.map((phase) => phase.label).join(" -> ")}; ` +
-      `target-run bursts ${targetRunFlakBursts.length} from ${(firstTargetRunFlakProgress * 100).toFixed(0)}% ` +
-      `to ${(lastTargetRunFlakProgress * 100).toFixed(0)}%`
+      `[FLAK TIMING] phases=${phasesWithFlak.map((phase) => phase.label).join(" -> ")}; `
+      + timingSummaries.join("; ")
     );
   });
 });

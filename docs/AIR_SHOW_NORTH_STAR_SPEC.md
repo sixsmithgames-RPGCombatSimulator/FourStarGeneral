@@ -2,7 +2,7 @@
 
 Status: canonical implementation and acceptance specification
 
-Last revised: 2026-08-03
+Last revised: 2026-09-20
 
 Owner: battle presentation
 
@@ -20,6 +20,13 @@ bug ledgers are not implementation authority.
 
 The previous implementation failed for architectural reasons, not because a few
 curves needed different control points.
+
+That previous `AirShowPlaybackPlanner` path and its orphaned helpers were removed
+on 2026-09-20 after reachability analysis confirmed production uses the single
+`AirShowDirector.planAirShowTimeline` authority described by this specification.
+The later renderer-wide call-graph audit also removed a 150-method unreachable
+private AirShow closure from `HexMapRenderer`; no dormant renderer planner remains
+beside the director.
 
 ### 2.1 Split ownership
 
@@ -507,23 +514,80 @@ Implementation completed: 2026-08-03
 
 ### 14.3 Verification record
 
-The final 2026-08-03 verification produced:
+The current 2026-09-21 release-candidate verification produced:
 
 - `npx tsc --noEmit`: pass;
-- `npm test`: pass;
-- `AirShowDirector.jest.test.js`: 15 tests passed, including the 100ms heading-rate gate;
-- `AirShow.visual.jest.test.js`: 8 tests passed on 10x10 and 20x20 fixtures;
-- `npm run test:airshow:report`: 9 diagnostic animations, no findings;
-- 20x20 Chromium temporal choreography: 766 samples across 76.497 seconds,
-  9 aircraft, exact role-speed medians, zero lifecycle gaps, 12.1px nearest
-  head-on merge, 100% pairing switches, 60.3px minimum bomber spacing, and
-  87 independently timed flak cues across 36 sampled batches;
-- real Training Exercise bomber continuity: 806 samples across 80.495 seconds,
-  exact `0.0575 px/ms` median speed, and zero connectivity, opacity, or lifecycle
-  gaps through impact and egress;
-- large-map target-run role separation: pass;
-- large-map desktop and 390x844 mobile painted scramble frames: pass and visually
-  reviewed with no deployment or intel panel obscuring the action.
+- complete registered suite: **949/949**;
+- campaign suite: **449/449**;
+- air-show diagnostics: **87/87**, with no findings and a clean anomaly report;
+- `AirShowDirector.jest.test.js`: **22/22**, including heading-rate, continuity,
+  escort synchronization, multi-bomber cue attachment, nine-interceptor centered
+  lanes, stable full-track hashing, fighter-clash continuation, mirrored
+  Player-interceptor/Bot-escort coverage, and deterministic all-fallback planning;
+- rendered air-show visual Jest: **8/8** on 10x10 and 20x20 fixtures;
+- browser air-show visual suite: **16/16** across desktop, large-map, and mobile
+  scenarios, with all seven calibrated painted snapshots passing;
+- 20x20 Chromium temporal choreography: **1/1**, including role-speed,
+  continuity, spacing, crossing, effect, and lifecycle measurement;
+- temporal certificates: **2/2** overall for the tutorial and 20x20 scenarios;
+- `npm run test:airshow`: pass end to end;
+- complete Playwright matrix: **365 passed**, **34 intentional project skips**,
+  and zero failures across Chromium, Firefox, and WebKit.
+
+The browser/visual figures above are the completed end-to-end certificate rerun
+after the architecture hardening below. The dedicated temporal command was also
+rerun independently and passed **2/2**.
+
+The escort-arrival regression now uses multiple bombers and proves every bomber
+receives a nonzero retime. Each flak cue must fall inside the referenced actor's
+actual visible segment at the exact sampled progress and remain inside the
+authored radius; bomb-release and impact cues must remain attached to their
+actors. This locks the live `AirShowDirector` behavior without introducing a
+second timeline authority.
+
+Fighter-clash construction now keeps its public coordinator below the new-method
+limit: `buildFighterClash` is 88 lines, private turn-side optimization is 73, and
+one 14-line scramble-geometry helper owns the final heading, escort clearance,
+switched lane, and scramble path used by both candidate scoring and published
+tracks. Source ownership tests reject a second formula owner. Existing cap-clash
+and full-engagement hashes remain unchanged, and a mirrored 12-fighter package
+adds the full-track hash
+`a866f694fe65ffdb580bce5d6fc79616beceb1ebc5ced7011668d8235edca647`
+with exact role/faction and phase-continuation assertions.
+
+### 14.4 Architecture hardening record
+
+- `AirShowDirector.planAirShowTimeline` is still the sole exported and live
+  timeline authority. A private context resolver reduced the entrypoint from
+  **159 to 101** lines while preserving phase/RNG/track/cue/sort/verification and
+  publication order.
+- The all-fallback case (null headquarters and target positions, omitted seed) is
+  locked to SHA-256
+  `c4747fe1662f979c2988e16e97c8926b9c3e2ceb0a000a740f476b5a158cfd37`.
+- The renderer call-graph audit deleted **150** unreachable private AirShow
+  methods. `HexMapRenderer.ts` subsequently fell **14,766→7,969** verifier lines and the class
+  fell **364→214** methods; production retains one director import and one planner
+  call.
+- Firefox tracing found that `SVGTransformList.consolidate()` could normalize the
+  watched viewport transform inside the combat-overlay `MutationObserver`, feeding
+  the observer until the main thread stopped responding. The overlay now uses the
+  pure read-only `ViewportTransform` parser and ignores same-value notifications;
+  source gates forbid the mutating read from returning.
+- The architecture gate now enforces **48 file budgets, 7 coupling budgets, 1
+  canonical type ownership contract, 22 canonical function ownership contracts,
+  41 oversized-method budgets, and 4 grandfathered UI-to-engine import pairs**.
+- Adjacent hardening preserves the air show's source transaction: staged aircraft
+  readiness prevents movement-rejected attacks from initializing ammunition state
+  (`GameEngine` **17,987** lines; attack methods **618/596**), while the Campaign
+  command-shell workspace coordinator keeps state reads in `CampaignScreen`
+  (**4,437** lines; `renderCommandShell` **38** lines).
+- Repository unit tests pass **949/949**, Campaign tests **449/449**, and
+  zero-warning lint plus the production build are green. The initial script is
+  **81,182 bytes**, campaign and tactical entry remain lazy, and the build has no
+  static chunk cycles.
+- The complete cross-browser E2E matrix passes **365** tests with **34**
+  intentional project skips and zero failures. Deployment and live release
+  validation remain separate pending gates.
 
 Canonical visual evidence is stored under
 `diagnostics/playwright/screenshots/latest/`, with snapshot baselines under

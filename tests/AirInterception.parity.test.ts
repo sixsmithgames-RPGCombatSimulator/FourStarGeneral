@@ -1,4 +1,6 @@
 import { registerTest } from "./harness.js";
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import type { ScenarioUnit, ScenarioSide, ScenarioData, TerrainDefinition, TerrainDictionary, UnitTypeDictionary, UnitTypeDefinition, Axial } from "../src/core/types";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
 import type { AirEngagementEvent, AttackResolution } from "../src/game/GameEngine";
@@ -135,6 +137,8 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
   let botBomber: ScenarioUnit | null = null;
   let playerEngagements: AirEngagementEvent[] = [];
   let botEngagements: AirEngagementEvent[] = [];
+  let playerRandomBefore = 0;
+  let botRandomBefore = 0;
 
   await Given("mirrored battles where a bomber attacks an AA-protected hex", async () => {
     const config: GameEngineConfig = {
@@ -231,6 +235,8 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
       escortTargetUnitKey: undefined,
       interceptions: 0
     });
+    playerRandomBefore = playerEngine.serialize().randomState ?? 0;
+    botRandomBefore = botEngine.serialize().randomState ?? 0;
   });
 
   await When("each bomber attempts to attack the protected hex", async () => {
@@ -241,6 +247,29 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
   });
 
   await Then("both bombers are intercepted by CAP before the strike resolves", async () => {
+    const eventDigest = (events: AirEngagementEvent[]): string =>
+      createHash("sha256").update(JSON.stringify(events)).digest("hex");
+    assert.equal(eventDigest(playerEngagements), "fd3352f5db5d8fdbbca60688a20cb75bec1e5efafbbea36920755d1314c2e131");
+    assert.equal(eventDigest(botEngagements), "ce1bd862347f4bcc641771ee6f3e3430ca8491964c12ed18661683bc1134c3a0");
+    assert.equal(playerEngine.serialize().randomState, playerRandomBefore);
+    assert.equal(botEngine.serialize().randomState, botRandomBefore);
+
+    const playerBomberAfter = playerEngine.getHexStackMembers({ q: 0, r: 0 }, "Player")
+      .find((entry) => entry.unit.type === "Bomber")?.unit;
+    const botBomberAfter = botEngine.getHexStackMembers({ q: 0, r: 1 }, "Bot")
+      .find((entry) => entry.unit.type === "Bomber")?.unit;
+    const botCapAfter = playerEngine.getHexStackMembers({ q: 0, r: 2 }, "Bot")
+      .find((entry) => entry.unitId === "u_bot_cap")?.unit;
+    const playerCapAfter = botEngine.getHexStackMembers({ q: 0, r: 2 }, "Player")
+      .find((entry) => entry.unitId === "u_player_cap")?.unit;
+    assert.deepEqual(
+      [playerBomberAfter?.strength, playerBomberAfter?.ammo, playerBomberAfter?.status?.suppression, botCapAfter?.strength],
+      [50, 3, 1, 95.83]
+    );
+    assert.deepEqual(
+      [botBomberAfter?.strength, botBomberAfter?.ammo, botBomberAfter?.status?.suppression, playerCapAfter?.strength],
+      [66.67, 3, 1, 95.83]
+    );
     const botCapMission = (playerEngine as any).scheduledAirMissions.get("cap");
     const playerCapMission = (botEngine as any).scheduledAirMissions.get("cap");
     if (!botCapMission || botCapMission.interceptions !== 1) {

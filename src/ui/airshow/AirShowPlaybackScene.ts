@@ -59,21 +59,10 @@ export type ResolvedAirShowScene = {
   hexKey: string;
   interceptors: ReadonlyArray<ResolvedAirShowFlightSpec>;
   escorts: ReadonlyArray<ResolvedAirShowFlightSpec>;
-  // `bombers` is the authoritative contested-playback collection.
-  bombers?: ReadonlyArray<ResolvedAirShowStrikeFlightSpec>;
-  // `bomber` mirrors the first bomber for transitional consumers.
-  bomber: ResolvedAirShowStrikeFlightSpec | null;
+  bombers: ReadonlyArray<ResolvedAirShowStrikeFlightSpec>;
   escortExchanges?: ReadonlyArray<ResolvedAirShowExchange>;
   bomberPassExchanges?: ReadonlyArray<ResolvedAirShowExchange>;
-  fighterIngressDurationMs?: number;
-  escortClashDurationMs?: number;
-  bomberIngressDurationMs?: number;
-  bomberPassDurationMs?: number;
-  strikeRunDurationMs?: number;
-  egressDurationMs?: number;
-  bomberArrivalDelayMs?: number;
   bomberTargetHexKey?: string | null;
-  bombReleaseProgress?: number;
   strikeAborted?: boolean;
   flakBursts?: ReadonlyArray<ResolvedAirShowFlakBurst>;
   playerHqKey?: string | null;
@@ -83,10 +72,7 @@ export type ResolvedAirShowScene = {
 export function resolveResolvedAirShowBombers(
   scene: ResolvedAirShowScene
 ): ReadonlyArray<ResolvedAirShowStrikeFlightSpec> {
-  if (Array.isArray(scene.bombers) && scene.bombers.length > 0) {
-    return scene.bombers;
-  }
-  return scene.bomber ? [scene.bomber] : [];
+  return scene.bombers;
 }
 
 export function resolvePrimaryResolvedAirShowBomber(

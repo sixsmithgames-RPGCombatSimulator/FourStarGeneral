@@ -1,12 +1,11 @@
 import type { Axial } from "../../core/types";
-import type { AirEngagementEvent, TurnFaction } from "../../game/GameEngine";
+import type { AirEngagementEvent, TurnFaction } from "../../game/battle/air/AirCombatContracts";
 import type {
   ResolvedAirShowExchange,
   ResolvedAirShowFlightSpec,
   ResolvedAirShowStrikeFlightSpec,
   ResolvedAirShowScene
 } from "./AirShowPlaybackScene";
-import { resolveCoordinatedAirClusterLeadWindow } from "./AirShowTimingPolicies";
 import { buildResolvedAirShowFlakBursts } from "./ResolvedAirCombatSceneBuilder";
 
 export interface ClusterPlaybackFlight {
@@ -62,22 +61,12 @@ export interface CoordinatedAirClusterPlaybackPlan {
   readonly flakAnnouncementEvents: readonly AirEngagementEvent[];
   readonly strikeMissionIds: readonly string[];
   readonly residualOperations: readonly ClusterPlaybackOperation[];
-  readonly bomberStartDelayMs: number;
-  readonly fighterIngressLeadMs: number;
   readonly handledOperationIndices: readonly number[];
 }
 
 export interface BuildCoordinatedAirClusterPlaybackPlanOptions {
   readonly resolveOriginKey: (unitKey: string, faction: TurnFaction) => string | null;
   readonly resolveStrength: (unitKey: string, faction: TurnFaction) => number;
-  readonly fighterIngressDurationMs: number;
-  readonly escortClashDurationMs: number;
-  readonly bomberIngressDurationMs: number;
-  readonly bomberPassDurationMs: number;
-  readonly strikeRunDurationMs: number;
-  readonly egressDurationMs: number;
-  readonly bomberStartDelayMs?: number;
-  readonly bombReleaseProgress: number;
   readonly playerHqKey?: string | null;
   readonly botHqKey?: string | null;
 }
@@ -508,18 +497,9 @@ export function buildCoordinatedAirClusterPlaybackPlan(
           hexKey: focusKey ?? cluster.find((operation) => operation.focusKey)?.focusKey ?? "0,0",
           interceptors: Array.from(interceptorSpecs.values()).map(toResolvedFlightSpec),
           escorts: Array.from(escortSpecs.values()).map(toResolvedFlightSpec),
-          bomber: coordinatedBombers[0] ?? null,
           bombers: coordinatedBombers,
           escortExchanges: combinedEscortExchanges,
           bomberPassExchanges: combinedBomberPassExchanges,
-          fighterIngressDurationMs: options.fighterIngressDurationMs,
-          escortClashDurationMs: options.escortClashDurationMs,
-          bomberIngressDurationMs: options.bomberIngressDurationMs,
-          bomberPassDurationMs: options.bomberPassDurationMs,
-          strikeRunDurationMs: options.strikeRunDurationMs,
-          egressDurationMs: options.egressDurationMs,
-          bomberArrivalDelayMs: 0,
-          bombReleaseProgress: options.bombReleaseProgress,
           flakBursts: combinedFlakBursts,
           playerHqKey: options.playerHqKey ?? null,
           botHqKey: options.botHqKey ?? null
@@ -533,32 +513,16 @@ export function buildCoordinatedAirClusterPlaybackPlan(
   });
 
   const residualOperations = cluster.filter((operation) => !claimedOperationIndices.has(operation.index));
-  const { bomberStartDelayMs, fighterIngressLeadMs } = resolveCoordinatedAirClusterLeadWindow(
-    fighterScenePresent,
-    coordinatedBombers.length,
-    options.fighterIngressDurationMs,
-    options.escortClashDurationMs,
-    options.bomberStartDelayMs ?? 0
-  );
-  const finalScene =
-    scene
-      ? {
-          ...scene,
-          bomberArrivalDelayMs: bomberStartDelayMs
-        }
-      : null;
 
   return {
     focusKey,
-    scene: finalScene,
+    scene,
     announcementEvents: candidateCombatEvents,
     flakAnnouncementEvents: coordinatedStrikeEntries
       .map((entry) => entry.flakEvent)
       .filter((event): event is AirEngagementEvent => !!event),
     strikeMissionIds: coordinatedStrikeEntries.map((entry) => entry.flight.missionId),
     residualOperations,
-    bomberStartDelayMs,
-    fighterIngressLeadMs,
     handledOperationIndices: Array.from(claimedOperationIndices).sort((a, b) => a - b)
   };
 }

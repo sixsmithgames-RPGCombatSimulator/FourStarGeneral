@@ -1,6 +1,14 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
 import type { BattleState, PrecombatMissionInfo } from "../../state/BattleState";
+import type { CampaignStatePersistenceRequest } from "../../state/CampaignState";
 import type { IPopupManager } from "../../contracts/IPopupManager";
+import type {
+  AirPlaybackOperation,
+  PendingAttackContext,
+  PendingFortificationContext,
+  PreparedAirMissionFlight,
+  StandaloneEventPlaybackOperation
+} from "../../contracts/BattleScreenContracts";
 import {
   GameEngine,
   GameEngineConfig,
@@ -27,26 +35,15 @@ import {
   type TacticalSaveAvailability,
   type TacticalUIResumeContext
 } from "../../game/battle/persistence/BattleSaveTypes";
-import {
-  TacticalSaveCoordinator,
-  buildTacticalTurnAutosaveSlotId,
-  type TacticalSaveCoordinatorSnapshot,
-  type TacticalSaveIntent
-} from "../../game/battle/persistence/TacticalSaveCoordinator";
-import type {
-  CampaignSaveQuarantineRecord,
-  CampaignSaveRecoveryCandidate,
-  CampaignSaveSlotIndexEntry
-} from "../../game/campaign/persistence/CampaignSaveTypes";
-import { createStableCampaignRecordId } from "../../game/campaign/runtime/CampaignCanonical";
 import { extractCampaignBattleResultPackage } from "../../game/campaign/results/CampaignBattleResultExtractor";
 import { buildCampaignTacticalSupportAssets } from "../../game/campaign/CampaignTacticalSupportAdapter";
 import { EnhancedInitiativeTurnControls } from "../components/EnhancedInitiativeTurnControls";
+import { BattleTacticalSaveController } from "../controllers/BattleTacticalSaveController";
 import {
-  TacticalSaveCenter,
-  type TacticalSaveCenterMode,
-  type TacticalSaveCenterModel
-} from "../components/TacticalSaveCenter";
+  resolveActiveInitiativeGroup as projectActiveInitiativeGroup,
+  resolveTutorialNextGroupIntent,
+  type TutorialInitiativeGroup
+} from "../controllers/TutorialInitiativeHandoff";
 import type { CombatDamageSummary, CombatPreview, AttackResolution } from "../../game/GameEngine";
 import type {
   Axial,
@@ -81,6 +78,18 @@ import type { ShotBreakdown } from "../../core/Combat";
 import { hexDistance } from "../../core/Hex";
 import { SelectionIntelOverlay } from "../announcements/SelectionIntelOverlay";
 import { BattleActivityLog } from "../announcements/BattleActivityLog";
+import { buildGenericActivityDetailSections as buildGenericActivityDetails } from "../presentation/BattleActivityPresentation";
+import {
+  formatComponentDelta as presentComponentDelta,
+  formatDamageAmount as presentDamageAmount,
+  formatDamageTypes as presentDamageTypes,
+  formatEquipmentDelta as presentEquipmentDelta,
+  formatPersonnelDelta as presentPersonnelDelta,
+  formatReadinessValue as presentReadinessValue,
+  formatStatusTransitions as presentStatusTransitions,
+  renderReadinessProjectionRows as presentReadinessProjectionRows,
+  renderWeaponStatusEffects as presentWeaponStatusEffects
+} from "../presentation/BattleDamagePresentation";
 import type {
   ActivityDetailSection,
   BattleIntelAction,
@@ -100,11 +109,7 @@ import {
   findGeneralById,
   updateGeneral,
   saveRosterToLocalStorage,
-  type AirOperationsSummary,
-  type MissionRecord,
-  type UnitTypeCount,
-  type AmmunitionExpenditure,
-  type ObjectiveCompletion
+  type MissionRecord
 } from "../../utils/rosterStorage";
 import {
   ensureDeploymentState,
@@ -123,7 +128,19 @@ import { combat } from "../../core/balance";
 import { isSoftCombatTarget } from "../../core/armorEffects";
 import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
+import { resolveFactionUnitTypeLabel } from "../../data/unitSystem/factionUnitPresentation";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
+import {
+  buildBattleMissionRecord,
+  calculateUnitLosses,
+  resolveMissionEndResolution as resolveBattleMissionEndResolution,
+  type MissionEndResolution
+} from "../../game/battle/reporting/BattleMissionReport";
+import {
+  canDefinitionObserveArtillery,
+  resolveArtilleryActionProjection,
+  resolveObservedArtilleryTargetHexes
+} from "../../game/battle/support/BattleSupportTargeting";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
 import {
@@ -135,21 +152,7 @@ import {
   buildCoordinatedAirClusterPlaybackPlan,
   type CoordinatedAirClusterPlaybackPlan
 } from "../airshow/ClusterAirPlaybackPlanner";
-import {
-  resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs,
-  resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs,
-  resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs,
-  resolveBomberSortieIngressDurationMs as resolveSharedBomberSortieIngressDurationMs,
-  resolveFighterInterceptIngressDurationMs as resolveSharedFighterInterceptIngressDurationMs,
-  resolveFighterSortieEgressDurationMs as resolveSharedFighterSortieEgressDurationMs,
-  resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs,
-  scaleAirShowSequenceMs
-} from "../airshow/AirShowPlaybackPolicy";
-import {
-  buildCoordinatedAirClusterTimingPolicy,
-  buildResolvedAirCombatSceneTimingPolicy
-} from "../airshow/AirShowTimingPolicies";
-import type { AirShowRole } from "../airshow/AirShowLogger";
+import { scaleAirShowSequenceMs } from "../airshow/AirShowPlaybackPolicy";
 import {
   recordAirShowPlaybackCapture,
   type AirShowCoordinatedPlanSnapshot,
@@ -177,73 +180,6 @@ const TUTORIAL_OVERVIEW_CAMERA_ZOOM = 3.0;
 const TUTORIAL_MAP_INPUT_SETTLE_MS = 450;
 const TUTORIAL_ENEMY_ACTIVATION_TIMEOUT_MS = 9000;
 
-/**
- * Represents a battle log line destined for the sidebar activity feed so commanders can review past actions.
- */
-interface PendingAttackContext {
-  readonly attacker: string;
-  readonly target: string;
-  readonly preview: CombatPreview | null;
-  readonly attackerUnitId: string | null;
-  readonly defenderUnitId: string | null;
-}
-
-interface PendingFortificationContext {
-  readonly hex: Axial;
-  readonly hexKey: string;
-  readonly unitLabel: string;
-  readonly unitId: string | null;
-  readonly modificationType: "fortifications" | "tankTraps" | "smoke" | "facing";
-  /** For remote smoke only: the hex where the firing unit stands (used to pass callerAxial to engine). */
-  readonly callerAxial?: Axial;
-}
-
-interface PreparedAirMissionFlight {
-  readonly missionId: string;
-  readonly faction: TurnFaction;
-  readonly kind: string;
-  readonly unitKey: string;
-  readonly originKey: string;
-  readonly destKey: string;
-  readonly unitType: string;
-  readonly strength?: number;
-  readonly laneOffsetPx: number;
-  readonly targetHex?: Axial;
-  readonly targetUnitKey?: string;
-  readonly escortTargetUnitKey?: string;
-}
-
-interface LinkedStrikePlaybackOperation {
-  readonly kind: "linkedStrike";
-  readonly index: number;
-  readonly focusHex: Axial | null;
-  readonly focusKey: string | null;
-  readonly flight: PreparedAirMissionFlight;
-  readonly linkedEvents: readonly AirEngagementEvent[];
-  readonly escorts: readonly PreparedAirMissionFlight[];
-}
-
-interface StandaloneFlightPlaybackOperation {
-  readonly kind: "flight";
-  readonly index: number;
-  readonly focusHex: Axial | null;
-  readonly focusKey: string | null;
-  readonly flight: PreparedAirMissionFlight;
-}
-
-interface StandaloneEventPlaybackOperation {
-  readonly kind: "event";
-  readonly index: number;
-  readonly focusHex: Axial;
-  readonly focusKey: string;
-  readonly event: AirEngagementEvent;
-}
-
-type AirPlaybackOperation =
-  | LinkedStrikePlaybackOperation
-  | StandaloneFlightPlaybackOperation
-  | StandaloneEventPlaybackOperation;
-
 type ActiveAirShowPlaybackCaptureContext = {
   readonly base: Omit<
     AirShowPlaybackCapture,
@@ -260,18 +196,6 @@ interface BattleSelectionStackMember {
   readonly unitId: string;
   readonly unit: ScenarioUnit;
   readonly isAutomated: boolean;
-}
-
-interface MissionEndResolution {
-  readonly success: boolean;
-  readonly objectivesCompleted: number;
-  readonly objectivesFailed: number;
-  readonly objectivesContested: number;
-  readonly casualties: number;
-  readonly reason: string;
-  readonly headquartersTitle: string;
-  readonly headquartersAction: string;
-  readonly aborted?: boolean;
 }
 
 interface ActivityEvent {
@@ -486,27 +410,17 @@ export class BattleScreen {
   private cameraFrozen: boolean = false;
   private soundEnabled = true;
   private battleAnimationMode: BattleAnimationMode = "regular";
-  private readonly tacticalSaveCoordinator: TacticalSaveCoordinator;
+  private readonly tacticalSaveController: BattleTacticalSaveController;
+  /** @deprecated Compatibility seam for legacy lifecycle characterizations; operational ownership moved to tacticalSaveController. */
   private tacticalSaveCoordinatorUnsubscribe: (() => void) | null = null;
-  private tacticalSaveCenter: TacticalSaveCenter | null = null;
-  private tacticalSaveSlots: readonly CampaignSaveSlotIndexEntry[] = [];
-  private tacticalSaveQuarantine: readonly CampaignSaveQuarantineRecord[] = [];
-  private tacticalSaveRecoveryCandidate: CampaignSaveRecoveryCandidate | null = null;
-  private tacticalSaveRecoveryMessage: string | null = null;
-  private tacticalSaveCenterBusy = false;
+  /** @deprecated Compatibility seam for legacy lifecycle characterizations. */
+  private tacticalSaveCenter: { dispose(): void } | null = null;
+  /** @deprecated Compatibility seam for legacy lifecycle characterizations. */
   private tacticalSavePollTimerId: number | null = null;
+  /** @deprecated Compatibility seam for prototype-only resume characterizations. */
   private lastTacticalFocusElementId: string | null = null;
+  /** @deprecated Compatibility clock for prototype-only campaign handoff characterizations. */
   private readonly tacticalSessionStartedAt = Date.now();
-  private readonly tacticalDocumentVisibilityHandler = (): void => {
-    if (document.visibilityState === "hidden" && !this.element.classList.contains("hidden")) {
-      void this.requestBeforeExitTacticalAutosave();
-    }
-  };
-  private readonly tacticalSaveCenterOpenHandler = (event: Event): void => {
-    const invokerId = (event as CustomEvent<{ invokerId?: string | null }>).detail?.invokerId ?? null;
-    const invoker = invokerId ? document.getElementById(invokerId) : null;
-    void this.openTacticalSaveCenter("load", invoker);
-  };
   private readonly settingsDocumentPointerHandler = (event: Event): void => {
     const target = event.target instanceof Node ? event.target : null;
     if (!target || this.settingsMenu?.contains(target) || this.settingsToggleButton?.contains(target)) {
@@ -544,152 +458,39 @@ export class BattleScreen {
   private pendingFortificationBuild: PendingFortificationContext | null = null;
 
   private formatReadinessValue(value: number): string {
-    const safeValue = Number.isFinite(value) ? value : 0;
-    if (Number.isInteger(safeValue)) return safeValue.toFixed(0);
-    const roundedTenths = Math.round(safeValue * 10) / 10;
-    return Math.abs(safeValue - roundedTenths) < 0.001 ? safeValue.toFixed(1) : safeValue.toFixed(2);
+    return presentReadinessValue(value);
   }
 
   private formatDamageAmount(value: number): string {
-    return this.formatReadinessValue(this.clampDisplayedDamage(value));
+    return presentDamageAmount(value);
   }
 
   private formatPersonnelDelta(damage: CombatDamageSummary | null | undefined): string {
-    if (!damage) {
-      return "No personnel projection";
-    }
-    const parts: string[] = [];
-    if (damage.personnel.killed > 0) parts.push(`${damage.personnel.killed} KIA`);
-    if (damage.personnel.severelyWounded > 0) parts.push(`${damage.personnel.severelyWounded} severe`);
-    if (damage.personnel.wounded > 0) parts.push(`${damage.personnel.wounded} wounded`);
-    if (damage.personnel.injured > 0) parts.push(`${damage.personnel.injured} injured`);
-    return parts.length > 0 ? parts.join(", ") : "No personnel losses";
+    return presentPersonnelDelta(damage);
   }
 
   private formatEquipmentDelta(damage: CombatDamageSummary | null | undefined): string {
-    if (!damage) {
-      return "No equipment projection";
-    }
-    const parts: string[] = [];
-    if (damage.equipment.destroyed > 0) parts.push(`${damage.equipment.destroyed} destroyed`);
-    if (damage.equipment.disabled > 0) parts.push(`${damage.equipment.disabled} disabled`);
-    if (damage.equipment.damaged > 0) parts.push(`${damage.equipment.damaged} damaged`);
-    return parts.length > 0 ? parts.join(", ") : "No equipment losses";
+    return presentEquipmentDelta(damage);
   }
 
   private formatComponentDelta(damage: CombatDamageSummary | null | undefined): string {
-    if (!damage?.componentDamage) {
-      return "No component damage";
-    }
-    const parts: string[] = [];
-    const append = (label: string, values: Partial<Record<string, number>>): void => {
-      Object.entries(values)
-        .filter(([, count]) => typeof count === "number" && count > 0)
-        .forEach(([component, count]) => parts.push(`${count} ${component} ${label}`));
-    };
-    append("damaged", damage.componentDamage.damaged);
-    append("disabled", damage.componentDamage.disabled);
-    append("destroyed", damage.componentDamage.destroyed);
-    return parts.length > 0 ? parts.join(", ") : "No component damage";
+    return presentComponentDelta(damage);
   }
 
   private formatDamageTypes(damage: CombatDamageSummary | null | undefined): string {
-    if (!damage || damage.damageTypesUsed.length === 0) {
-      return "Not classified";
-    }
-    return damage.damageTypesUsed.map((type) => this.toTitleCase(type)).join(", ");
+    return presentDamageTypes(damage);
   }
 
   private formatStatusTransitions(damage: CombatDamageSummary | null | undefined): string {
-    const transitions = damage?.statusTransitions;
-    if (!transitions) {
-      return "No status shifts";
-    }
-    const parts: string[] = [];
-    transitions.personnel
-      .filter((entry) => entry.count > 0)
-      .forEach((entry) => parts.push(`${entry.count} ${entry.from}->${entry.to}`));
-    transitions.equipment
-      .filter((entry) => entry.count > 0)
-      .forEach((entry) => parts.push(`${entry.count} ${entry.from}->${entry.to}`));
-    return parts.length > 0 ? parts.join(", ") : "No status shifts";
+    return presentStatusTransitions(damage);
   }
 
   private renderReadinessProjectionRows(damage: CombatDamageSummary | null | undefined): string {
-    if (!damage) {
-      return "";
-    }
-    const before = damage.statusBefore.readinessBreakdown;
-    const after = damage.statusAfter.readinessBreakdown;
-    const equipmentBefore = before.equipment;
-    const equipmentAfter = after.equipment;
-    const equipmentRow = equipmentBefore && equipmentAfter
-      ? `
-        <div class="damage-projection-row">
-          <span>Equipment readiness</span>
-          <strong>${this.formatReadinessValue(equipmentBefore.readiness)}% -> ${this.formatReadinessValue(equipmentAfter.readiness)}%</strong>
-        </div>
-      `
-      : "";
-
-    return `
-      <div class="damage-projection">
-        <div class="damage-projection-row damage-projection-row--primary">
-          <span>Combat readiness</span>
-          <strong>${this.formatReadinessValue(damage.strengthBefore)}% -> ${this.formatReadinessValue(damage.strengthAfter)}%</strong>
-        </div>
-        <div class="damage-projection-row">
-          <span>Personnel readiness</span>
-          <strong>${this.formatReadinessValue(before.personnel.readiness)}% -> ${this.formatReadinessValue(after.personnel.readiness)}%</strong>
-        </div>
-        ${equipmentRow}
-        <div class="damage-projection-row">
-          <span>Personnel effects</span>
-          <strong>${this.escapeHtml(this.formatPersonnelDelta(damage))}</strong>
-        </div>
-        <div class="damage-projection-row">
-          <span>Equipment effects</span>
-          <strong>${this.escapeHtml(this.formatEquipmentDelta(damage))}</strong>
-        </div>
-        <div class="damage-projection-row">
-          <span>Status shifts</span>
-          <strong>${this.escapeHtml(this.formatStatusTransitions(damage))}</strong>
-        </div>
-      </div>
-    `;
+    return presentReadinessProjectionRows(damage);
   }
 
   private renderWeaponStatusEffects(damage: CombatDamageSummary | null | undefined): string {
-    if (!damage || damage.weaponHits.length === 0) {
-      return `<p><strong>Status Effects by Weapon:</strong> No weapon-level status effects projected.</p>`;
-    }
-
-    const rows = damage.weaponHits.map((hit) => {
-      const personnel = this.formatPersonnelDelta({
-        ...damage,
-        personnel: hit.personnel,
-        equipment: { damaged: 0, disabled: 0, destroyed: 0 }
-      });
-      const equipment = this.formatEquipmentDelta({
-        ...damage,
-        personnel: { injured: 0, wounded: 0, severelyWounded: 0, killed: 0 },
-        equipment: hit.equipment
-      });
-      return `
-        <div class="weapon-group-item">
-          <span class="weapon-name">${this.escapeHtml(hit.label)}:</span>
-          <span class="weapon-stats">${hit.shots} shots, ${hit.expectedHits.toFixed(1)} hits</span>
-          <span class="weapon-overmatch">${this.escapeHtml(personnel)}; ${this.escapeHtml(equipment)}</span>
-        </div>
-      `;
-    }).join("");
-
-    return `
-      <div class="weapon-groups-detail">
-        <strong>Status Effects by Weapon:</strong>
-        ${rows}
-      </div>
-    `;
+    return presentWeaponStatusEffects(damage);
   }
 
   /**
@@ -783,7 +584,7 @@ export class BattleScreen {
     const attackerLabel = attackerUnit
       ? this.resolveReadableUnitLabel(attackerUnit)
       : this.toTitleCase(attackerType);
-    const defenderLabel = this.toTitleCase(defenderType);
+    const defenderLabel = resolveFactionUnitTypeLabel(defenderType, "Bot");
 
     const accuracyDetails = preview.result.accuracyBreakdown;
     const damageDetails = preview.result.damageBreakdown;
@@ -1232,10 +1033,6 @@ export class BattleScreen {
     );
   }
 
-  private isPinnedOrBrokenCommandState(commandState: UnitCommandState | null): boolean {
-    return commandState?.suppressionState === "pinned" || commandState?.suppressionState === "broken";
-  }
-
   private configureAttackStanceControls(
     attackerUnit: ScenarioUnit | null,
     commandState: UnitCommandState | null,
@@ -1378,11 +1175,14 @@ export class BattleScreen {
       return;
     }
 
-    const engine = this.battleState.ensureGameEngine();
+    const supportCommand = this.battleState.getBattleSupportCommandSnapshot();
+    if (!supportCommand) {
+      return;
+    }
     const markers: BattleTargetMarker[] = [];
     this.queuedTargetMarkerActions.clear();
 
-    engine.getSupportSnapshot().queued
+    supportCommand.support.queued
       .filter((asset) => asset.type === "artillery" && asset.queuedHex && asset.queuedByHex)
       .forEach((asset) => {
         const targetHexKey = this.parseAxialKeyToOffsetHexKey(asset.queuedHex);
@@ -1409,7 +1209,7 @@ export class BattleScreen {
         });
       });
 
-    engine.getScheduledAirMissions("Player")
+    supportCommand.scheduledPlayerAirMissions
       .filter((mission) => mission.status === "queued" && (mission.kind === "strike" || mission.kind === "airTransport") && mission.targetHex)
       .forEach((mission) => {
         if (!mission.targetHex) {
@@ -1458,7 +1258,7 @@ export class BattleScreen {
     if (!this.battleState.hasEngine()) {
       return null;
     }
-    return this.battleState.ensureGameEngine().getSupportSnapshot().queued.find(
+    return this.battleState.getBattleSupportCommandSnapshot()?.support.queued.find(
       (asset) => asset.type === "artillery" && asset.queuedByHex === hexKey
     ) ?? null;
   }
@@ -1474,7 +1274,7 @@ export class BattleScreen {
       return false;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
-    const commandState = this.battleState.ensureGameEngine().getUnitCommandState(axial);
+    const commandState = this.battleState.getBattleUnitCommandState(axial);
     const artilleryState = this.resolveArtilleryActionState(unit, commandState, callerHexKey);
     const readyAssetId = assetId ?? artilleryState.assetId;
     this.applySelectedHex(callerHexKey);
@@ -1494,9 +1294,9 @@ export class BattleScreen {
   }
 
   private cancelQueuedArtilleryStrike(assetId: string, callerHexKey: string, callerLabel: string, targetHexKey: string): void {
-    const engine = this.battleState.ensureGameEngine();
-    const assetLabel = engine.getSupportSnapshot().queued.find((asset) => asset.id === assetId)?.label ?? "Off-map fire support";
-    const canceled = engine.cancelQueuedSupport(assetId);
+    const assetLabel = this.battleState.getBattleSupportCommandSnapshot()?.support.queued
+      .find((asset) => asset.id === assetId)?.label ?? "Off-map fire support";
+    const canceled = this.battleState.cancelQueuedBattleSupport(assetId);
     this.syncQueuedTargetMarkers();
     if (!canceled) {
       this.announceBattleUpdate(`${assetLabel} cancellation failed. The queued mission may have already resolved.`);
@@ -1512,8 +1312,7 @@ export class BattleScreen {
   }
 
   private cancelQueuedAirMission(missionId: string, missionKind: "strike" | "airTransport", targetHexKey: string): void {
-    const engine = this.battleState.ensureGameEngine();
-    const canceled = engine.cancelQueuedAirMission(missionId);
+    const canceled = this.battleState.cancelQueuedBattleAirMission(missionId);
     this.syncQueuedTargetMarkers();
     if (!canceled) {
       this.announceBattleUpdate("That queued air mission is no longer available to cancel.");
@@ -1547,40 +1346,23 @@ export class BattleScreen {
   }
 
   private canUnitObserveArtillery(unit: ScenarioUnit): boolean {
-    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
-    if (!definition) {
-      return false;
-    }
-    return definition.class === "infantry"
-      || definition.class === "recon"
-      || (definition.class === "specialist" && definition.moveType === "leg");
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary] ?? null;
+    return canDefinitionObserveArtillery(definition);
   }
 
   private resolveArtilleryTargetHexKeys(unit: ScenarioUnit, hexKey: string): string[] {
     const parsed = CoordinateSystem.parseHexKey(hexKey);
-    if (!parsed) {
+    const supportCommand = this.battleState.getBattleSupportCommandSnapshot();
+    if (!parsed || !supportCommand) {
       return [];
     }
-    const callerAxial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
-    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
-    if (!definition) {
-      return [];
-    }
-    const engine = this.battleState.ensureGameEngine();
-    const currentTurn = engine.getTurnSummary().turnNumber;
-    const observationRange = Math.max(2, (definition.vision ?? 0) + (definition.class === "recon" ? 1 : 0));
-    const targetHexKeys = new Set<string>();
-    engine.getEnemyContactSnapshot().forEach((contact) => {
-      if (contact.lastSeenTurn !== currentTurn || contact.state === "spotted") {
-        return;
-      }
-      if (hexDistance(callerAxial, contact.hex) > observationRange) {
-        return;
-      }
-      const offset = CoordinateSystem.axialToOffset(contact.hex.q, contact.hex.r);
-      targetHexKeys.add(CoordinateSystem.makeHexKey(offset.col, offset.row));
-    });
-    return Array.from(targetHexKeys);
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary] ?? null;
+    return resolveObservedArtilleryTargetHexes({
+      callerHex: CoordinateSystem.offsetToAxial(parsed.col, parsed.row),
+      definition,
+      currentTurn: supportCommand.turnNumber,
+      enemyContacts: supportCommand.enemyContacts
+    }).map((target) => this.axialToHexKey(target));
   }
 
   private resolveArtilleryActionState(
@@ -1588,61 +1370,32 @@ export class BattleScreen {
     commandState: UnitCommandState | null,
     hexKey: string
   ): { available: boolean; reason: string | null; assetId: string | null; assetLabel: string | null; targetHexKeys: string[] } {
-    if (!commandState || commandState.isAutomated || !this.canUnitObserveArtillery(unit)) {
+    const parsed = CoordinateSystem.parseHexKey(hexKey);
+    const callerHex = parsed ? CoordinateSystem.offsetToAxial(parsed.col, parsed.row) : null;
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary] ?? null;
+    const supportCommand = this.battleState.getBattleSupportCommandSnapshot();
+    if (!supportCommand) {
       return { available: false, reason: null, assetId: null, assetLabel: null, targetHexKeys: [] };
     }
-    const engine = this.battleState.ensureGameEngine();
-    const supportSnapshot = engine.getSupportSnapshot();
-    const readyAsset = supportSnapshot.ready.find((asset) => asset.type === "artillery" && asset.charges > 0) ?? null;
-    const knownAsset = readyAsset
-      ?? supportSnapshot.queued.find((asset) => asset.type === "artillery")
-      ?? supportSnapshot.cooldown.find((asset) => asset.type === "artillery")
-      ?? supportSnapshot.maintenance.find((asset) => asset.type === "artillery")
-      ?? null;
-    if (this.isPinnedOrBrokenCommandState(commandState)) {
-      const label = commandState.suppressionState === "broken" ? "Broken" : "Pinned";
-      return {
-        available: false,
-        reason: `${label} battalions cannot adjust ${knownAsset?.label ?? "off-map fire support"} until the suppression is broken.`,
-        assetId: null,
-        assetLabel: knownAsset?.label ?? null,
-        targetHexKeys: []
-      };
-    }
-    if (!readyAsset) {
-      const queuedAsset = supportSnapshot.queued.find((asset) => asset.type === "artillery") ?? null;
-      return {
-        available: false,
-        reason: queuedAsset
-          ? `${queuedAsset.label} is already tasked.`
-          : `No ${knownAsset?.label ?? "off-map fire support"} is ready for this mission.`,
-        assetId: null,
-        assetLabel: knownAsset?.label ?? null,
-        targetHexKeys: []
-      };
-    }
-    const targetHexKeys = this.resolveArtilleryTargetHexKeys(unit, hexKey);
-    if (targetHexKeys.length === 0) {
-      return {
-        available: false,
-        reason: `No observed enemy hex is close enough to adjust ${readyAsset.label}.`,
-        assetId: readyAsset.id,
-        assetLabel: readyAsset.label,
-        targetHexKeys
-      };
-    }
+    const projection = resolveArtilleryActionProjection({
+      callerHex,
+      definition,
+      commandState,
+      currentTurn: supportCommand.turnNumber,
+      enemyContacts: supportCommand.enemyContacts,
+      support: supportCommand.support
+    });
     return {
-      available: true,
-      reason: null,
-      assetId: readyAsset.id,
-      assetLabel: readyAsset.label,
-      targetHexKeys
+      available: projection.available,
+      reason: projection.reason,
+      assetId: projection.assetId,
+      assetLabel: projection.assetLabel,
+      targetHexKeys: projection.targetHexes.map((target) => this.axialToHexKey(target))
     };
   }
 
   private promptSmokeMode(callerAxial: Axial, callerLabel: string, callerUnitId: string | null): void {
-    const engine = this.battleState.ensureGameEngine();
-    const targetHexKeys = engine.resolveSmokeTargetHexKeys(callerAxial, callerUnitId ?? undefined)
+    const targetHexKeys = this.battleState.resolveBattleSmokeTargetHexKeys(callerAxial, callerUnitId ?? undefined)
       .map((key) => CoordinateSystem.axialKeyToOffsetKey(key))
       .filter((key): key is string => key !== null);
     const offset = CoordinateSystem.axialToOffset(callerAxial.q, callerAxial.r);
@@ -1779,8 +1532,7 @@ export class BattleScreen {
     }
     const callerAxial = CoordinateSystem.offsetToAxial(callerParsed.col, callerParsed.row);
     const targetAxial = CoordinateSystem.offsetToAxial(targetParsed.col, targetParsed.row);
-    const engine = this.battleState.ensureGameEngine();
-    const queued = engine.queueSupportActionFromUnit(
+    const queued = this.battleState.queueBattleSupportAction(
       callerAxial,
       targetingState.assetId,
       targetAxial,
@@ -1810,7 +1562,7 @@ export class BattleScreen {
 
   private async triggerSupportImpacts(): Promise<void> {
     console.log("[BattleScreen] triggerSupportImpacts called");
-    const impacts = this.battleState.ensureGameEngine().consumeSupportImpactEvents();
+    const impacts = this.battleState.consumeBattleSupportImpacts();
     console.log("[BattleScreen] consumeSupportImpactEvents returned", impacts.length, "impact(s):", impacts);
     if (impacts.length === 0) {
       console.log("[BattleScreen] No support impacts to trigger, returning early");
@@ -1832,7 +1584,6 @@ export class BattleScreen {
     // Freeze camera movement during effects
     this.freezeCamera();
 
-    const engine = this.battleState.ensureGameEngine();
     let lastFocusedHexKey: string | null = null;
     for (let index = 0; index < impacts.length; index += 1) {
       const impact = impacts[index];
@@ -1855,7 +1606,7 @@ export class BattleScreen {
       if (impact.hit && impact.destroyed) {
         renderer.markHexWrecked(targetHexKey, targetClass, 1);
       } else if (impact.hit) {
-        const defenderNow = engine.botUnits.find((unit) => unit.hex.q === impact.targetHex.q && unit.hex.r === impact.targetHex.r) ?? null;
+        const defenderNow = this.battleState.getBotUnitAt(impact.targetHex);
         renderer.markHexDamaged(targetHexKey, targetClass, defenderNow?.strength, 2);
       }
       this.renderEngineUnits();
@@ -4798,7 +4549,7 @@ export class BattleScreen {
         stateLabel = hasDefenderProgress ? "Enemy-held; recapture required" : "Enemy Held";
       } else {
         state = "inProgress";
-        stateLabel = "Open";
+        stateLabel = "In Progress";
       }
     }
 
@@ -5178,8 +4929,6 @@ export class BattleScreen {
       strikeMissionIds: [...plan.strikeMissionIds],
       handledOperationIndices: [...plan.handledOperationIndices],
       residualOperationIndices: plan.residualOperations.map((operation) => operation.index),
-      bomberStartDelayMs: plan.bomberStartDelayMs,
-      fighterIngressLeadMs: plan.fighterIngressLeadMs,
       scene: plan.scene ? this.deepCloneValue(plan.scene) : null
     };
   }
@@ -5436,32 +5185,28 @@ export class BattleScreen {
       return;
     }
 
-    await this.animateAircraftLeg(
-      renderer,
-      flight.originKey,
-      destKey,
-      flight.unitType,
-      this.resolveFighterSortieIngressDurationMs(),
-      undefined,
-      1,
-      flight.strength,
-      flight.laneOffsetPx,
-      flight.faction,
-      "interceptor"
-    );
-    await this.playDamagedAircraftReturn(
-      renderer,
-      destKey,
-      flight.originKey,
-      flight.unitType,
-      0,
-      flight.strength,
-      flight.laneOffsetPx,
-      0,
-      flight.faction,
-      this.resolveFighterSortieEgressDurationMs(),
-      "interceptor"
-    );
+    const role = flight.kind === "escort" ? "escort" as const : "interceptor" as const;
+    const fighter = {
+      id: flight.unitKey,
+      scenarioType: flight.unitType,
+      faction: flight.faction,
+      originHexKey: flight.originKey,
+      strengthBefore: Math.max(0, flight.strength ?? 0),
+      strengthAfterEscortPhase: Math.max(0, flight.strength ?? 0),
+      finalStrength: Math.max(0, flight.strength ?? 0),
+      laneOffsetPx: flight.laneOffsetPx,
+      role,
+      combatRole: role === "escort" ? "escort" as const : "cap" as const
+    };
+    await renderer.animateResolvedAirCombatShow({
+      kind: "capClash",
+      hexKey: destKey,
+      interceptors: role === "interceptor" ? [fighter] : [],
+      escorts: role === "escort" ? [fighter] : [],
+      bombers: [],
+      playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+      botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot")
+    });
   }
 
   private resolveAirEngagementOffsetKey(squadronIdOrHexKey: string, faction: "Player" | "Bot" | "Ally", engine: GameEngine): string | null {
@@ -5529,7 +5274,6 @@ export class BattleScreen {
         interceptors: [],
         escorts: [],
         bombers: [bomber],
-        bomber,
         bomberTargetHexKey: locKey,
         playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
         botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot"),
@@ -5551,7 +5295,6 @@ export class BattleScreen {
       laneOffsetPx,
       false,
       true,
-      event.type === "capClash" ? 0 : this.resolveAirInterceptBomberArrivalDelayMs(),
       event.type !== "capClash",
       bomberFrom
     );
@@ -5596,7 +5339,6 @@ export class BattleScreen {
         flight.laneOffsetPx,
         false,
         true,
-        this.resolveAirInterceptBomberArrivalDelayMs(),
         true,
         flight.originKey,
         escortFlights,
@@ -5615,32 +5357,13 @@ export class BattleScreen {
       return;
     }
 
-    const escortAnimations = escortFlights.map((escortFlight) =>
-      this.playEscortCompanionFlight(escortFlight, destKey, renderer)
-    );
-
-    await Promise.all([
-      (async () => {
-        if (bomberDestroyedBeforeImpact) {
-          await this.playPersistentStrikeSortie(flight, renderer, engine, {
-            strength: bomberStrength,
-            returnStrength: 0,
-            damage: totalAttrition,
-            flakEvent,
-            strikeAborted: true
-          });
-          return;
-        }
-
-        await this.playPersistentStrikeSortie(flight, renderer, engine, {
-          strength: bomberStrength,
-          returnStrength: remainingStrength,
-          damage: totalAttrition,
-          flakEvent
-        });
-      })(),
-      ...escortAnimations
-    ]);
+    await this.playPersistentStrikeSortie(flight, renderer, engine, {
+      strength: bomberStrength,
+      returnStrength: bomberDestroyedBeforeImpact ? 0 : remainingStrength,
+      escortFlights,
+      flakEvent,
+      strikeAborted: bomberDestroyedBeforeImpact
+    });
 
     if (flakEvent) {
       this.announceFlakEngagement(flakEvent);
@@ -5655,7 +5378,6 @@ export class BattleScreen {
     fallbackLaneOffsetPx = 0,
     skipEscortFlights = false,
     announceEvent = true,
-    bomberArrivalDelayMs = 0,
     allowBomberDefensePass = true,
     bomberOriginKey: string | null = null,
     linkedEscortFlights: readonly PreparedAirMissionFlight[] = [],
@@ -5766,7 +5488,6 @@ export class BattleScreen {
       bomberOriginKey ?? this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
     const interceptorSceneParticipants = participants.filter((participant) => participant.role === "interceptor");
     const escortSceneParticipants = participants.filter((participant) => participant.role === "escort");
-    const phaseTimings = buildResolvedAirCombatSceneTimingPolicy(bomberArrivalDelayMs);
     const { scene, diagnostics } = buildResolvedAirCombatScene(event, {
       locKey,
       resolveOriginKey: (unitKey, faction) => this.resolveAirEngagementOffsetKey(unitKey, faction, engine),
@@ -5780,7 +5501,6 @@ export class BattleScreen {
       bomberTargetKey,
       flakEvent,
       includeBomber: includeBomberFlight,
-      phaseTimings,
       playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
       botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot")
     });
@@ -5828,8 +5548,7 @@ export class BattleScreen {
       playEffects?: boolean;
       strength?: number;
       returnStrength?: number;
-      damage?: number;
-      onIngressProgress?: (progress: number, centerX: number, centerY: number) => void;
+      escortFlights?: readonly PreparedAirMissionFlight[];
       flakEvent?: AirEngagementEvent | null;
       strikeAborted?: boolean;
     } = {}
@@ -5855,9 +5574,19 @@ export class BattleScreen {
       kind: "airToAir",
       hexKey: destKey,
       interceptors: [],
-      escorts: [],
+      escorts: (options.escortFlights ?? []).map((escortFlight) => ({
+        id: escortFlight.unitKey,
+        scenarioType: escortFlight.unitType,
+        faction: escortFlight.faction,
+        originHexKey: escortFlight.originKey,
+        strengthBefore: Math.max(0, escortFlight.strength ?? 0),
+        strengthAfterEscortPhase: Math.max(0, escortFlight.strength ?? 0),
+        finalStrength: Math.max(0, escortFlight.strength ?? 0),
+        laneOffsetPx: escortFlight.laneOffsetPx,
+        role: "escort" as const,
+        combatRole: "escort" as const
+      })),
       bombers: [bomber],
-      bomber,
       bomberTargetHexKey: destKey,
       playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
       botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot"),
@@ -5909,37 +5638,6 @@ export class BattleScreen {
     this.renderEngineUnits();
   }
 
-  private async playDamagedAircraftReturn(
-    renderer: HexMapRenderer,
-    fromKey: string,
-    toKey: string,
-    unitType: string,
-    damage: number,
-    strength?: number,
-    laneOffsetPx = 0,
-    initialDelayMs = 120,
-    faction?: TurnFaction,
-    durationMs?: number,
-    role: AirShowRole = "interceptor"
-  ): Promise<void> {
-    const smokeScale = damage >= 36 ? 0.82 : damage >= 18 ? 0.7 : 0.58;
-    const smokeInterval = damage >= 36 ? 0.12 : damage >= 18 ? 0.16 : 0.22;
-    let nextSmokeProgress = 0.1;
-
-    if (initialDelayMs > 0) {
-      await this.waitMs(initialDelayMs);
-    }
-    await this.animateAircraftLeg(renderer, fromKey, toKey, unitType, durationMs ?? this.scaleAirSequenceMs(1900), (progress, centerX, centerY) => {
-      if (damage <= 0) {
-        return;
-      }
-      while (progress >= nextSmokeProgress && nextSmokeProgress < 0.96) {
-        void renderer.playAirDamageSmokeTrailAt(centerX - 4, centerY + 2, smokeScale);
-        nextSmokeProgress += smokeInterval;
-      }
-    }, 1, strength, laneOffsetPx, faction, role);
-  }
-
   private announceFlakEngagement(event: AirEngagementEvent): void {
     let engine: GameEngine | null = null;
     try {
@@ -5952,9 +5650,10 @@ export class BattleScreen {
     if (flakEngagements && flakEngagements.length > 0) {
       flakEngagements.forEach((engagement, index) => {
         const batteryHex = engagement.batteryHex ? this.formatAxialHexForDisplay(engagement.batteryHex) : "unknown";
-        const bomberLabel = engagement.bomberLabel ?? this.toTitleCase(engagement.bomberUnitType);
+        const bomberLabel = engagement.bomberLabel
+          ?? resolveFactionUnitTypeLabel(engagement.bomberUnitType, engagement.bomberFaction);
         const summary =
-          `${this.toTitleCase(engagement.batteryUnitType)} at ${batteryHex} opened fire on ${bomberLabel} during final approach. ` +
+          `${resolveFactionUnitTypeLabel(engagement.batteryUnitType, engagement.batteryFaction)} at ${batteryHex} opened fire on ${bomberLabel} during final approach. ` +
           `${Math.max(0, Math.round(engagement.damageToBomber))} air damage; bomber strength now ${Math.max(0, Math.round(engagement.bomberStrengthAfter))}.` +
           (engagement.bomberDestroyed && index === flakEngagements.length - 1 ? " Strike package broken up before release." : "");
         this.announceBattleUpdate(summary);
@@ -5976,7 +5675,8 @@ export class BattleScreen {
 
     const batteryCount = event.interceptors.length;
     const batteryLabel = batteryCount === 1 ? "battery" : "batteries";
-    const bomberLabel = event.bomber.label ?? this.toTitleCase(event.bomber.unitType);
+    const bomberLabel = event.bomber.label
+      ?? resolveFactionUnitTypeLabel(event.bomber.unitType, event.bomber.faction);
     const flakDamage = Math.max(0, Math.round(event.flakDamage ?? 0));
     const strengthAfter = Math.max(0, Math.round(event.bomberStrengthAfter ?? 0));
     const destructionSuffix = event.bomberDestroyed ? " Strike package broken up before release." : "";
@@ -6169,7 +5869,8 @@ export class BattleScreen {
           ? ` Escorts lost ${escortKills} flight${escortKills === 1 ? "" : "s"}.`
           : "";
     const destructionNote = event.bomberDestroyed ? " Strike package destroyed before target." : "";
-    const summary = `${interceptorLabel} intercepted ${bomberFaction} ${this.toTitleCase(event.bomber.unitType)} over ${location}.${escortNote}${attritionNote}${interceptorNote}${escortDamageNote}${destructionNote}`;
+    const bomberUnitLabel = resolveFactionUnitTypeLabel(event.bomber.unitType, event.bomber.faction);
+    const summary = `${interceptorLabel} intercepted ${bomberFaction} ${bomberUnitLabel} over ${location}.${escortNote}${attritionNote}${interceptorNote}${escortDamageNote}${destructionNote}`;
     this.announceBattleUpdate(summary);
     const details: Record<string, unknown> = {};
     if (interceptDamage !== null) {
@@ -6233,7 +5934,7 @@ export class BattleScreen {
     if (!match) {
       return "-";
     }
-    return `${this.toTitleCase(String(match.type))} @ ${this.formatAxialHexForDisplay(match.hex)}`;
+    return `${resolveFactionUnitTypeLabel(String(match.type), faction)} @ ${this.formatAxialHexForDisplay(match.hex)}`;
   }
 
   private formatAirCombatantSummary(
@@ -6243,7 +5944,7 @@ export class BattleScreen {
     faction: TurnFaction,
     engine: GameEngine | null
   ): string {
-    const fallbackType = this.toTitleCase(unitType);
+    const fallbackType = resolveFactionUnitTypeLabel(unitType, faction);
     if (snapshotLabel && snapshotLabel.trim().length > 0) {
       return snapshotLabel;
     }
@@ -6416,39 +6117,6 @@ export class BattleScreen {
     return this.toOffsetHexKey(this.resolvePreparedAirMissionTargetHex(flight, engine)) ?? (flight.destKey || null);
   }
 
-  private async playEscortCompanionFlight(
-    flight: PreparedAirMissionFlight,
-    destKey: string,
-    renderer: HexMapRenderer
-  ): Promise<void> {
-    await this.animateAircraftLeg(
-      renderer,
-      flight.originKey,
-      destKey,
-      flight.unitType,
-      this.resolveFighterSortieIngressDurationMs(),
-      undefined,
-      1,
-      flight.strength,
-      flight.laneOffsetPx,
-      flight.faction,
-      "interceptor"
-    );
-    await this.playDamagedAircraftReturn(
-      renderer,
-      destKey,
-      flight.originKey,
-      flight.unitType,
-      0,
-      flight.strength,
-      flight.laneOffsetPx,
-      this.scaleAirSequenceMs(120),
-      flight.faction,
-      this.resolveFighterSortieEgressDurationMs(),
-      "interceptor"
-    );
-  }
-
   private resolveAirSquadronStrength(
     squadronId: string | undefined | null,
     faction: TurnFaction,
@@ -6488,51 +6156,6 @@ export class BattleScreen {
     });
 
     return assigned;
-  }
-
-  private async animateAircraftLeg(
-    renderer: HexMapRenderer,
-    fromKey: string,
-    toKey: string,
-    unitType: string,
-    durationMs: number,
-    onProgress?: (progress: number, centerX: number, centerY: number) => void,
-    endProgress = 1,
-    strength?: number,
-    laneOffsetPx = 0,
-    faction?: TurnFaction,
-    role: AirShowRole = "interceptor"
-  ): Promise<void> {
-    if (typeof (renderer as any).animateAircraftArc === "function") {
-      await (renderer as any).animateAircraftArc(
-        fromKey,
-        toKey,
-        unitType,
-        durationMs,
-        onProgress,
-        endProgress,
-        strength,
-        laneOffsetPx,
-        faction,
-        role
-      );
-      return;
-    }
-
-    if (typeof (renderer as any).animateAircraftFlyover === "function") {
-      await renderer.animateAircraftFlyover(
-        fromKey,
-        toKey,
-        unitType,
-        durationMs,
-        onProgress,
-        endProgress,
-        strength,
-        laneOffsetPx,
-        faction,
-        role
-      );
-    }
   }
 
   private updateTurnStatusDisplay(summary: TurnSummary): void {
@@ -6686,7 +6309,7 @@ export class BattleScreen {
     // Announce bot attacks with details
     if (botSummary.attacks.length > 0) {
       botSummary.attacks.forEach((attack) => {
-        const attackerLabel = this.toTitleCase(attack.attackerType);
+        const attackerLabel = resolveFactionUnitTypeLabel(attack.attackerType, "Bot");
         const defenderLabel = this.toTitleCase(attack.defenderType);
         const damage = this.formatDamageAmount(attack.inflictedDamage);
         const destroyed = attack.defenderDestroyed ? " Target destroyed!" : "";
@@ -6714,7 +6337,7 @@ export class BattleScreen {
       const toOffset = CoordinateSystem.axialToOffset(move.to.q, move.to.r);
       const fromKey = CoordinateSystem.makeHexKey(fromOffset.col, fromOffset.row);
       const toKey = CoordinateSystem.makeHexKey(toOffset.col, toOffset.row);
-      const unitLabel = this.toTitleCase(move.unitType);
+      const unitLabel = resolveFactionUnitTypeLabel(move.unitType, "Bot");
       this.publishActivityEvent({
         category: "enemy",
         type: "move",
@@ -6727,7 +6350,7 @@ export class BattleScreen {
       const targetOffset = CoordinateSystem.axialToOffset(attack.target.q, attack.target.r);
       const originKey = CoordinateSystem.makeHexKey(originOffset.col, originOffset.row);
       const targetKey = CoordinateSystem.makeHexKey(targetOffset.col, targetOffset.row);
-      const attackerLabel = this.toTitleCase(attack.attackerType);
+      const attackerLabel = resolveFactionUnitTypeLabel(attack.attackerType, "Bot");
       const defenderLabel = this.toTitleCase(attack.defenderType);
       const damage = this.formatDamageAmount(attack.inflictedDamage);
       const retaliationDamage = this.clampDisplayedDamage(attack.retaliation?.damage ?? 0);
@@ -6835,34 +6458,6 @@ export class BattleScreen {
     return scaleAirShowSequenceMs(durationMs);
   }
 
-  private resolveBomberInterceptIngressDurationMs(): number {
-    return resolveSharedBomberInterceptIngressDurationMs();
-  }
-
-  private resolveFighterInterceptIngressDurationMs(): number {
-    return resolveSharedFighterInterceptIngressDurationMs();
-  }
-
-  private resolveBomberSortieIngressDurationMs(): number {
-    return resolveSharedBomberSortieIngressDurationMs();
-  }
-
-  private resolveBomberSortieEgressDurationMs(): number {
-    return resolveSharedBomberSortieEgressDurationMs();
-  }
-
-  private resolveFighterSortieIngressDurationMs(): number {
-    return resolveSharedFighterSortieIngressDurationMs();
-  }
-
-  private resolveFighterSortieEgressDurationMs(): number {
-    return resolveSharedFighterSortieEgressDurationMs();
-  }
-
-  private resolveAirInterceptBomberArrivalDelayMs(): number {
-    return resolveSharedAirInterceptBomberArrivalDelayMs();
-  }
-
   private resolveInterceptorsAfterEscortPhase(event: AirEngagementEvent): number {
     const phaseStrengths = event.interceptorStrengthsAfterEscortPhase ?? [];
     if (phaseStrengths.length === event.interceptors.length) {
@@ -6922,89 +6517,6 @@ export class BattleScreen {
         : null;
 
     return event.bomberDestroyed === true || (bomberStrengthBefore !== null && bomberStrengthAfter !== null && bomberStrengthAfter < bomberStrengthBefore);
-  }
-
-  private async playAirInterceptPasses(
-    event: AirEngagementEvent,
-    locKey: string,
-    renderer: HexMapRenderer,
-    bomberArrivalDelayMs = 0,
-    allowBomberDefensePass = true
-  ): Promise<void> {
-    const escortOpeningDelayMs = this.scaleAirSequenceMs(70);
-    const followThroughDelayMs = this.scaleAirSequenceMs(55);
-    const orbitDurationMs = this.scaleAirSequenceMs(180);
-    const orbitRenderer = renderer as any;
-    const playOrbitStage = async (
-      units: ReadonlyArray<{ readonly unitType: string; readonly strength: number }>
-    ): Promise<void> => {
-      if (typeof orbitRenderer.animateAircraftOrbitAt !== "function" || units.length === 0) {
-        return;
-      }
-      await Promise.all(
-        units.map((unit) =>
-          orbitRenderer.animateAircraftOrbitAt(locKey, unit.unitType, orbitDurationMs, Math.max(0, Math.round(unit.strength)))
-        )
-      );
-    };
-
-    if (event.escorts.length > 0) {
-      await playOrbitStage([
-        ...event.escorts.map((escort, index) => ({
-          unitType: escort.unitType,
-          strength: this.resolveAirEngagementPhaseStrength(
-            event.escortStrengthsAfterEscortPhase,
-            index,
-            escort.strength ?? 100
-          )
-        })),
-        ...event.interceptors.map((interceptor, index) => ({
-          unitType: interceptor.unitType,
-          strength: this.resolveAirEngagementPhaseStrength(
-            event.interceptorStrengthsAfterEscortPhase,
-            index,
-            interceptor.strength ?? 100
-          )
-        }))
-      ]);
-      await this.waitMs(escortOpeningDelayMs);
-      await renderer.playDogfight(locKey);
-    }
-
-    if (!allowBomberDefensePass) {
-      if (event.escorts.length > 0) {
-        await this.waitMs(followThroughDelayMs);
-      }
-      return;
-    }
-
-    if (event.escorts.length === 0 || this.shouldPlayBomberDefensePass(event)) {
-      const gapBeforeBomberPass =
-        event.escorts.length > 0
-          ? Math.max(this.scaleAirSequenceMs(235), bomberArrivalDelayMs)
-          : Math.max(0, bomberArrivalDelayMs);
-      if (gapBeforeBomberPass > 0) {
-        await this.waitMs(gapBeforeBomberPass);
-      }
-      await playOrbitStage(
-        event.interceptors
-          .map((interceptor, index) => ({
-            unitType: interceptor.unitType,
-            strength: this.resolveAirEngagementPhaseStrength(
-              event.interceptorStrengthsAfterEscortPhase,
-              index,
-              interceptor.strength ?? 100
-            )
-          }))
-          .filter((interceptor) => interceptor.strength > 0)
-      );
-      if (typeof (renderer as any).playBomberDefensePass === "function") {
-        await (renderer as any).playBomberDefensePass(locKey);
-      } else {
-        await renderer.playDogfight(locKey);
-      }
-      await this.waitMs(followThroughDelayMs);
-    }
   }
 
   private buildAirPlaybackOperations(
@@ -7295,7 +6807,6 @@ export class BattleScreen {
     return buildCoordinatedAirClusterPlaybackPlan(cluster, {
       resolveOriginKey: (unitKey, faction) => this.resolveAirEngagementOffsetKey(unitKey, faction, engine),
       resolveStrength: (unitKey, faction) => this.resolveAirSquadronStrength(unitKey, faction, engine),
-      ...buildCoordinatedAirClusterTimingPolicy(),
       playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
       botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot")
     });
@@ -7785,7 +7296,7 @@ export class BattleScreen {
       if (reason === "turnAdvanced") {
         void this.requestTacticalTurnStartAutosave();
       }
-      void this.tacticalSaveCoordinator.flush();
+      void this.tacticalSaveController.flush();
     });
   }
 
@@ -7837,9 +7348,32 @@ export class BattleScreen {
       throw new Error("Battle screen element (#battleScreen) not found in DOM");
     }
     this.element = battleScreen;
-    this.tacticalSaveCoordinator = new TacticalSaveCoordinator({
-      getAvailability: () => this.getCampaignTacticalSaveAvailability(),
-      persist: (intent) => this.persistTacticalSaveIntent(intent)
+    this.tacticalSaveController = new BattleTacticalSaveController({
+      root: this.element,
+      battleState: this.battleState,
+      getStatusElement: () => this.battleSaveStatus,
+      getUiStability: () => ({
+        initializationComplete: Boolean(this.missionRulesController && this.missionStatus),
+        combatTransactionActive: Boolean(
+          this.cameraFrozen
+          || this.activeAirShowPlaybackCaptureContext
+          || this.deferMissionLogSync
+          || this.initiativeTurnAdvanceInProgress
+          || this.attackConfirmationLocked
+        ),
+        tacticalDecisionOpen: Boolean(this.pendingAttack || this.pendingIdleTurnAdvance || this.missionEndModal),
+        initiativeActive: this.initiativeMethods?.isInitiativeSystemActive() === true,
+        initiativeAtBoundary: this.initiativeMethods?.getCurrentActivation() === null
+      }),
+      getPresentationContext: () => ({
+        difficulty: this.uiState?.selectedDifficulty ?? null,
+        selectedHexKey: this.selectedHexKey,
+        mapZoom: this.mapViewport?.getTransform().zoom ?? null
+      }),
+      captureActiveBattle: () => this.captureActiveCampaignBattle(),
+      resumeActiveBattle: (save) => this.resumeActiveCampaignBattle(save),
+      showBattleScreen: () => this.screenManager.showScreenById("battle"),
+      announce: (message) => this.announceBattleUpdate(message)
     });
 
     // Wire Air Support preview events so the map can visualize combat radius while picking targets
@@ -7883,7 +7417,7 @@ export class BattleScreen {
     this.applySoundPreference(this.soundEnabled);
     this.applyBattleAnimationMode(this.uiState?.battleAnimationMode ?? "regular");
     this.hydrateMissionBriefing();
-    this.initializeTacticalSaveUx();
+    this.tacticalSaveController.initialize();
     this.bindEvents();
 
     // Initialize child components so their DOM scaffolding is ready before map renders.
@@ -7919,130 +7453,32 @@ export class BattleScreen {
     }
     document.addEventListener("tutorial:airMissionQueued", this.tutorialAirMissionQueuedListener);
     this.syncTutorialPhaseWithCurrentContext(ensureTutorialState().getCurrentPhase());
-    document.addEventListener("visibilitychange", this.tacticalDocumentVisibilityHandler);
-    document.addEventListener("campaign:battle:saves-open", this.tacticalSaveCenterOpenHandler);
-
     document.addEventListener("screen:shown", this.screenShownHandler);
 
     // Keyboard navigation wiring.
     window.addEventListener("keydown", this.keyboardNavigationHandler);
   }
 
-  /** Creates the Save Center and binds it to the serialized tactical-save coordinator exactly once. */
-  private initializeTacticalSaveUx(): void {
-    if (this.tacticalSaveCenter) return;
-    this.tacticalSaveCenter = new TacticalSaveCenter(document.body, {
-      saveNew: (label) => this.requestNewManualTacticalSave(label),
-      overwrite: (slotId) => this.requestOverwriteTacticalSave(slotId),
-      load: (slotId) => this.loadTacticalSaveSlot(slotId),
-      recover: () => this.recoverTacticalSaveCandidate(),
-      exportQuarantine: (quarantineId) => this.exportTacticalQuarantine(quarantineId)
-    }, this.buildTacticalSaveCenterModel("save"));
-    this.tacticalSaveCoordinatorUnsubscribe = this.tacticalSaveCoordinator.subscribe((snapshot) => {
-      this.handleTacticalSaveCoordinatorUpdate(snapshot);
-    });
-    void this.refreshTacticalSaveBrowserData();
+  /** Compatibility wrapper retained while callers migrate to the extracted save controller. */
+  private async requestTacticalTurnStartAutosave(): Promise<void> {
+    await this.tacticalSaveController.requestTurnStartAutosave();
   }
 
-  private buildTacticalSaveCenterModel(mode: TacticalSaveCenterMode): TacticalSaveCenterModel {
-    const coordinator = this.tacticalSaveCoordinator.getSnapshot();
-    return {
-      mode,
-      slots: this.tacticalSaveSlots,
-      quarantine: this.tacticalSaveQuarantine,
-      availability: this.getCampaignTacticalSaveAvailability(),
-      coordinator,
-      recoveryMessage: this.tacticalSaveRecoveryMessage,
-      recoveryAvailable: this.tacticalSaveRecoveryCandidate !== null,
-      busy: this.tacticalSaveCenterBusy || coordinator.status === "saving"
-    };
+  /** Compatibility wrapper retained for screen lifecycle and visibility-save callers. */
+  private async requestBeforeExitTacticalAutosave(): Promise<void> {
+    await this.tacticalSaveController.requestBeforeExitAutosave();
   }
 
-  private updateTacticalSaveCenter(mode?: TacticalSaveCenterMode): void {
-    if (!this.tacticalSaveCenter) return;
-    const currentMode = mode ?? (this.tacticalSaveCenter.isOpen() && this.element.querySelector("#tacticalSaveCenter")?.getAttribute("data-mode") === "load"
-      ? "load"
-      : "save");
-    this.tacticalSaveCenter.update(this.buildTacticalSaveCenterModel(currentMode));
+  /** Public save-boundary query used by exact tactical capture. */
+  getTacticalSaveAvailability(): TacticalSaveAvailability {
+    return this.tacticalSaveController.getTacticalSaveAvailability();
   }
 
-  private handleTacticalSaveCoordinatorUpdate(snapshot: TacticalSaveCoordinatorSnapshot): void {
-    if (this.battleSaveStatus) {
-      this.battleSaveStatus.textContent = snapshot.message;
-      this.battleSaveStatus.dataset.state = snapshot.status;
+  /** Compatibility bridge for campaign handoff paths instantiated without the full screen constructor. */
+  private buildTacticalPersistenceRequest(timestamp: string, label: string): CampaignStatePersistenceRequest {
+    if (this.tacticalSaveController) {
+      return this.tacticalSaveController.buildPersistenceRequest(timestamp, label);
     }
-    const hasQueuedRequest = Boolean(snapshot.queuedManual || snapshot.queuedAutosave);
-    if (hasQueuedRequest && this.tacticalSavePollTimerId === null) {
-      this.tacticalSavePollTimerId = window.setInterval(() => {
-        this.updateTacticalSaveCenter();
-        void this.tacticalSaveCoordinator.flush();
-      }, 250);
-    } else if (!hasQueuedRequest && this.tacticalSavePollTimerId !== null) {
-      window.clearInterval(this.tacticalSavePollTimerId);
-      this.tacticalSavePollTimerId = null;
-    }
-    this.updateTacticalSaveCenter();
-  }
-
-  private getCampaignTacticalSaveAvailability(): TacticalSaveAvailability {
-    const runtime = ensureCampaignState().getRuntimeSnapshot();
-    const bridge = this.battleState.getCampaignBridgeState();
-    if (!runtime || !runtime.activeEngagementId || !bridge) {
-      return {
-        stable: false,
-        boundary: null,
-        reason: "Tactical saves are available for campaign-linked battles. This operation has no active campaign engagement."
-      };
-    }
-    return this.getTacticalSaveAvailability();
-  }
-
-  private getTacticalSaveSlotPrefix(): string | null {
-    const runtime = ensureCampaignState().getRuntimeSnapshot();
-    return runtime ? `battle:${runtime.campaignId}:` : null;
-  }
-
-  private async openTacticalSaveCenter(mode: TacticalSaveCenterMode, invoker: HTMLElement | null): Promise<void> {
-    const active = document.activeElement instanceof HTMLElement ? document.activeElement : invoker;
-    if (active?.id && !active.closest("#tacticalSaveCenter")) {
-      this.lastTacticalFocusElementId = active.id;
-    }
-    this.tacticalSaveRecoveryCandidate = null;
-    this.tacticalSaveRecoveryMessage = null;
-    this.tacticalSaveCenter?.open(mode, invoker);
-    this.updateTacticalSaveCenter(mode);
-    await this.refreshTacticalSaveBrowserData(mode);
-  }
-
-  private async refreshTacticalSaveBrowserData(mode?: TacticalSaveCenterMode): Promise<void> {
-    const prefix = this.getTacticalSaveSlotPrefix();
-    if (!prefix) {
-      this.tacticalSaveSlots = [];
-      this.tacticalSaveQuarantine = [];
-      this.updateTacticalSaveCenter(mode);
-      return;
-    }
-    try {
-      const campaignState = ensureCampaignState();
-      const [slots, quarantine] = await Promise.all([
-        campaignState.listCampaignSaveSlots(),
-        campaignState.listCampaignSaveQuarantine()
-      ]);
-      this.tacticalSaveSlots = slots
-        .filter((slot) => slot.slotId.startsWith("battle:"))
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-      this.tacticalSaveQuarantine = quarantine
-        .filter((record) => record.slotId.startsWith("battle:"))
-        .sort((left, right) => right.quarantinedAt.localeCompare(left.quarantinedAt));
-    } catch (error) {
-      this.tacticalSaveRecoveryMessage = error instanceof Error
-        ? `Save storage could not be inspected: ${error.message}`
-        : "Save storage could not be inspected.";
-    }
-    this.updateTacticalSaveCenter(mode);
-  }
-
-  private buildTacticalPersistenceRequest(timestamp: string, label: string) {
     return {
       timestamp,
       label,
@@ -8050,224 +7486,11 @@ export class BattleScreen {
       difficulty: this.uiState?.selectedDifficulty ?? null,
       commanderRosterLink: this.battleState.getAssignedCommanderId(),
       uiResumeContext: {
-        workspace: "operations" as const,
+        workspace: "operations",
         selectedEntityId: this.selectedHexKey,
         mapCenter: null,
         mapZoom: this.mapViewport?.getTransform().zoom ?? null
       }
-    };
-  }
-
-  private async persistTacticalSaveIntent(intent: TacticalSaveIntent): Promise<void> {
-    const availability = this.getCampaignTacticalSaveAvailability();
-    if (!availability.stable || !availability.boundary) {
-      throw new Error(availability.reason ?? "The tactical battle is not at a stable save boundary.");
-    }
-    const activeBattle = this.captureActiveCampaignBattle();
-    const timestamp = new Date().toISOString();
-    await ensureCampaignState().saveCampaignSlot({
-      ...this.buildTacticalPersistenceRequest(timestamp, intent.label),
-      slotId: intent.slotId,
-      slotType: intent.slotType,
-      thumbnailKey: `tactical:${activeBattle.engagementPackage.scenarioKey}:${activeBattle.engagementPackage.engagementId}:turn-${activeBattle.battle.boundary.turn}`
-    });
-    await this.refreshTacticalSaveBrowserData();
-    if (intent.trigger === "manual") {
-      this.announceBattleUpdate(`Tactical checkpoint saved as ${intent.label}.`);
-    }
-  }
-
-  private async requestNewManualTacticalSave(label: string): Promise<void> {
-    const runtime = ensureCampaignState().getRuntimeSnapshot();
-    const prefix = this.getTacticalSaveSlotPrefix();
-    if (!runtime?.activeEngagementId || !prefix || !this.battleState.getCampaignBridgeState()) {
-      this.tacticalSaveRecoveryMessage = this.getCampaignTacticalSaveAvailability().reason;
-      this.updateTacticalSaveCenter("save");
-      return;
-    }
-    const requestedAt = new Date().toISOString();
-    const slotId = `${prefix}manual:${createStableCampaignRecordId("slot", runtime.campaignId, label, requestedAt)}`;
-    await this.tacticalSaveCoordinator.requestManual({
-      trigger: "manual",
-      slotId,
-      label,
-      slotType: "manual",
-      requestedAt,
-      dedupeKey: null
-    });
-  }
-
-  private async requestOverwriteTacticalSave(slotId: string): Promise<void> {
-    if (!ensureCampaignState().getRuntimeSnapshot()?.activeEngagementId || !this.battleState.getCampaignBridgeState()) {
-      this.tacticalSaveRecoveryMessage = this.getCampaignTacticalSaveAvailability().reason;
-      this.updateTacticalSaveCenter("save");
-      return;
-    }
-    const slot = this.tacticalSaveSlots.find((candidate) => candidate.slotId === slotId && candidate.slotType === "manual");
-    if (!slot) {
-      this.tacticalSaveRecoveryMessage = "The selected manual checkpoint is no longer available.";
-      this.updateTacticalSaveCenter("save");
-      return;
-    }
-    await this.tacticalSaveCoordinator.requestManual({
-      trigger: "manual",
-      slotId: slot.slotId,
-      label: slot.label,
-      slotType: "manual",
-      requestedAt: new Date().toISOString(),
-      dedupeKey: null
-    });
-  }
-
-  private async loadTacticalSaveSlot(slotId: string): Promise<void> {
-    const slot = this.tacticalSaveSlots.find((candidate) => candidate.slotId === slotId);
-    if (!slot || this.tacticalSaveCenterBusy) return;
-    const coordinator = this.tacticalSaveCoordinator.getSnapshot();
-    if (coordinator.status === "saving" || coordinator.queuedManual || coordinator.queuedAutosave || coordinator.activeIntent) {
-      this.tacticalSaveRecoveryMessage = "Wait for the current queued save or autosave to finish before loading another checkpoint.";
-      this.updateTacticalSaveCenter("load");
-      return;
-    }
-    this.tacticalSaveCenterBusy = true;
-    this.tacticalSaveRecoveryCandidate = null;
-    this.tacticalSaveRecoveryMessage = null;
-    this.updateTacticalSaveCenter("load");
-    try {
-      const result = await ensureCampaignState().loadCampaignSlot(
-        slot.slotId,
-        this.buildTacticalPersistenceRequest(new Date().toISOString(), slot.label)
-      );
-      if (!result.ok) {
-        this.tacticalSaveRecoveryCandidate = result.recoveryCandidate;
-        this.tacticalSaveRecoveryMessage = result.recoveryCandidate
-          ? `${result.error.message} A verified earlier checkpoint is available and has not been applied.`
-          : result.error.message;
-        await this.refreshTacticalSaveBrowserData("load");
-        return;
-      }
-      const activeBattle = ensureCampaignState().getActiveBattleSave();
-      if (!activeBattle) throw new Error("The selected campaign checkpoint does not contain an active tactical battle.");
-      this.resumeActiveCampaignBattle(activeBattle);
-      this.screenManager.showScreenById("battle");
-      this.tacticalSaveCenter?.close();
-      this.announceBattleUpdate(`Tactical checkpoint ${slot.label} restored.`);
-    } catch (error) {
-      this.tacticalSaveRecoveryMessage = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.tacticalSaveCenterBusy = false;
-      this.updateTacticalSaveCenter("load");
-    }
-  }
-
-  private async recoverTacticalSaveCandidate(): Promise<void> {
-    const candidate = this.tacticalSaveRecoveryCandidate;
-    if (!candidate || this.tacticalSaveCenterBusy) return;
-    this.tacticalSaveCenterBusy = true;
-    this.updateTacticalSaveCenter("load");
-    try {
-      ensureCampaignState().restoreCampaignRecovery(candidate);
-      const activeBattle = ensureCampaignState().getActiveBattleSave();
-      if (!activeBattle) throw new Error("The verified recovery checkpoint has no active tactical battle.");
-      this.resumeActiveCampaignBattle(activeBattle);
-      this.screenManager.showScreenById("battle");
-      this.tacticalSaveRecoveryCandidate = null;
-      this.tacticalSaveRecoveryMessage = null;
-      this.tacticalSaveCenter?.close();
-      this.announceBattleUpdate("Earlier verified tactical checkpoint recovered. The damaged record remains quarantined.");
-    } catch (error) {
-      this.tacticalSaveRecoveryMessage = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.tacticalSaveCenterBusy = false;
-      this.updateTacticalSaveCenter("load");
-    }
-  }
-
-  private exportTacticalQuarantine(quarantineId: string): void {
-    const record = this.tacticalSaveQuarantine.find((candidate) => candidate.quarantineId === quarantineId);
-    if (!record) return;
-    const blob = new Blob([JSON.stringify(record, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `four-star-quarantine-${record.saveId}.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  private async requestTacticalTurnStartAutosave(): Promise<void> {
-    const runtime = ensureCampaignState().getRuntimeSnapshot();
-    const prefix = this.getTacticalSaveSlotPrefix();
-    const engine = this.battleState.tryGetGameEngine();
-    if (!runtime?.activeEngagementId || !prefix || !engine
-      || !this.battleState.getCampaignBridgeState()
-      || engine.phase !== "playerTurn" || engine.activeFaction !== "Player") return;
-    const turn = engine.turnNumber;
-    await this.tacticalSaveCoordinator.requestAutosave({
-      trigger: "battle-turn-start",
-      slotId: buildTacticalTurnAutosaveSlotId(prefix, turn),
-      label: `Turn ${turn} start`,
-      slotType: "autosave",
-      requestedAt: new Date().toISOString(),
-      dedupeKey: `${runtime.campaignId}:${runtime.activeEngagementId}:turn-start:${turn}`
-    });
-  }
-
-  private async requestBeforeExitTacticalAutosave(): Promise<void> {
-    const runtime = ensureCampaignState().getRuntimeSnapshot();
-    const prefix = this.getTacticalSaveSlotPrefix();
-    const engine = this.battleState.tryGetGameEngine();
-    const availability = this.getCampaignTacticalSaveAvailability();
-    if (!runtime?.activeEngagementId || !prefix || !engine || !availability.stable) return;
-    const requestedAt = new Date().toISOString();
-    await this.tacticalSaveCoordinator.requestAutosave({
-      trigger: "battle-before-exit",
-      slotId: `${prefix}autosave:battle-before-exit`,
-      label: `Before exit · Turn ${engine.turnNumber}`,
-      slotType: "autosave",
-      requestedAt,
-      dedupeKey: `${runtime.campaignId}:${runtime.activeEngagementId}:before-exit:${requestedAt}`
-    });
-  }
-
-  /** Reports whether an exact tactical snapshot can be taken without capturing an in-flight transaction. */
-  getTacticalSaveAvailability(): TacticalSaveAvailability {
-    const engine = this.battleState.tryGetGameEngine();
-    if (!engine || !this.missionRulesController || !this.missionStatus) {
-      return { stable: false, boundary: null, reason: "Battle initialization is not complete." };
-    }
-    if (engine.phase === "completed") {
-      return { stable: false, boundary: null, reason: "The battle is complete and must reconcile with the campaign." };
-    }
-    if (this.cameraFrozen || this.activeAirShowPlaybackCaptureContext || this.deferMissionLogSync
-      || this.initiativeTurnAdvanceInProgress || this.attackConfirmationLocked) {
-      return { stable: false, boundary: null, reason: "A combat or animation transaction is still resolving." };
-    }
-    if (this.pendingAttack || this.pendingIdleTurnAdvance || this.missionEndModal) {
-      return { stable: false, boundary: null, reason: "Finish or cancel the open tactical decision first." };
-    }
-    if (engine.phase !== "deployment" && engine.activeFaction !== "Player") {
-      return { stable: false, boundary: null, reason: "Enemy or allied automation is still resolving." };
-    }
-
-    const initiativeActive = this.initiativeMethods?.isInitiativeSystemActive() === true;
-    const kind = engine.phase === "deployment"
-      ? "deploymentActionComplete" as const
-      : initiativeActive && this.initiativeMethods?.getCurrentActivation() === null
-        ? "activationBoundary" as const
-        : engine.phase === "playerTurn"
-          ? "playerDecision" as const
-          : "turnBoundary" as const;
-    return {
-      stable: true,
-      boundary: {
-        kind,
-        turn: engine.turnNumber,
-        phase: engine.phase,
-        activeFaction: engine.activeFaction
-      },
-      reason: null
     };
   }
 
@@ -8303,7 +7526,8 @@ export class BattleScreen {
       viewport: this.mapViewport ? structuredClone(this.mapViewport.getTransform()) : null,
       animationMode: this.battleAnimationMode,
       accessibilitySettingsReference: "fsg-local-ui-v1",
-      focusedElementId: this.lastTacticalFocusElementId
+      focusedElementId: this.tacticalSaveController?.getLastFocusElementId()
+        ?? this.lastTacticalFocusElementId
         ?? (document.activeElement instanceof HTMLElement && this.element.contains(document.activeElement)
           ? document.activeElement.id || null
           : null),
@@ -8419,7 +7643,11 @@ export class BattleScreen {
     this.pendingTacticalResumePresentation = structuredClone(ui);
     this.highlightCurrentInitiativeGroup();
     this.syncLegacyEndTurnButton();
-    this.lastTacticalFocusElementId = ui.focusedElementId;
+    if (this.tacticalSaveController) {
+      this.tacticalSaveController.setLastFocusElementId(ui.focusedElementId);
+    } else {
+      this.lastTacticalFocusElementId = ui.focusedElementId;
+    }
   }
 
   /** Applies camera, selection, popup, and focus only after ScreenManager makes the battle measurable. */
@@ -8456,6 +7684,7 @@ export class BattleScreen {
       this.battleUpdateUnsubscribe();
       this.battleUpdateUnsubscribe = null;
     }
+    this.tacticalSaveController?.dispose();
     if (this.tacticalSaveCoordinatorUnsubscribe) {
       this.tacticalSaveCoordinatorUnsubscribe();
       this.tacticalSaveCoordinatorUnsubscribe = null;
@@ -8468,8 +7697,6 @@ export class BattleScreen {
     this.tacticalSaveCenter = null;
     window.removeEventListener("keydown", this.keyboardNavigationHandler);
     document.removeEventListener("screen:shown", this.screenShownHandler);
-    document.removeEventListener("visibilitychange", this.tacticalDocumentVisibilityHandler);
-    document.removeEventListener("campaign:battle:saves-open", this.tacticalSaveCenterOpenHandler);
     document.removeEventListener("pointerdown", this.settingsDocumentPointerHandler);
     document.removeEventListener("keydown", this.settingsDocumentKeydownHandler);
     document.removeEventListener("fullscreenchange", this.fullscreenChangeHandler);
@@ -8658,10 +7885,10 @@ export class BattleScreen {
       void this.handleToggleBattleFullscreen();
     });
     this.battleSaveButton?.addEventListener("click", () => {
-      void this.openTacticalSaveCenter("save", this.battleSaveButton);
+      void this.tacticalSaveController.open("save", this.battleSaveButton);
     });
     this.battleLoadButton?.addEventListener("click", () => {
-      void this.openTacticalSaveCenter("load", this.battleLoadButton);
+      void this.tacticalSaveController.open("load", this.battleLoadButton);
     });
     document.addEventListener("fullscreenchange", this.fullscreenChangeHandler);
     this.updateFullscreenToggleButton();
@@ -9658,61 +8885,12 @@ export class BattleScreen {
   }
 
   private resolveMissionEndResolution(): MissionEndResolution {
-    const missionStatus = this.missionStatus;
-    if (missionStatus && missionStatus.objectives.length > 0 && missionStatus.outcome.state !== "inProgress") {
-      const objectivesCompleted = missionStatus.objectives.filter((objective) => objective.state === "completed").length;
-      const objectivesFailed = missionStatus.objectives.filter((objective) => objective.state === "failed").length;
-      const objectivesContested = missionStatus.objectives.filter((objective) => objective.state === "inProgress" || objective.state === "pending").length;
-      const casualties = this.computePlayerCasualties();
-      const success = missionStatus.outcome.state === "playerVictory";
-      const reason = missionStatus.outcome.reason
-        ? `${missionStatus.outcome.reason} Objective board: ${objectivesCompleted} completed, ${objectivesFailed} failed, ${objectivesContested} contested.`
-        : `Objective board: ${objectivesCompleted} completed, ${objectivesFailed} failed, ${objectivesContested} contested.`;
-      return {
-        success,
-        objectivesCompleted,
-        objectivesFailed,
-        objectivesContested,
-        casualties,
-        reason,
-        headquartersTitle: success ? "Mission completed successfully." : "Mission failed.",
-        headquartersAction: success
-          ? "Review the updated front and headquarters ledgers, then queue the next engagement when ready."
-          : "Review the updated front, losses, and objective board before committing the next patrol.",
-      };
-    }
-
-    const casualties = this.computePlayerCasualties();
-    const objectivesCompleted = 0;
-    const success = false;
-    return {
-      success,
-      objectivesCompleted,
-      objectivesFailed: 0,
-      objectivesContested: 0,
-      casualties,
-      reason: "Mission report used manual commander input while mission-specific objective hooks are still maturing.",
-      headquartersTitle: success ? "Mission completed successfully." : "Mission ended.",
-      headquartersAction: success
-        ? "Review the updated front and headquarters ledgers, then queue the next engagement when ready."
-        : "Review the campaign state immediately. If the front or resources did not update, reload before continuing."
-    };
+    return resolveBattleMissionEndResolution(this.missionStatus, this.computePlayerCasualties());
   }
 
   private computePlayerCasualties(): number {
-    const initialUnitCount = this.scenario.sides.Player.units.length;
-    if (!this.battleState || typeof (this.battleState as BattleState).hasEngine !== "function") {
-      return 0;
-    }
-    if (!(this.battleState as BattleState).hasEngine()) {
-      return 0;
-    }
-    try {
-      const engine = (this.battleState as BattleState).ensureGameEngine();
-      return Math.max(0, initialUnitCount - engine.playerUnits.length);
-    } catch {
-      return 0;
-    }
+    const currentUnits = this.battleState.getMissionReportingSnapshot?.()?.currentPlayerUnits ?? [];
+    return calculateUnitLosses(this.scenario.sides.Player.units, currentUnits).reduce((total, loss) => total + loss.count, 0);
   }
 
   /**
@@ -9725,187 +8903,27 @@ export class BattleScreen {
       return null;
     }
 
-    if (typeof (this.battleState as BattleState).hasEngine !== "function" || !(this.battleState as BattleState).hasEngine()) {
+    const reportingSnapshot = this.battleState.getMissionReportingSnapshot();
+    if (!reportingSnapshot) {
       console.warn("[BattleScreen] Cannot collect mission statistics: no game engine");
       return null;
     }
 
     try {
-      const engine = (this.battleState as BattleState).ensureGameEngine();
       const missionInfo = this.battleState.getPrecombatMissionInfo();
-      const missionKey = missionInfo?.missionKey ?? "unknown";
-      const missionTitle = this.uiState?.getSelectedMissionTitle() ?? "Unknown Mission";
-
-      // Calculate units deployed by type
-      const deployedUnits = this.scenario.sides.Player.units;
-      const unitsDeployed = this.aggregateUnitCounts(deployedUnits);
-
-      // Calculate casualties by comparing deployed to current
-      const currentPlayerUnits = engine.playerUnits;
-      const casualties = this.calculateUnitDifference(deployedUnits, currentPlayerUnits);
-
-      // Calculate enemies destroyed
-      const initialEnemyUnits = this.getInitialEnemyUnits();
-      const currentEnemyUnits = engine.botUnits;
-      const enemiesDestroyed = this.calculateUnitDifference(initialEnemyUnits, currentEnemyUnits);
-
-      // Track ammunition expenditure (approximation from supply history)
-      const ammunition = this.calculateAmmunitionExpenditure();
-
-      // Parse objectives by tier
-      const objectives = this.parseObjectivesByTier();
-
-      // Capture sortie-level losses separately so reserve-launched aircraft are represented in the mission record.
-      const airOperations = this.collectAirOperationsSummary(engine);
-
-      // Determine mission success
-      const success = this.missionStatus.outcome.state === "playerVictory";
-
-      // Get turn count
-      const turnsElapsed = this.missionStatus.turn;
-
-      return {
-        missionKey,
-        missionTitle,
+      return buildBattleMissionRecord({
+        ...reportingSnapshot,
+        missionKey: missionInfo?.missionKey ?? "unknown",
+        missionTitle: this.uiState?.getSelectedMissionTitle() ?? "Unknown Mission",
         completedAt: new Date().toISOString(),
-        success,
-        turnsElapsed,
-        casualties,
-        enemiesDestroyed,
-        unitsDeployed,
-        ammunition,
-        objectives,
-        airOperations
-      };
+        missionStatus: this.missionStatus,
+        initialPlayerUnits: this.scenario.sides.Player.units,
+        initialBotUnits: this.scenario.sides.Bot?.units ?? []
+      });
     } catch (error) {
       console.error("[BattleScreen] Error collecting mission statistics:", error);
       return null;
     }
-  }
-
-  /**
-   * Aggregates unit counts by type from an array of scenario units.
-   */
-  private aggregateUnitCounts(units: readonly ScenarioUnit[]): UnitTypeCount[] {
-    const counts = new Map<string, number>();
-
-    for (const unit of units) {
-      const type = unit.type;
-      counts.set(type, (counts.get(type) ?? 0) + 1);
-    }
-
-    return Array.from(counts.entries())
-      .map(([type, count]) => ({ type, count }))
-      .sort((a, b) => b.count - a.count);
-  }
-
-  /**
-   * Calculates the difference between initial and current unit counts.
-   * Returns units that were lost (in initial but not in current).
-   */
-  private calculateUnitDifference(initialUnits: readonly ScenarioUnit[], currentUnits: readonly ScenarioUnit[]): UnitTypeCount[] {
-    const initialCounts = new Map<string, number>();
-    const currentCounts = new Map<string, number>();
-
-    for (const unit of initialUnits) {
-      initialCounts.set(unit.type, (initialCounts.get(unit.type) ?? 0) + 1);
-    }
-
-    for (const unit of currentUnits) {
-      currentCounts.set(unit.type, (currentCounts.get(unit.type) ?? 0) + 1);
-    }
-
-    const differences: UnitTypeCount[] = [];
-    for (const [type, initialCount] of initialCounts.entries()) {
-      const currentCount = currentCounts.get(type) ?? 0;
-      const lost = initialCount - currentCount;
-      if (lost > 0) {
-        differences.push({ type, count: lost });
-      }
-    }
-
-    return differences.sort((a, b) => b.count - a.count);
-  }
-
-  /**
-   * Gets initial enemy units from scenario data.
-   */
-  private getInitialEnemyUnits(): readonly ScenarioUnit[] {
-    // Get Bot faction units
-    const enemySide = this.scenario.sides.Bot;
-    return enemySide?.units ?? [];
-  }
-
-  /**
-   * Calculates ammunition expenditure from supply history.
-   * This is an approximation based on ammo consumption patterns.
-   */
-  private calculateAmmunitionExpenditure(): AmmunitionExpenditure {
-    try {
-      const supplyHistory = this.battleState.getSupplyHistory("Player");
-      if (!supplyHistory || supplyHistory.length === 0) {
-        return { bombsDropped: 0, artilleryShellsFired: 0, rocketsFired: 0, smallArmsRounds: 0 };
-      }
-
-      // Extract ammo from categories
-      const initialSnapshot = supplyHistory[0];
-      const finalSnapshot = supplyHistory[supplyHistory.length - 1];
-
-      const initialAmmo = initialSnapshot?.categories?.find(c => c.resource === "ammo")?.total ?? 0;
-      const finalAmmo = finalSnapshot?.categories?.find(c => c.resource === "ammo")?.total ?? 0;
-      const totalAmmoUsed = Math.max(0, initialAmmo - finalAmmo);
-
-      // Estimate ammunition breakdown based on unit types deployed
-      // This is approximate - actual tracking would require engine modifications
-      const deployedUnits = this.scenario.sides.Player.units;
-      const hasBombers = deployedUnits.some(u => u.type.toLowerCase().includes("bomber"));
-      const hasArtillery = deployedUnits.some(u => u.type.toLowerCase().includes("artillery") || u.type.toLowerCase().includes("howitzer"));
-      const hasRockets = deployedUnits.some(u => u.type.toLowerCase().includes("rocket"));
-
-      return {
-        bombsDropped: hasBombers ? Math.floor(totalAmmoUsed * 0.15) : 0,
-        artilleryShellsFired: hasArtillery ? Math.floor(totalAmmoUsed * 0.30) : 0,
-        rocketsFired: hasRockets ? Math.floor(totalAmmoUsed * 0.20) : 0,
-        smallArmsRounds: Math.floor(totalAmmoUsed * 0.35)
-      };
-    } catch {
-      return {
-        bombsDropped: 0,
-        artilleryShellsFired: 0,
-        rocketsFired: 0,
-        smallArmsRounds: 0
-      };
-    }
-  }
-
-  /**
-   * Parses mission objectives by tier (primary/secondary/tertiary).
-   */
-  private parseObjectivesByTier(): ObjectiveCompletion {
-    if (!this.missionStatus?.objectives) {
-      return {
-        primaryCompleted: 0,
-        primaryTotal: 0,
-        secondaryCompleted: 0,
-        secondaryTotal: 0,
-        tertiaryCompleted: 0,
-        tertiaryTotal: 0
-      };
-    }
-
-    const objectives = this.missionStatus.objectives;
-    const primary = objectives.filter(obj => obj.tier === "primary");
-    const secondary = objectives.filter(obj => obj.tier === "secondary");
-    const tertiary = objectives.filter(obj => obj.tier === "tertiary");
-
-    return {
-      primaryCompleted: primary.filter(obj => obj.state === "completed").length,
-      primaryTotal: primary.length,
-      secondaryCompleted: secondary.filter(obj => obj.state === "completed").length,
-      secondaryTotal: secondary.length,
-      tertiaryCompleted: tertiary.filter(obj => obj.state === "completed").length,
-      tertiaryTotal: tertiary.length
-    };
   }
 
   /**
@@ -10606,10 +9624,17 @@ export class BattleScreen {
       tutorialState.isTutorialActive() &&
       tutorialState.getCurrentPhase() === "spend_activation"
     ) {
-      const proceeded = await this.handleProceedToNext({ bypassConfirmation: true });
-      if (proceeded) {
-        this.completeTutorialPhase("spend_activation");
+      const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
+      const intent = resolveTutorialNextGroupIntent(queue);
+      if (intent.taughtInitiative === null) return;
+      if (intent.activePlayerBandMatches) {
+        const proceeded = await this.handleProceedToNext({ bypassConfirmation: true });
+        if (!proceeded) return;
+      } else {
+        intent.deferredPlayerUnitIds.forEach((unitId) => this.initiativeSkippedUnitIds.add(unitId));
+        this.flushSkippedInitiativeActivations();
       }
+      this.completeTutorialPhase("spend_activation");
       return;
     }
 
@@ -11060,40 +10085,8 @@ export class BattleScreen {
     return this.toOffsetHexKey(unit?.hex);
   }
 
-  private resolveActiveInitiativeGroup(currentQueue: any): {
-    initiative: number;
-    ownerId: "player" | "bot";
-    activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
-  } | null {
-    if (!currentQueue || !Array.isArray(currentQueue.activations) || currentQueue.activations.length === 0) {
-      return null;
-    }
-
-    const startIndex = typeof currentQueue.currentIndex === "number" ? currentQueue.currentIndex : 0;
-    const activeActivation = currentQueue.activations.find(
-      (activation: { isActivated: boolean }, index: number) => index >= startIndex && !activation.isActivated
-    );
-
-    if (!activeActivation) {
-      return null;
-    }
-
-    const groupedActivations = currentQueue.activations.filter(
-      (
-        activation: { ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number },
-        index: number
-      ) =>
-        index >= startIndex &&
-        !activation.isActivated &&
-        activation.ownerId === activeActivation.ownerId &&
-        activation.initiative === activeActivation.initiative
-    );
-
-    return {
-      initiative: activeActivation.initiative,
-      ownerId: activeActivation.ownerId,
-      activations: groupedActivations
-    };
+  private resolveActiveInitiativeGroup(currentQueue: any): TutorialInitiativeGroup | null {
+    return projectActiveInitiativeGroup(currentQueue);
   }
 
   /**
@@ -11811,7 +10804,7 @@ export class BattleScreen {
     fromKey: string | null,
     toKey: string | null
   ): void {
-    const unitLabel = this.toTitleCase(event.unitType ?? "Unit");
+    const unitLabel = resolveFactionUnitTypeLabel(event.unitType ?? "Unit", event.ownerId === "player" ? "Player" : "Bot");
     const eventVisibleBefore = Boolean(event.visibleBefore);
     const eventVisibleAfter = Boolean(event.visibleAfter);
 
@@ -11855,7 +10848,7 @@ export class BattleScreen {
       const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
       const retaliationDamage = attack.retaliation ? this.formatDamageAmount(attack.retaliation.damage) : null;
       const retaliationSummary = retaliationDamage ? ` Counterfire dealt ${retaliationDamage} damage.` : "";
-      const attackerLabel = this.toTitleCase(attack.attackerType);
+      const attackerLabel = resolveFactionUnitTypeLabel(attack.attackerType, "Bot");
       const defenderLabel = this.toTitleCase(attack.defenderType);
       const summary = attackerVisible
         ? `Enemy ${attackerLabel} attacked ${defenderLabel} from ${attackerHex} to ${targetHex} for ${damage} damage.${effects}${destructionNote}${retaliationSummary}`
@@ -12066,10 +11059,10 @@ export class BattleScreen {
    * Reveals the activity log column once the battle phase begins so commanders can monitor events.
    */
   private showActivityLogAfterDeployment(): void {
-    this.battleActivityLog?.show();
-    this.reflectActivityLogState(false);
+    const compactDrawer = window.matchMedia?.("(max-width: 980px)").matches ?? false;
+    this.battleActivityLog?.show(compactDrawer);
+    this.reflectActivityLogState(compactDrawer);
   }
-
   /**
    * Synchronizes the activity log's collapsed state with the grid container for smooth column transitions.
    */
@@ -12232,6 +11225,12 @@ export class BattleScreen {
   }
 
   private handleToggleSound(): void {
+    const availability = this.hexMapRenderer?.getSoundAvailability?.();
+    if (availability && !availability.available) {
+      this.announceBattleUpdate(`${availability.reason ?? "Combat audio is unavailable."} Use a browser with Web Audio support.`);
+      this.updateSoundToggleButton(this.soundEnabled);
+      return;
+    }
     const nextEnabled = !this.soundEnabled;
     this.persistSoundEnabledPreference(nextEnabled);
     this.applySoundPreference(nextEnabled);
@@ -12248,7 +11247,22 @@ export class BattleScreen {
       return;
     }
 
+    const availability = this.hexMapRenderer?.getSoundAvailability?.();
     const valueElement = this.soundToggleButton.querySelector<HTMLElement>("[data-settings-value]");
+    if (availability && !availability.available) {
+      if (valueElement) valueElement.textContent = "Unavailable";
+      else this.soundToggleButton.textContent = "Battle Sound: Unavailable";
+      const reason = availability.reason ?? "Combat audio is unavailable in this browser.";
+      this.soundToggleButton.setAttribute("aria-pressed", "false");
+      this.soundToggleButton.setAttribute("aria-checked", "false");
+      this.soundToggleButton.setAttribute("aria-disabled", "true");
+      this.soundToggleButton.setAttribute("aria-label", `${reason} Use a browser with Web Audio support.`);
+      this.soundToggleButton.title = `${reason} Use a browser with Web Audio support.`;
+      this.soundToggleButton.dataset.soundEnabled = "false";
+      this.soundToggleButton.dataset.soundPreference = enabled ? "true" : "false";
+      this.soundToggleButton.disabled = true;
+      return;
+    }
     if (valueElement) {
       valueElement.textContent = enabled ? "On" : "Off";
     } else {
@@ -12262,6 +11276,8 @@ export class BattleScreen {
     );
     this.soundToggleButton.title = "Battle Sound plays movement, weapon, and battlefield effects.";
     this.soundToggleButton.dataset.soundEnabled = enabled ? "true" : "false";
+    this.soundToggleButton.dataset.soundPreference = enabled ? "true" : "false";
+    this.soundToggleButton.removeAttribute("aria-disabled");
     this.soundToggleButton.disabled = !this.hexMapRenderer;
   }
 
@@ -13080,6 +12096,18 @@ export class BattleScreen {
       if (hexModifications.length > 0) {
         terrainNotes.push(`${this.toTitleCase(this.describeHexModificationCollection(hexModifications))} remain in place here.`);
       }
+      const recoverySites = typeof (engine as Partial<GameEngine>).getRecoverySiteSnapshots === "function"
+        ? engine.getRecoverySiteSnapshots("Player").filter((site) => site.hex.q === axial.q && site.hex.r === axial.r)
+        : [];
+      if (recoverySites.length > 0) {
+        const personnel = recoverySites.reduce((sum, site) => sum + [site.status, site.staged]
+          .reduce((siteSum, status) => siteSum + Object.values(status.personnel)
+            .reduce((poolSum, pool) => poolSum + pool.fit + pool.injured + pool.wounded + pool.severelyWounded, 0), 0), 0);
+        const equipment = recoverySites.reduce((sum, site) => sum + [site.status, site.staged]
+          .reduce((siteSum, status) => siteSum + Object.values(status.equipment)
+            .reduce((poolSum, pool) => poolSum + pool.operational + pool.damaged + pool.disabled, 0), 0), 0);
+        terrainNotes.push(`Recovery site: ${personnel} personnel and ${equipment} equipment. Medical and maintenance teams are routing here.`);
+      }
       if (terrainNotes.length === 0) {
         terrainNotes.push("Hex unoccupied.");
       }
@@ -13459,6 +12487,35 @@ export class BattleScreen {
       );
       return;
     }
+    if (actionId === "leaveCasualtiesBehind") {
+      if (!commandState?.canLeaveCasualtiesBehind || !commandState.leaveCasualtiesBehindPreview) {
+        this.announceBattleUpdate(commandState?.leaveCasualtiesBehindReason ?? "This formation cannot establish a recovery site right now.");
+        return;
+      }
+      const resolution = engine.leaveCasualtiesBehind(axial, this.selectedPlayerUnitId ?? undefined);
+      if (!resolution) {
+        this.announceBattleUpdate("The recovery site could not be established.");
+        return;
+      }
+      const casualty = resolution.preview.summary;
+      summary = `${unitLabel} left ${casualty.personnel} wounded personnel and ${casualty.equipment} damaged or disabled equipment at ${this.selectedHexKey} for recovery.`;
+      this.renderEngineUnits();
+      this.applySelectedHex(this.selectedHexKey, true);
+      this.announceBattleUpdate(summary);
+      this.publishActivityEvent({
+        category: "player",
+        type: "log",
+        summary,
+        details: {
+          recoverySiteId: resolution.site.siteId,
+          personnel: casualty.personnel,
+          equipment: casualty.equipment,
+          mobilityPenaltyRemoved: resolution.preview.mobilityBefore.burdenRatio * 100
+        }
+      });
+      this.battleState.emitBattleUpdate("manual");
+      return;
+    }
     if (actionId === "enterSentry") {
       succeeded = engine.enterSentry(axial, this.selectedPlayerUnitId ?? undefined);
       summary = `${unitLabel} went on sentry at ${this.selectedHexKey}.`;
@@ -13552,57 +12609,6 @@ export class BattleScreen {
     }
     this.battleState.emitBattleUpdate("manual");
     this.completeInitiativeActivationAfterPlayerOrder(actedUnitId);
-  }
-
-  private collectAirOperationsSummary(engine: GameEngine): AirOperationsSummary | undefined {
-    const reports = engine.getAirMissionReports().filter(
-      (entry) => entry.faction === "Player" && entry.event !== "refitStarted" && entry.event !== "refitCompleted"
-    );
-    if (reports.length === 0) {
-      return undefined;
-    }
-
-    const livePlayerAirUnits = new Set<string>();
-    [...(engine.playerUnits ?? []), ...(engine.reserveUnits ?? []).map((entry) => entry.unit)].forEach((unit) => {
-      if (unit.unitId) {
-        livePlayerAirUnits.add(unit.unitId);
-      }
-    });
-
-    let airCombatDamageInflicted = 0;
-    let airCombatDamageTaken = 0;
-    let hostileFlightsDestroyed = 0;
-    const participatingPlayerFlights = new Set<string>();
-
-    for (const report of reports) {
-      participatingPlayerFlights.add(report.unitKey);
-      hostileFlightsDestroyed += Math.max(0, report.kills?.escorts ?? 0) + Math.max(0, report.kills?.cap ?? 0);
-
-      if (report.kind === "strike") {
-        airCombatDamageTaken += Math.max(0, report.bomberAttrition ?? 0);
-        airCombatDamageInflicted += Math.max(0, report.interceptorAttrition ?? 0) + Math.max(0, report.escortAttrition ?? 0);
-      } else if (report.kind === "escort") {
-        airCombatDamageTaken += Math.max(0, report.escortAttrition ?? 0);
-        airCombatDamageInflicted += Math.max(0, report.interceptorAttrition ?? 0);
-      } else if (report.kind === "airCover") {
-        airCombatDamageTaken += Math.max(0, report.interceptorAttrition ?? 0);
-        airCombatDamageInflicted += Math.max(0, report.bomberAttrition ?? 0) + Math.max(0, report.escortAttrition ?? 0);
-      }
-    }
-
-    const playerFlightsLost = Array.from(participatingPlayerFlights).filter((unitKey) => !livePlayerAirUnits.has(unitKey)).length;
-
-    return {
-      sortiesFlown: reports.length,
-      strikeSorties: reports.filter((entry) => entry.kind === "strike").length,
-      escortSorties: reports.filter((entry) => entry.kind === "escort").length,
-      patrolSorties: reports.filter((entry) => entry.kind === "airCover").length,
-      transportSorties: reports.filter((entry) => entry.kind === "airTransport").length,
-      airCombatDamageInflicted,
-      airCombatDamageTaken,
-      hostileFlightsDestroyed,
-      playerFlightsLost
-    };
   }
 
   /**
@@ -13881,74 +12887,12 @@ export class BattleScreen {
     this.announceBattleUpdate(`${error.title} ${error.action}`);
   }
 
-  private formatActivityDetailLabel(key: string): string {
-    return key
-      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-      .replace(/[_-]+/g, " ")
-      .trim()
-      .replace(/\b\w/g, (char) => char.toUpperCase());
-  }
-
-  private formatActivityDetailValue(value: unknown): string {
-    if (value === null || value === undefined) {
-      return "-";
-    }
-    if (typeof value === "string") {
-      return value;
-    }
-    if (typeof value === "number") {
-      if (!Number.isFinite(value)) {
-        return "-";
-      }
-      return Number.isInteger(value) ? value.toString() : this.formatReadinessValue(value);
-    }
-    if (typeof value === "boolean") {
-      return value ? "Yes" : "No";
-    }
-    if (Array.isArray(value)) {
-      if (value.length <= 0) {
-        return "-";
-      }
-      const rendered = value.map((entry) => this.formatActivityDetailValue(entry));
-      const joined = rendered.join(", ");
-      return joined.length > 280 ? `${joined.slice(0, 277)}...` : joined;
-    }
-    try {
-      const json = JSON.stringify(value);
-      if (!json) {
-        return "-";
-      }
-      return json.length > 280 ? `${json.slice(0, 277)}...` : json;
-    } catch {
-      return String(value);
-    }
-  }
-
-  private buildGenericActivityDetailSections(
-    details: Record<string, unknown> | undefined
-  ): readonly ActivityDetailSection[] | undefined {
-    if (!details) {
-      return undefined;
-    }
-    const entries = Object.entries(details).filter(([, value]) => value !== undefined);
-    if (entries.length <= 0) {
-      return undefined;
-    }
-    return [{
-      title: "Technical Data",
-      entries: entries.map(([key, value]) => ({
-        label: this.formatActivityDetailLabel(key),
-        value: this.formatActivityDetailValue(value)
-      }))
-    }];
-  }
-
   /**
    * Records a battle activity event while respecting log caps and updating the sidebar feed.
    */
   private publishActivityEvent(event: ActivityEventInput): void {
     this.activityEventSequence += 1;
-    const detailSections = event.detailSections ?? this.buildGenericActivityDetailSections(event.details);
+    const detailSections = event.detailSections ?? buildGenericActivityDetails(event.details);
     const activity: ActivityEvent = {
       id: `activity_${this.activityEventSequence}`,
       timestamp: new Date().toISOString(),
@@ -14040,7 +12984,7 @@ export class BattleScreen {
 
     if (preview) {
       const attackerLabel = this.toTitleCase(preview.attacker.type);
-      const defenderLabel = this.toTitleCase(preview.defender.type);
+      const defenderLabel = resolveFactionUnitTypeLabel(preview.defender.type, "Bot");
       
       // Mirror the canonical engine classification so activity details cannot disagree with combat math.
       const defenderDef = this.unitTypes?.[preview.defender.type as keyof UnitTypeDictionary];
@@ -14325,6 +13269,14 @@ export class BattleScreen {
       } else if (commandState.suppressionState === "suppressed") {
         chips.push({ label: "Suppressed", tone: "warning" });
       }
+      if (commandState.mobilityBurdenPercent > 0) {
+        const source = commandState.mobilityBasis === "equipment" ? "damage" : "wounded";
+        chips.push({
+          label: `Mobility -${commandState.mobilityBurdenPercent.toFixed(commandState.mobilityBurdenPercent % 1 === 0 ? 0 : 1)}%`,
+          tone: "warning",
+          tooltip: `${source} reduce this formation's movement allowance on a one-for-one percentage scale.`
+        });
+      }
       if (commandState.existingHexModifications.length > 0) {
         chips.push({
           label: this.formatHexModificationCollectionLabel(commandState.existingHexModifications),
@@ -14347,6 +13299,17 @@ export class BattleScreen {
     }
 
     const actions: BattleIntelAction[] = [];
+    if (commandState.leaveCasualtiesBehindPreview) {
+      const casualty = commandState.leaveCasualtiesBehindPreview.summary;
+      actions.push({
+        id: "leaveCasualtiesBehind",
+        label: "Leave Casualties",
+        detail: `Establish a recovery site here with ${casualty.personnel} wounded personnel and ${casualty.equipment} damaged or disabled equipment. Medics and maintenance teams will move to this hex; enemy occupation destroys what remains.`,
+        tone: "mobility",
+        available: commandState.canLeaveCasualtiesBehind,
+        reason: commandState.leaveCasualtiesBehindReason
+      });
+    }
     if (commandState.towState === "deployed") {
       actions.push({
         id: "moveOutTow",
@@ -15022,11 +13985,38 @@ export class BattleScreen {
     if (renderer.clearDebugMarkers) {
       renderer.clearDebugMarkers();
     }
+    if (typeof renderer.clearRecoverySiteMarkers === "function") {
+      renderer.clearRecoverySiteMarkers();
+    }
     if (typeof renderer.clearAllHexModifications === "function") {
       renderer.clearAllHexModifications();
     }
 
     const engine = this.battleState.ensureGameEngine();
+    const recoveryByHex = new Map<string, { personnel: number; equipment: number; labels: string[] }>();
+    const recoverySites = typeof (engine as Partial<GameEngine>).getRecoverySiteSnapshots === "function"
+      ? engine.getRecoverySiteSnapshots("Player")
+      : [];
+    recoverySites.forEach((site) => {
+      const { col, row } = CoordinateSystem.axialToOffset(site.hex.q, site.hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(col, row);
+      const personnel = [site.status, site.staged].reduce((sum, status) => sum + Object.values(status.personnel)
+        .reduce((poolSum, pool) => poolSum + pool.fit + pool.injured + pool.wounded + pool.severelyWounded, 0), 0);
+      const equipment = [site.status, site.staged].reduce((sum, status) => sum + Object.values(status.equipment)
+        .reduce((poolSum, pool) => poolSum + pool.operational + pool.damaged + pool.disabled, 0), 0);
+      const bucket = recoveryByHex.get(hexKey) ?? { personnel: 0, equipment: 0, labels: [] };
+      bucket.personnel += personnel;
+      bucket.equipment += equipment;
+      bucket.labels.push(`${site.displayName} (${site.state})`);
+      recoveryByHex.set(hexKey, bucket);
+    });
+    if (typeof renderer.renderRecoverySiteMarker === "function") {
+      recoveryByHex.forEach((recovery, hexKey) => renderer.renderRecoverySiteMarker(hexKey, {
+        personnel: recovery.personnel,
+        equipment: recovery.equipment,
+        tooltip: `Recovery site: ${recovery.labels.join(", ")}. ${recovery.personnel} personnel and ${recovery.equipment} equipment awaiting or completing recovery.`
+      }));
+    }
     if (typeof renderer.renderHexModifications === "function" || typeof renderer.renderHexModification === "function") {
       const modificationsByHex = new Map<string, HexModification[]>();
       engine.getHexModificationSnapshots().forEach((modification) => {
@@ -15212,15 +14202,9 @@ export class BattleScreen {
   }
 
   private describeEnemyContact(contact: EnemyContactSnapshot): string {
-    const label = this.formatScenarioUnitTypeLabel(contact.unitType ?? "Enemy Unit");
+    const label = resolveFactionUnitTypeLabel(contact.unitType ?? "Enemy Unit", "Bot");
     const strength = Math.max(0, Math.round(contact.strengthEstimate ?? 0));
     return `${label} at ${strength}% strength`;
-  }
-
-  private formatScenarioUnitTypeLabel(unitType: string): string {
-    return unitType
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (segment) => segment.toUpperCase());
   }
 
   private clampDisplayedDamage(value: number): number {

@@ -11,7 +11,6 @@
 
 import { registerTest } from "./harness.js";
 import { requireContestedAirScenario, runAirScenario, sampleAirScenarioTrack, sampleSharedAirScenarioIngress } from "./airScenarioSupport.js";
-import { buildCoordinatedAirClusterTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
 import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_EXPECTED_SPEED_RATIO,
@@ -89,7 +88,7 @@ registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async 
     result = runAirScenario();
   });
 
-  await Then("pre-target bomber phases should add up to the sampled bomber corridor time while preserving a delayed bomber lead window", async () => {
+  await Then("pre-target bomber phases should add up to sampled corridor time and expose ingress starts through the finalized timeline", async () => {
     const coordinatedPlan = requireContestedAirScenario(result);
     const phaseTimingAudit = coordinatedPlan.sceneReport.phaseTimingAudit;
     const preTargetBomberAudits = phaseTimingAudit
@@ -125,24 +124,21 @@ registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async 
       );
     }
 
-    const configuredLeadFloor = buildCoordinatedAirClusterTimingPolicy().bomberStartDelayMs;
-    if (!Number.isFinite(coordinatedPlan.bomberStartDelayMs) || coordinatedPlan.bomberStartDelayMs < configuredLeadFloor) {
-      throw new Error(
-        `Expected coordinated bomber lead window >= ${configuredLeadFloor}ms, ` +
-        `saw ${coordinatedPlan.bomberStartDelayMs}ms.`
-      );
+    const timeline = coordinatedPlan.sceneTimeline;
+    if (!timeline) {
+      throw new Error("Expected the finalized coordinated timeline.");
+    }
+    const fighterStartMs = Math.min(...timeline.tracks.filter((track) => track.role !== "bomber").map((track) => track.visibleFromMs));
+    const bomberStartMs = Math.min(...timeline.tracks.filter((track) => track.role === "bomber").map((track) => track.visibleFromMs));
+    if (!Number.isFinite(fighterStartMs) || !Number.isFinite(bomberStartMs)) {
+      throw new Error(`Expected finite finalized ingress starts, saw fighter=${fighterStartMs}ms bomber=${bomberStartMs}ms.`);
     }
 
     console.log(
       `[INGRESS DURATION] sampledActivePreTarget=${sampledPreTargetDurationMs.toFixed(0)}ms canonical=${canonicalDurationMs.toFixed(0)}ms ` +
       `path=${sampledBomberPathPx.toFixed(1)}px`
     );
-    if (coordinatedPlan) {
-      console.log(
-        `[INGRESS DURATION] bomberLead=${coordinatedPlan.bomberStartDelayMs}ms ` +
-        `(policy floor ${configuredLeadFloor}ms)`
-      );
-    }
+    console.log(`[INGRESS DURATION] finalizedBomberMinusFighterStart=${(bomberStartMs - fighterStartMs).toFixed(0)}ms`);
   });
 });
 

@@ -83,7 +83,7 @@ registerTest("FSG_CAM_095_ACTUAL_SCREEN_REPORT_REFRESH_ACKNOWLEDGE_AND_INVOKER",
     assert.ok(panel.contains(document.activeElement), "Automatic report entry must finish inside its modal after Screen rendering.");
     key(document.activeElement!, "Escape");
     assert.equal(document.activeElement, required(root, "#campaignCommandReports"), "Automatic entry without a valid invoker returns to Reports.");
-    const invoker = reportInvoker(root); invoker.focus(); invoker.click();
+    const invoker = reportInvoker(root); invoker.click();
     assert.ok(panel.contains(document.activeElement), "Archive open must not finish on a workspace tab.");
     assert.equal(document.activeElement, required(root, ".campaign-aar-card__header [data-close-campaign-aar]"));
     const archive = required(root, "[data-aar-report-id]"); archive.focus(); archive.click();
@@ -98,6 +98,43 @@ registerTest("FSG_CAM_095_ACTUAL_SCREEN_REPORT_REFRESH_ACKNOWLEDGE_AND_INVOKER",
     key(document.activeElement!, "Escape");
     assert.equal(panel.hidden, true);
     assert.equal(document.activeElement, invoker, "Closing must restore the exact still-valid archive invoker.");
+  } finally { fixture.cleanup(); }
+});
+
+registerTest("FSG_CAM_095_REPORT_CLOSE_RETRIES_ONLY_LOST_WEBKIT_FOCUS", async () => {
+  const fixture = mountScreen(postBattle());
+  const { root } = fixture;
+  try {
+    key(document.activeElement!, "Escape");
+    const invoker = reportInvoker(root); invoker.focus(); invoker.click();
+    const continuation = required(root, "[data-continue-campaign-aar]");
+    continuation.focus();
+    const nativeFocus = invoker.focus.bind(invoker);
+    let focusAttempts = 0;
+    invoker.focus = (options?: FocusOptions) => {
+      focusAttempts++;
+      if (focusAttempts > 1) nativeFocus(options);
+    };
+    key(continuation, "Escape");
+    assert.equal(required(root, "#campaignAfterActionPanel").hidden, true);
+    assert.equal(document.activeElement, continuation, "A failed immediate engine focus remains inside the newly hidden modal.");
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    assert.equal(document.activeElement, invoker, "The next layout frame restores the archive trigger after focus is lost.");
+    assert.equal(focusAttempts, 2);
+    assert.equal(root.querySelector(".campaign-command-shell")?.getAttribute("data-workspace-expanded"), "true");
+
+    invoker.focus = nativeFocus;
+    invoker.click();
+    const nextContinuation = required(root, "[data-continue-campaign-aar]");
+    nextContinuation.focus();
+    let guardedAttempts = 0;
+    invoker.focus = () => { guardedAttempts++; };
+    key(nextContinuation, "Escape");
+    const newerTarget = required(root, "#campaignCommandReports");
+    newerTarget.focus();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    assert.equal(document.activeElement, newerTarget, "A valid newer focus owner must not be stolen by the deferred retry.");
+    assert.equal(guardedAttempts, 1, "Only the immediate restore may run after another control owns focus.");
   } finally { fixture.cleanup(); }
 });
 

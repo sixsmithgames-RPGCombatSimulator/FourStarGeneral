@@ -525,8 +525,10 @@ registerTest("BATTLESCREEN_CAMPAIGN_MAP_POINTS_NEVER_RENDER_PLACEHOLDER_OBJECTIV
   await Then("the card gives that point an actionable order and map status", () => {
     if (indexElement.textContent !== "Tactical Objective 3 of 4"
       || titleElement.textContent !== "Secure Engagement Point 3"
-      || statusElement.textContent !== "Open"
+      || statusElement.textContent !== "In Progress"
       || statusElement.dataset.state !== "inProgress"
+      || !summaryButton.getAttribute("aria-label")?.includes("Status: In Progress")
+      || !summaryButton.title.includes("Status: In Progress")
       || summaryButton.getAttribute("aria-label")?.includes("awaiting confirmation")) {
       throw new Error(
         `Campaign tactical point summary drifted: index=${indexElement.textContent}, title=${titleElement.textContent}, status=${statusElement.textContent}.`

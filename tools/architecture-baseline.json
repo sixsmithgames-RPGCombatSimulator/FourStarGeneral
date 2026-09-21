@@ -1,0 +1,310 @@
+{
+  "version": 1,
+  "lineBudgets": {
+    "src/game/GameEngine.ts": 17987,
+    "src/rendering/HexMapRenderer.ts": 6558,
+    "src/rendering/HexMapLayout.ts": 77,
+    "src/rendering/PrecombatMiniMapRenderer.ts": 94,
+    "src/rendering/TerrainFillPalette.ts": 50,
+    "src/rendering/ViewportTransform.ts": 58,
+    "src/ui/screens/BattleScreen.ts": 14383,
+    "src/ui/screens/PrecombatScreen.ts": 2240,
+    "src/ui/airshow/AirShowDirector.ts": 1991,
+    "src/ui/screens/CampaignScreen.ts": 4437,
+    "src/ui/campaign/CampaignCommandShellWorkspaceProjection.ts": 96,
+    "src/ui/campaign/CampaignCommandShellViewProjection.ts": 110,
+    "src/ui/campaign/CampaignReportsWorkspaceProjection.ts": 192,
+    "src/ui/campaign/CampaignFormationRosterProjection.ts": 116,
+    "src/ui/campaign/CampaignIntelligenceWorkspaceProjection.ts": 199,
+    "src/ui/campaign/CampaignLogisticsWorkspaceProjection.ts": 113,
+    "src/ui/components/PopupManager.ts": 4007,
+    "src/ui/presentation/AirSortieTargetTilePresentation.ts": 187,
+    "src/ui/airshow/AirShowPhaseProjectionContracts.ts": 125,
+    "src/game/logistics/BattleSupplySnapshot.ts": 274,
+    "src/game/battle/reporting/BattleMissionReport.ts": 235,
+    "src/rendering/HexMapMarkupBuilder.ts": 300,
+    "src/ui/controllers/BattleTacticalSaveController.ts": 474,
+    "src/state/BattleState.ts": 680,
+    "src/state/BattleSidebarEngineFacade.ts": 104,
+    "src/contracts/BattleSidebarEngine.ts": 332,
+    "src/contracts/BattleWarRoomSnapshot.ts": 115,
+    "src/state/BattleWarRoomSnapshotProjection.ts": 46,
+    "src/game/battle/support/BattleSupportTargeting.ts": 124,
+    "src/ui/airshow/AirShowTimelineInspection.ts": 288,
+    "src/game/battle/combat/AirAttackResultScaling.ts": 31,
+    "src/game/battle/combat/BattleAttackOutcomeProjection.ts": 206,
+    "src/game/battle/air/AirCombatContracts.ts": 181,
+    "src/rendering/UnitStackPresentation.ts": 186,
+    "src/ui/campaign/CampaignSituationWorkspaceProjection.ts": 502,
+    "src/game/battle/combat/BattleRetaliationProjection.ts": 182,
+    "src/rendering/AirShowCombatPassGeometry.ts": 815,
+    "src/ui/campaign/CampaignOperationsWorkspaceProjection.ts": 304,
+    "src/game/battle/air/BattleAirEngagementProjection.ts": 159,
+    "src/game/battle/combat/BattleAttackerPreparation.ts": 50,
+    "src/ui/presentation/InitialsPresentation.ts": 12,
+    "src/ui/presentation/RosterEntryPresentation.ts": 149,
+    "src/ui/campaign/CampaignCommandHexProjection.ts": 227,
+    "src/game/battle/combat/BattleDefenderDamageProjection.ts": 42,
+    "src/ui/campaign/CampaignCommandSummaryProjection.ts": 158,
+    "src/game/battle/combat/BattleSuppressionState.ts": 16,
+    "src/game/battle/combat/BattleAttackerDispositionProjection.ts": 53,
+    "src/game/battle/combat/BattleAircraftAttackReadinessProjection.ts": 98
+  },
+  "symbolBudgets": [
+    {
+      "file": "src/ui/screens/BattleScreen.ts",
+      "pattern": "ensureGameEngine\\(\\)",
+      "maximum": 63,
+      "description": "direct BattleScreen engine access"
+    },
+    {
+      "file": "src/ui/screens/BattleScreen.ts",
+      "pattern": "tryGetGameEngine\\(\\)",
+      "maximum": 3,
+      "description": "optional BattleScreen engine access"
+    },
+    {
+      "file": "src/state/BattleState.ts",
+      "pattern": "supplySnapshotByFaction",
+      "maximum": 0,
+      "description": "duplicate supply snapshot authority"
+    },
+    {
+      "file": "src/game/GameEngine.ts",
+      "pattern": "export\\s+(?:interface|type)\\s+(?:AirMissionStatus|AirMissionResult|AirMissionOutcomeBase|AirMissionOutcome|SerializedAirMission|AirMissionArrival|AirCombatExchangeEntry|FlakEngagementEntry|AirEngagementEvent)\\b",
+      "maximum": 0,
+      "description": "duplicate air-combat contract definitions"
+    },
+    {
+      "file": "src/contracts/BattleSidebarEngine.ts",
+      "pattern": "export\\s+(?:interface|type)\\s+(?:AirMissionStatus|AirMissionResult|AirMissionOutcomeBase|AirMissionOutcome|SerializedAirMission|AirMissionArrival|AirCombatExchangeEntry|FlakEngagementEntry|AirEngagementEvent)\\b",
+      "maximum": 0,
+      "description": "duplicate sidebar air-combat contract definitions"
+    },
+    {
+      "file": "src/rendering/HexMapRenderer.ts",
+      "pattern": "\\.consolidate\\(",
+      "maximum": 0,
+      "description": "mutating SVG transform-list reads"
+    },
+    {
+      "file": "src/ui/screens/PrecombatScreen.ts",
+      "pattern": "HexMapRenderer|miniMapRenderer|getMiniMapTerrainFill|requestMiniMapRender",
+      "maximum": 0,
+      "description": "duplicate precombat map rendering authority"
+    }
+  ],
+  "canonicalDeclarationOwners": [
+    {
+      "owner": "src/game/battle/air/AirCombatContracts.ts",
+      "names": [
+        "AirMissionStatus",
+        "AirMissionResult",
+        "AirMissionOutcomeBase",
+        "AirMissionOutcome",
+        "SerializedAirMission",
+        "AirMissionArrival",
+        "AirCombatExchangeEntry",
+        "FlakEngagementEntry",
+        "AirEngagementEvent"
+      ]
+    }
+  ],
+  "canonicalFunctionOwners": [
+    {
+      "owner": "src/game/battle/combat/BattleRetaliationProjection.ts",
+      "names": [
+        "projectBattleRetaliation"
+      ]
+    },
+    {
+      "owner": "src/rendering/HexMapLayout.ts",
+      "names": [
+        "buildHexMapLayout"
+      ]
+    },
+    {
+      "owner": "src/game/campaign/CampaignSegmentTime.ts",
+      "names": [
+        "formatCampaignSegmentTime"
+      ]
+    },
+    {
+      "owner": "src/rendering/PrecombatMiniMapRenderer.ts",
+      "names": [
+        "buildPrecombatMiniMapPresentation",
+        "renderPrecombatMiniMap"
+      ]
+    },
+    {
+      "owner": "src/rendering/TerrainFillPalette.ts",
+      "names": [
+        "resolveTerrainFill"
+      ]
+    },
+    {
+      "owner": "src/rendering/ViewportTransform.ts",
+      "names": [
+        "parseViewportTransform"
+      ]
+    },
+    {
+      "owner": "src/rendering/AirShowCombatPassGeometry.ts",
+      "names": [
+        "buildAirShowDogfightPassPath",
+        "buildAirShowBomberInterceptPassPath"
+      ]
+    },
+    {
+      "owner": "src/ui/campaign/CampaignOperationsWorkspaceProjection.ts",
+      "names": [
+        "formatCampaignReservationLabel",
+        "projectCampaignOperationOrder",
+        "projectCampaignOperationsWorkspace"
+      ]
+    },
+    {
+      "owner": "src/game/battle/air/BattleAirEngagementProjection.ts",
+      "names": [
+        "projectBattleAirEngagement"
+      ]
+    },
+    {
+      "owner": "src/ui/presentation/InitialsPresentation.ts",
+      "names": [
+        "extractDisplayInitials"
+      ]
+    },
+    {
+      "owner": "src/ui/presentation/RosterEntryPresentation.ts",
+      "names": [
+        "projectRosterSectionPresentation"
+      ]
+    },
+    {
+      "owner": "src/ui/presentation/AirSortieTargetTilePresentation.ts",
+      "names": [
+        "escapeAirSortieDataAttribute",
+        "renderAirSortieTargetTileMarkup"
+      ]
+    },
+    {
+      "owner": "src/ui/airshow/AirShowDirector.ts",
+      "names": [
+        "planAirShowTimeline"
+      ]
+    },
+    {
+      "owner": "src/game/battle/combat/BattleAttackerPreparation.ts",
+      "names": [
+        "projectBattleAttackerPreparation"
+      ]
+    },
+    {
+      "owner": "src/ui/campaign/CampaignCommandHexProjection.ts",
+      "names": [
+        "projectCampaignCommandHexes"
+      ]
+    },
+    {
+      "owner": "src/game/battle/combat/BattleDefenderDamageProjection.ts",
+      "names": [
+        "projectBattleDefenderDamage"
+      ]
+    },
+    {
+      "owner": "src/ui/campaign/CampaignCommandSummaryProjection.ts",
+      "names": [
+        "projectCampaignCommandSummary"
+      ]
+    },
+    {
+      "owner": "src/game/battle/combat/BattleSuppressionState.ts",
+      "names": [
+        "resolveBattleUnitSuppressionState"
+      ]
+    },
+    {
+      "owner": "src/game/battle/combat/BattleAttackerDispositionProjection.ts",
+      "names": [
+        "projectBattleAttackerDisposition"
+      ]
+    },
+    {
+      "owner": "src/ui/campaign/CampaignCommandShellViewProjection.ts",
+      "names": [
+        "projectCampaignCommandShellView"
+      ]
+    },
+    {
+      "owner": "src/ui/campaign/CampaignCommandShellWorkspaceProjection.ts",
+      "names": [
+        "projectCampaignCommandShellWorkspaces"
+      ]
+    },
+    {
+      "owner": "src/game/battle/combat/BattleAircraftAttackReadinessProjection.ts",
+      "names": [
+        "projectBattleAircraftAttackManeuverReadiness",
+        "projectBattleAircraftAttackAmmunitionReadiness"
+      ]
+    }
+  ],
+  "methodLineLimit": 120,
+  "oversizedMethodBudgets": {
+    "src/game/GameEngine.ts": {
+      "GameEngine.resolveAirStrikeMission": 512,
+      "GameEngine.resolveStrikeMissionAirPhase": 212,
+      "GameEngine.resolveSimultaneousFighterClash": 175,
+      "GameEngine.resolveAirInterception": 162,
+      "GameEngine.retargetConvoyAfterDelivery": 131,
+      "GameEngine.automateSupplyConvoys": 544,
+      "GameEngine.tryScheduleAirMission": 213,
+      "GameEngine.hydrateFromSerialized": 326,
+      "GameEngine.previewAttack": 145,
+      "GameEngine.moveUnit": 131,
+      "GameEngine.resolvePlayerAttack": 618,
+      "GameEngine.serialize": 131,
+      "GameEngine.getLogisticsSnapshot": 446,
+      "GameEngine.buildAttackRequest": 140,
+      "GameEngine.executeHeuristicBotTurn": 160,
+      "GameEngine.executeBotTurn": 185,
+      "GameEngine.resolveBotAttack": 596,
+      "GameEngine.buildRosterSnapshot": 173
+    },
+    "src/rendering/HexMapRenderer.ts": {
+      "HexMapRenderer.animateAirShowTimeline": 128,
+      "HexMapRenderer.render": 194,
+      "HexMapRenderer.playProjectileTracer": 139,
+      "HexMapRenderer.playAttackSequence": 327
+    },
+    "src/ui/screens/BattleScreen.ts": {
+      "BattleScreen.promptAttackConfirmation": 511,
+      "BattleScreen.syncAirMissionLogs": 233,
+      "BattleScreen.executePendingAttack": 213,
+      "BattleScreen.playBotTurnAnimations": 172,
+      "BattleScreen.syncTutorialPhaseWithCurrentContext": 371,
+      "BattleScreen.bindPanelEvents": 223,
+      "BattleScreen.playAirOperations": 127,
+      "BattleScreen.playMissionAirInterceptEvent": 169,
+      "BattleScreen.announceAirInterceptEngagement": 211,
+      "BattleScreen.handleEndMission": 156,
+      "BattleScreen.updateSelectionFeedback": 206,
+      "BattleScreen.executeSelectionIntelAction": 223,
+      "BattleScreen.buildPlayerAttackDetails": 128,
+      "BattleScreen.buildBattleIntelActions": 141,
+      "BattleScreen.renderEngineUnits": 184
+    },
+    "src/ui/screens/CampaignScreen.ts": {
+      "CampaignScreen.openRedeployModal": 359,
+      "CampaignScreen.initialize": 306,
+      "CampaignScreen.openProductionModal": 137,
+      "CampaignScreen.renderSelection": 172
+    }
+  },
+  "allowedUiEngineImports": {
+    "src/ui/components/EnhancedInitiativeTurnControls.ts": ["../../game/GameEngineInitiativeExtensions"],
+    "src/ui/components/InitiativeTurnControls.ts": ["../../game/GameEngineInitiativeExtensions"],
+    "src/ui/screens/BattleScreen.ts": ["../../game/GameEngine", "../../game/GameEngineInitiativeIntegration"]
+  }
+}

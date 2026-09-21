@@ -12,30 +12,29 @@ import type {
   BattleRequisitionOptionSnapshot,
   BattleRequisitionSnapshot,
   BattleRosterSnapshot,
-  PlayerReconReport,
-  ReconObservedContact,
-  RosterUnitSummary
-} from "../../game/GameEngine";
-import type {
-  SupplyAlert,
-  SupplyCategorySnapshot,
-  SupplyResourceKey,
-  SupplySnapshot,
-  TurnFaction,
-  LogisticsSnapshot,
-  LogisticsSupplySource,
-  LogisticsStockpileEntry,
-  LogisticsConvoyStatusEntry,
-  LogisticsSupportTeamStatusEntry,
-  LogisticsPriorityEntry,
+  BattleSidebarEngine,
+  CommanderBenefits,
+  LogisticsAlertEntry,
   LogisticsCareEntry,
+  LogisticsConvoyStatusEntry,
   LogisticsDelayNode,
   LogisticsMaintenanceEntry,
-  LogisticsAlertEntry,
-  CommanderBenefits,
+  LogisticsPriorityEntry,
+  LogisticsSnapshot,
+  LogisticsStockpileEntry,
+  LogisticsSupplySource,
+  LogisticsSupportTeamStatusEntry,
+  PlayerReconReport,
+  ReconObservedContact,
+  RosterUnitSummary,
+  SerializedAirMission,
+  SupplyAlert,
+  SupplyCategorySnapshot,
   SupplyPriority,
-  SerializedAirMission
-} from "../../game/GameEngine";
+  SupplyResourceKey,
+  SupplySnapshot,
+  TurnFaction
+} from "../../contracts/BattleSidebarEngine";
 import {
   getReconIntelSnapshot as buildFallbackReconIntelSnapshot,
   type ReconIntelSnapshot,
@@ -49,7 +48,6 @@ import {
 } from "../../data/reconIntelSnapshot";
 import { getAllGenerals, type GeneralRosterEntry } from "../../utils/rosterStorage";
 import type { WarRoomOverlay } from "./WarRoomOverlay";
-import type { GameEngineAPI } from "../../game/GameEngine";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { supply as supplyBalance } from "../../core/balance";
 import { axialKey } from "../../core/Hex";
@@ -58,6 +56,10 @@ import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialSta
 import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
 import { getFormation } from "../../data/unitSystem/formations";
+import { projectRosterSectionPresentation } from "../presentation/RosterEntryPresentation";
+import { extractDisplayInitials } from "../presentation/InitialsPresentation";
+import { escapeAirSortieDataAttribute, renderAirSortieTargetTileMarkup as renderAirSortieTargetTilePresentation } from "../presentation/AirSortieTargetTilePresentation";
+import { ListenerLifecycle } from "../lifecycle/ListenerLifecycle";
 
 /**
  * Content structure for popup dialogs.
@@ -163,8 +165,7 @@ export class PopupManager implements IPopupManager {
   private lastTriggerButton: HTMLButtonElement | null = null;
   private readonly warRoomOverlay: WarRoomOverlay | null;
   private readonly battleState = ensureBattleState();
-  private readonly unsubscribeBattleUpdates: () => void;
-  private readonly unsubscribeTutorialUpdates: () => void;
+  private readonly lifecycle = new ListenerLifecycle();
 
   // DOM element references
   private readonly popupLayer: HTMLElement;
@@ -223,23 +224,22 @@ export class PopupManager implements IPopupManager {
     this.reconIntelEventListener = (event: Event) => {
       this.onReconIntelUpdate(event as CustomEvent<ReconIntelSnapshot>);
     };
-    document.addEventListener("battle:reconIntelUpdated", this.reconIntelEventListener as EventListener);
+    this.lifecycle.addEventListener(document, "battle:reconIntelUpdated", this.reconIntelEventListener as EventListener);
     this.airPickListener = (event: Event) => {
       this.onBattleHexClicked(event as CustomEvent<{ offsetKey: string }>);
     };
-    document.addEventListener("battle:hexClicked", this.airPickListener as EventListener);
-    document.addEventListener("warroom:openBattleRequisitions", () => {
-      this.handleWarRoomOpenBattleRequisitions();
-    });
+    this.lifecycle.addEventListener(document, "battle:hexClicked", this.airPickListener as EventListener);
+    const warRoomOpenBattleRequisitionsListener = (): void => this.handleWarRoomOpenBattleRequisitions();
+    this.lifecycle.addEventListener(document, "warroom:openBattleRequisitions", warRoomOpenBattleRequisitionsListener);
 
     this.bindGlobalEvents();
 
     if (this.warRoomOverlay) {
-      this.warRoomOverlay.registerCloseListener(() => this.handleWarRoomOverlayClosed());
+      this.lifecycle.addCleanup(this.warRoomOverlay.registerCloseListener(() => this.handleWarRoomOverlayClosed()));
     }
 
     // Keep open panels in sync with engine/battle updates.
-    this.unsubscribeBattleUpdates = this.battleState.subscribeToBattleUpdates((reason: BattleUpdateReason) => {
+    this.lifecycle.addCleanup(this.battleState.subscribeToBattleUpdates((reason: BattleUpdateReason) => {
       if (this.activePopup === "supplies" && this.shouldRefreshSuppliesPanel(reason)) {
         this.renderSuppliesPanel();
       }
@@ -261,17 +261,14 @@ export class PopupManager implements IPopupManager {
       if (this.activePopup === "airSupport") {
         this.renderAirSupportPanel();
       }
-    });
-    this.unsubscribeTutorialUpdates = ensureTutorialState().subscribe((progress) => {
+    }));
+    this.lifecycle.addCleanup(ensureTutorialState().subscribe((progress) => {
       if (!progress.isActive) {
         return;
       }
       this.syncTutorialProgressForActivePopup(progress.currentPhase);
-    });
-    window.addEventListener("beforeunload", () => {
-      this.unsubscribeBattleUpdates();
-      this.unsubscribeTutorialUpdates();
-    });
+    }));
+    this.lifecycle.addEventListener(window, "beforeunload", () => this.dispose());
   }
 
   private syncTutorialProgressForActivePopup(phase: TutorialPhase): void {
@@ -339,7 +336,7 @@ export class PopupManager implements IPopupManager {
       }
 
       try {
-        const engine = this.battleState.ensureGameEngine();
+        const engine = this.battleState.getSidebarEngine();
         if (engine.setSupplyPriority(unitId, priority)) {
           this.renderLogisticsPanel();
         }
@@ -370,69 +367,66 @@ export class PopupManager implements IPopupManager {
     });
   }
 
-  /**
-   * Wires global-level listeners so popup layers respond to keyboard shortcuts and background interactions.
-   * This keeps accessibility affordances centralized rather than scattering event bindings throughout the constructor.
-   */
+  /** Wires persistent popup controls through the manager's shared lifecycle. */
   private bindGlobalEvents(): void {
-    // Close button click returns control to the triggering sidebar button.
-    this.closeButton.addEventListener("click", () => this.closePopup());
+    this.lifecycle.addEventListener(this.closeButton, "click", () => this.closePopup());
+    this.lifecycle.addEventListener(this.popupLayer, "click", (event) => this.handlePopupLayerClick(event));
+    this.lifecycle.addEventListener(document, "keydown", (event) => this.handleDocumentKeydown(event as KeyboardEvent));
+  }
 
-    // Clicking the translucent overlay outside the dialog closes any standard popup.
-    this.popupLayer.addEventListener("click", (event) => {
-      if (event.target !== this.popupLayer) {
-        return;
+  private handlePopupLayerClick(event: Event): void {
+    if (event.target !== this.popupLayer) {
+      return;
+    }
+
+    if (this.airPickMode || this.intelPickMode) {
+      const mouseEvent = event as MouseEvent;
+      const hits = document.elementsFromPoint(mouseEvent.clientX, mouseEvent.clientY);
+      let offsetKey: string | null = null;
+      for (const hit of hits) {
+        const cell = (hit as Element).closest?.(".hex-cell") as Element | null;
+        const key = (cell as HTMLElement | SVGElement | null)?.dataset?.hex;
+        if (typeof key === "string" && key.length > 0) {
+          offsetKey = key;
+          break;
+        }
       }
 
-      if (this.airPickMode || this.intelPickMode) {
-        const mouseEvent = event as MouseEvent;
-        const hits = document.elementsFromPoint(mouseEvent.clientX, mouseEvent.clientY);
-        let offsetKey: string | null = null;
-        for (const hit of hits) {
-          const cell = (hit as Element).closest?.(".hex-cell") as Element | null;
-          const key = (cell as HTMLElement | SVGElement | null)?.dataset?.hex;
-          if (typeof key === "string" && key.length > 0) {
-            offsetKey = key;
-            break;
-          }
+      if (offsetKey) {
+        this.onBattleHexClicked(new CustomEvent("battle:hexClicked", { detail: { offsetKey } }));
+      } else if (this.airPickMode) {
+        const panel = this.popupBody.querySelector<HTMLElement>("[data-air-panel]");
+        const feedback = panel?.querySelector<HTMLElement>("[data-air-feedback]");
+        if (feedback) {
+          feedback.textContent = "Click a hex on the map to select a target.";
         }
-
-        if (offsetKey) {
-          this.onBattleHexClicked(new CustomEvent("battle:hexClicked", { detail: { offsetKey } }));
-        } else {
-          if (this.airPickMode) {
-            const panel = this.popupBody.querySelector<HTMLElement>("[data-air-panel]");
-            const fb = panel?.querySelector<HTMLElement>("[data-air-feedback]");
-            fb && (fb.textContent = "Click a hex on the map to select a target.");
-          } else if (this.intelPickMode) {
-            this.setIntelFeedback("Click an in-bounds hex on the map to project the deception screen.");
-          }
-        }
-        return;
+      } else if (this.intelPickMode) {
+        this.setIntelFeedback("Click an in-bounds hex on the map to project the deception screen.");
       }
+      return;
+    }
 
-      this.closePopup();
-    });
+    this.closePopup();
+  }
 
-    // Provide Escape-key dismissal for keyboard users.
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && this.activePopup && this.activePopup !== "baseOperations") {
-        if (this.activePopup === "airSupport" && this.airPickMode) {
-          event.preventDefault();
-          this.airPickMode = null;
-          this.airPlannerState.targetSquadronId = "";
-          document.dispatchEvent(new CustomEvent("air:clearPreview"));
-          this.setAirPlannerFeedback("Target selection cancelled.", "neutral");
-          if (this.airPlannerState.suspendedForMapPick) {
-            this.resumeAirSupportPopupFromMapPick();
-          } else {
-            this.renderAirSupportPanel();
-          }
-          return;
-        }
-        this.closePopup();
+  private handleDocumentKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || !this.activePopup || this.activePopup === "baseOperations") {
+      return;
+    }
+    if (this.activePopup === "airSupport" && this.airPickMode) {
+      event.preventDefault();
+      this.airPickMode = null;
+      this.airPlannerState.targetSquadronId = "";
+      document.dispatchEvent(new CustomEvent("air:clearPreview"));
+      this.setAirPlannerFeedback("Target selection cancelled.", "neutral");
+      if (this.airPlannerState.suspendedForMapPick) {
+        this.resumeAirSupportPopupFromMapPick();
+      } else {
+        this.renderAirSupportPanel();
       }
-    });
+      return;
+    }
+    this.closePopup();
   }
 
   /**
@@ -505,7 +499,7 @@ export class PopupManager implements IPopupManager {
 
   private handleIntelVerification(briefId: string): void {
     try {
-      const engine = this.battleState.ensureGameEngine();
+      const engine = this.battleState.getSidebarEngine();
       const result = engine.verifyIntelBrief(briefId);
       if (!result.ok) {
         this.setIntelFeedback(result.reason);
@@ -727,7 +721,7 @@ export class PopupManager implements IPopupManager {
     }
 
     try {
-      const engine = this.battleState.ensureGameEngine();
+      const engine = this.battleState.getSidebarEngine();
       const reports = engine.getPlayerReconReports();
       const observers = reports.map((report) => this.buildReconObserverView(report));
       const uniqueContacts = new Set<string>();
@@ -861,7 +855,7 @@ export class PopupManager implements IPopupManager {
     try {
       const battleState = ensureBattleState();
       if (battleState.hasEngine()) {
-        return battleState.ensureGameEngine().getReconIntelSnapshot();
+        return battleState.getSidebarEngine().getReconIntelSnapshot();
       }
     } catch (error) {
       console.warn("PopupManager: Failed to pull recon intel snapshot from GameEngine. Using fallback.", error);
@@ -968,6 +962,12 @@ export class PopupManager implements IPopupManager {
   getActivePopup(): PopupKey | null {
     return this.activePopup;
   }
+  dispose(): void {
+    this.lifecycle.dispose();
+    this.popupBody.replaceChildren(); this.popupLayer.classList.add("hidden"); this.popupLayer.setAttribute("aria-hidden", "true");
+    this.resetAirSupportPlannerState(); this.intelPickMode = null; this.activePopup = null;
+    this.lastTriggerButton = null; this.sidebarController = null;
+  }
 
   /**
    * Shows a standard popup with the provided content.
@@ -1029,9 +1029,9 @@ export class PopupManager implements IPopupManager {
       return;
     }
 
-    let engine: GameEngineAPI;
+    let engine: BattleSidebarEngine;
     try {
-      engine = this.battleState.ensureGameEngine();
+      engine = this.battleState.getSidebarEngine();
     } catch (error) {
       console.warn("Air Support panel: GameEngine unavailable", error);
       return;
@@ -1066,241 +1066,6 @@ export class PopupManager implements IPopupManager {
 
     this.renderAirSupportOrderBoard(panel, engine);
     this.syncTutorialProgressForActivePopup(ensureTutorialState().getCurrentPhase());
-  }
-
-  /** Populates the mission-kind select from engine templates. */
-  private populateAirMissionKind(select: HTMLSelectElement, engine: GameEngineAPI): void {
-    try {
-      const templates = engine.listAirMissionTemplates();
-      select.innerHTML = templates.map((t) => `<option value="${t.kind}">${this.escapeHtml(t.label)}</option>`).join("");
-    } catch {
-      select.innerHTML = "";
-    }
-  }
-
-  private updateAirSupportBrief(
-    panel: HTMLElement,
-    engine: GameEngineAPI,
-    kind: string,
-    unitValue: string
-  ): void {
-    const title = panel.querySelector<HTMLElement>("[data-air-brief-title]");
-    const text = panel.querySelector<HTMLElement>("[data-air-brief-text]");
-    const target = panel.querySelector<HTMLElement>("[data-air-brief-target]");
-    const refit = panel.querySelector<HTMLElement>("[data-air-brief-refit]");
-
-    let template:
-      | { label: string; description: string; requiresTarget?: boolean; requiresFriendlyEscortTarget?: boolean }
-      | undefined;
-
-    try {
-      template = engine.listAirMissionTemplates().find((entry) => entry.kind === kind);
-    } catch {
-      template = undefined;
-    }
-
-    if (title) {
-      title.textContent = template?.label ?? "Standing Patrol Orders";
-    }
-    if (text) {
-      text.textContent = template?.description
-        ?? "Assign fighter cover, strike sorties, and emergency lifts from the sortie board.";
-    }
-    if (target) {
-      if (kind === "airTransport") {
-        target.textContent = "Drop zone required";
-      } else if (template?.requiresFriendlyEscortTarget) {
-        target.textContent = "Queued bomber required";
-      } else if (template?.requiresTarget) {
-        target.textContent = "Target hex required";
-      } else if (kind === "airCover") {
-        target.textContent = "Base CAP or selected sector";
-      } else {
-        target.textContent = "Optional assignment";
-      }
-    }
-    if (refit) {
-      let refitCopy = "Refit follows each sortie";
-      const unitHex = this.parseAxialString(unitValue);
-      if (unitHex) {
-        try {
-          const refitTurns = engine.getAircraftRefitTurns(unitHex as any);
-          if (typeof refitTurns === "number") {
-            refitCopy = `${refitTurns} turn${refitTurns === 1 ? "" : "s"} of refit after sortie`;
-          }
-        } catch {
-          // Leave default wording when the selected entry is unavailable.
-        }
-      }
-      refit.textContent = refitCopy;
-    }
-  }
-
-  /** Disables Escort mission until at least one bomber strike is scheduled for the active faction. */
-  private disableEscortUnlessBomberScheduled(kindSelect: HTMLSelectElement, engine: GameEngineAPI): void {
-    try {
-      const missions = engine.getScheduledAirMissions(this.resolveAirPlanningFaction(engine));
-      const hasBomberStrike = missions.some((m) => m.kind === "strike");
-      const escortOption = Array.from(kindSelect.options).find((o) => o.value === "escort");
-      if (escortOption) {
-        escortOption.disabled = !hasBomberStrike;
-        if (!hasBomberStrike && kindSelect.value === "escort") {
-          // Nudge back to first available option when escort becomes invalid
-          const first = Array.from(kindSelect.options).find((o) => !o.disabled);
-          if (first) {
-            kindSelect.value = first.value;
-          }
-        }
-      }
-    } catch {}
-  }
-
-  /** Populate player squadrons that qualify for the selected mission based on unit type AirSupportProfile roles. */
-  private populateEligibleSquadrons(select: HTMLSelectElement, engine: GameEngineAPI, kind: string): void {
-    try {
-      const templates = engine.listAirMissionTemplates();
-      const tpl = templates.find((t) => t.kind === (kind as any));
-      const allowed = new Set((tpl?.allowedRoles ?? []) as string[]);
-      const mk = (ax: { q: number; r: number }) => `${ax.q},${ax.r}`;
-
-      // Collect eligible aircraft from deployed units
-      const deployedUnits = engine.playerUnits ?? [];
-      const eligibleDeployed = deployedUnits.filter((u) => {
-        const def = (unitTypesSource as any)[u.type];
-        const roles: string[] = def?.airSupport?.roles ?? [];
-        return Array.isArray(roles) && roles.some((r) => allowed.has(r));
-      });
-
-      // Also collect eligible aircraft from reserves (allocated in precombat)
-      const reserveUnits = engine.reserveUnits ?? [];
-      const eligibleReserves = reserveUnits.filter((r) => {
-        const def = (unitTypesSource as any)[r.unit.type];
-        const roles: string[] = def?.airSupport?.roles ?? [];
-        return Array.isArray(roles) && roles.some((role) => allowed.has(role));
-      });
-
-      if (eligibleDeployed.length === 0 && eligibleReserves.length === 0) {
-        select.innerHTML = `<option value="" disabled selected>No eligible squadrons</option>`;
-        select.disabled = true;
-        return;
-      }
-      select.disabled = false;
-
-      // Build options: deployed units first, then reserves
-      const options: string[] = [];
-      for (const u of eligibleDeployed) {
-        options.push(
-          `<option value="${mk(u.hex)}">${this.escapeHtml(String(u.type))} — ${this.escapeHtml(this.formatDisplayHex(u.hex))}</option>`
-        );
-      }
-      for (const r of eligibleReserves) {
-        // Reserves use their scenario hex as identifier (consistent with lookupUnit including reserves)
-        options.push(`<option value="${mk(r.unit.hex)}">${this.escapeHtml(String(r.unit.type))} (Reserve)</option>`);
-      }
-      select.innerHTML = options.join("");
-    } catch {
-      select.innerHTML = `<option value="" disabled selected>Unavailable</option>`;
-      select.disabled = true;
-    }
-  }
-
-  /** Populate targets: enemy units for strike; friendly bomber hexes for escort; optional for airCover. */
-  private populateTargets(select: HTMLSelectElement, engine: GameEngineAPI, kind: string): void {
-    const mk = (ax: { q: number; r: number }) => `${ax.q},${ax.r}`;
-    try {
-      if (kind !== "airTransport" && this.airPickMode === "target") {
-        this.airPickMode = null;
-      }
-
-      if (kind === "escort") {
-        const missions = engine
-          .getScheduledAirMissions(this.resolveAirPlanningFaction(engine))
-          .filter((m) => m.kind === "strike");
-        if (missions.length === 0) {
-          select.innerHTML = `<option value="" disabled selected>Schedule a bomber strike first</option>`;
-          select.disabled = true;
-          return;
-        }
-        // Include both deployed and reserve units when searching for the bomber
-        const friendlies = engine.playerUnits ?? [];
-        const reserveUnits = engine.reserveUnits ?? [];
-        const getSquadronKey = (unit: { unitId?: string; type: any; hex: { q: number; r: number } }): string => {
-          return unit.unitId ?? `${String(unit.type)}@${axialKey(unit.hex as any)}`;
-        };
-        const options: string[] = [];
-        for (const m of missions) {
-          // Try deployed units first
-          let unit = friendlies.find((u) => getSquadronKey(u as any) === m.unitKey);
-          // Also check reserves for air units
-          if (!unit) {
-            const reserveEntry = reserveUnits.find((r) => getSquadronKey(r.unit as any) === m.unitKey);
-            unit = reserveEntry?.unit;
-          }
-          if (unit) {
-            options.push(
-              `<option value="${mk(unit.hex)}">Bomber at ${this.escapeHtml(this.formatDisplayHex(unit.hex))} — ${this.escapeHtml(String(unit.type))}</option>`
-            );
-            continue;
-          }
-          if (typeof m.originHexKey === "string" && m.originHexKey.length > 0) {
-            options.push(
-              `<option value="${this.escapeHtml(m.originHexKey)}">Bomber at ${this.escapeHtml(this.formatDisplayHexKey(m.originHexKey))} — ${this.escapeHtml(String(m.unitType))}</option>`
-            );
-          }
-        }
-        if (options.length === 0) {
-          select.innerHTML = `<option value="" disabled selected>No bomber position available</option>`;
-          select.disabled = true;
-          return;
-        }
-        select.disabled = false;
-        select.innerHTML = options.join("");
-        return;
-      }
-
-      // Air Cover: target is optional, add "Base CAP" as the default option.
-      if (kind === "airCover") {
-        const planningFaction = this.resolveAirPlanningFaction(engine);
-        const targets = (planningFaction === "Player" ? engine.playerUnits : engine.botUnits) ?? [];
-        const options: string[] = [];
-        // Base CAP option: no target hex means the squadron covers its own base.
-        options.push(`<option value="">Base CAP (cover home base)</option>`);
-        // Also allow selecting specific hexes to patrol.
-        for (const u of targets) {
-          options.push(
-            `<option value="${mk(u.hex)}">Patrol over ${this.escapeHtml(this.formatDisplayHex(u.hex))} — ${this.escapeHtml(String(u.type))}</option>`
-          );
-        }
-        select.disabled = false;
-        select.innerHTML = options.join("");
-        return;
-      }
-
-      // Air Transport: allow clicking on the map to select any hex for paratroop drop.
-      // We show a "Click map to select drop zone" prompt and enable map click targeting.
-      if (kind === "airTransport") {
-        this.airPickMode = "target";
-        select.innerHTML = `<option value="" selected>Click map to select drop zone...</option>`;
-        select.disabled = false;
-        // The actual target selection will be handled by the map click handler.
-        return;
-      }
-
-      // Strike: list enemy targets known to the commander (all current enemy units)
-      const enemies = engine.botUnits ?? [];
-      if (!enemies || enemies.length === 0) {
-        select.innerHTML = `<option value="" disabled selected>No enemy targets in intel</option>`;
-        select.disabled = true;
-        return;
-      }
-      select.disabled = false;
-      select.innerHTML = enemies
-        .map((u) => `<option value="${mk(u.hex)}">${this.escapeHtml(String(u.type))} — ${this.escapeHtml(this.formatDisplayHex(u.hex))}</option>`)
-        .join("");
-    } catch {
-      select.innerHTML = `<option value="" disabled selected>Unavailable</option>`;
-      select.disabled = true;
-    }
   }
 
   private resetAirSupportPlannerState(): void {
@@ -1349,7 +1114,7 @@ export class PopupManager implements IPopupManager {
     this.setAirPlannerTargetValue(missionKind, squadronId, "");
   }
 
-  private renderAirSupportOrderBoard(panel: HTMLElement, engine: GameEngineAPI): void {
+  private renderAirSupportOrderBoard(panel: HTMLElement, engine: BattleSidebarEngine): void {
     const view = this.buildAirPlannerView(engine);
 
     const missionTabsHost = panel.querySelector<HTMLElement>("[data-air-mission-tabs]");
@@ -1465,7 +1230,7 @@ export class PopupManager implements IPopupManager {
     this.syncAirPlannerFeedback(panel, view);
   }
 
-  private renderAirSortieRowMarkup(engine: GameEngineAPI, view: AirPlannerViewModel, card: AirSquadronCardView): string {
+  private renderAirSortieRowMarkup(engine: BattleSidebarEngine, view: AirPlannerViewModel, card: AirSquadronCardView): string {
     const visual = card.spriteUrl
       ? `<img src="${this.escapeHtml(card.spriteUrl)}" alt="${this.escapeHtml(card.label)}">`
       : `<span class="air-squadron-card__fallback">${this.escapeHtml(card.shortLabel)}</span>`;
@@ -1478,7 +1243,7 @@ export class PopupManager implements IPopupManager {
         <button
           type="button"
           class="air-squadron-card air-squadron-card--row"
-          data-air-squadron="${this.escapeHtml(card.value)}"
+          data-air-squadron="${escapeAirSortieDataAttribute(card.value)}"
           aria-pressed="${card.value === this.airPlannerState.squadronValue ? "true" : "false"}"
           ${card.disabled ? "disabled" : ""}
         >
@@ -1501,147 +1266,31 @@ export class PopupManager implements IPopupManager {
     `;
   }
 
-  private renderAirSortieTargetTileMarkup(engine: GameEngineAPI, view: AirPlannerViewModel, card: AirSquadronCardView): string {
+  private renderAirSortieTargetTileMarkup(engine: BattleSidebarEngine, view: AirPlannerViewModel, card: AirSquadronCardView): string {
     const mission = view.selectedMission;
-    if (!mission) {
-      return `
-        <div class="air-target-card air-target-card--row">
-          <span class="air-target-card__eyebrow">Target Board</span>
-          <strong class="air-target-card__title">Orders unavailable</strong>
-          <p class="air-target-card__detail">Mission data is unavailable until the battle engine is active.</p>
-        </div>
-      `;
-    }
-
-    const targetValue = this.getAirPlannerTargetValue(mission.kind, card.squadronId);
-    const assignLabel = this.getAirSortieButtonLabel(mission.kind);
-
-    if (card.disabled) {
-      return `
-        <div class="air-target-card air-target-card--row air-target-card--committed">
-          <span class="air-target-card__eyebrow">${this.escapeHtml(card.assignmentMissionLabel ?? "Current Orders")}</span>
-          <strong class="air-target-card__title">${this.escapeHtml(card.assignmentTargetLabel ?? card.statusLabel)}</strong>
-          <p class="air-target-card__detail">${this.escapeHtml(card.assignmentSummary ?? "Squadron already committed to an active sortie.")}</p>
-          <div class="air-target-card__footnote">Committed aircraft are managed from the operations log below.</div>
-        </div>
-      `;
-    }
-
-    if (mission.kind === "escort") {
-      const selectedEscort = view.escortTargets.find((entry) => entry.value === targetValue) ?? null;
-      const canSubmit = Boolean(selectedEscort);
-      return `
-        <div class="air-target-card air-target-card--row">
-          <span class="air-target-card__eyebrow">Escort Board</span>
-          <strong class="air-target-card__title">${this.escapeHtml(selectedEscort?.label ?? "Select Strike Package")}</strong>
-          <p class="air-target-card__detail">${this.escapeHtml(
-            selectedEscort
-              ? `${selectedEscort.detail}. ${selectedEscort.meta}.`
-              : view.escortTargets.length > 0
-                ? "Choose the bomber stream this escort wing will protect."
-                : "Queue a strike package first, then assign escorts to it from this board."
-          )}</p>
-          ${view.escortTargets.length > 0 ? `
-            <div class="air-target-choice-grid air-target-choice-grid--row">
-              ${view.escortTargets.map((entry) => `
-                <button
-                  type="button"
-                  class="air-target-choice"
-                  data-air-escort-target="${this.escapeHtml(entry.value)}"
-                  data-air-escort-squadron="${this.escapeHtml(card.squadronId)}"
-                  aria-pressed="${entry.value === targetValue ? "true" : "false"}"
-                >
-                  <span class="air-target-choice__copy">
-                    <span class="air-target-choice__label">${this.escapeHtml(entry.label)}</span>
-                    <span class="air-target-choice__detail">${this.escapeHtml(entry.detail)}</span>
-                    <span class="air-target-choice__meta">${this.escapeHtml(entry.meta)}</span>
-                  </span>
-                </button>
-              `).join("")}
-            </div>
-          ` : ""}
-          <div class="air-target-actions">
-            <button
-              type="button"
-              class="air-button primary air-button--assign"
-              data-air-submit-sortie="${this.escapeHtml(card.squadronId)}"
-              ${canSubmit ? "" : "disabled"}
-            >${this.escapeHtml(assignLabel)}</button>
-          </div>
-        </div>
-      `;
-    }
-
-    const targetSelected = targetValue.length > 0;
-    const parsedTarget = this.parseAxialString(targetValue);
-    const title = targetSelected
+    const targetValue = mission ? this.getAirPlannerTargetValue(mission.kind, card.squadronId) : "";
+    const targetIsValid = mission && !card.disabled && mission.kind !== "escort"
+      ? this.parseAxialString(targetValue) !== null
+      : false;
+    const selectedTargetLabel = mission && !card.disabled && mission.kind !== "escort" && targetValue.length > 0
       ? this.describeAirTargetSelection(engine, mission.kind, targetValue)
-      : mission.kind === "airCover"
-        ? "Base CAP"
-        : "Awaiting map mark";
-    const detail = (() => {
-      if (mission.kind === "airCover" && !targetSelected) {
-        return "No patrol hex selected. This wing will hold base CAP over its home strip.";
-      }
-      if (!targetSelected) {
-        return "Choose a hex on the map. The board will reopen once the target is marked.";
-      }
-      if (mission.kind === "airTransport") {
-        return "Airborne infantry will launch from this transport wing and drop into the marked hex.";
-      }
-      if (mission.kind === "airCover") {
-        return "Combat air patrol will center on this hex instead of remaining over the base.";
-      }
-      return "Strike aircraft will stage their run against the selected hex when the mission executes.";
-    })();
-    const pickLabel = mission.kind === "airTransport"
-      ? "Choose Drop Zone"
-      : mission.kind === "airCover"
-        ? "Choose Patrol Hex"
-        : "Choose Target";
-    const canSubmit = mission.kind === "airCover" || (mission.requiresTarget ? parsedTarget !== null : true);
-
-    return `
-      <div class="air-target-card air-target-card--row">
-        <span class="air-target-card__eyebrow">${this.escapeHtml(mission.kind === "airTransport" ? "Drop Zone" : "Target Board")}</span>
-        <strong class="air-target-card__title">${this.escapeHtml(title)}</strong>
-        <p class="air-target-card__detail">${this.escapeHtml(detail)}</p>
-        <div class="air-target-actions">
-          <button
-            type="button"
-            class="air-button"
-            data-air-pick-target="${this.escapeHtml(card.squadronId)}"
-          >${this.escapeHtml(pickLabel)}</button>
-          ${mission.kind === "airCover"
-            ? `<button type="button" class="air-button" data-air-clear-target="${this.escapeHtml(card.squadronId)}" ${targetSelected ? "" : "disabled"}>Use Base CAP</button>`
-            : targetSelected
-              ? `<button type="button" class="air-button" data-air-clear-target="${this.escapeHtml(card.squadronId)}">Clear Mark</button>`
-              : ""}
-          <button
-            type="button"
-            class="air-button primary air-button--assign"
-            data-air-submit-sortie="${this.escapeHtml(card.squadronId)}"
-            ${canSubmit ? "" : "disabled"}
-          >${this.escapeHtml(assignLabel)}</button>
-        </div>
-      </div>
-    `;
+      : "";
+    return renderAirSortieTargetTilePresentation({
+      mission: mission ? { kind: mission.kind, requiresTarget: mission.requiresTarget } : null,
+      squadronId: card.squadronId,
+      cardDisabled: card.disabled,
+      statusLabel: card.statusLabel,
+      assignmentMissionLabel: card.assignmentMissionLabel,
+      assignmentTargetLabel: card.assignmentTargetLabel,
+      assignmentSummary: card.assignmentSummary,
+      targetValue,
+      targetIsValid,
+      selectedTargetLabel,
+      escortTargets: view.escortTargets
+    });
   }
 
-  private getAirSortieButtonLabel(kind: AirMissionKind): string {
-    switch (kind) {
-      case "airCover":
-        return "Assign Patrol";
-      case "escort":
-        return "Assign Escort";
-      case "airTransport":
-        return "Commit Drop";
-      default:
-        return "Issue Sortie";
-    }
-  }
-
-  private resolveAirPlanningFaction(engine: GameEngineAPI): TurnFaction {
+  private resolveAirPlanningFaction(engine: BattleSidebarEngine): TurnFaction {
     // Initiative sequencing can temporarily hand activeFaction to Bot/Ally while the player still plans orders.
     if (engine.phase === "playerTurn") {
       return "Player";
@@ -1649,7 +1298,7 @@ export class PopupManager implements IPopupManager {
     return engine.activeFaction;
   }
 
-  private buildAirPlannerView(engine: GameEngineAPI): AirPlannerViewModel {
+  private buildAirPlannerView(engine: BattleSidebarEngine): AirPlannerViewModel {
     const missionTabs = this.buildAirMissionTabs(engine);
     const selectedMission = (() => {
       const active = missionTabs.find((entry) => entry.template.kind === this.airPlannerState.missionKind && !entry.disabled);
@@ -1684,7 +1333,7 @@ export class PopupManager implements IPopupManager {
     } satisfies AirPlannerViewModel;
   }
 
-  private buildAirMissionTabs(engine: GameEngineAPI): readonly AirMissionTabView[] {
+  private buildAirMissionTabs(engine: BattleSidebarEngine): readonly AirMissionTabView[] {
     const planningFaction = this.resolveAirPlanningFaction(engine);
     const queuedStrikeExists = engine.getScheduledAirMissions(planningFaction).some(
       (mission) => mission.kind === "strike" && mission.status === "queued"
@@ -1700,7 +1349,7 @@ export class PopupManager implements IPopupManager {
   }
 
   private buildAirSquadronCards(
-    engine: GameEngineAPI,
+    engine: BattleSidebarEngine,
     mission: AirMissionTemplate | null
   ): readonly AirSquadronCardView[] {
     if (!mission) {
@@ -1770,7 +1419,7 @@ export class PopupManager implements IPopupManager {
   }
 
   private buildAirEscortTargets(
-    engine: GameEngineAPI,
+    engine: BattleSidebarEngine,
     mission: AirMissionTemplate | null
   ): readonly AirEscortTargetView[] {
     if (!mission || mission.kind !== "escort") {
@@ -1797,7 +1446,7 @@ export class PopupManager implements IPopupManager {
   }
 
   private resolveAirPlannerRadiusHex(
-    engine: GameEngineAPI,
+    engine: BattleSidebarEngine,
     unit: Pick<ScenarioUnit, "hex" | "type">,
     squadronId?: string
   ): number | null {
@@ -1812,7 +1461,7 @@ export class PopupManager implements IPopupManager {
     return null;
   }
 
-  private resolveAirMissionOriginHex(engine: GameEngineAPI, mission: SerializedAirMission): string | null {
+  private resolveAirMissionOriginHex(engine: BattleSidebarEngine, mission: SerializedAirMission): string | null {
     if (mission.originHexKey) {
       return mission.originHexKey;
     }
@@ -1835,7 +1484,7 @@ export class PopupManager implements IPopupManager {
     }
   }
 
-  private describeAirBriefTarget(engine: GameEngineAPI, view: AirPlannerViewModel): string {
+  private describeAirBriefTarget(engine: BattleSidebarEngine, view: AirPlannerViewModel): string {
     const mission = view.selectedMission;
     if (!mission) {
       return "Mission board not ready";
@@ -1854,98 +1503,6 @@ export class PopupManager implements IPopupManager {
       return this.describeAirTargetSelection(engine, mission.kind, this.airPlannerState.targetValue);
     }
     return mission.requiresTarget ? "Awaiting map-marked target" : "Optional assignment";
-  }
-
-  private renderAirTargetPanelMarkup(engine: GameEngineAPI, view: AirPlannerViewModel): string {
-    const mission = view.selectedMission;
-    if (!mission) {
-      return `
-        <div class="air-target-card">
-          <span class="air-target-card__eyebrow">Target Board</span>
-          <strong class="air-target-card__title">Orders unavailable</strong>
-          <p class="air-target-card__detail">Mission data is unavailable until the battle engine is active.</p>
-        </div>
-      `;
-    }
-
-    if (mission.kind === "escort") {
-      if (view.escortTargets.length === 0) {
-        return `
-          <div class="air-target-card">
-            <span class="air-target-card__eyebrow">Escort Assignment</span>
-            <strong class="air-target-card__title">No strike package awaiting cover</strong>
-            <p class="air-target-card__detail">Queue a bomber strike first, then assign escorts to the package from this board.</p>
-          </div>
-        `;
-      }
-
-      return `
-        <div class="air-target-card">
-          <span class="air-target-card__eyebrow">Escort Assignment</span>
-          <strong class="air-target-card__title">Queued strike packages</strong>
-          <p class="air-target-card__detail">Choose the bomber stream this escort wing will protect.</p>
-        </div>
-        <div class="air-target-choice-grid">
-          ${view.escortTargets.map((entry) => `
-            <button
-              type="button"
-              class="air-target-choice"
-              data-air-escort-target="${this.escapeHtml(entry.value)}"
-              aria-pressed="${entry.value === this.airPlannerState.targetValue ? "true" : "false"}"
-            >
-              <span class="air-target-choice__copy">
-                <span class="air-target-choice__label">${this.escapeHtml(entry.label)}</span>
-                <span class="air-target-choice__detail">${this.escapeHtml(entry.detail)}</span>
-                <span class="air-target-choice__meta">${this.escapeHtml(entry.meta)}</span>
-              </span>
-            </button>
-          `).join("")}
-        </div>
-      `;
-    }
-
-    const targetSelected = this.airPlannerState.targetValue.length > 0;
-    const title = targetSelected
-      ? this.describeAirTargetSelection(engine, mission.kind, this.airPlannerState.targetValue)
-      : mission.kind === "airCover"
-        ? "Base CAP"
-        : "Awaiting map mark";
-    const detail = (() => {
-      if (mission.kind === "airCover" && !targetSelected) {
-        return "No patrol hex selected. The squadron will orbit its home strip and intercept raids over the base.";
-      }
-      if (!targetSelected) {
-        return "Choose a hex on the map. The order board will reopen once the target is marked.";
-      }
-      if (mission.kind === "airTransport") {
-        return "Airborne infantry will launch from the selected transport wing and drop into this marked hex.";
-      }
-      if (mission.kind === "airCover") {
-        return "Combat air patrol will center on this hex instead of the squadron's base.";
-      }
-      return "Strike aircraft will stage their run against the selected hex when the mission executes.";
-    })();
-    const pickLabel = mission.kind === "airTransport"
-      ? "Mark Drop Zone"
-      : mission.kind === "airCover"
-        ? "Choose Patrol Hex"
-        : "Choose Target On Map";
-
-    return `
-      <div class="air-target-card">
-        <span class="air-target-card__eyebrow">${this.escapeHtml(mission.kind === "airTransport" ? "Drop Zone" : "Target Board")}</span>
-        <strong class="air-target-card__title">${this.escapeHtml(title)}</strong>
-        <p class="air-target-card__detail">${this.escapeHtml(detail)}</p>
-        <div class="air-target-actions">
-          <button type="button" class="air-button" data-air-pick-target>${this.escapeHtml(pickLabel)}</button>
-          ${mission.kind === "airCover"
-            ? `<button type="button" class="air-button" data-air-clear-target ${targetSelected ? "" : "disabled"}>Use Base CAP</button>`
-            : targetSelected
-              ? `<button type="button" class="air-button" data-air-clear-target>Clear Mark</button>`
-              : ""}
-        </div>
-      </div>
-    `;
   }
 
   private syncAirPlannerFeedback(panel: HTMLElement, view: AirPlannerViewModel): void {
@@ -1992,7 +1549,7 @@ export class PopupManager implements IPopupManager {
   }
 
   private scheduleAirPlannerMission(
-    engine: GameEngineAPI,
+    engine: BattleSidebarEngine,
     mission: AirMissionTemplate | null,
     squadron: AirSquadronCardView | null
   ): void {
@@ -2109,7 +1666,7 @@ export class PopupManager implements IPopupManager {
     this.popupDialog.focus();
   }
 
-  private describeAirTargetSelection(engine: GameEngineAPI, kind: AirMissionKind, value: string): string {
+  private describeAirTargetSelection(engine: BattleSidebarEngine, kind: AirMissionKind, value: string): string {
     if (!value) {
       return kind === "airCover" ? "Base CAP" : "Awaiting map mark";
     }
@@ -2163,7 +1720,7 @@ export class PopupManager implements IPopupManager {
       .join("");
   }
 
-  private resolveAirSquadronLabel(engine: GameEngineAPI, squadronId: string | undefined): string {
+  private resolveAirSquadronLabel(engine: BattleSidebarEngine, squadronId: string | undefined): string {
     if (!squadronId) {
       return "—";
     }
@@ -2179,7 +1736,7 @@ export class PopupManager implements IPopupManager {
   }
 
   private describeScheduledAirMissionTarget(
-    engine: GameEngineAPI,
+    engine: BattleSidebarEngine,
     mission: Pick<SerializedAirMission, "kind" | "targetHex" | "escortTargetUnitKey">
   ): string {
     if (mission.targetHex) {
@@ -2207,7 +1764,7 @@ export class PopupManager implements IPopupManager {
   }
 
   /** Renders the mission roster with cancel actions for queued sorties. */
-  private renderAirMissionList(list: HTMLUListElement, engine: GameEngineAPI): void {
+  private renderAirMissionList(list: HTMLUListElement, engine: BattleSidebarEngine): void {
     const planningFaction = this.resolveAirPlanningFaction(engine);
     const missions = engine.getScheduledAirMissions(planningFaction).filter((mission) => mission.status !== "completed");
     if (!missions || missions.length === 0) {
@@ -2387,7 +1944,7 @@ export class PopupManager implements IPopupManager {
 
     if (this.activePopup === "intelligence" && this.intelPickMode === "deception") {
       try {
-        const engine = this.battleState.ensureGameEngine();
+        const engine = this.battleState.getSidebarEngine();
         const result = engine.deployCounterIntel(axial);
         if (!result.ok) {
           this.setIntelFeedback(result.reason);
@@ -2753,13 +2310,11 @@ export class PopupManager implements IPopupManager {
       list.innerHTML = "<li class=\"army-roster-empty\">No units recorded.</li>";
       return;
     }
-    const displayEntries = this.disambiguateRosterEntries(entries);
-    list.innerHTML = displayEntries
-      .map((entry) => this.composeRosterEntryMarkup(entry))
-      .join("");
+    const presentation = projectRosterSectionPresentation(entries);
+    list.innerHTML = presentation.markup;
 
     if (listKey === "reserves") {
-      // Bind click handler for the entire row (for backwards compatibility and keyboard users)
+      // Preserve the legacy pointer shortcut; the nested Deploy button owns keyboard access.
       list.querySelectorAll<HTMLElement>(".army-roster-entry.reserves-selectable")
         .forEach((element) => {
           element.addEventListener("click", (event) => {
@@ -2789,139 +2344,6 @@ export class PopupManager implements IPopupManager {
           });
         });
     }
-  }
-
-  private disambiguateRosterEntries(entries: RosterSnapshotEntry[]): RosterSnapshotEntry[] {
-    const labelTotals = entries.reduce((totals, entry) => {
-      totals.set(entry.label, (totals.get(entry.label) ?? 0) + 1);
-      return totals;
-    }, new Map<string, number>());
-    const labelSeen = new Map<string, number>();
-
-    return entries.map((entry) => {
-      const total = labelTotals.get(entry.label) ?? 0;
-      if (total <= 1) {
-        return entry;
-      }
-      const index = (labelSeen.get(entry.label) ?? 0) + 1;
-      labelSeen.set(entry.label, index);
-      return {
-        ...entry,
-        label: `${entry.label} #${index}`
-      };
-    });
-  }
-
-  private composeRosterEntryMarkup(entry: RosterSnapshotEntry): string {
-    const spriteMarkup = entry.sprite
-      ? `<img src="${this.escapeHtml(entry.sprite)}" alt="" class="reserve-thumb" aria-hidden="true" />`
-      : `<span class="reserve-thumb reserve-thumb--fallback" aria-hidden="true">${this.escapeHtml(this.extractInitials(entry.label))}</span>`;
-
-    const fuelCopy = entry.fuel == null ? "—" : `${entry.fuel}`;
-    const statusCopy = entry.status === "deployed"
-      ? "Frontline"
-      : entry.status === "reserves"
-        ? "Reserve"
-        : entry.status === "support"
-          ? (entry.supportCategory ?? "Support")
-          : "Out of action";
-    const statusClass = entry.status === "deployed"
-      ? "army-roster-status--frontline"
-      : entry.status === "reserves"
-        ? "army-roster-status--reserve"
-        : entry.status === "support"
-          ? "army-roster-status--support"
-          : "army-roster-status--exhausted";
-
-    // Present roster stats as condensed inline chips so each entry fits within a two-line layout.
-    // Color-coded classes help commanders quickly identify units needing attention.
-    const getStatClass = (key: string, value: number | string): string => {
-      if (typeof value === "string") return "";
-      if (key === "STR") {
-        if (value <= 25) return " army-roster-stat--critical";
-        if (value <= 50) return " army-roster-stat--warning";
-        if (value >= 90) return " army-roster-stat--good";
-      }
-      if (key === "AMMO") {
-        if (value <= 1) return " army-roster-stat--critical";
-        if (value <= 3) return " army-roster-stat--warning";
-        if (value >= 8) return " army-roster-stat--good";
-      }
-      if (key === "FUEL" && typeof value === "number") {
-        if (value <= 10) return " army-roster-stat--critical";
-        if (value <= 25) return " army-roster-stat--warning";
-        if (value >= 60) return " army-roster-stat--good";
-      }
-      if (key === "CHARGES") {
-        if (value === 0) return " army-roster-stat--critical";
-        if (value <= 1) return " army-roster-stat--warning";
-        if (value >= 3) return " army-roster-stat--good";
-      }
-      return "";
-    };
-
-    // Off-map support assets (not Air Support) use different metrics: charges instead of standard unit stats.
-    // Detect them by checking if it's a support entry with low/abnormal strength values (charges) and no fuel.
-    const isOffMapSupport = entry.status === "support" && entry.supportCategory !== "Air Support" && entry.strength < 10 && entry.fuel == null;
-
-    let statsMarkup: string;
-    if (isOffMapSupport) {
-      // Off-map support assets show charges and status only
-      const chargesClass = getStatClass("CHARGES", entry.strength);
-      statsMarkup = `<span class="army-roster-stat${chargesClass}"><abbr title="Charges Remaining">CHARGES</abbr><strong>${entry.strength}</strong></span>`;
-    } else {
-      // Normal units and air support show full stats
-      const metrics = [
-        { key: "STR", title: "Strength", value: entry.strength },
-        { key: "EXP", title: "Experience", value: entry.experience },
-        { key: "AMMO", title: "Ammo", value: entry.ammo },
-        { key: "FUEL", title: "Fuel", value: entry.fuel ?? fuelCopy }
-      ];
-      statsMarkup = metrics
-        .map((metric) => {
-          const displayValue = metric.key === "FUEL" && entry.fuel == null ? "—" : String(metric.value);
-          const statClass = getStatClass(metric.key, metric.value);
-          return `<span class="army-roster-stat${statClass}"><abbr title="${this.escapeHtml(metric.title)}">${metric.key}</abbr><strong>${this.escapeHtml(displayValue)}</strong></span>`;
-        })
-        .join("");
-    }
-
-    const roleMarkup = entry.logisticsRole
-      ? `<span class="army-roster-detail army-roster-detail--role">${this.escapeHtml(entry.logisticsRole === "repair" ? "Repair logistics" : entry.logisticsRole === "medical" ? "Medical logistics" : "Supply logistics")}</span>`
-      : "";
-    const personnelMarkup = entry.personnelStatus && entry.personnelStatus.total > 0
-      ? `<span class="army-roster-detail" title="Personnel status">P ${entry.personnelStatus.fit}/${entry.personnelStatus.total} fit · ${entry.personnelStatus.injured} inj · ${entry.personnelStatus.wounded} wnd · ${entry.personnelStatus.severelyWounded} sev · ${entry.personnelStatus.killed} KIA · ${entry.personnelStatus.readiness ?? 0}% ready</span>`
-      : "";
-    const equipmentMarkup = entry.equipmentStatus && entry.equipmentStatus.total > 0
-      ? `<span class="army-roster-detail" title="Vehicle and equipment status">Eq ${entry.equipmentStatus.operational}/${entry.equipmentStatus.total} op · ${entry.equipmentStatus.damaged} dmg · ${entry.equipmentStatus.disabled} dis · ${entry.equipmentStatus.destroyed} lost · ${entry.equipmentStatus.readiness ?? 0}% ready</span>`
-      : "";
-    const suppressionMarkup = typeof entry.suppression === "number" && entry.suppression > 0
-      ? `<span class="army-roster-detail army-roster-detail--suppression">Supp ${entry.suppression}</span>`
-      : "";
-    const detailMarkup = [roleMarkup, personnelMarkup, equipmentMarkup, suppressionMarkup].filter(Boolean).join("");
-    const selectableClass = entry.status === "reserves" ? " reserves-selectable" : "";
-
-    // Add deploy button for reserve units
-    const deployButtonMarkup = entry.status === "reserves"
-      ? `<button type="button" class="roster-deploy-btn" data-roster-deploy="${this.escapeHtml(entry.unitKey)}" aria-label="Deploy ${this.escapeHtml(entry.label)} from reserves to base camp" title="Reserve call-ups arrive at base camp automatically">Deploy</button>`
-      : "";
-
-    return `
-      <li class="army-roster-item">
-        <div class="army-roster-entry reserve-item${selectableClass}" data-unit-key="${this.escapeHtml(entry.unitKey)}">
-          <div class="reserve-visual">${spriteMarkup}</div>
-          <div class="reserve-copy">
-            <div class="army-roster-line">
-              <strong>${this.escapeHtml(entry.label)}</strong>
-              <span class="army-roster-status ${statusClass}">${this.escapeHtml(statusCopy)}</span>
-            </div>
-            <div class="army-roster-stats">${statsMarkup}</div>
-            ${detailMarkup ? `<div class="army-roster-details">${detailMarkup}</div>` : ""}
-          </div>
-          ${deployButtonMarkup ? `<div class="roster-actions">${deployButtonMarkup}</div>` : ""}
-        </div>
-      </li>
-    `;
   }
 
   /** Returns true when roster should refresh on a battle update. */
@@ -2993,7 +2415,7 @@ export class PopupManager implements IPopupManager {
     element.textContent = "";
 
     if (!portraitUrl) {
-      const initials = profile ? this.extractInitials(profile.identity.name) : "?";
+      const initials = profile ? extractDisplayInitials(profile.identity.name) : "?";
       element.textContent = initials;
     }
   }
@@ -3073,7 +2495,7 @@ export class PopupManager implements IPopupManager {
   private resolveCommanderBenefits(profile: GeneralRosterEntry): CommanderBenefits {
     try {
       if (this.battleState.hasEngine()) {
-        const engine = this.battleState.ensureGameEngine();
+        const engine = this.battleState.getSidebarEngine();
         return engine.getCommanderBenefits();
       }
     } catch (error) {
@@ -3328,17 +2750,6 @@ export class PopupManager implements IPopupManager {
     return sign ? `${sign}${magnitude}` : magnitude;
   }
 
-  private extractInitials(name: string): string {
-    return name
-      .split(" ")
-      .filter((part) => part.length > 0)
-      .slice(0, 2)
-      .map((part) => part[0].toUpperCase())
-      .join("")
-      .padEnd(2, "?")
-      .slice(0, 2);
-  }
-
   private formatDate(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
@@ -3390,7 +2801,7 @@ export class PopupManager implements IPopupManager {
       if (!this.battleState.hasEngine()) {
         return null;
       }
-      return this.battleState.ensureGameEngine().getBattleRequisitionSnapshot();
+      return this.battleState.getSidebarEngine().getBattleRequisitionSnapshot();
     } catch (error) {
       console.warn("PopupManager: Unable to retrieve battle requisition snapshot.", error);
       return null;
@@ -3470,7 +2881,7 @@ export class PopupManager implements IPopupManager {
 
       // If the cache has not been seeded yet but the engine is live, pull directly to avoid placeholder copy lingering.
       if (this.battleState.hasEngine()) {
-        const engineSnapshot = this.battleState.ensureGameEngine().getSupplySnapshot(faction);
+        const engineSnapshot = this.battleState.getSidebarEngine().getSupplySnapshot(faction);
         return engineSnapshot;
       }
     } catch (error) {
@@ -3763,7 +3174,7 @@ export class PopupManager implements IPopupManager {
   private pullLogisticsSnapshot(): LogisticsSnapshot | null {
     try {
       if (this.battleState.hasEngine()) {
-        return this.battleState.ensureGameEngine().getLogisticsSnapshot();
+        return this.battleState.getSidebarEngine().getLogisticsSnapshot();
       }
     } catch (error) {
       console.warn("PopupManager: Failed to retrieve logistics snapshot.", error);
