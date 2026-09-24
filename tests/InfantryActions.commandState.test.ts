@@ -494,7 +494,7 @@ registerTest("PLAYER_UNITS_CAN_MOVE_ONTO_A_FRIENDLY_HEX_UNTIL_STACK_LIMIT", asyn
   await Then("friendly occupied hexes accept movement until the two-formation stack limit", () => {});
 });
 
-registerTest("MOVEMENT_OVERLAY_DOES_NOT_ROUTE_THROUGH_FRIENDLY_OCCUPIED_HEXES", async ({ Then }) => {
+registerTest("MOVEMENT_PATHS_CAN_TRANSIT_A_FRIENDLY_HEX_WITH_STACK_CAPACITY", async ({ Then }) => {
   const movingInfantry: ScenarioUnit = {
     type: "TestInfantry" as unknown as ScenarioUnit["type"],
     unitId: "overlay-mover",
@@ -517,7 +517,7 @@ registerTest("MOVEMENT_OVERLAY_DOES_NOT_ROUTE_THROUGH_FRIENDLY_OCCUPIED_HEXES", 
     entrench: 0,
     facing: "SE" as ScenarioUnit["facing"]
   };
-  const blockedDestination = { q: 2, r: 0 };
+  const destination = { q: 2, r: 0 };
 
   const { engine } = createEngine([movingInfantry, friendlyBlocker]);
   const reachableKeys = new Set(
@@ -528,23 +528,70 @@ registerTest("MOVEMENT_OVERLAY_DOES_NOT_ROUTE_THROUGH_FRIENDLY_OCCUPIED_HEXES", 
   if (!reachableKeys.has("1,0")) {
     throw new Error("Expected the friendly occupied hex to remain a legal stacking destination.");
   }
-  if (reachableKeys.has("2,0")) {
+  if (!reachableKeys.has("2,0")) {
     throw new Error(
-      `Expected the overlay to stop at the friendly blocker, received ${JSON.stringify([...reachableKeys])}.`
+      `Expected the overlay to continue through the available friendly stack slot, received ${JSON.stringify([...reachableKeys])}.`
     );
+  }
+
+  const move = engine.moveUnit(movingInfantry.hex, destination, movingInfantry.unitId);
+  const pathKeys = move.path.map((hex) => `${hex.q},${hex.r}`);
+  if (JSON.stringify(pathKeys) !== JSON.stringify(["0,0", "1,0", "2,0"])) {
+    throw new Error(`Expected committed movement through the partly filled friendly hex, received ${JSON.stringify(pathKeys)}.`);
+  }
+
+  await Then("movement highlights and committed paths both traverse a friendly hex with spare stack capacity", () => {});
+});
+
+registerTest("MOVEMENT_PATHS_STOP_AT_A_FRIENDLY_HEX_AT_STACK_LIMIT", async ({ Then }) => {
+  const movingInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    unitId: "full-stack-mover",
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const stackMemberOne: ScenarioUnit = {
+    type: "TestShockInfantry" as unknown as ScenarioUnit["type"],
+    unitId: "full-stack-one",
+    hex: { q: 1, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SE" as ScenarioUnit["facing"]
+  };
+  const stackMemberTwo: ScenarioUnit = {
+    ...stackMemberOne,
+    unitId: "full-stack-two"
+  };
+  const destination = { q: 2, r: 0 };
+  const { engine } = createEngine([movingInfantry, stackMemberOne, stackMemberTwo]);
+  const reachableKeys = new Set(
+    engine.getReachableHexes(movingInfantry.hex, movingInfantry.unitId)
+      .map((hex) => `${hex.q},${hex.r}`)
+  );
+
+  if (reachableKeys.has("1,0") || reachableKeys.has("2,0")) {
+    throw new Error(`Expected a full friendly stack to block entry and transit, received ${JSON.stringify([...reachableKeys])}.`);
   }
 
   let rejected = false;
   try {
-    engine.moveUnit(movingInfantry.hex, blockedDestination, movingInfantry.unitId);
+    engine.moveUnit(movingInfantry.hex, destination, movingInfantry.unitId);
   } catch {
     rejected = true;
   }
   if (!rejected) {
-    throw new Error("Expected committed movement to reject the same blocked destination hidden by the overlay.");
+    throw new Error("Expected committed movement to reject the destination behind a full friendly stack.");
   }
 
-  await Then("movement highlights and committed paths share destination-only friendly occupancy", () => {});
+  await Then("movement highlights and committed paths both block full friendly stacks", () => {});
 });
 
 registerTest("PLAYER_MOVEMENT_PATHS_ROUTE_AROUND_ENEMY_UNITS", async ({ Then }) => {

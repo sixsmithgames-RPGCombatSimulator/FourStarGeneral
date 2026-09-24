@@ -147,6 +147,7 @@ import type { UnitAllocationKey } from "../data/unitSystem/types";
 import { ensureUnlockState } from "../state/UnlockState";
 import type { CampaignBattlePackage } from "./campaign/engagements/CampaignEngagementLedgerTypes";
 import type { BattlePhase, TurnFaction } from "./battle/BattleRuntimeTypes";
+import { buildCapacityAwareMovementBlockers } from "./battle/movement/MovementOccupancy";
 import type {
   EnemyContactSnapshot,
   EnemyContactState,
@@ -10574,9 +10575,7 @@ private automateSupplyConvoys(
         if (!this.inBounds(neighbor)) continue;
         const nKey = axialKey(neighbor);
 
-        const occupied = this.isOccupied(neighbor);
-        const canEnterOccupiedHex = occupied && moveType !== "air" && this.canFactionEnterHex(unit, "Player", neighbor);
-        if (occupied && moveType !== "air" && !canEnterOccupiedHex) {
+        if (moveType !== "air" && !this.canFactionEnterHex(unit, "Player", neighbor)) {
           continue;
         }
 
@@ -10600,13 +10599,11 @@ private automateSupplyConvoys(
           current.cost === 0
         );
         if (withinFuelBudget && (withinMovementBudget || isHealthyFirstStep)) {
-          if (nKey !== originKey && !reachableKeys.has(nKey) && (!occupied || canEnterOccupiedHex)) {
+          if (nKey !== originKey && !reachableKeys.has(nKey)) {
             reachableKeys.add(nKey);
             reachable.push(structuredClone(neighbor));
           }
-
-          // Friendly occupancy is a legal destination, never a ground transit node.
-          if (!occupied || moveType === "air") queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });
+          queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });
         }
       }
     }
@@ -10783,14 +10780,15 @@ private automateSupplyConvoys(
     if (this.isTowableUnit(unit) && this.resolveTowState(unit) !== "towed") {
       throw new Error("This battery must choose Move Out before it can be towed.");
     }
-
     if (definition.class === "artillery" && flags.attacksUsed > 0) {
       throw new Error("Artillery cannot move after attacking.");
     }
-
     const movementBlockers = moveType === "air"
       ? new Set<string>()
-      : this.buildUnifiedOccupancySet();
+      : buildCapacityAwareMovementBlockers(this.buildUnifiedOccupancySet(), (key) => {
+          const hex = this.parseAxialKey(key);
+          return hex !== null && this.canFactionEnterHex(unit, "Player", hex);
+        });
     movementBlockers.delete(fromKey);
     const movePlan = this.findCheapestPathToAny(
       from,
@@ -10809,7 +10807,6 @@ private automateSupplyConvoys(
       flags.movementPointsUsed === 0 &&
       moveSummary.steps === 1
     );
-
     if (!isHealthyFirstMove && moveCost > remaining) {
       throw new Error(`Not enough movement points. Cost: ${moveCost}, Remaining: ${Math.max(0, remaining).toFixed(1)}`);
     }
