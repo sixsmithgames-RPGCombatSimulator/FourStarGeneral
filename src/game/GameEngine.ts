@@ -10600,14 +10600,13 @@ private automateSupplyConvoys(
           current.cost === 0
         );
         if (withinFuelBudget && (withinMovementBudget || isHealthyFirstStep)) {
-          queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });
           if (nKey !== originKey && !reachableKeys.has(nKey) && (!occupied || canEnterOccupiedHex)) {
             reachableKeys.add(nKey);
             reachable.push(structuredClone(neighbor));
           }
-          if (occupied && canEnterOccupiedHex) {
-            continue;
-          }
+
+          // Friendly occupancy is a legal destination, never a ground transit node.
+          if (!occupied || moveType === "air") queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });
         }
       }
     }
