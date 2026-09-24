@@ -8900,7 +8900,9 @@
       white-space: normal;
     }
     #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__header {
-      padding: 3rem 0 0;
+      min-height: 44px;
+      padding: 0 9rem 0 0;
+      align-content: center;
     }
     #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__title {
       white-space: normal;
@@ -8915,6 +8917,18 @@
     #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__dismiss {
       width: 44px;
       height: 44px;
+    }
+    @media (min-width: 981px) {
+      #battleScreen .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="true"] .battle-intel-overlay__stats {
+        grid-template-columns: repeat(var(--battle-intel-stat-count, 6), minmax(0, 1fr));
+      }
+      #battleScreen .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="true"] .battle-intel-overlay__stat {
+        padding-inline: 0.2rem;
+      }
+      #battleScreen .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="true"] .battle-intel-overlay__stat-label {
+        font-size: 0.48rem;
+        letter-spacing: 0.035em;
+      }
     }
     @media (max-width: 980px) {
       #battleScreen .battle-main[data-panel-collapsed="true"] {
@@ -8957,6 +8971,11 @@
       }
       #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__stats {
         grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+      }
+      #battleScreen .battle-intel-overlay[data-intel-kind="battle"] .battle-intel-overlay__header {
+        min-height: 0;
+        padding: 3rem 0 0;
+        align-content: normal;
       }
       #battleScreen .battle-objective-card:has(.battle-objective-progress:not(.hidden)) {
         grid-template-columns: minmax(0, 1fr) minmax(0, 10rem);

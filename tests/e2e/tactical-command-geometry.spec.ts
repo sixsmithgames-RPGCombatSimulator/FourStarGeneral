@@ -388,6 +388,14 @@ for (const viewport of [
         const advance = page.locator('.enhanced-initiative-turn-controls .group-advance-btn');
         await saveIntelEvidence(page, info, 'selected-initial');
         await expectInitialIntel(page, defense ? defenderTitle : selectedIntel.unitLabel!);
+        if (viewport.width > 980) {
+          const compactHeader = await bounds(overlay.locator('.battle-intel-overlay__header'));
+          expect(compactHeader.height, 'Desktop intel header shares its row with the 44px controls').toBeLessThanOrEqual(64);
+          const statRows = await overlay.locator('.battle-intel-overlay__stat').evaluateAll(elements =>
+            elements.map(element => Math.round(element.getBoundingClientRect().y))
+          );
+          expect(new Set(statRows).size, 'Desktop compact stats stay in one row').toBe(1);
+        }
         // The overlay owns focus on selection. End must reach the map through the tactical pane.
         await expect(overlay).toBeFocused();
         await page.keyboard.press('End');
