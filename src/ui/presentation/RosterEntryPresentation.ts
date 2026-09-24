@@ -112,7 +112,7 @@ function composeRosterEntryMarkup(entry: Readonly<RosterSnapshotEntry>): string 
               <span class="army-roster-status ${statusClass}">${escapeHtml(statusCopy)}</span>
             </div>
             <div class="army-roster-stats">${composeStatsMarkup(entry)}</div>
-            ${detailMarkup ? `<div class="army-roster-details">${detailMarkup}</div>` : ""}
+${detailMarkup ? `            <div class="army-roster-details">${detailMarkup}</div>` : ""}
           </div>
           ${deployButtonMarkup ? `<div class="roster-actions">${deployButtonMarkup}</div>` : ""}
         </div>
