@@ -13,8 +13,7 @@ tests/reports/
 tests/screenshots/
 tmp/
 
-# Local-only test infrastructure and logs
-src/testing/
+# Local-only logs and generated reports
 *.log
 output*.txt
 tsc_out.txt
