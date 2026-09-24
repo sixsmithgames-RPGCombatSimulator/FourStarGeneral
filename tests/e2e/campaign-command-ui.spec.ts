@@ -221,24 +221,26 @@ async function openFront(page: Page, viewport: { width: number; height: number }
   await expect(page.locator('#campaignInspectorTitle')).toContainText('Utah');
 }
 
-test('FSG_CAM_081: public Enter Campaign link opens campaign while tactical entry keeps operation selection', async ({ page }, info) => {
+test('FSG_CAM_081: public Play Now opens the game selector while direct campaign entry remains available', async ({ page }, info) => {
   await page.route('**/clerk.browser.js', (route) => route.fulfill({
     contentType: 'application/javascript',
     body: 'window.Clerk = { load: () => Promise.resolve(), user: null };'
   }));
-  await page.goto('/play');
+  await page.goto('/landing/index.html');
+  await page.getByRole('link', { name: 'Play Now', exact: true }).click();
+  await expect(page).toHaveURL(/\/play$/);
   await expect(page.locator('#appBootStatus')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator('#landingScreen')).toBeVisible();
   await expect(page.locator('#campaignScreen')).toBeHidden();
-  await page.goto('/landing/index.html');
-  await page.getByRole('link', { name: 'Enter Campaign', exact: true }).click();
+
+  await page.goto('/play?mode=campaign');
   await expect(page).toHaveURL(/\/play\?mode=campaign$/);
   await expect(page.locator('#appBootStatus')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator('#campaignScreen')).toBeVisible();
   await expect(page.locator('#landingScreen')).toBeHidden();
   await expect(page.locator('.campaign-command-shell')).toBeVisible();
   await expect(page.locator('#campaignCommandClock')).toContainText('7 June 1944');
-  await evidence(page, info, 'public-campaign-entry', { url: page.url(), campaignVisible: true });
+  await evidence(page, info, 'product-entry-and-direct-campaign-route', { url: page.url(), campaignVisible: true });
 });
 
 test('FSG_CAM_108: real theater and zoom controls preserve hex-art registration', async ({ page }, info) => {
@@ -313,9 +315,8 @@ for (const viewport of releaseViewports) {
       contentType: 'application/javascript',
       body: 'window.Clerk = { load: () => Promise.resolve(), user: null };'
     }));
-    await page.goto('/landing/index.html');
+    await page.goto('/play?mode=campaign');
     expect(['localhost', '127.0.0.1']).toContain(new URL(page.url()).hostname);
-    await page.getByRole('link', { name: 'Enter Campaign', exact: true }).click();
     const gate = page.getByRole('dialog', { name: /campaign locked/i });
     await expect(gate).toBeVisible({ timeout: 30_000 });
     await expect(gate).toHaveAttribute('aria-modal', 'true');

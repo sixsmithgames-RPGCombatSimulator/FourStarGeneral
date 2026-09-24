@@ -4,6 +4,8 @@ Baseline: `16bc10e591bc52a9bcedde33e20f08b967e7bca3`, the exact audited commit.
 Authoritative scope: [audit resolution plan](CAMPAIGN_UI_UX_AUDIT_RESOLUTION_PLAN_2026-08-29.md).
 The original run ledger and all evidence under `test-results/campaign-playtest/FSG-CAMPAIGN-20260829-172311` remain untouched.
 
+> **Superseded public-entry decision — 2026-09-24:** The campaign-first landing implementation recorded below was reverted. The public root again identifies Four Star General as the product and routes the primary action to `/play`. `LandingProductIdentity.contract.test.ts` now prevents one campaign from replacing the game-level identity.
+
 ## Ownership and integration
 
 One integration owner controls the shared checkout, test entrypoints, commits, and release verdict. Workers have disjoint write scopes; none may commit, push, deploy, or drive the live browser independently.
@@ -25,7 +27,7 @@ The implementation has passed the complete local release-command sequence record
 
 | Finding | Primary automated owner | Local acceptance | Live exercise | Status |
 |---|---|---|---|---|
-| 001 public entry | LandingCampaignIdentity.contract.test.ts / FSG_CAM_080–083 | static identity and owned artwork; browser 081 clicks the real public link into Campaign and preserves standalone tactical entry | desktop and compact entry screenshots | LOCAL PASS; live OPEN |
+| 001 public entry | LandingProductIdentity.contract.test.ts / FSG_LANDING_PRODUCT_* | static product identity and game-level `/play` entry; no campaign may own the primary hero route | desktop and compact entry screenshots | SUPERSEDED AND REPLACED 2026-09-24 |
 | 002 scope/state | CampaignNavigationScope.test.ts / FSG_CAM_060–061 | every workspace/layer pair, compact select changes, keyboard rail, exactly one selected control and SVG parity | Forces workspace → Intelligence layer → workspace navigation | LOCAL PASS; live OPEN |
 | 003 Forces | CampaignWorkspaceProjection.test.ts / FSG_CAM_068–071 | grouping, search and all postures; discovery 071 and producer 045 prove exact formation selection and real commitment blocking | find ready and committed formations | LOCAL PASS; live OPEN |
 | 004 naval | CampaignNavalSupport.test.ts / FSG_CAM_051–059 | eligibility, exact source reservations, real competing commit, tactical charges, per-source RP conservation, migration and hydration; UI 059 consumes actual authority | supported/unsupported engagement, save/resume, AAR | LOCAL PASS; live OPEN |

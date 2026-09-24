@@ -6,6 +6,8 @@
 **Scope:** The nine findings in the latest live campaign audit, including the public entry, campaign command interface, rules-to-UI consistency, responsive behavior, and release certification  
 **Release verdict at baseline:** `FAIL`
 
+> **Product-identity correction — 2026-09-24:** The public-entry requirements in this plan are superseded. Four Star General is the product; Operation Overlord is one major mode. The site root must lead with the game and route its primary action to `/play`. Direct campaign entry remains supported inside the game and through `/play?mode=campaign`, but the campaign must not replace the product identity.
+
 This document is the release-blocking delta plan for the broader [Campaign Professionalization Plan](./CAMPAIGN_PROFESSIONAL_WWII_EXECUTION_PLAN_2026-08-29.md). That plan remains the architectural and historical foundation. This plan resolves the concrete defects found in the latest deployed build and defines the proof required before anyone may describe the campaign as a first-class professional WWII game.
 
 Primary evidence:
@@ -19,7 +21,7 @@ Primary evidence:
 
 The campaign must present one coherent command experience from the public landing page through campaign resolution:
 
-1. The player immediately understands that Four Star General includes a persistent Operation Overlord campaign and can enter it directly.
+1. The player immediately understands Four Star General as a browser-based WWII command game and can enter the game-level mode selector directly.
 2. The command screen clearly separates headquarters workspaces from map layers.
 3. Forces, intelligence, logistics, objectives, and locations present decision-ready information rather than data dumps.
 4. The same rules-bearing state produces the same answer everywhere, especially for naval support, readiness, commitment, and availability.
@@ -157,17 +159,17 @@ Resolve `FSG-CAM-006` and `FSG-CAM-008` after content shapes stabilize.
 
 **Acceptance:** The selected location, its information, its primary action, pending orders, timeline, and advance control are reachable without overlap or clipping at 1920×1080, 1506×768, 1440×900, 1280×720, 800×900, and 640×360. At 1506×768 the intersection between the order tray and `Queue Tactical Engagement` is exactly zero. At 640×360 the open inspector body has positive height and one vertical scroll owner.
 
-### Phase 4 — Replace the generic public entry
+### Phase 4 — Preserve the game-level public entry
 
 Resolve `FSG-CAM-001` independently from the command UI.
 
-1. Rewrite title, metadata, hero, and first call to action around the Operation Overlord campaign.
-2. Make `Enter Campaign` the primary route and present tactical battles as a secondary mode.
-3. Replace OS emoji with owned project artwork or deliberately authored, source-controlled vector marks.
+1. Keep title, metadata, hero, and the first call to action centered on Four Star General rather than one operation.
+2. Route the primary action to `/play`; present tactical battles and the campaign as modes within the game.
+3. Track landing-page artwork quality independently from product hierarchy so visual changes cannot be used to redefine which mode owns the public root.
 4. Preserve accessible text, correct heading order, keyboard operation, responsive composition, and a clear route to help.
-5. Add a static landing contract so campaign identity cannot silently disappear in later marketing edits.
+5. Add a static landing contract so a mode cannot silently replace the product identity in later marketing edits.
 
-**Acceptance:** Before scrolling, the player can identify the game, the campaign, its WWII command role, and how to enter campaign mode. No emoji or native OS pictographs remain.
+**Acceptance:** Before scrolling, the player can identify Four Star General, its WWII tactical-command role, and how to enter the game. Campaign entry remains available after entering the game without dominating the public root.
 
 ### Phase 5 — Integrated campaign certification
 
@@ -271,7 +273,7 @@ The campaign may be called first-class only when all of the following are true:
 
 - All eight confirmed findings are closed and live-verified.
 - `FSG-CAM-009` is either correctly reproduced and fixed or closed with documented test-method correction.
-- The public entry is campaign-led, period-appropriate, accessible, and free of emoji.
+- The public entry is game-led, accessible, and routes its primary action to `/play`; Operation Overlord remains a mode rather than the product identity.
 - Headquarters workspaces and map layers are unmistakably separate.
 - Forces and Intelligence support real decisions without dumps, repetition, or contradictory state.
 - Naval support agrees across Logistics, fleet inspection, engagement authorization, tactical use, AAR, and resume.
