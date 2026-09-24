@@ -1,0 +1,30 @@
+# Local dependencies and Vercel state
+node_modules/
+.vercel/
+
+# Generated build and test output
+dist/
+dist-*/
+.codex-*/
+test-results/
+diagnostics/
+e2e/screenshots/
+tests/reports/
+tests/screenshots/
+tmp/
+
+# Local-only test infrastructure and logs
+src/testing/
+*.log
+output*.txt
+tsc_out.txt
+test_output.txt
+npm_test_out.txt
+harness*.txt
+air_*.txt
+airshow*.txt
+jest*.txt
+fightermotion_out.txt
+tests/*.png
+tests/*.jpg
+tests/*.html
