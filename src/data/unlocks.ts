@@ -3,6 +3,8 @@
  * Core content remains accessible without purchase; unlock SKUs redirect to the primary checkout flow.
  */
 
+import { buildAttributedWebsiteUrl } from "../utils/marketingAttribution";
+
 export interface UnlockCatalog {
   /** Region keys that remain playable without purchase (aligns with REGION_OPTIONS). */
   readonly coreRegions: readonly string[];
@@ -160,10 +162,13 @@ export function isCampaignUnlock(campaignKey: string | null | undefined): boolea
 }
 
 /**
- * Builds the purchase URL for a specific SKU routed through the main site checkout flow.
- * The SKU string should match client-side identifiers (e.g., unit key or school key).
+ * WHAT: Builds an attributed main-site pricing URL for one locked game item.
+ * WHY: The website must retain both the requested SKU and the acquisition
+ * source when a player leaves the game to consider an unlock.
+ *
+ * @param sku - Stable unit, school, region, or campaign unlock key.
+ * @returns A Sixsmith Games pricing URL with SKU and campaign attribution.
  */
 export function buildPurchaseUrl(sku: string): string {
-  const encodedSku = encodeURIComponent(sku);
-  return `${PURCHASE_BASE_URL}?sku=${encodedSku}`;
+  return buildAttributedWebsiteUrl(PURCHASE_BASE_URL, { sku });
 }

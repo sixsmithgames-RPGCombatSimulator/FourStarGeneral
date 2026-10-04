@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Preserve itch.io and Four Star General acquisition tags on main-site sign-in and upgrade links without cookies or persistent anonymous identifiers.
+
 ## Campaign first-class interface — FCI-4 common order planning
 
 - Added one authoritative action registry for redeployment, production, infrastructure repair, and all reconnaissance/counterintelligence operations, including stable blocker codes and corrective actions.

@@ -4,6 +4,7 @@
  */
 
 import type { UnlockAuthContext } from "../state/UnlockState";
+import { buildAttributedWebsiteUrl } from "./marketingAttribution";
 
 const GUEST_GENERAL_ID = "__GUEST_FIELD_COMMANDER__";
 
@@ -40,12 +41,17 @@ export function getGuestContext(authContext?: UnlockAuthContext | null): GuestCo
 }
 
 /**
- * Build the sign-in URL with current page as redirect.
+ * WHAT: Builds the main-site sign-in URL with the current game page as redirect.
+ * WHY: Guest players must return to the same game while Operations retains the
+ * privacy-safe acquisition source that brought them into Four Star General.
+ *
+ * @returns The attributed sign-in URL with an encoded redirect destination.
  */
 export function buildSignInUrl(): string {
   const baseUrl = "https://www.sixsmithgames.com/sign-in";
-  const redirectUrl = encodeURIComponent(window.location.href);
-  return `${baseUrl}?redirect_url=${redirectUrl}`;
+  return buildAttributedWebsiteUrl(baseUrl, {
+    redirect_url: window.location.href
+  });
 }
 
 /**

@@ -5,6 +5,59 @@ import { CORE_REGION_KEYS, CORE_SCHOOL_KEYS } from "../src/data/unlocks";
 import { PrecombatScreen } from "../src/ui/screens/PrecombatScreen";
 import type { IScreenManager } from "../src/contracts/IScreenManager";
 import { UnlockState, ensureUnlockState } from "../src/state/UnlockState";
+import {
+  buildAttributedWebsiteUrl,
+  resolveFsgMarketingAttribution
+} from "../src/utils/marketingAttribution";
+
+registerTest("FSG_ITCH_ATTRIBUTION_SURVIVES_MAIN_SITE_EXIT", async ({ Then }) => {
+  await Then("an itch.io referral receives stable marketplace campaign tags", async () => {
+    const attribution = resolveFsgMarketingAttribution({
+      referrer: "https://sixsmithgames.itch.io/four-star-general",
+      search: ""
+    });
+    if (
+      attribution.source !== "itchio"
+      || attribution.medium !== "game_listing"
+      || attribution.campaign !== "four_star_general"
+    ) {
+      throw new Error(`Expected itch.io attribution, received ${JSON.stringify(attribution)}.`);
+    }
+
+    const url = new URL(buildAttributedWebsiteUrl(
+      "https://www.sixsmithgames.com/pricing",
+      { sku: "campaign" },
+      {
+        referrer: "https://sixsmithgames.itch.io/four-star-general",
+        search: ""
+      }
+    ));
+    if (
+      url.searchParams.get("sku") !== "campaign"
+      || url.searchParams.get("utm_source") !== "itchio"
+      || url.searchParams.get("utm_medium") !== "game_listing"
+      || url.searchParams.get("utm_campaign") !== "four_star_general"
+    ) {
+      throw new Error(`Expected destination and campaign parameters to survive, received ${url.toString()}.`);
+    }
+  });
+});
+
+registerTest("FSG_ATTRIBUTION_REJECTS_UNSAFE_CAMPAIGN_VALUES", async ({ Then }) => {
+  await Then("unsafe free-form tags use the explicit Four Star General app contract", async () => {
+    const attribution = resolveFsgMarketingAttribution({
+      referrer: "",
+      search: "?utm_source=private%40example.com&utm_campaign=typed%20notes"
+    });
+    if (
+      attribution.source !== "four_star_general"
+      || attribution.medium !== "product_app"
+      || attribution.campaign !== "four_star_general_player"
+    ) {
+      throw new Error(`Expected safe default FSG attribution, received ${JSON.stringify(attribution)}.`);
+    }
+  });
+});
 
 registerTest("UNLOCK_CATALOG_ALIGNS_WITH_MARKETED_FREE_CORE_BASELINE", async ({ Then }) => {
   await Then("the free-core catalog exposes two starter factions and two starter colleges", async () => {
