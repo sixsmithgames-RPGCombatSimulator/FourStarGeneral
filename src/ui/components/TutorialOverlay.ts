@@ -405,7 +405,6 @@ export class TutorialOverlay {
     ensureTutorialState().clearHighlight();
     this.ensureAnchorTarget(miniStep.highlightSelector);
     this.positionPanel(this.currentStep);
-    this.updateArrow(this.currentStep);
   }
 
   private createTutorialStepFromMiniStep(
@@ -596,9 +595,6 @@ export class TutorialOverlay {
 
     // Position the panel
     this.positionPanel(step);
-
-    // Handle arrow
-    this.updateArrow(step);
   }
 
   private clearAnchorRetry(): void {
@@ -928,6 +924,7 @@ export class TutorialOverlay {
       this.panelElement.style.setProperty("--tutorial-dock-top", `${dockTop}px`);
       this.panelElement.style.right = `${viewportMargin}px`;
       this.panelElement.style.top = `${dockTop}px`;
+      this.updateArrow(step);
       return;
     }
 
@@ -935,6 +932,7 @@ export class TutorialOverlay {
       this.panelElement.style.left = "50%";
       this.panelElement.style.top = "50%";
       this.panelElement.style.transform = "translate(-50%, -50%)";
+      this.updateArrow(step);
       return;
     }
 
@@ -1092,6 +1090,7 @@ export class TutorialOverlay {
           }
           nudgeWithinViewport();
         }
+        this.updateArrow(step);
         return;
       }
 
@@ -1099,6 +1098,7 @@ export class TutorialOverlay {
       this.panelElement.style.left = "50%";
       this.panelElement.style.top = "50%";
       this.panelElement.style.transform = "translate(-50%, -50%)";
+      this.updateArrow(step);
       return;
     }
 
@@ -1125,10 +1125,11 @@ export class TutorialOverlay {
         this.panelElement.style.transform = "translateX(-50%)";
         break;
     }
+    this.updateArrow(step);
   }
 
   /**
-   * Updates the arrow indicator.
+   * Projects the arrow from the final layout, including flips, clamping and re-anchoring.
    */
   private updateArrow(step: TutorialStep): void {
     if (!this.panelElement) return;
@@ -1136,13 +1137,25 @@ export class TutorialOverlay {
     const arrow = this.panelElement.querySelector<HTMLElement>(".tutorial-arrow");
     if (!arrow) return;
 
-    if (!step.arrowDirection || this.isTopDockedBattleStep(step)) {
-      arrow.classList.add("hidden");
+    const target = step.arrowDirection && !this.isTopDockedBattleStep(step) && step.highlightSelector
+      ? this.getHighlightTargets(step.highlightSelector)[0] : undefined;
+    if (!target) {
+      if (!arrow.classList.contains("hidden")) arrow.classList.add("hidden");
       return;
     }
 
-    arrow.classList.remove("hidden");
-    arrow.className = `tutorial-arrow tutorial-arrow-${step.arrowDirection}`;
+    // Authored direction opts into a pointer, but cannot override where layout
+    // actually put the prompt. Normalize by panel size to choose its facing edge.
+    const panelRect = this.panelElement.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const dx = (targetRect.left + targetRect.right - panelRect.left - panelRect.right) / Math.max(1, panelRect.width);
+    const dy = (targetRect.top + targetRect.bottom - panelRect.top - panelRect.bottom) / Math.max(1, panelRect.height);
+    const direction = Math.abs(dx) > Math.abs(dy)
+      ? (dx < 0 ? "left" : "right")
+      : (dy < 0 ? "up" : "down");
+    const className = `tutorial-arrow tutorial-arrow-${direction}`;
+    // Layout observers see class changes; do not emit a fresh mutation for an unchanged projection.
+    if (arrow.className !== className) arrow.className = className;
   }
 
   /**

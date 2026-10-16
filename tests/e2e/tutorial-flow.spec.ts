@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { expectGuidedPolygonVisible, waitForTutorialPanelEntrance } from "./support/tutorialEvidence";
 import { expectAirReadinessVisible } from "./support/airReadinessGeometry";
+import { expectAirBriefArrow } from "./support/tutorialArrowGeometry";
 
 const tutorialPanel = (page: Page): Locator => page.locator(".tutorial-panel");
 
@@ -340,6 +341,7 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await expect(page.locator(".tutorial-action-hint")).toHaveText("Select a mission type on the sortie board.");
   await page.locator("[data-air-mission-tab]").first().click();
   await expectMiniBriefStep(page, "Air Brief 3 of 4", "Prepare The Sortie", "[data-air-sortie-board]");
+  await expectAirBriefArrow(page);
   await captureTutorialScreenshot(page, outputPath("sidebar-air-brief.png"));
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Air Brief 4 of 4", "Track Every Sortie", ".air-section");
