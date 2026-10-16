@@ -26,12 +26,16 @@ export interface InitiativeBotActivationResult {
   readonly moved: boolean;
   readonly fromHex: Axial | null;
   readonly toHex: Axial | null;
+  /** Committed engine route, including origin, for path-faithful presentation. */
+  readonly movementPath?: readonly Axial[];
   readonly visibleBefore: boolean;
   readonly visibleAfter: boolean;
   readonly attacks: readonly InitiativeBotAttackResult[];
 }
 
 export interface InitiativeBotAttackResult {
+  readonly attackerUnitId?: string;
+  readonly defenderUnitId?: string;
   readonly attackerType: string;
   readonly defenderType: string;
   readonly fromHex: Axial;
@@ -40,6 +44,8 @@ export interface InitiativeBotAttackResult {
   readonly damageSummary?: string;
   readonly defenderDestroyed: boolean;
   readonly retaliation?: {
+    readonly attackerUnitId?: string;
+    readonly attackerType?: string;
     readonly damage: number;
     readonly summary?: string;
     readonly attackerStrengthAfter?: number;
@@ -76,7 +82,7 @@ export class GameEngineInitiativeMethods {
     this.gameEngine = gameEngine;
     this.integration = new GameEngineInitiativeIntegration(gameEngine);
     this.validator = new InitiativeActionValidator();
-    this.botIntegration = new InitiativeBotIntegration(gameEngine, true); // Enable advanced AI
+    this.botIntegration = new InitiativeBotIntegration(gameEngine);
   }
 
   /**
@@ -630,54 +636,21 @@ export class GameEngineInitiativeMethods {
     const visibleBefore = activationIsEnemy
       ? this.isBotUnitVisibleToPlayer(activation.unitId, beforeHex)
       : true;
-    const combatReportStartIndex = this.getCombatReportCount();
+    const previousCombatReportIds = this.getCombatReportIds();
+    let movementPath: readonly Axial[] | undefined;
+    let completedAttacks: readonly InitiativeBotAttackResult[] = [];
 
     try {
       console.log(`Executing bot turn for ${activation.unitId}`);
 
-      let executed = false;
-
-      const shouldUsePlannerIntegration = activation.ownerId === 'bot' && beforeState?.faction === 'Bot';
-      if (shouldUsePlannerIntegration && !this.plannerBotIntegrationDisabled && this.supportsPlannerBotIntegration()) {
-        try {
-          // Get bot decision
-          const decisionResult = this.botIntegration.executeBotDecision(activation);
-
-          if (decisionResult.hasValidAction) {
-            console.log(`Bot decision for ${activation.unitId}: ${decisionResult.action.rationale}`);
-
-            // Execute the planned action
-            const executionSuccess = this.botIntegration.executePlannedAction(decisionResult.action);
-
-            if (executionSuccess) {
-              console.log(`Bot action executed successfully for ${activation.unitId}`);
-              executed = true;
-            } else {
-              console.warn(`Bot action execution failed for ${activation.unitId}`);
-            }
-          } else {
-            console.log(`No valid action found for bot unit ${activation.unitId}`);
-          }
-
-          // Log performance metrics
-          if (decisionResult.executionTime > 100) {
-            console.warn(`Bot decision took ${decisionResult.executionTime}ms for ${activation.unitId}`);
-          }
-        } catch (plannerError) {
-          this.plannerBotIntegrationDisabled = true;
-          if (!this.plannerIntegrationUnavailableLogged) {
-            this.plannerIntegrationUnavailableLogged = true;
-            console.info("[Initiative] Planner bot adapter failed during execution; using deterministic fallback bot activations for the remainder of this battle.");
-          }
-          console.warn("[Initiative] Planner bot adapter error:", plannerError);
-        }
-      } else if (shouldUsePlannerIntegration && !this.plannerIntegrationUnavailableLogged) {
-        this.plannerIntegrationUnavailableLogged = true;
-        console.info("[Initiative] Planner bot adapter unavailable on current engine shape; using deterministic fallback bot activations.");
-      }
-
-      if (!executed) {
-        executed = this.executeFallbackBotActivation(activation);
+      if (activation.ownerId === 'bot' && beforeState?.faction === 'Bot') {
+        const summary = this.botIntegration.executeActivation(activation);
+        movementPath = summary.moves.find((move) => move.unitId === activation.unitId)?.path.map((hex) => ({ ...hex }));
+        completedAttacks = summary.attacks.map(({ from, target, ...attack }) => ({
+          ...structuredClone(attack), fromHex: { ...from }, targetHex: { ...target }
+        }));
+      } else {
+        this.executeAutomatedLogisticsActivation(activation);
       }
 
       const afterState = this.resolveActivationUnit(activation);
@@ -685,7 +658,6 @@ export class GameEngineInitiativeMethods {
       const visibleAfter = activationIsEnemy
         ? this.isBotUnitVisibleToPlayer(activation.unitId, afterHex)
         : true;
-      const attacks = this.collectBotCombatReportDelta(combatReportStartIndex);
       const result: InitiativeBotActivationResult = {
         unitId: activation.unitId,
         ownerId: activation.ownerId,
@@ -693,21 +665,21 @@ export class GameEngineInitiativeMethods {
         moved: Boolean(beforeHex && afterHex && (beforeHex.q !== afterHex.q || beforeHex.r !== afterHex.r)),
         fromHex: beforeHex,
         toHex: afterHex,
+        movementPath,
         visibleBefore,
         visibleAfter,
-        attacks
+        attacks: completedAttacks
       };
       void this.finalizeBotActivation(activation, result);
       
     } catch (error) {
       console.error(`Error executing bot turn for ${activation.unitId}:`, error);
-      this.executeFallbackBotActivation(activation);
       const afterState = this.resolveActivationUnit(activation);
       const afterHex = this.cloneHex(afterState?.unit.hex ?? null);
       const visibleAfter = activationIsEnemy
         ? this.isBotUnitVisibleToPlayer(activation.unitId, afterHex)
         : true;
-      const attacks = this.collectBotCombatReportDelta(combatReportStartIndex);
+      const attacks = this.collectBotCombatReportDelta(previousCombatReportIds);
       const result: InitiativeBotActivationResult = {
         unitId: activation.unitId,
         ownerId: activation.ownerId,
@@ -715,6 +687,7 @@ export class GameEngineInitiativeMethods {
         moved: Boolean(beforeHex && afterHex && (beforeHex.q !== afterHex.q || beforeHex.r !== afterHex.r)),
         fromHex: beforeHex,
         toHex: afterHex,
+        movementPath,
         visibleBefore,
         visibleAfter,
         attacks
@@ -737,42 +710,6 @@ export class GameEngineInitiativeMethods {
     } catch (error) {
       console.error(`Failed to complete bot activation for ${activation.unitId}:`, error);
     }
-  }
-
-  private supportsPlannerBotIntegration(): boolean {
-    const plannerEngine = (this.botIntegration as unknown as { gameEngine?: Record<string, unknown> | null })?.gameEngine;
-    const candidateEngines: Record<string, unknown>[] = [];
-    if (plannerEngine && typeof plannerEngine === 'object') {
-      candidateEngines.push(plannerEngine);
-    }
-    if (this.gameEngine && typeof this.gameEngine === 'object') {
-      candidateEngines.push(this.gameEngine as Record<string, unknown>);
-    }
-    if (candidateEngines.length === 0) {
-      return false;
-    }
-
-    const requiredMethods = [
-      'getUnitsForFaction',
-      'getUnit',
-      'getUnitAt',
-      'executeUnitMove',
-      'executeUnitAttack',
-      'executeUnitDigIn',
-      'isInBounds',
-      'getTerrainAt',
-      'getMovementCost',
-      'getFeaturesAt',
-      'isRoad',
-      'getHexModificationsAt',
-      'checkLineOfSight',
-      'estimateAttack',
-      'getObjectives'
-    ] as const;
-
-    return candidateEngines.every((engine) =>
-      requiredMethods.every((name) => typeof engine[name] === 'function')
-    );
   }
 
   private cloneHex(hex: Axial | null | undefined): Axial | null {
@@ -836,22 +773,23 @@ export class GameEngineInitiativeMethods {
     });
   }
 
-  private getCombatReportCount(): number {
+  private getCombatReportIds(): ReadonlySet<string> {
     const engine = this.gameEngine as {
-      getCombatReports?: () => ReadonlyArray<unknown>;
+      getCombatReports?: () => ReadonlyArray<{ id: string }>;
     };
     if (typeof engine.getCombatReports !== 'function') {
-      return 0;
+      return new Set();
     }
     const reports = engine.getCombatReports();
-    return Array.isArray(reports) ? reports.length : 0;
+    return new Set(reports.map((report) => report.id));
   }
 
-  private collectBotCombatReportDelta(startIndex: number): InitiativeBotAttackResult[] {
+  private collectBotCombatReportDelta(previousIds: ReadonlySet<string>): InitiativeBotAttackResult[] {
     const engine = this.gameEngine as {
       getCombatReports?: () => ReadonlyArray<{
-        attacker?: { faction?: string; unitType?: string; position?: Axial; strengthAfter?: number };
-        defender?: { unitType?: string; position?: Axial; destroyed?: boolean };
+        id: string;
+        attacker?: { faction?: string; unitId?: string; unitType?: string; position?: Axial; strengthAfter?: number };
+        defender?: { unitId?: string; unitType?: string; position?: Axial; destroyed?: boolean };
         attackResult?: { damage?: number; statusSummary?: string };
         retaliation?: { damage?: number; statusSummary?: string; attackerStrengthAfter?: number };
       }>;
@@ -861,14 +799,14 @@ export class GameEngineInitiativeMethods {
     }
 
     const reports = engine.getCombatReports();
-    if (!Array.isArray(reports) || startIndex >= reports.length) {
+    if (!Array.isArray(reports)) {
       return [];
     }
 
     const attacks: InitiativeBotAttackResult[] = [];
     reports
-      .slice(startIndex)
-      .filter((report) => report?.attacker?.faction === 'Bot')
+      // The report ledger rolls over at 50 entries, so length is not an event cursor.
+      .filter((report) => !previousIds.has(report.id) && report?.attacker?.faction === 'Bot')
       .forEach((report) => {
         const fromHex = this.cloneHex(report.attacker?.position ?? null);
         const targetHex = this.cloneHex(report.defender?.position ?? null);
@@ -876,6 +814,8 @@ export class GameEngineInitiativeMethods {
           return;
         }
         attacks.push({
+          attackerUnitId: report.attacker?.unitId,
+          defenderUnitId: report.defender?.unitId,
           attackerType: report.attacker?.unitType ?? 'Unknown',
           defenderType: report.defender?.unitType ?? 'Unknown',
           fromHex,
@@ -885,6 +825,8 @@ export class GameEngineInitiativeMethods {
           defenderDestroyed: report.defender?.destroyed === true,
           retaliation: report.retaliation
             ? {
+                attackerUnitId: report.defender?.unitId,
+                attackerType: report.defender?.unitType,
                 damage: Math.max(0, report.retaliation.damage ?? 0),
                 summary: report.retaliation.statusSummary,
                 attackerStrengthAfter: report.retaliation.attackerStrengthAfter
@@ -915,7 +857,7 @@ export class GameEngineInitiativeMethods {
     return null;
   }
 
-  private executeFallbackBotActivation(activation: UnitActivation): boolean {
+  private executeAutomatedLogisticsActivation(activation: UnitActivation): boolean {
     const resolved = this.resolveActivationUnit(activation);
     if (!resolved) {
       return false;
@@ -946,44 +888,7 @@ export class GameEngineInitiativeMethods {
       return this.moveSingleHexToward(resolved.unit, resolved.faction, targetHex);
     }
 
-    const perceivedTargets = typeof engine.buildBotPerceivedTargets === 'function'
-      ? engine.buildBotPerceivedTargets()
-      : [];
-    if (!Array.isArray(perceivedTargets) || perceivedTargets.length === 0) {
-      return false;
-    }
-
-    const selectedTarget = typeof engine.selectBotPerceivedTarget === 'function'
-      ? engine.selectBotPerceivedTarget(resolved.unit.hex, perceivedTargets)
-      : perceivedTargets[0];
-
-    if (!selectedTarget?.hex) {
-      return false;
-    }
-
-    const targetHex = this.cloneHex(selectedTarget.hex) ?? selectedTarget.hex;
-    const deceptionTarget = selectedTarget.isDeception === true;
-    const origin = this.cloneHex(resolved.unit.hex);
-    if (!origin) {
-      return false;
-    }
-
-    if (!deceptionTarget && hexDistance(origin, targetHex) <= 1) {
-      return this.tryResolveBotAttack(resolved.unit, origin, targetHex);
-    }
-
-    const moved = this.moveSingleHexToward(resolved.unit, resolved.faction, targetHex);
-    if (!moved) {
-      return false;
-    }
-
-    const refreshed = this.resolveActivationUnit(activation);
-    const newOrigin = this.cloneHex(refreshed?.unit.hex ?? null);
-    if (!deceptionTarget && refreshed?.faction === 'Bot' && newOrigin && hexDistance(newOrigin, targetHex) <= 1) {
-      this.tryResolveBotAttack(refreshed.unit, newOrigin, targetHex);
-    }
-
-    return true;
+    return false;
   }
 
   private moveSingleHexToward(unit: ScenarioUnit, faction: 'Player' | 'Bot', targetHex: Axial): boolean {
@@ -1027,12 +932,21 @@ export class GameEngineInitiativeMethods {
     const movementAvailable = typeof unit.movementCredit === 'number'
       ? unit.movementCredit
       : definition && typeof engine.resolveBaseMovementAllowance === 'function'
-        ? engine.resolveBaseMovementAllowance(definition, flags, unit)
+        ? engine.resolveBaseMovementAllowance(definition, flags, faction, unit)
         : 1;
     if (!Number.isFinite(moveCost) || moveCost > movementAvailable + 1e-6) {
       return false;
     }
+    const fuelStep = typeof engine.resolveMovementFuelStep === 'function' && definition
+      ? engine.resolveMovementFuelStep(definition.moveType, step)
+      : 0;
+    const fuelBudget = definition && typeof engine.resolveFuelBudget === 'function'
+      ? engine.resolveFuelBudget(unit, definition) : Math.max(0, unit.fuel);
+    if (!Number.isFinite(fuelStep) || fuelStep > fuelBudget + 1e-6) return false;
     moved.movementCredit = Math.max(0, Number((movementAvailable - moveCost).toFixed(4)));
+    if (Number.isFinite(fuelBudget) && fuelStep > 0) {
+      moved.fuel = Math.max(0, Number((moved.fuel - fuelStep).toFixed(2)));
+    }
 
     if (typeof engine.removeUnitFromFactionHex !== 'function' || typeof engine.addUnitToFactionHex !== 'function') {
       return false;
@@ -1042,13 +956,6 @@ export class GameEngineInitiativeMethods {
     engine.addUnitToFactionHex(faction, moved);
     if (definition?.moveType !== 'air' && typeof engine.overrunRecoverySitesAtHex === 'function') {
       engine.overrunRecoverySitesAtHex(faction, moved.hex);
-    }
-
-    const fuelStep = typeof engine.resolveMovementFuelStep === 'function' && engine.getUnitDefinition
-      ? engine.resolveMovementFuelStep(engine.getUnitDefinition(unit.type).moveType, step)
-      : 0;
-    if (Number.isFinite(fuelStep) && fuelStep > 0) {
-      moved.fuel = Math.max(0, Number((moved.fuel - fuelStep).toFixed(2)));
     }
 
     if (typeof engine.updateSupplyPositionForFaction === 'function') {
@@ -1068,19 +975,6 @@ export class GameEngineInitiativeMethods {
     }
 
     return true;
-  }
-
-  private tryResolveBotAttack(unit: ScenarioUnit, fromHex: Axial, targetHex: Axial): boolean {
-    const engine = this.gameEngine as any;
-    if (typeof engine.resolveBotAttack !== 'function') {
-      return false;
-    }
-
-    const stance = typeof engine.chooseBotStance === 'function'
-      ? engine.chooseBotStance(unit, targetHex)
-      : 'fireAtWill';
-    const result = engine.resolveBotAttack(unit, fromHex, targetHex, stance);
-    return Boolean(result);
   }
 
   private parseAxialKey(value: string | null | undefined): Axial | null {

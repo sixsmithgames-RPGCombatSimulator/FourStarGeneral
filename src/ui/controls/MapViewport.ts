@@ -632,7 +632,9 @@ export class MapViewport implements IMapViewport {
     }
     const labels = Array.from(root.querySelectorAll<SVGGElement>(".campaign-map-location-label"));
     labels.forEach((label) => { label.style.visibility = "visible"; });
-    labels.forEach((label) => {
+    // Read every label and leader before publishing final styles/endpoints.
+    // Interleaving those writes with the next SVG measurement forces layout per label.
+    const updates = labels.map((label) => {
       const box = label.getBoundingClientRect();
       const text = label.querySelector<SVGTextElement>("text");
       const matrix = text?.getScreenCTM();
@@ -651,44 +653,50 @@ export class MapViewport implements IMapViewport {
         && paintedBox.top - 1 >= frame.top
         && paintedBox.bottom + 1 <= frame.bottom;
       const visibility = fullyReadable ? "visible" : "hidden";
-      label.style.visibility = visibility;
-      label.dataset.viewportVisibility = fullyReadable ? "inside" : "clipped";
       const labelId = label.dataset.locationLabelId;
-      if (labelId) {
-        const leader = root.querySelector<SVGLineElement>(
-          `.campaign-map-location-label__leader[data-location-label-id="${labelId}"]`
-        );
-        if (leader) {
-          let leaderMatrix: DOMMatrix | null = null;
-          let inverseLeaderMatrix: DOMMatrix | null = null;
-          if (typeof leader.getScreenCTM === "function") {
-            try {
-              leaderMatrix = leader.getScreenCTM();
-              inverseLeaderMatrix = leaderMatrix?.inverse() ?? null;
-            } catch {
-              leaderMatrix = null;
-              inverseLeaderMatrix = null;
-            }
+      const leader = labelId ? root.querySelector<SVGLineElement>(
+        `.campaign-map-location-label__leader[data-location-label-id="${labelId}"]`
+      ) : null;
+      let endpoint: { x: number; y: number } | null = null;
+      if (leader) {
+        let leaderMatrix: DOMMatrix | null = null;
+        let inverseLeaderMatrix: DOMMatrix | null = null;
+        if (typeof leader.getScreenCTM === "function") {
+          try {
+            leaderMatrix = leader.getScreenCTM();
+            inverseLeaderMatrix = leaderMatrix?.inverse() ?? null;
+          } catch {
+            leaderMatrix = null;
+            inverseLeaderMatrix = null;
           }
-          if (leaderMatrix && inverseLeaderMatrix) {
-            const sourceX = Number(leader.getAttribute("x1"));
-            const sourceY = Number(leader.getAttribute("y1"));
-            if (Number.isFinite(sourceX) && Number.isFinite(sourceY)) {
-              const sourceScreenX = leaderMatrix.a * sourceX + leaderMatrix.c * sourceY + leaderMatrix.e;
-              const sourceScreenY = leaderMatrix.b * sourceX + leaderMatrix.d * sourceY + leaderMatrix.f;
-              const endpointScreenX = this.clamp(sourceScreenX, paintedBox.left, paintedBox.right);
-              const endpointScreenY = this.clamp(sourceScreenY, paintedBox.top, paintedBox.bottom);
-              const endpointX = inverseLeaderMatrix.a * endpointScreenX
-                + inverseLeaderMatrix.c * endpointScreenY + inverseLeaderMatrix.e;
-              const endpointY = inverseLeaderMatrix.b * endpointScreenX
-                + inverseLeaderMatrix.d * endpointScreenY + inverseLeaderMatrix.f;
-              leader.setAttribute("x2", String(endpointX));
-              leader.setAttribute("y2", String(endpointY));
-            }
+        }
+        if (leaderMatrix && inverseLeaderMatrix) {
+          const sourceX = Number(leader.getAttribute("x1"));
+          const sourceY = Number(leader.getAttribute("y1"));
+          if (Number.isFinite(sourceX) && Number.isFinite(sourceY)) {
+            const sourceScreenX = leaderMatrix.a * sourceX + leaderMatrix.c * sourceY + leaderMatrix.e;
+            const sourceScreenY = leaderMatrix.b * sourceX + leaderMatrix.d * sourceY + leaderMatrix.f;
+            const endpointScreenX = this.clamp(sourceScreenX, paintedBox.left, paintedBox.right);
+            const endpointScreenY = this.clamp(sourceScreenY, paintedBox.top, paintedBox.bottom);
+            const endpointX = inverseLeaderMatrix.a * endpointScreenX
+              + inverseLeaderMatrix.c * endpointScreenY + inverseLeaderMatrix.e;
+            const endpointY = inverseLeaderMatrix.b * endpointScreenX
+              + inverseLeaderMatrix.d * endpointScreenY + inverseLeaderMatrix.f;
+            endpoint = { x: endpointX, y: endpointY };
           }
-          leader.style.visibility = visibility;
         }
       }
+      return { label, visibility, fullyReadable, leader, endpoint };
+    });
+    updates.forEach(({ label, visibility, fullyReadable, leader, endpoint }) => {
+      label.style.visibility = visibility;
+      label.dataset.viewportVisibility = fullyReadable ? "inside" : "clipped";
+      if (!leader) return;
+      if (endpoint) {
+        leader.setAttribute("x2", String(endpoint.x));
+        leader.setAttribute("y2", String(endpoint.y));
+      }
+      leader.style.visibility = visibility;
     });
   }
 

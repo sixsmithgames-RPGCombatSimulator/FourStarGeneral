@@ -188,7 +188,7 @@ registerTest("BATTLE_ATTACK_OUTCOME_PROJECTS_EXACT_PLAYER_AND_BOT_CONTRACTS", as
       kind: "bot",
       attacker: { ...player.attacker, faction: "Bot" },
       defender: { ...player.defender, faction: "Player" },
-      representativeRetaliationResult: attackResult(0.445),
+      representativeRetaliation: { result: attackResult(0.445), unit: player.defender.unit },
       allDefendersDestroyed: true
     });
   });
@@ -218,6 +218,8 @@ registerTest("BATTLE_ATTACK_OUTCOME_PROJECTS_EXACT_PLAYER_AND_BOT_CONTRACTS", as
       defenderDamage: player.defenderDamage,
       defenderDestroyed: true,
       retaliation: {
+        attackerUnitId: undefined,
+        attackerType: "Infantry_42",
         damage: 2,
         summary: "Attacker lost readiness",
         damageSummary: player.primaryRetaliationDamage,
@@ -228,6 +230,32 @@ registerTest("BATTLE_ATTACK_OUTCOME_PROJECTS_EXACT_PLAYER_AND_BOT_CONTRACTS", as
     });
     assert.deepEqual(playerProjection.report.retaliationResult, player.primaryRetaliationResult);
     assert.deepEqual(botProjection.report.retaliationDamage, player.primaryRetaliationDamage);
+  });
+});
+
+registerTest("BATTLE_ATTACK_OUTCOME_PRESERVES_PRIMARY_AND_ACTUAL_COUNTERFIRE_IDENTITIES", async ({ Given, When, Then }) => {
+  const input = playerInput();
+  input.attacker.unit.unitId = "moving-attacker";
+  input.defender.unit.unitId = "primary-defender";
+  const retaliator = { ...unit("Medium_Tank", 1), unitId: "secondary-retaliator" };
+  let projection!: BotAttackOutcomeProjection;
+  await Given("a primary defender that cannot retaliate and a different stacked formation that does", () => {});
+  await When("the canonical projection captures the resolved engagement before its source snapshots change", () => {
+    projection = projectBattleAttackOutcome({ ...input, kind: "bot", primaryRetaliationOccurred: false,
+      primaryRetaliationResult: undefined, primaryRetaliationDamage: undefined,
+      representativeRetaliation: { result: attackResult(0.445), unit: retaliator }, allDefendersDestroyed: false });
+    input.attacker.unit.unitId = "changed-attacker";
+    input.defender.unit.unitId = "changed-primary";
+    retaliator.unitId = "changed-retaliator";
+  });
+  await Then("main fire, primary reporting and aggregate counterfire retain their distinct stable participants", () => {
+    assert.equal(projection.summary.attackerUnitId, "moving-attacker");
+    assert.equal(projection.summary.defenderUnitId, "primary-defender");
+    assert.equal(projection.summary.retaliation?.attackerUnitId, "secondary-retaliator");
+    assert.equal(projection.summary.retaliation?.attackerType, "Medium_Tank");
+    assert.equal(projection.summary.retaliation?.damage, 2);
+    assert.equal(projection.report.defender.unit.unitId, "primary-defender");
+    assert.equal(projection.report.retaliationResult, undefined, "Primary-only reporting must not be relabeled as aggregate counterfire.");
   });
 });
 

@@ -123,6 +123,10 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
       "Artillery support should identify the off-map Corps Artillery asset."
     );
     expect(getTutorialStep("artillery_intro")?.waitForAction === true, "Artillery should require a queued support request.");
+    expect(
+      getTutorialStep("artillery_intro")?.content === "The order card shows when shells arrive. Click the highlighted artillery order, then choose a highlighted enemy hex.",
+      "Artillery instructions should defer the asset label and impact timing to the live order card."
+    );
     expect(getTutorialStep("select_smoke_unit")?.waitForAction === true, "Smoke training should require a smoke-capable formation.");
     expect(getTutorialStep("smoke_demo")?.waitForAction === true, "Smoke training should require a completed smoke screen.");
     expect(getTutorialStep("smoke_demo")?.content.includes("neighboring hex") === true, "Smoke should be taught as a close screen, not long-range mortar fire.");

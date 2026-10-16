@@ -10,6 +10,8 @@ import { buildFringeHexMarkup, buildHexTileMarkup, type HexMapMarkupServices } f
 import { buildHexMapLayout } from "./HexMapLayout";
 import { parseViewportTransform, type ViewportTransformMatrix } from "./ViewportTransform";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
+import { observeCombatEffect, scheduleCombatEffect } from "./CombatEffectScheduling";
+import { buildCombatFormationFireMix, type CombatPresentationActor, type CombatPresentationContext, type FormationFireMix, type WeaponVisualRole } from "./CombatPresentationContext";
 import { SpriteSheetAnimator } from "./SpriteSheetAnimator";
 import { loadEffectSpecifications, type RawEffectSpec } from "./EffectSpecifications";
 import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints, type TerrainTint } from "./TerrainResponseSystem";
@@ -158,15 +160,6 @@ type BombImpactPattern = {
   readonly projectileArcHeight: number;
   readonly projectileCount: number;
   readonly dustScale: number;
-};
-type UnitWeaponModelForVisuals = NonNullable<UnitTypeDefinition["weaponModel"]>;
-type WeaponVisualRole = UnitWeaponModelForVisuals["groups"][number]["role"];
-type FormationFireMix = {
-  readonly attackerType?: string;
-  readonly attackerClass?: UnitClass;
-  readonly hasWeaponModel: boolean;
-  readonly totalShots: number;
-  readonly shotsByRole: Partial<Record<WeaponVisualRole, number>>;
 };
 type TracerVisualLayer = {
   readonly count: number;
@@ -543,11 +536,11 @@ export class HexMapRenderer implements IMapRenderer {
     }
     if (cue.kind === "impact") {
       if (cue.targetHexKey && callbacks.playImpactEffects !== false) {
-        void this.playExplosion(cue.targetHexKey, true);
-        void this.playDustCloud(cue.targetHexKey);
+        void observeCombatEffect(this.playExplosion(cue.targetHexKey, true));
+        void observeCombatEffect(this.playDustCloud(cue.targetHexKey));
       }
       if (callbacks.onImpact) {
-        void Promise.resolve(callbacks.onImpact());
+        void observeCombatEffect(Promise.resolve(callbacks.onImpact()));
       }
       return;
     }
@@ -559,7 +552,7 @@ export class HexMapRenderer implements IMapRenderer {
     const actor = actorsById.get(cue.actorId);
     if (actor) {
       actor.image.setAttribute("data-airshow-destroyed", "true");
-      void this.playAirDamageSmokeTrailAt(actor.position.cx, actor.position.cy, 0.78);
+      void observeCombatEffect(this.playAirDamageSmokeTrailAt(actor.position.cx, actor.position.cy, 0.78));
     }
   }
 
@@ -1046,12 +1039,9 @@ export class HexMapRenderer implements IMapRenderer {
       const matchingFormation = Array.from(
         stackGroup.querySelectorAll<SVGGElement>(":scope > g.unit-stack-formation")
       ).find((formationGroup) => formationGroup.dataset.unitId === normalizedUnitId);
-      if (matchingFormation) {
-        return {
-          cloneSource: matchingFormation,
-          hiddenGroup: matchingFormation
-        };
-      }
+      // An explicit resolved actor may have died or advanced since this render;
+      // never substitute a surviving stack mate for that missing formation.
+      return matchingFormation ? { cloneSource: matchingFormation, hiddenGroup: matchingFormation } : null;
     }
 
     return {
@@ -2248,9 +2238,9 @@ export class HexMapRenderer implements IMapRenderer {
     this.hexUnitFacingAngleMap.delete(hexKey);
   }
 
-  private setHexFacingAngle(hexKey: string, cx: number, cy: number, angleDeg: number): void {
-    this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
-    const group = this.hexUnitImageMap.get(hexKey);
+  private setHexFacingAngle(hexKey: string, cx: number, cy: number, angleDeg: number, actor?: CombatPresentationActor): void {
+    if (!actor) this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
+    const group = this.getCombatActorGroup(hexKey, actor);
     if (group) {
       this.applyFacingAngleToGroup(group, cx, cy, angleDeg);
     }
@@ -4421,7 +4411,7 @@ export class HexMapRenderer implements IMapRenderer {
           cx: segment.end.cx + normal.x * laneOffsetPx,
           cy: segment.end.cy + normal.y * laneOffsetPx
         };
-        window.setTimeout(() => {
+        void scheduleCombatEffect(index * 18 + pulseIndex * 24, () => {
           this.playAirTracerExchange(
             laneStart,
             laneEnd,
@@ -4432,7 +4422,7 @@ export class HexMapRenderer implements IMapRenderer {
               visibleLengthPx: geometry.visibleLengthPx
             }
           );
-        }, index * 18 + pulseIndex * 24);
+        });
       }
     });
   }
@@ -4561,18 +4551,18 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /** Returns the cached unit class (if any) for a given hex. */
-  private getUnitClassAt(hexKey: string): UnitClass | undefined {
-    return this.hexUnitClassMap.get(hexKey);
+  private getUnitClassAt(hexKey: string, actor?: CombatPresentationActor): UnitClass | undefined {
+    return actor ? actor.unitClass ?? this.getUnitTypeDefinition(actor.unitType)?.class : this.hexUnitClassMap.get(hexKey);
   }
 
   /** Returns the cached unit scenario type (if any) for a given hex. */
-  private getUnitScenarioTypeAt(hexKey: string): string | undefined {
-    return this.hexUnitScenarioTypeMap.get(hexKey);
+  private getUnitScenarioTypeAt(hexKey: string, actor?: CombatPresentationActor): string | undefined {
+    return actor?.unitType ?? this.hexUnitScenarioTypeMap.get(hexKey);
   }
 
-  private isSmallArmsAttack(attackerHexKey: string): boolean {
-    const attackerClass = this.getUnitClassAt(attackerHexKey);
-    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
+  private isSmallArmsAttack(attackerHexKey: string, actor?: CombatPresentationActor): boolean {
+    const attackerClass = this.getUnitClassAt(attackerHexKey, actor);
+    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey, actor);
     const weaponModel = this.getUnitTypeDefinition(attackerType)?.weaponModel;
     const hasInfantryFireGroup = weaponModel?.groups.some((group) =>
       group.role === "smallArms" || group.role === "machineGun" || group.role === "demolition"
@@ -4580,25 +4570,25 @@ export class HexMapRenderer implements IMapRenderer {
     return attackerClass === "infantry" || attackerClass === "recon" || (attackerClass === "specialist" && hasInfantryFireGroup);
   }
 
-  private isArcingArtilleryAttack(attackerHexKey: string): boolean {
-    const attackerClass = this.getUnitClassAt(attackerHexKey);
-    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
+  private isArcingArtilleryAttack(attackerHexKey: string, actor?: CombatPresentationActor): boolean {
+    const attackerClass = this.getUnitClassAt(attackerHexKey, actor);
+    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey, actor);
     return attackerClass === "artillery" || attackerType === "SP_Artillery";
   }
 
-  private isRocketArtilleryAttack(attackerHexKey: string): boolean {
-    return this.getUnitScenarioTypeAt(attackerHexKey) === "Rocket_Artillery";
+  private isRocketArtilleryAttack(attackerHexKey: string, actor?: CombatPresentationActor): boolean {
+    return this.getUnitScenarioTypeAt(attackerHexKey, actor) === "Rocket_Artillery";
   }
 
-  private isAirStrafingAttack(attackerHexKey: string): boolean {
-    const attackerClass = this.getUnitClassAt(attackerHexKey);
-    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
+  private isAirStrafingAttack(attackerHexKey: string, actor?: CombatPresentationActor): boolean {
+    const attackerClass = this.getUnitClassAt(attackerHexKey, actor);
+    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey, actor);
     return attackerClass === "air" && (attackerType === "Fighter" || attackerType === "Interceptor");
   }
 
-  private isAirBombingAttack(attackerHexKey: string): boolean {
-    const attackerClass = this.getUnitClassAt(attackerHexKey);
-    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
+  private isAirBombingAttack(attackerHexKey: string, actor?: CombatPresentationActor): boolean {
+    const attackerClass = this.getUnitClassAt(attackerHexKey, actor);
+    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey, actor);
     return attackerClass === "air" && (attackerType === "Ground_Attack" || attackerType === "Bomber");
   }
 
@@ -4656,24 +4646,11 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
-  private resolveFormationFireMix(attackerHexKey: string): FormationFireMix {
-    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
-    const attackerClass = this.getUnitClassAt(attackerHexKey);
+  private resolveFormationFireMix(attackerHexKey: string, actor?: CombatPresentationActor): FormationFireMix {
+    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey, actor);
+    const attackerClass = this.getUnitClassAt(attackerHexKey, actor);
     const weaponModel = this.getUnitTypeDefinition(attackerType)?.weaponModel;
-    const shotsByRole: Partial<Record<WeaponVisualRole, number>> = {};
-
-    weaponModel?.groups.forEach((group) => {
-      shotsByRole[group.role] = (shotsByRole[group.role] ?? 0) + Math.max(0, group.shots);
-    });
-
-    const totalShots = Object.values(shotsByRole).reduce((sum, shots) => sum + (shots ?? 0), 0);
-    return {
-      attackerType,
-      attackerClass,
-      hasWeaponModel: Boolean(weaponModel),
-      totalShots,
-      shotsByRole
-    };
+    return buildCombatFormationFireMix(attackerType, attackerClass, weaponModel);
   }
 
   private getRoleShots(mix: FormationFireMix, roles: readonly WeaponVisualRole[]): number {
@@ -4762,15 +4739,12 @@ export class HexMapRenderer implements IMapRenderer {
 
   private async playTracerLayer(attackerHexKey: string, defenderHexKey: string, layer: TracerVisualLayer): Promise<void> {
     const tracerPromises = Array.from({ length: layer.count }).map((_, index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.playProjectileTracer(attackerHexKey, defenderHexKey, layer.durationMs, {
-            style: { color: layer.style.color, width: layer.style.width },
-            jitterPx: layer.jitterPx,
-            segLenScalar: layer.segLenScalar
-          }).then(() => resolve());
-        }, layer.delayMs + index * layer.staggerMs);
-      })
+      scheduleCombatEffect(layer.delayMs + index * layer.staggerMs, () =>
+        this.playProjectileTracer(attackerHexKey, defenderHexKey, layer.durationMs, {
+          style: { color: layer.style.color, width: layer.style.width },
+          jitterPx: layer.jitterPx,
+          segLenScalar: layer.segLenScalar
+        }))
     );
 
     await Promise.all(tracerPromises);
@@ -4803,43 +4777,36 @@ export class HexMapRenderer implements IMapRenderer {
     const smallImpactCount = this.chooseVisibleWeaponBurstCount(smallArmsShots, 1, 4, 0.72);
     for (let index = 0; index < smallImpactCount; index += 1) {
       const [offsetX, offsetY] = FORMATION_SMALL_ARMS_IMPACT_OFFSETS[index % FORMATION_SMALL_ARMS_IMPACT_OFFSETS.length]!;
-      promises.push(new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.playCombatAnimation(
+      promises.push(scheduleCombatEffect(52 + index * 34, () =>
+          this.playCombatAnimation(
             "small_arms",
             defenderHexKey,
             offsetX,
             offsetY,
             targetIsHardTarget ? 0.22 : 0.28,
             false
-          ).then(() => resolve());
-        }, 52 + index * 34);
-      }));
+          )));
     }
 
     const mgImpactCount = this.chooseVisibleWeaponBurstCount(machineGunShots, 1, 3, 0.62);
     for (let index = 0; index < mgImpactCount; index += 1) {
       const [offsetX, offsetY] = FORMATION_MG_IMPACT_OFFSETS[index % FORMATION_MG_IMPACT_OFFSETS.length]!;
-      promises.push(new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.playCombatAnimation(
+      promises.push(scheduleCombatEffect(68 + index * 30, () =>
+          this.playCombatAnimation(
             "mg",
             defenderHexKey,
             offsetX,
             offsetY,
             targetIsHardTarget ? 0.24 : 0.31,
             false
-          ).then(() => resolve());
-        }, 68 + index * 30);
-      }));
+          )));
     }
 
     const heImpactCount = defenderIsAir ? 0 : this.chooseVisibleWeaponBurstCount(heShots, 1, mix.attackerType === "AT_Infantry" ? 3 : 2, 0.78);
     for (let index = 0; index < heImpactCount; index += 1) {
       const [offsetX, offsetY] = FORMATION_HE_IMPACT_OFFSETS[index % FORMATION_HE_IMPACT_OFFSETS.length]!;
-      promises.push(new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void Promise.all([
+      promises.push(scheduleCombatEffect(126 + index * 82, () =>
+          Promise.all([
             this.playArcedProjectile(attackerHexKey, defenderHexKey, 430 + index * 24, {
               color: "#e7d4a2",
               radius: 1.45,
@@ -4847,30 +4814,24 @@ export class HexMapRenderer implements IMapRenderer {
               targetOffsetX: offsetX,
               targetOffsetY: offsetY
             }),
-            new Promise<void>((impactResolve) => {
-              window.setTimeout(() => {
-                void this.playCombatAnimation(
+            scheduleCombatEffect(190 + index * 28, () =>
+                this.playCombatAnimation(
                   "explosionSmall",
                   defenderHexKey,
                   offsetX,
                   offsetY,
                   targetIsHardTarget ? 0.42 : 0.5,
                   false
-                ).then(() => impactResolve());
-              }, 190 + index * 28);
-            })
-          ]).then(() => resolve());
-        }, 126 + index * 82);
-      }));
+                ))
+          ])));
     }
 
     const antiTankImpactCount = targetIsHardTarget ? this.chooseVisibleWeaponBurstCount(antiTankShots, 1, 1, 0.52) : 0;
     for (let index = 0; index < antiTankImpactCount; index += 1) {
       const offsetX = 10 + index * 6;
       const offsetY = -7 + index * 5;
-      promises.push(new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void Promise.all([
+      promises.push(scheduleCombatEffect(118 + index * 90, () =>
+          Promise.all([
             this.playArcedProjectile(attackerHexKey, defenderHexKey, 320, {
               color: "#f4a858",
               radius: 1.75,
@@ -4878,14 +4839,9 @@ export class HexMapRenderer implements IMapRenderer {
               targetOffsetX: offsetX,
               targetOffsetY: offsetY
             }),
-            new Promise<void>((impactResolve) => {
-              window.setTimeout(() => {
-                void this.playCombatAnimation("cannon", defenderHexKey, offsetX, offsetY, 0.36, false).then(() => impactResolve());
-              }, 150);
-            })
-          ]).then(() => resolve());
-        }, 118 + index * 90);
-      }));
+            scheduleCombatEffect(150, () =>
+              this.playCombatAnimation("cannon", defenderHexKey, offsetX, offsetY, 0.36, false))
+          ])));
     }
 
     await Promise.all(promises);
@@ -5091,12 +5047,11 @@ export class HexMapRenderer implements IMapRenderer {
     }
     if (animationType === "impactHits") {
       if (!this.spriteSheetAnimator) this.spriteSheetAnimator = new SpriteSheetAnimator(effectsLayer);
-      if (this.soundCatalogReady) await this.soundCatalogReady;
       const soundPromise = soundRequest !== false && soundRequest !== undefined
         ? this.soundManager.playWeaponSound({
             ...soundRequest,
             seed: Math.abs(Math.round(x * 31 + y * 17 + scale * 101))
-          }).catch(() => undefined)
+          }).catch((error) => { console.error("[HexMapRenderer] Impact sound playback failed:", error); })
         : Promise.resolve();
       await Promise.all([
         this.spriteSheetAnimator.playAnimation("impactHits", x, y, scale),
@@ -5118,10 +5073,6 @@ export class HexMapRenderer implements IMapRenderer {
 
     const currentZoom = this.getCurrentZoom();
     const zoomTier = getZoomTier(currentZoom);
-
-    if (this.soundCatalogReady) {
-      await this.soundCatalogReady;
-    }
 
     console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${x}, ${y}), zoom: ${currentZoom.toFixed(2)} (${zoomTier}), terrain: ${terrainTint ?? 'none'}`);
     await this.combatAnimator.playAnimation(animationType, x, y, scale, zoomTier, terrainTint, soundRequest);
@@ -5146,9 +5097,8 @@ export class HexMapRenderer implements IMapRenderer {
       const offsetX = Math.cos(angle) * radius;
       const offsetY = Math.sin(angle) * radius * 0.72;
       const burstScale = scale * (index === 0 ? 1 : Math.max(0.72, 0.92 - index * 0.04));
-      return new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.playCombatAnimationAt(
+      return scheduleCombatEffect(index * 28, () =>
+          this.playCombatAnimationAt(
             "flakBurst",
             x + offsetX,
             y + offsetY,
@@ -5156,9 +5106,7 @@ export class HexMapRenderer implements IMapRenderer {
             false,
             undefined,
             dedupeKey === false ? false : dedupeKey
-          ).then(() => resolve());
-        }, index * 28);
-      });
+          ));
     });
 
     await Promise.all(burstPromises);
@@ -5213,23 +5161,23 @@ export class HexMapRenderer implements IMapRenderer {
           + jitter01(index, 7) * burstWindowMs
           + (jitter01(index, 17) - 0.5) * 26);
       if (index < flashPointCount) {
-        window.setTimeout(() => {
+        void scheduleCombatEffect(flashDelayMs, () => {
           const burstScale = scale * (0.72 + jitter01(index, 13) * 0.28);
           const flashCount = singlePuffWave ? 1 : jitter01(index, 19) > 0.94 ? 2 : 1;
-          void this.playFlakBurstAt(
+          return this.playFlakBurstAt(
             point.cx + (jitter01(index, 23) - 0.5) * 16,
             point.cy + (jitter01(index, 29) - 0.5) * 11,
             flashCount,
             burstScale,
             false
           );
-        }, flashDelayMs);
+        });
       }
 
       if (singlePuffWave) {
         const smokeLingerMs = Math.max(1200, wave.smokeLingerMs ?? 1600);
-        window.setTimeout(() => {
-          void this.playCombatAnimationAt(
+        void scheduleCombatEffect(flashDelayMs + 150, () =>
+          this.playCombatAnimationAt(
             "flakSmokePuff",
             point.cx + (jitter01(index, 37) - 0.5) * 12,
             point.cy - 5 + (jitter01(index, 41) - 0.5) * 10,
@@ -5237,10 +5185,9 @@ export class HexMapRenderer implements IMapRenderer {
             false,
             undefined,
             false
-          );
-        }, flashDelayMs + 150);
-        window.setTimeout(() => {
-          void this.playCombatAnimationAt(
+          ));
+        void scheduleCombatEffect(flashDelayMs + Math.round(smokeLingerMs * 0.48), () =>
+          this.playCombatAnimationAt(
             "flakSmokePuff",
             point.cx + (jitter01(index, 59) - 0.5) * 18,
             point.cy - 8 + (jitter01(index, 61) - 0.5) * 14,
@@ -5248,13 +5195,12 @@ export class HexMapRenderer implements IMapRenderer {
             false,
             undefined,
             false
-          );
-        }, flashDelayMs + Math.round(smokeLingerMs * 0.48));
+          ));
       }
 
       if (!singlePuffWave && index < smokePointCount) {
-        window.setTimeout(() => {
-          void this.playCombatAnimationAt(
+        void scheduleCombatEffect(flashDelayMs + 220 + Math.round(jitter01(index, 47) * 140), () =>
+          this.playCombatAnimationAt(
             "flakSmokePuff",
             point.cx + (jitter01(index, 37) - 0.5) * 18,
             point.cy - 5 + (jitter01(index, 41) - 0.5) * 14,
@@ -5262,11 +5208,10 @@ export class HexMapRenderer implements IMapRenderer {
             false,
             undefined,
             false
-          );
-        }, flashDelayMs + 220 + Math.round(jitter01(index, 47) * 140));
+          ));
         if (jitter01(index, 53) > 0.88) {
-          window.setTimeout(() => {
-            void this.playCombatAnimationAt(
+          void scheduleCombatEffect(flashDelayMs + 620 + Math.round(jitter01(index, 71) * 220), () =>
+            this.playCombatAnimationAt(
               "flakSmokePuff",
               point.cx + (jitter01(index, 59) - 0.5) * 24,
               point.cy - 8 + (jitter01(index, 61) - 0.5) * 18,
@@ -5274,8 +5219,7 @@ export class HexMapRenderer implements IMapRenderer {
               false,
               undefined,
               false
-            );
-          }, flashDelayMs + 620 + Math.round(jitter01(index, 71) * 220));
+            ));
         }
       }
     }
@@ -5297,8 +5241,8 @@ export class HexMapRenderer implements IMapRenderer {
   /**
    * Get weapon effect type for a unit at the specified hex.
    */
-  private getWeaponEffectType(hexKey: string): string {
-    const scenarioType = this.getUnitScenarioTypeAt(hexKey);
+  private getWeaponEffectType(hexKey: string, actor?: CombatPresentationActor): string {
+    const scenarioType = this.getUnitScenarioTypeAt(hexKey, actor);
     if (!scenarioType) {
       return "small_arms"; // Fallback
     }
@@ -5326,7 +5270,8 @@ export class HexMapRenderer implements IMapRenderer {
       return "cannon";
     }
 
-    const weaponType = attackerHexKey ? this.getWeaponEffectType(attackerHexKey) : undefined;
+    const weaponType = attackerType ? this.getUnitTypeDefinition(attackerType)?.weaponEffectType
+      : attackerHexKey ? this.getWeaponEffectType(attackerHexKey) : undefined;
     switch (weaponType) {
       case "mg":
         return "mg";
@@ -5363,25 +5308,23 @@ export class HexMapRenderer implements IMapRenderer {
     attackerHexKey: string,
     burstCount: number,
     intervalMs: number,
-    gainMultiplier: number
+    gainMultiplier: number,
+    actor?: CombatPresentationActor
   ): Promise<void> {
     const soundClass = this.resolveWeaponSoundClass(
       attackerHexKey,
-      this.getUnitScenarioTypeAt(attackerHexKey),
-      this.getUnitClassAt(attackerHexKey)
+      this.getUnitScenarioTypeAt(attackerHexKey, actor),
+      this.getUnitClassAt(attackerHexKey, actor)
     );
 
     const soundBursts = Array.from({ length: Math.max(1, burstCount) }).map((_, index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.soundManager.playWeaponSound({
+      scheduleCombatEffect(index * intervalMs, () =>
+          this.soundManager.playWeaponSound({
             weaponClass: soundClass,
             playbackMode: "transient_only",
             gainMultiplier,
             seed: Math.floor(performance.now() * 1000) + index
-          }).then(() => resolve());
-        }, index * intervalMs);
-      })
+          }))
     );
 
     await Promise.all(soundBursts);
@@ -5390,7 +5333,8 @@ export class HexMapRenderer implements IMapRenderer {
   private chooseDirectFireImpactProfile(
     attackerHexKey: string,
     targetIsHardTarget: boolean,
-    defenderIsAir: boolean
+    defenderIsAir: boolean,
+    actor?: CombatPresentationActor
   ): {
     animationType: string;
     baseScale: number;
@@ -5406,7 +5350,7 @@ export class HexMapRenderer implements IMapRenderer {
       };
     }
 
-    const weaponType = this.getWeaponEffectType(attackerHexKey);
+    const weaponType = this.getWeaponEffectType(attackerHexKey, actor);
     switch (weaponType) {
       case "mg":
         return {
@@ -5460,8 +5404,8 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
-  private chooseMuzzleFlashProfile(attackerHexKey: string): MuzzleFlashProfile {
-    switch (this.getWeaponEffectType(attackerHexKey)) {
+  private chooseMuzzleFlashProfile(attackerHexKey: string, actor?: CombatPresentationActor): MuzzleFlashProfile {
+    switch (this.getWeaponEffectType(attackerHexKey, actor)) {
       case "mg":
         return {
           animationType: "mg_muzzle",
@@ -5505,10 +5449,10 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
-  private chooseMuzzleFlashProfiles(attackerHexKey: string): MuzzleFlashProfile[] {
-    const mix = this.resolveFormationFireMix(attackerHexKey);
+  private chooseMuzzleFlashProfiles(attackerHexKey: string, actor?: CombatPresentationActor): MuzzleFlashProfile[] {
+    const mix = this.resolveFormationFireMix(attackerHexKey, actor);
     if (!mix.hasWeaponModel) {
-      return [this.chooseMuzzleFlashProfile(attackerHexKey)];
+      return [this.chooseMuzzleFlashProfile(attackerHexKey, actor)];
     }
 
     const profiles: MuzzleFlashProfile[] = [];
@@ -5556,7 +5500,7 @@ export class HexMapRenderer implements IMapRenderer {
       });
     }
 
-    return profiles.length > 0 ? profiles : [this.chooseMuzzleFlashProfile(attackerHexKey)];
+    return profiles.length > 0 ? profiles : [this.chooseMuzzleFlashProfile(attackerHexKey, actor)];
   }
 
   /**
@@ -5604,23 +5548,22 @@ export class HexMapRenderer implements IMapRenderer {
     attackerHexKey: string,
     soundBursts: number = 1,
     soundIntervalMs: number = 0,
-    gainMultiplier: number = 1
+    gainMultiplier: number = 1,
+    actor?: CombatPresentationActor
   ): Promise<void> {
-    const profiles = this.chooseMuzzleFlashProfiles(attackerHexKey);
+    const profiles = this.chooseMuzzleFlashProfiles(attackerHexKey, actor);
     const visualBursts = profiles.flatMap((profile) =>
       profile.offsets.map(([offsetX, offsetY], index) =>
-        new Promise<void>((resolve) => {
-          window.setTimeout(() => {
+        scheduleCombatEffect((profile.delayMs ?? 0) + index * profile.staggerMs, () => {
             const scale = index === 0 ? profile.baseScale : profile.baseScale * Math.max(0.72, 0.94 - index * 0.05);
-            void this.playCombatAnimation(profile.animationType, attackerHexKey, offsetX, offsetY, scale, false).then(() => resolve());
-          }, (profile.delayMs ?? 0) + index * profile.staggerMs);
+            return this.playCombatAnimation(profile.animationType, attackerHexKey, offsetX, offsetY, scale, false);
         })
       )
     );
 
     await Promise.all([
       Promise.all(visualBursts).then(() => undefined),
-      this.playWeaponSoundBurst(attackerHexKey, soundBursts, soundIntervalMs, gainMultiplier)
+      this.playWeaponSoundBurst(attackerHexKey, soundBursts, soundIntervalMs, gainMultiplier, actor)
     ]);
   }
 
@@ -5655,11 +5598,7 @@ export class HexMapRenderer implements IMapRenderer {
       : this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget);
     const dustPromise = defenderIsAir
       ? Promise.resolve()
-      : new Promise<void>((resolve) => {
-          window.setTimeout(() => {
-            void this.playDustCloudLinger(defenderHexKey, 0.68).then(() => resolve());
-          }, 180);
-        });
+      : scheduleCombatEffect(180, () => this.playDustCloudLinger(defenderHexKey, 0.68));
 
     await Promise.all([hitShakePromise, impactPromise, dustPromise]);
   }
@@ -5822,11 +5761,21 @@ export class HexMapRenderer implements IMapRenderer {
     });
   }
 
+  /** Never substitute a surviving stack mate for a resolved attacker that left the firing hex. */
+  private getCombatActorGroup(hexKey: string, actor?: CombatPresentationActor): SVGGElement | null {
+    const stack = this.hexUnitImageMap.get(hexKey);
+    if (!stack) return null;
+    if (!actor) return stack;
+    if (!actor.unitId) return null;
+    return Array.from(stack.querySelectorAll<SVGGElement>("g.unit-stack-formation"))
+      .find((formation) => formation.parentNode === stack && formation.dataset.unitId === actor.unitId) ?? null;
+  }
+
   /** Briefly nudges the attacker sprite backward opposite the shot vector and returns to rest. */
-  private async playRecoilNudge(attackerHexKey: string, defenderHexKey: string, magnitudePx = 5): Promise<void> {
+  private async playRecoilNudge(attackerHexKey: string, defenderHexKey: string, magnitudePx = 5, actor?: CombatPresentationActor): Promise<void> {
     const attackerCell = this.hexElementMap.get(attackerHexKey);
     const defenderCell = this.hexElementMap.get(defenderHexKey);
-    const group = this.hexUnitImageMap.get(attackerHexKey);
+    const group = this.getCombatActorGroup(attackerHexKey, actor);
     if (!attackerCell || !defenderCell || !group) {
       return;
     }
@@ -5860,8 +5809,8 @@ export class HexMapRenderer implements IMapRenderer {
     });
   }
 
-  private async playHitShake(hexKey: string, magnitudePx = 4): Promise<void> {
-    const group = this.hexUnitImageMap.get(hexKey);
+  private async playHitShake(hexKey: string, magnitudePx = 4, actor?: CombatPresentationActor): Promise<void> {
+    const group = actor?.unitId ? this.getCombatActorGroup(hexKey, actor) : this.hexUnitImageMap.get(hexKey);
     if (!group) {
       return;
     }
@@ -5995,12 +5944,11 @@ export class HexMapRenderer implements IMapRenderer {
     );
 
     const burstPromises = Array.from({ length: burstCount }).map((_, index) =>
-      new Promise<void>((resolve, reject) => {
-        window.setTimeout(() => {
+      scheduleCombatEffect(index * staggerMs, () => {
           const offsetX = (Math.random() - 0.5) * jitterPx * 2;
           const offsetY = (Math.random() - 0.5) * jitterPx * 1.6;
           const scale = index === 0 ? baseScale : baseScale * 0.88;
-          void this.playCombatAnimation(
+          return this.playCombatAnimation(
             "impactHits",
             defenderHexKey,
             offsetX,
@@ -6010,8 +5958,7 @@ export class HexMapRenderer implements IMapRenderer {
               ...impactSoundRequest,
               gainMultiplier: index === 0 ? 0.78 : 0.64
             }
-          ).then(resolve, reject);
-        }, index * staggerMs);
+          );
       })
     );
 
@@ -6102,18 +6049,15 @@ export class HexMapRenderer implements IMapRenderer {
     pattern: BombImpactPattern = this.resolveBombImpactPattern(attackerType, defenderClass)
   ): Promise<void> {
     const impactPromises = pattern.impacts.map((impact, index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.playCombatAnimation(
+      scheduleCombatEffect(index * pattern.staggerMs, () =>
+          this.playCombatAnimation(
             "explosionSmall",
             defenderHexKey,
             impact.offsetX,
             impact.offsetY,
             impact.scale,
             this.createBombImpactSoundRequest(attackerType, index)
-          ).then(() => resolve());
-        }, index * pattern.staggerMs);
-      })
+          ))
     );
 
     await Promise.all(impactPromises);
@@ -6126,17 +6070,14 @@ export class HexMapRenderer implements IMapRenderer {
   ): Promise<void> {
     const projectileImpacts = pattern.impacts.slice(0, Math.min(pattern.projectileCount, pattern.impacts.length));
     const projectilePromises = projectileImpacts.map((impact, index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.playArcedProjectile(attackerHexKey, defenderHexKey, pattern.projectileDurationMs, {
+      scheduleCombatEffect(index * pattern.projectileStaggerMs, () =>
+          this.playArcedProjectile(attackerHexKey, defenderHexKey, pattern.projectileDurationMs, {
             color: "#2b2b2b",
             radius: pattern.projectileRadius,
             arcHeight: pattern.projectileArcHeight + index * 3,
             targetOffsetX: impact.offsetX,
             targetOffsetY: impact.offsetY
-          }).then(() => resolve());
-        }, index * pattern.projectileStaggerMs);
-      })
+          }))
     );
 
     await Promise.all(projectilePromises);
@@ -6174,11 +6115,9 @@ export class HexMapRenderer implements IMapRenderer {
     const staggerMs = Math.max(70, Math.round(options?.staggerMs ?? 180));
 
     const burstPromises = impactOffsets.map(([offsetX, offsetY], index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
+      scheduleCombatEffect(index * staggerMs, () => {
           const scale = baseScale * (0.96 + index * 0.04);
-          void this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
-        }, index * staggerMs);
+          return this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, scale);
       })
     );
 
@@ -6197,41 +6136,29 @@ export class HexMapRenderer implements IMapRenderer {
     ];
 
     const volleyPromises = volleyCenters.map((center, index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void Promise.all([
+      scheduleCombatEffect(index * 120, () =>
+          Promise.all([
             this.playArcedProjectile(attackerHexKey, defenderHexKey, 520, {
               color: "#ff8f4a",
               radius: 2.8,
               arcHeight: 48 + index * 4
             }),
-            new Promise<void>((impactResolve) => {
-              window.setTimeout(() => {
-                void this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget, {
+            scheduleCombatEffect(230 + index * 20, () =>
+                this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget, {
                   centerOffsetX: center.x,
                   centerOffsetY: center.y,
                   spreadScale: 0.92,
                   staggerMs: 95,
                   scaleMultiplier: 0.94
-                }).then(() => impactResolve());
-              }, 230 + index * 20);
-            })
-          ]).then(() => resolve());
-        }, index * 120);
-      })
+                }))
+          ]))
     );
 
     await Promise.all(volleyPromises);
   }
 
-  /**
-   * Plays a full attack animation sequence: muzzle flash + explosion.
-   */
-  async playAttackSequence(
-    attackerHexKey: string,
-    defenderHexKey: string,
-    targetIsHardTarget: boolean
-  ): Promise<void> {
+  /** Apply combat facing only to explicitly identified actors when a resolved context is supplied. */
+  private faceCombatActors(attackerHexKey: string, defenderHexKey: string, presentation?: CombatPresentationContext): void {
     const attackerElement = this.hexElementMap.get(attackerHexKey);
     const defenderElementForFacing = this.hexElementMap.get(defenderHexKey);
     if (attackerElement && defenderElementForFacing) {
@@ -6240,67 +6167,75 @@ export class HexMapRenderer implements IMapRenderer {
       if (a && d) {
         // Attacker faces defender
         const attackAngle = this.resolveAngleDegFromVector(d.cx - a.cx, d.cy - a.cy);
-        this.setHexFacingAngle(attackerHexKey, a.cx, a.cy, attackAngle);
+        this.setHexFacingAngle(attackerHexKey, a.cx, a.cy, attackAngle, presentation?.attacker);
         // Defender turns to face the incoming threat
         const defendAngle = this.resolveAngleDegFromVector(a.cx - d.cx, a.cy - d.cy);
-        this.setHexFacingAngle(defenderHexKey, d.cx, d.cy, defendAngle);
+        this.setHexFacingAngle(defenderHexKey, d.cx, d.cy, defendAngle, presentation?.defender);
       }
     }
 
-    const attackerClass = this.getUnitClassAt(attackerHexKey);
-    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
-    const defenderClass = this.getUnitClassAt(defenderHexKey);
-    const useSmallArmsVisuals = this.isSmallArmsAttack(attackerHexKey);
-    const useArcingArtilleryVisuals = this.isArcingArtilleryAttack(attackerHexKey);
-    const useRocketArtilleryVisuals = this.isRocketArtilleryAttack(attackerHexKey);
-    const useAirStrafingVisuals = this.isAirStrafingAttack(attackerHexKey);
-    const useAirBombingVisuals = this.isAirBombingAttack(attackerHexKey);
+  }
+
+  /** Plays the existing attack choreography using resolved actor identity when provided. */
+  async playAttackSequence(
+    attackerHexKey: string,
+    defenderHexKey: string,
+    targetIsHardTarget: boolean,
+    presentation?: CombatPresentationContext
+  ): Promise<void> {
+    this.faceCombatActors(attackerHexKey, defenderHexKey, presentation);
+    const actor = presentation?.attacker;
+    const attackerClass = this.getUnitClassAt(attackerHexKey, actor);
+    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey, actor);
+    const defenderClass = this.getUnitClassAt(defenderHexKey, presentation?.defender);
+    const useSmallArmsVisuals = this.isSmallArmsAttack(attackerHexKey, actor);
+    const useArcingArtilleryVisuals = this.isArcingArtilleryAttack(attackerHexKey, actor);
+    const useRocketArtilleryVisuals = this.isRocketArtilleryAttack(attackerHexKey, actor);
+    const useAirStrafingVisuals = this.isAirStrafingAttack(attackerHexKey, actor);
+    const useAirBombingVisuals = this.isAirBombingAttack(attackerHexKey, actor);
     const defenderIsAir = defenderClass === "air";
-    const formationFireMix = this.resolveFormationFireMix(attackerHexKey);
+    const formationFireMix = this.resolveFormationFireMix(attackerHexKey, actor);
     const suppressImpactFlash = useArcingArtilleryVisuals;
 
     const defenderElement = this.hexElementMap.get(defenderHexKey);
     const defenderCenter = defenderElement ? this.extractHexCenter(defenderElement) : null;
     const flashRadius = HEX_RADIUS * (useArcingArtilleryVisuals ? 1.55 : useAirBombingVisuals ? 1.08 : targetIsHardTarget ? 1.25 : 1.0);
     const flashIntensity = useArcingArtilleryVisuals ? 0.62 : useAirBombingVisuals ? 0.38 : targetIsHardTarget ? 0.55 : 0.4;
-    const flashOverlayPromise = !suppressImpactFlash && defenderCenter
+    const flashOverlayPromise = observeCombatEffect(!suppressImpactFlash && defenderCenter
       ? this.playFlashOverlay(
           defenderCenter,
           flashRadius,
           flashIntensity,
           useArcingArtilleryVisuals ? 210 : useAirBombingVisuals ? 150 : targetIsHardTarget ? 160 : 130
         )
-      : Promise.resolve();
+      : Promise.resolve());
 
     const muzzleSoundBursts = useAirStrafingVisuals ? 3 : useSmallArmsVisuals ? attackerClass === "recon" ? 2 : 3 : 1;
     const muzzleSoundIntervalMs = useAirStrafingVisuals ? 88 : useSmallArmsVisuals ? 72 : 0;
     const muzzleSoundGain = useAirStrafingVisuals ? 0.78 : useSmallArmsVisuals ? 0.84 : 1;
-    const flashPromise = useAirBombingVisuals
+    const flashPromise = observeCombatEffect(useAirBombingVisuals
       ? Promise.resolve()
-      : this.playMuzzleFlash(attackerHexKey, muzzleSoundBursts, muzzleSoundIntervalMs, muzzleSoundGain);
-    const markerPromise = this.playTargetMarker(defenderHexKey, 240);
+      : this.playMuzzleFlash(attackerHexKey, muzzleSoundBursts, muzzleSoundIntervalMs, muzzleSoundGain, actor));
+    const markerPromise = observeCombatEffect(this.playTargetMarker(defenderHexKey, 240));
 
     const recoilMagnitude = this.chooseRecoilMagnitude(attackerClass);
-    const recoilPromise = attackerClass === "air" ? Promise.resolve() : this.playRecoilNudge(attackerHexKey, defenderHexKey, recoilMagnitude);
+    const recoilPromise = observeCombatEffect(attackerClass === "air" ? Promise.resolve() : this.playRecoilNudge(attackerHexKey, defenderHexKey, recoilMagnitude, actor));
 
     if (useAirStrafingVisuals) {
       const tracerStyle = { color: "#aee1ff", width: 1.05 };
       const tracerCount = defenderIsAir ? 10 : 9;
       const tracerPromises = Array.from({ length: tracerCount }).map((_, index) =>
-        new Promise<void>((resolve) => {
-          window.setTimeout(() => {
-            void this.playProjectileTracer(attackerHexKey, defenderHexKey, 60, {
+        scheduleCombatEffect(index * 18, () =>
+            this.playProjectileTracer(attackerHexKey, defenderHexKey, 60, {
               style: tracerStyle,
               jitterPx: 7,
               segLenScalar: 0.14
-            }).then(() => resolve());
-          }, index * 18);
-        })
+            }))
       );
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 7 : targetIsHardTarget ? 5 : 4);
+      const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 7 : targetIsHardTarget ? 5 : 4, presentation?.defender);
       const sparksPromise = this.playSparkBurst(defenderHexKey, {
         attackerHexKey,
         attackerType,
@@ -6338,11 +6273,11 @@ export class HexMapRenderer implements IMapRenderer {
 
     if (useAirBombingVisuals) {
       const bombPattern = this.resolveBombImpactPattern(attackerType, defenderClass);
-      const bombPromise = this.playBombReleaseArcs(attackerHexKey, defenderHexKey, bombPattern);
+      const bombPromise = observeCombatEffect(this.playBombReleaseArcs(attackerHexKey, defenderHexKey, bombPattern));
 
       await new Promise((resolve) => setTimeout(resolve, attackerType === "Bomber" ? 360 : 320));
 
-      const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 6 : targetIsHardTarget ? 6 : 5);
+      const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 6 : targetIsHardTarget ? 6 : 5, presentation?.defender);
       const impactPromise = this.playBombImpactStick(defenderHexKey, attackerType, defenderClass, bombPattern);
 
       const sparksPromise = !defenderIsAir && targetIsHardTarget
@@ -6357,11 +6292,7 @@ export class HexMapRenderer implements IMapRenderer {
           })
         : Promise.resolve();
       const dustPromise = !defenderIsAir
-        ? new Promise<void>((resolve) => {
-            window.setTimeout(() => {
-              void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, bombPattern.dustScale).then(() => resolve());
-            }, 120);
-          })
+        ? scheduleCombatEffect(120, () => this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, bombPattern.dustScale))
         : Promise.resolve();
 
       await Promise.all([
@@ -6379,17 +6310,17 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     if (useArcingArtilleryVisuals) {
-      const lobPromise = useRocketArtilleryVisuals
+      const lobPromise = observeCombatEffect(useRocketArtilleryVisuals
         ? Promise.resolve()
         : this.playArcedProjectile(attackerHexKey, defenderHexKey, 620, {
             color: "#ffcf5a",
             radius: 3.2,
             arcHeight: attackerType === "Flak_88" ? 42 : 56
-          });
+          }));
 
       await new Promise((resolve) => setTimeout(resolve, useRocketArtilleryVisuals ? 120 : 420));
 
-      const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 6 : 5);
+      const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 6 : 5, presentation?.defender);
 
       const impactPromise = defenderIsAir
         ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.7)
@@ -6416,15 +6347,8 @@ export class HexMapRenderer implements IMapRenderer {
               scaleMultiplier: 1.08
             })
           : Promise.resolve();
-      const dustPromise = new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          if (defenderIsAir) {
-            resolve();
-            return;
-          }
-          void this.playDustCloudLinger(defenderHexKey, 0.65).then(() => resolve());
-        }, useRocketArtilleryVisuals ? 260 : 140);
-      });
+      const dustPromise = scheduleCombatEffect(useRocketArtilleryVisuals ? 260 : 140,
+        () => defenderIsAir ? undefined : this.playDustCloudLinger(defenderHexKey, 0.65));
 
       await Promise.all([
         flashPromise,
@@ -6443,23 +6367,20 @@ export class HexMapRenderer implements IMapRenderer {
 
     const tracerStyle = this.chooseTracerStyle(attackerClass);
     const tracerCount = this.chooseTracerCount(attackerClass);
-    const tracerPromise = useSmallArmsVisuals
+    const tracerPromise = observeCombatEffect(useSmallArmsVisuals
       ? this.playFormationTracerLayers(attackerHexKey, defenderHexKey, formationFireMix, targetIsHardTarget, defenderIsAir)
       : Promise.all(Array.from({ length: tracerCount }).map((_, index) =>
-          new Promise<void>((resolve) => {
-            window.setTimeout(() => {
-              void this.playProjectileTracer(attackerHexKey, defenderHexKey, index === 0 ? 92 : 108, {
+          scheduleCombatEffect(index * 58, () =>
+              this.playProjectileTracer(attackerHexKey, defenderHexKey, index === 0 ? 92 : 108, {
                 style: tracerStyle,
                 jitterPx: attackerClass === "vehicle" ? 2 : 0,
                 segLenScalar: attackerClass === "tank" || attackerClass === "artillery" ? 0.24 : 0.16
-              }).then(() => resolve());
-            }, index * 58);
-          })
-        )).then(() => undefined);
+              }))
+        )).then(() => undefined));
 
     await new Promise((resolve) => setTimeout(resolve, useSmallArmsVisuals ? 90 : 110));
 
-    const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 5 : 4);
+    const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 5 : 4, presentation?.defender);
 
     if (useSmallArmsVisuals) {
       const formationImpactPromise = this.playFormationImpactDetails(
@@ -6481,15 +6402,8 @@ export class HexMapRenderer implements IMapRenderer {
           })
         : Promise.resolve();
       const airBurstPromise = defenderIsAir ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 0.78, false) : Promise.resolve();
-      const dustPromise = new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          if (defenderIsAir) {
-            resolve();
-            return;
-          }
-          void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, 0.58, false).then(() => resolve());
-        }, 95);
-      });
+      const dustPromise = scheduleCombatEffect(95,
+        () => defenderIsAir ? undefined : this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, 0.58, false));
 
       await Promise.all([
         flashPromise,
@@ -6507,13 +6421,11 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const impactProfile = this.chooseDirectFireImpactProfile(attackerHexKey, targetIsHardTarget, defenderIsAir);
+    const impactProfile = this.chooseDirectFireImpactProfile(attackerHexKey, targetIsHardTarget, defenderIsAir, actor);
     const impactPromises = impactProfile.impactOffsets.map(([ox, oy], index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
+      scheduleCombatEffect(index * impactProfile.staggerMs, () => {
           const scale = index === 0 ? impactProfile.baseScale : impactProfile.baseScale * (0.94 - index * 0.03);
-          void this.playCombatAnimation(impactProfile.animationType, defenderHexKey, ox, oy, scale, false).then(() => resolve());
-        }, index * impactProfile.staggerMs);
+          return this.playCombatAnimation(impactProfile.animationType, defenderHexKey, ox, oy, scale, false);
       })
     );
 
@@ -6535,11 +6447,7 @@ export class HexMapRenderer implements IMapRenderer {
           })
         : Promise.resolve();
     const dustPromise = !defenderIsAir && !targetIsHardTarget
-      ? new Promise<void>((resolve) => {
-          window.setTimeout(() => {
-            void this.playDustCloudLinger(defenderHexKey, 0.6).then(() => resolve());
-          }, 120);
-        })
+      ? scheduleCombatEffect(120, () => this.playDustCloudLinger(defenderHexKey, 0.6))
       : Promise.resolve();
 
     await Promise.all([

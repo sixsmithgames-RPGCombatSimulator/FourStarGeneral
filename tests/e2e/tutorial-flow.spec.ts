@@ -1,4 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expectGuidedPolygonVisible, waitForTutorialPanelEntrance } from "./support/tutorialEvidence";
+import { expectAirReadinessVisible } from "./support/airReadinessGeometry";
 
 const tutorialPanel = (page: Page): Locator => page.locator(".tutorial-panel");
 
@@ -19,6 +21,14 @@ async function expectTutorialPanelToFit(page: Page): Promise<void> {
     element.scrollHeight > element.clientHeight + 1
   );
   expect(contentClipped, "Tutorial copy must not be clipped inside the panel.").toBe(false);
+}
+
+/** Capture settled prompt state, without changing game state or finishing animations. */
+async function captureTutorialScreenshot(page: Page, path: string, guidedHex = false): Promise<void> {
+  await waitForTutorialPanelEntrance(page);
+  await expectTutorialPanelToFit(page);
+  if (guidedHex) await expectGuidedPolygonVisible(page);
+  await page.screenshot({ path });
 }
 
 async function waitForTutorialPhase(page: Page, phase: string, timeout = 12_000): Promise<void> {
@@ -170,6 +180,26 @@ async function expectBattleTopRailToFit(page: Page): Promise<void> {
     }
     return fits;
   }).toBe(true);
+  // The group's outer box can fit while a narrow button paints its label over its neighbour.
+  const commands = await commandGroup.locator('.turn-controls-buttons button').evaluateAll(buttons => buttons.map(button => {
+    const box = button.getBoundingClientRect();
+    return { label: button.textContent?.trim(), left: box.left, right: box.right, width: box.width,
+      height: box.height, scrollWidth: button.scrollWidth, clientWidth: button.clientWidth };
+  }));
+  expect(commands.length, 'Initiative commands are present').toBeGreaterThan(0);
+  for (const [index, command] of commands.entries()) {
+    expect(command.scrollWidth, `${command.label} fits its own button`).toBeLessThanOrEqual(command.clientWidth + 1);
+    expect(command.width, `${command.label} retains a 44px target`).toBeGreaterThanOrEqual(43.99);
+    expect(command.height, `${command.label} retains a 44px target`).toBeGreaterThanOrEqual(43.99);
+    if (index > 0) expect(commands[index - 1].right, 'Adjacent initiative commands do not overlap').toBeLessThanOrEqual(command.left + 1);
+  }
+}
+
+/** Inspect the painted tile, not just the renderer's class on the enclosing group. */
+async function expectReducedMotionTargetColor(hex: Locator, stroke: string): Promise<void> {
+  const tile = hex.locator('.hex-tile').first();
+  await expect(tile).toHaveCSS('animation-name', 'none');
+  await expect(tile, 'Target color must match the tutorial instruction without animation').toHaveCSS('stroke', stroke);
 }
 
 async function expectBattleSoundCapabilityContract(page: Page): Promise<void> {
@@ -275,13 +305,13 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await expect(page.locator(".tutorial-action-hint")).toHaveText("Select a marked report in the room.");
   await page.locator("#warRoomOverlay .war-room-hotspot").first().click();
   await expectMiniBriefStep(page, "OPS Brief 3 of 3", "Read The Report", "#warRoomDetail");
-  await page.screenshot({ path: outputPath("sidebar-ops-brief.png") });
+  await captureTutorialScreenshot(page, outputPath("sidebar-ops-brief.png"));
   await advanceMiniBrief(page);
   await page.locator("#warRoomClose").click();
 
   await page.locator('[data-popup="generalProfile"]').click();
   await expectMiniBriefStep(page, "General Brief 1 of 3", "Your Command Record", ".general-profile__identity");
-  await page.screenshot({ path: outputPath("sidebar-general-brief.png") });
+  await captureTutorialScreenshot(page, outputPath("sidebar-general-brief.png"));
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "General Brief 2 of 3", "Command Bonuses", ".general-profile__benefit");
   await advanceMiniBrief(page);
@@ -295,19 +325,22 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await expectMiniBriefStep(page, "Recon Brief 2 of 3", "Your Observers", ".recon-observer-card");
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Recon Brief 3 of 3", "Read The Contact", ".recon-contact-item");
-  await page.screenshot({ path: outputPath("sidebar-recon-brief.png") });
+  await captureTutorialScreenshot(page, outputPath("sidebar-recon-brief.png"));
   await advanceMiniBrief(page);
   await closeStandardBattlePopup(page);
 
   await page.locator('[data-popup="airSupport"]').click();
   await expectMiniBriefStep(page, "Air Brief 1 of 4", "Air Readiness", ".air-readiness-board");
+  await waitForTutorialPanelEntrance(page);
+  await expectAirReadinessVisible(page);
+  await captureTutorialScreenshot(page, outputPath("sidebar-air-readiness.png"));
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Air Brief 2 of 4", "Choose The Mission", "[data-air-mission-tabs]");
   await expect(page.locator(".tutorial-action-btn")).toBeHidden();
   await expect(page.locator(".tutorial-action-hint")).toHaveText("Select a mission type on the sortie board.");
   await page.locator("[data-air-mission-tab]").first().click();
   await expectMiniBriefStep(page, "Air Brief 3 of 4", "Prepare The Sortie", "[data-air-sortie-board]");
-  await page.screenshot({ path: outputPath("sidebar-air-brief.png") });
+  await captureTutorialScreenshot(page, outputPath("sidebar-air-brief.png"));
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Air Brief 4 of 4", "Track Every Sortie", ".air-section");
   await advanceMiniBrief(page);
@@ -324,7 +357,7 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
     "Set Supply Priority",
     '.logistics-priority-card [data-logistics-priority="critical"]'
   );
-  await page.screenshot({ path: outputPath("sidebar-logistics-brief.png") });
+  await captureTutorialScreenshot(page, outputPath("sidebar-logistics-brief.png"));
   await expect(page.locator(".tutorial-action-btn")).toBeHidden();
   await page.locator('.logistics-priority-card [data-logistics-priority="critical"]').first().click();
   await expectMiniBriefStep(page, "Logistics Brief 4 of 4", "Follow The Convoys", ".logistics-convoy-item");
@@ -339,7 +372,7 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await expectMiniBriefStep(page, "Roster Brief 3 of 4", "Reserves And Support", "[data-roster-section=\"reserves\"] > header");
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Roster Brief 4 of 4", "Request Reinforcements", "[data-open-battle-requisitions]");
-  await page.screenshot({ path: outputPath("sidebar-roster-brief.png") });
+  await captureTutorialScreenshot(page, outputPath("sidebar-roster-brief.png"));
   await expect(page.locator(".tutorial-action-btn")).toBeHidden();
   await page.locator("[data-open-battle-requisitions]").click();
   await expect(page.locator("#tutorialOverlayContainer")).toHaveClass(/hidden/);
@@ -392,6 +425,7 @@ async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promi
 
   const baseCampHex = page.locator('#battleMapCanvas [data-hex="5,5"]');
   await expect(baseCampHex).toHaveClass(/deployment-zone/);
+  await expectReducedMotionTargetColor(baseCampHex, 'rgba(246, 207, 122, 0.96)');
   await baseCampHex.click();
   await expect(page.locator("#assignBaseCamp")).toBeEnabled();
   await page.locator("#assignBaseCamp").click();
@@ -403,7 +437,7 @@ async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promi
   await expect(page.locator("#deploymentPanel #beginBattle")).toBeVisible();
   await expect(page.locator(".battle-map-title-row #beginBattle")).toHaveCount(0);
   if (deploymentScreenshotPath) {
-    await page.screenshot({ path: deploymentScreenshotPath });
+    await captureTutorialScreenshot(page, deploymentScreenshotPath);
   }
   await page.locator("#beginBattle").click();
   await waitForTutorialPhase(page, "initiative_order", 15_000);
@@ -434,11 +468,14 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
     await expect(tutorialPanel(page)).toContainText("Recon moves quickly");
     await expect(tutorialPanel(page)).toContainText("lightly armed");
     await expect(page.locator("#battleMapCanvas .hex-cell.move-option-highlight")).not.toHaveCount(0);
+    await expectReducedMotionTargetColor(page.locator("#battleMapCanvas .hex-cell.move-option-highlight").first(), 'rgb(95, 166, 91)');
+    await expectBattleTopRailToFit(page);
     const movementScreenshotName = reconLessonIndex === 0
       ? "20-movement.png"
       : `20-movement-${reconLessonIndex + 1}.png`;
-    await page.screenshot({ path: outputPath(movementScreenshotName) });
     await page.waitForTimeout(700);
+    // The same existing settle wait now precedes the evidence; no additional camera delay.
+    await captureTutorialScreenshot(page, outputPath(movementScreenshotName), true);
     await clickGuidedHex(page);
 
     const nextPhase = await waitForAnyTutorialPhase(page, ["active_group_units", "engineer_intro"], 20_000);
@@ -454,14 +491,14 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await waitForTutorialPhase(page, "intel_overlay_expand");
   await page.locator("#battleIntelOverlayToggle").click();
   await waitForTutorialPhase(page, "engineer_orders");
-  await page.screenshot({ path: outputPath("engineer-work.png") });
+  await captureTutorialScreenshot(page, outputPath("engineer-work.png"));
   await page.locator('#battleIntelOverlay [data-selection-action="fortifications"]').click();
   const recommendedEdge = page.locator("#battleFortificationFacingPreview [data-fortification-recommended='true']");
   await expect(recommendedEdge).toHaveAttribute("data-tutorial-target", "true");
   await expect(page.locator(".tutorial-spotlight:not(.hidden)")).toBeVisible();
   await expect(tutorialPanel(page)).toContainText("Build Fortifications");
   await expect(tutorialPanel(page)).toContainText("marked edge facing the nearest enemy");
-  await page.screenshot({ path: outputPath("fortification-edge.png") });
+  await captureTutorialScreenshot(page, outputPath("fortification-edge.png"));
   await clickRecommendedFortificationEdge(page);
 
   await waitForTutorialPhase(page, "artillery_support_intro", 20_000);
@@ -473,21 +510,23 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await clickGuidedHex(page);
   await waitForTutorialPhase(page, "artillery_intro");
   await expect(page.locator('#battleIntelOverlay [data-selection-action="callArtillery"]')).toBeVisible();
-  await page.screenshot({ path: outputPath("artillery-order.png") });
+  await captureTutorialScreenshot(page, outputPath("artillery-order.png"));
   await page.locator('#battleIntelOverlay [data-selection-action="callArtillery"]').click();
   const artilleryTargets = page.locator("#battleMapCanvas .hex-cell.deployment-zone:not(.is-selected)");
   const artilleryTargetCount = await artilleryTargets.count();
   expect(artilleryTargetCount, "Call Artillery must expose an observed enemy target.").toBeGreaterThan(0);
+  await expectReducedMotionTargetColor(artilleryTargets.first(), 'rgba(246, 207, 122, 0.96)');
   await page.waitForTimeout(550);
   await artilleryTargets.nth(0).click();
 
   await waitForTutorialPhase(page, "select_attack_unit", 15_000);
   await clickGuidedHex(page);
   await waitForTutorialPhase(page, "attack_intro");
-  await page.screenshot({ path: outputPath("fire-order.png") });
+  await captureTutorialScreenshot(page, outputPath("fire-order.png"));
   const attackTargets = page.locator("#battleMapCanvas .hex-cell.attack-target-highlight");
   const attackTargetCount = await attackTargets.count();
   expect(attackTargetCount, "Fire Orders must expose at least one legal enemy target.").toBeGreaterThan(0);
+  await expectReducedMotionTargetColor(attackTargets.first(), 'rgb(255, 68, 68)');
   await page.waitForTimeout(550);
   await attackTargets.nth(0).click();
   await expect(page.locator("#battleAttackConfirm:not(.hidden)")).toBeVisible();
@@ -499,16 +538,19 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await clickGuidedHex(page);
   await waitForTutorialPhase(page, "smoke_demo");
   await expect(page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]')).toBeVisible();
-  await page.screenshot({ path: outputPath("smoke-order.png") });
+  await expectBattleTopRailToFit(page);
+  await captureTutorialScreenshot(page, outputPath("smoke-order.png"));
   await page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]').click();
   const smokeTarget = page.locator("#battleMapCanvas .hex-cell.deployment-zone").first();
   await expect(smokeTarget).toBeVisible();
+  await expectReducedMotionTargetColor(smokeTarget, 'rgba(246, 207, 122, 0.96)');
   await smokeTarget.click();
   await clickFirstAvailableEdge(page);
   await waitForTutorialPhase(page, "complete");
   await expect(tutorialPanel(page)).toContainText("Good luck, General Field Commander.");
   await expect(page.locator(".tutorial-skip-btn")).toBeHidden();
-  await page.screenshot({ path: outputPath("tutorial-complete.png") });
+  await expectBattleTopRailToFit(page);
+  await captureTutorialScreenshot(page, outputPath("tutorial-complete.png"));
   await continueTutorial(page);
   await expect(page.locator("#tutorialOverlayContainer")).toHaveClass(/hidden/);
   await expect(page.locator(".war-room-overlay:not(.hidden)")).toHaveCount(0);
@@ -527,9 +569,12 @@ test.describe("Training tutorial", () => {
 
   for (const viewport of viewports) {
     test(`walks through the complete first-turn command sequence on ${viewport.name}`, async ({ page }, testInfo) => {
-      // WebKit needs additional headroom to render the full 37-step journey and all six
-      // command-board briefs; keep the faster browser projects on the tighter budget.
-      test.setTimeout(testInfo.project.name === "webkit" ? 300_000 : 210_000);
+      // Windows WebKit spends ~5s on its five stable-frame checks per native click.
+      // This is a complete 37-step functional journey plus six command-board briefs,
+      // not a frame-rate certificate. Keep individual waits and other platforms tight.
+      const windowsWebKit = testInfo.project.name === "webkit" && process.platform === "win32";
+      test.setTimeout(windowsWebKit ? 900_000 : testInfo.project.name === "webkit" ? 300_000 : 210_000);
+      if (windowsWebKit) page.setDefaultTimeout(45_000);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await walkCompleteTutorial(page, (name) => testInfo.outputPath(name));
     });

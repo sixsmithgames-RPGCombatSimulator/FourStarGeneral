@@ -92,7 +92,7 @@ registerTest("missionRules: river watch defeat after 8 holds", async ({ Given, T
   });
 });
 
-registerTest("missionRules: river watch victory on time when fords denied", async ({ When, Then }) => {
+registerTest("missionRules: river watch deadline fails without the eight-turn hold", async ({ When, Then }) => {
   const controller = createMissionRulesController("patrol_river_watch", riverWatchScenario);
   let status = controller.onTurnAdvanced({
     turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 },
@@ -102,7 +102,7 @@ registerTest("missionRules: river watch victory on time when fords denied", asyn
     botUnits: [liveBotUnit]
   });
 
-  await When("Player holds line through turn limit", async () => {
+  await When("the turn limit arrives without occupying all three fords", async () => {
     status = controller.onTurnAdvanced({
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: riverWatchScenario.turnLimit ?? 12 },
       scenario: riverWatchScenario,
@@ -112,13 +112,13 @@ registerTest("missionRules: river watch victory on time when fords denied", asyn
     });
   });
 
-  await Then("Outcome is victory and primary is completed", async () => {
-    if (status.outcome.state !== "playerVictory") {
-      throw new Error(`Expected victory at turn limit, got ${status.outcome.state}`);
+  await Then("Outcome is defeat and the unmet primary is failed", async () => {
+    if (status.outcome.state !== "playerDefeat") {
+      throw new Error(`Expected defeat at turn limit without the hold, got ${status.outcome.state}`);
     }
     const primary = status.objectives.find((o) => o.id === "primary_deny_fords");
-    if (!primary || primary.state !== "completed") {
-      throw new Error("Primary objective should be completed at victory");
+    if (!primary || primary.state !== "failed") {
+      throw new Error("Primary objective should fail when the hold was never completed");
     }
   });
 });
@@ -169,8 +169,8 @@ registerTest("missionRules: river watch phases escalate on Normal", async ({ Giv
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 },
       scenario: riverWatchScenario,
       occupancy: new Map(),
-      playerUnits: [],
-      botUnits: []
+      playerUnits: [livePlayerUnit],
+      botUnits: [liveBotUnit]
     });
   });
 
@@ -179,24 +179,24 @@ registerTest("missionRules: river watch phases escalate on Normal", async ({ Giv
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 4 },
       scenario: riverWatchScenario,
       occupancy: new Map(),
-      playerUnits: [],
-      botUnits: []
+      playerUnits: [livePlayerUnit],
+      botUnits: [liveBotUnit]
     }).phase?.id ?? "";
 
     controller.onTurnAdvanced({
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 5 },
       scenario: riverWatchScenario,
       occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
-      playerUnits: [],
-      botUnits: []
+      playerUnits: [livePlayerUnit],
+      botUnits: [liveBotUnit]
     });
 
     turnSixPhase = controller.onTurnAdvanced({
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 6 },
       scenario: riverWatchScenario,
       occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
-      playerUnits: [],
-      botUnits: []
+      playerUnits: [livePlayerUnit],
+      botUnits: [liveBotUnit]
     }).phase?.id ?? "";
   });
 
@@ -219,16 +219,16 @@ registerTest("missionRules: river watch Easy suppresses phase 3 escalation", asy
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 5 },
       scenario: riverWatchScenario,
       occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
-      playerUnits: [],
-      botUnits: []
+      playerUnits: [livePlayerUnit],
+      botUnits: [liveBotUnit]
     });
 
     phaseId = controller.onTurnAdvanced({
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 6 },
       scenario: riverWatchScenario,
       occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
-      playerUnits: [],
-      botUnits: []
+      playerUnits: [livePlayerUnit],
+      botUnits: [liveBotUnit]
     }).phase?.id ?? "";
   });
 

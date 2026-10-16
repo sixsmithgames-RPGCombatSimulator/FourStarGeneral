@@ -35,6 +35,7 @@ import "./BattleScreen.objectiveMarkers.test.js";
 import "./BattleScreen.missionFlow.test.js";
 import "./BattleScreen.campaignHandoff.test.js";
 import "./BattleScreen.initiativeFlow.test.js";
+import "./BattleScreen.tutorialHandoff.test.js";
 import "./EnhancedInitiativeTurnControls.test.js";
 import "./AirShow.productionCapture.test.js";
 import "./AirShowTimelineInspection.contract.test.js";
@@ -140,6 +141,11 @@ import "./BotTargeting.heuristic.test.js";
 import "./BotPlanner.finiteScores.test.js";
 import "./precombatLogisticsMinimum.test.js";
 import "./AirShow.fighterMotion.test.js";
+import "./CombatSoundManager.playback.test.js";
+import "./MissionCatalog.playability.test.js";
+import "./CombatPresentation.lifecycle.test.js";
+import "./CombatPresentation.identity.test.js";
+import "./BattleScreen.initiativePresentation.test.js";
 
 // Execute the registered tests sequentially.
 await runAllTests();

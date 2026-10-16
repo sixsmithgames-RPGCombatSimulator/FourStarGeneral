@@ -517,6 +517,100 @@ registerTest("MAP_VIEWPORT_CENTER_ON_USES_VIEWBOX_UNITS_WHEN_LAYOUT_IS_SCALED", 
   });
 });
 
+registerTest("MAP_VIEWPORT_BATCHES_LABEL_GEOMETRY_BEFORE_FINAL_VISIBILITY_AND_LEADER_WRITES", () => {
+  const dom = setupMapDom();
+  const namespace = "http://www.w3.org/2000/svg";
+  const operations: string[] = [];
+  const positions = [120, 310];
+  const labels: SVGGElement[] = [];
+  const leaders: SVGLineElement[] = [];
+  for (let index = 0; index < 2; index += 1) {
+    const label = document.createElementNS(namespace, "g");
+    label.classList.add("campaign-map-location-label");
+    label.dataset.locationLabelId = `batch-${index}`;
+    const text = document.createElementNS(namespace, "text");
+    text.style.strokeWidth = "4px";
+    Object.defineProperty(text, "getScreenCTM", { value: () => {
+      operations.push(`read-text-${index}`);
+      return { a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 };
+    } });
+    label.appendChild(text);
+    Object.defineProperty(label, "getBoundingClientRect", { value: () => {
+      operations.push(`read-label-${index}`);
+      const left = positions[index];
+      return { x: left, y: 80, left, top: 80, width: 88, height: 24, right: left + 88, bottom: 104 };
+    } });
+    const leader = document.createElementNS(namespace, "line");
+    leader.classList.add("campaign-map-location-label__leader");
+    leader.dataset.locationLabelId = `batch-${index}`;
+    leader.setAttribute("x1", "0");
+    leader.setAttribute("y1", "0");
+    Object.defineProperty(leader, "getScreenCTM", { value: () => {
+      operations.push(`read-leader-${index}`);
+      return { a: 1, b: 0, c: 0, d: 1, e: 36, f: 52,
+        inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: -36, f: -52 }) };
+    } });
+    const setAttribute = leader.setAttribute.bind(leader);
+    leader.setAttribute = (name, value) => {
+      if (name === "x2" || name === "y2") operations.push(`write-${index}-${name}`);
+      setAttribute(name, value);
+    };
+    // Forward writes to the real DOM while observing the properties that can
+    // invalidate later measurements, not only the visible leader endpoints.
+    for (const [group, role] of [[label, "label"], [leader, "leader"]] as const) {
+      const observedStyle = new Proxy(group.style, { set: (style, key, value) => {
+        if (key === "visibility") operations.push(`write-${role}-${index}-visibility:${String(value)}`);
+        return Reflect.set(style, key, value, style);
+      } });
+      Object.defineProperty(group, "style", { value: observedStyle });
+    }
+    const observedDataset = new Proxy(label.dataset, { set: (dataset, key, value) => {
+      if (key === "viewportVisibility") operations.push(`write-label-${index}-viewportVisibility:${String(value)}`);
+      return Reflect.set(dataset, key, value, dataset);
+    } });
+    Object.defineProperty(label, "dataset", { value: observedDataset });
+    dom.viewportRoot.append(leader, label);
+    labels.push(label);
+    leaders.push(leader);
+  }
+  const viewport = new MapViewport();
+  try {
+    operations.length = 0;
+    viewport.setViewportRoot(dom.viewportRoot);
+    const firstRead = operations.findIndex((operation) => operation.startsWith("read-"));
+    const lastRead = operations.reduce((last, operation, index) => operation.startsWith("read-") ? index : last, -1);
+    const preparation = operations.slice(0, firstRead);
+    if (preparation.join(",") !== "write-label-0-visibility:visible,write-label-1-visibility:visible") {
+      throw new Error(`Only the initial all-label reveal may precede measurements: ${preparation.join(", ")}`);
+    }
+    if (operations.slice(firstRead, lastRead + 1).some((operation) => operation.startsWith("write-"))) {
+      throw new Error(`Final DOM writes invalidated layout before all label/leader geometry was read: ${operations.join(", ")}`);
+    }
+    // Check immediately after the synchronous API returns, not after a frame:
+    // stroke padding alone clips the second label's otherwise in-bounds box.
+    if (labels[0].style.visibility !== "visible" || leaders[0].style.visibility !== "visible"
+      || labels[1].style.visibility !== "hidden" || leaders[1].style.visibility !== "hidden"
+      || labels[1].dataset.viewportVisibility !== "clipped") {
+      throw new Error("Batched measurement changed synchronous stroke-aware clipping.");
+    }
+    for (const [index, endpointX] of [[0, 80], [1, 270]]) {
+      if (Number(leaders[index].getAttribute("x2")) !== endpointX || Number(leaders[index].getAttribute("y2")) !== 24) {
+        throw new Error("Batched measurement changed the stroke-padded endpoint in its translated leader layer.");
+      }
+    }
+    positions[0] = 0;
+    positions[1] = 120;
+    dom.viewport.dispatchEvent(new Event("scroll"));
+    if (labels[0].style.getPropertyValue("visibility") !== "hidden" || labels[1].style.getPropertyValue("visibility") !== "visible"
+      || leaders[1].style.getPropertyValue("visibility") !== "visible" || Number(leaders[1].getAttribute("x2")) !== 80) {
+      throw new Error("Native scroll did not synchronously remeasure and publish the new batch.");
+    }
+  } finally {
+    viewport.dispose();
+    dom.host.remove();
+  }
+});
+
 registerTest("MAP_VIEWPORT_FITS_AND_CENTERS_COMPLETE_MAP", async ({ Given, When, Then }) => {
   let mapViewport: MapViewport;
   let host: HTMLElement;

@@ -328,7 +328,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "artillery_intro",
     title: "Call Artillery",
     content:
-      "Click Call Artillery, then select a highlighted enemy hex. The shells arrive during the turn transition.",
+      "The order card shows when shells arrive. Click the highlighted artillery order, then choose a highlighted enemy hex.",
     highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery']",
     position: "right",
     arrowDirection: "left",

@@ -144,6 +144,30 @@ function stateSignature(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+/** Strip only the newly added presentation identity fields; all old transaction values stay locked. */
+function legacyIdentitySignature(value: unknown): string {
+  // These focused transaction fixtures author exactly these report/summary envelopes.
+  const payload = structuredClone(value) as {
+    report?: { attacker: { unitId?: string }; defender: { unitId?: string } };
+    reports?: Array<{ attacker: { unitId?: string }; defender: { unitId?: string } }>;
+    resolution?: { attackerUnitId?: string; defenderUnitId?: string;
+      retaliation?: { attackerUnitId?: string; attackerType?: string } };
+  };
+  for (const report of [...(payload.reports ?? []), ...(payload.report ? [payload.report] : [])]) {
+    delete report.attacker.unitId;
+    delete report.defender.unitId;
+  }
+  if (payload.resolution) {
+    delete payload.resolution.attackerUnitId;
+    delete payload.resolution.defenderUnitId;
+    if (payload.resolution.retaliation) {
+      delete payload.resolution.retaliation.attackerUnitId;
+      delete payload.resolution.retaliation.attackerType;
+    }
+  }
+  return stateSignature(payload);
+}
+
 function readTypeScriptSources(directory: string): Array<{ path: string; source: string }> {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = `${directory}/${entry.name}`;
@@ -633,7 +657,7 @@ registerTest("BATTLE_ATTACKER_PREPARATION_REAL_PLAYER_AND_BOT_TRANSACTION_SIGNAT
       actionFlags: {
         Player: [],
         Bot: [[botId, {
-          movementPointsUsed: 2,
+          movementPointsUsed: 1,
           attacksUsed: 0,
           retaliationsUsed: 1,
           isRushing: true,
@@ -672,6 +696,10 @@ registerTest("BATTLE_ATTACKER_PREPARATION_REAL_PLAYER_AND_BOT_TRANSACTION_SIGNAT
     const botFlags = botState.actionFlags?.Bot.find(([key]) => key === botId)?.[1];
     const playerReports = playerEngine.getCombatReports();
     const botReports = botEngine.getCombatReports();
+    assert.equal(playerReports[playerReports.length - 1].attacker.unitId, playerId);
+    assert.equal(playerReports[playerReports.length - 1].defender.unitId, playerTargetId);
+    assert.equal(botReports[botReports.length - 1].attacker.unitId, botId);
+    assert.equal(botReports[botReports.length - 1].defender.unitId, botTargetId);
     playerPayload = {
       randomBefore: playerRandomBefore,
       randomAfter: playerState.randomState,
@@ -746,7 +774,7 @@ registerTest("BATTLE_ATTACKER_PREPARATION_REAL_PLAYER_AND_BOT_TRANSACTION_SIGNAT
       earnedExperience: 1
     });
     assert.deepEqual((botPayload as { actionFlags: unknown }).actionFlags, {
-      movementPointsUsed: 2,
+      movementPointsUsed: 1,
       attacksUsed: 1,
       retaliationsUsed: 1,
       isRushing: true
@@ -767,8 +795,10 @@ registerTest("BATTLE_ATTACKER_PREPARATION_REAL_PLAYER_AND_BOT_TRANSACTION_SIGNAT
     assert.equal((botPayload as { randomBefore: number }).randomBefore, botSeed);
     assert.equal((playerPayload as { randomAfter: number }).randomAfter, playerSeed);
     assert.equal((botPayload as { randomAfter: number }).randomAfter, botSeed);
-    assert.equal(playerSignature, "b60a12bab8a2ec17286e636541b855ebf72d9e497deb5cd4414927af2b6730d0");
-    assert.equal(botSignature, "1cb60ad8c7385cd7fe0e6d8123c18753e3f2b52d67a9750f3a7d2f5f2f465732");
+    assert.equal(legacyIdentitySignature(playerPayload), "b60a12bab8a2ec17286e636541b855ebf72d9e497deb5cd4414927af2b6730d0");
+    assert.equal(legacyIdentitySignature(botPayload), "b066770cf8a92112e4449ec75ad9cf6d65f4c4d9a5aa51621987884a0c4cae35");
+    assert.equal(playerSignature, "cf1ef58b35720bc798e4e01276e3222cc9bbd4a9d5f5ea7601b0697d1b72b501");
+    assert.equal(botSignature, "faddf78c68cad791d1608d40476e62e254ceef4c8aeff637b133d010d622056d");
   });
 });
 
@@ -832,22 +862,26 @@ registerTest("BATTLE_ATTACKER_DISPOSITION_REAL_PLAYER_AND_BOT_ASSAULT_ADVANCE_SI
     }
     const playerState = playerEngine.serialize();
     const botState = botEngine.serialize();
-    playerSignature = stateSignature({
+    const playerPayload = {
       randomState: playerState.randomState,
       attackers: playerState.playerPlacements,
       defenders: playerState.botPlacements,
       flags: playerState.actionFlags?.Player,
       resolution: playerResolution,
       reports: playerEngine.getCombatReports()
-    });
-    botSignature = stateSignature({
+    };
+    const botPayload = {
       randomState: botState.randomState,
       attackers: botState.botPlacements,
       defenders: botState.playerPlacements,
       flags: botState.actionFlags?.Bot,
       resolution: botResolution,
       reports: botEngine.getCombatReports()
-    });
+    };
+    assert.equal(legacyIdentitySignature(playerPayload), "fef10f86c15281112ec587214018e0cf4d0216a99449b0139eababd483e2dadb");
+    assert.equal(legacyIdentitySignature(botPayload), "c2e345f56046b4ab1e73089e9bc5945645c050d34cc9ac2a2496a9f11afbaf29");
+    playerSignature = stateSignature(playerPayload);
+    botSignature = stateSignature(botPayload);
   });
 
   await Then("both canonical advance decisions relocate exactly once with locked transactions", () => {
@@ -859,8 +893,8 @@ registerTest("BATTLE_ATTACKER_DISPOSITION_REAL_PLAYER_AND_BOT_ASSAULT_ADVANCE_SI
     assert.equal(botEngine.getHexStackMembers(playerOrigin, "Player").some((entry) => entry.unitId === botTargetId), false);
     assert.equal(playerEngine.serialize().randomState, playerSeed);
     assert.equal(botEngine.serialize().randomState, botSeed);
-    assert.equal(playerSignature, "fef10f86c15281112ec587214018e0cf4d0216a99449b0139eababd483e2dadb");
-    assert.equal(botSignature, "c2e345f56046b4ab1e73089e9bc5945645c050d34cc9ac2a2496a9f11afbaf29");
+    assert.equal(playerSignature, "09049c7edeeae47fb3f63ebea985b81847a688d879668623ce8c887f0eeedc59");
+    assert.equal(botSignature, "8ef09d1e9f9eb41b110d9c67fdae71464a389f937e3ca3ef2f244b9e3a55c54f");
   });
 });
 
@@ -930,5 +964,34 @@ registerTest("BATTLE_ATTACKER_PREPARATION_IS_THE_SINGLE_ENGINE_AUTHORITY", async
       assert.deepEqual(declarationOwners, ["src/game/battle/combat/BattleAircraftAttackReadinessProjection.ts"]);
       assert.deepEqual(runtimeCallers, ["src/game/GameEngine.ts"]);
     }
+  });
+});
+
+registerTest("BATTLE_ATTACK_OUTCOME_REAL_MIXED_STACK_PRESERVES_THE_ACTUAL_COUNTERFIRE_ACTOR", async ({ Given, When, Then }) => {
+  const botHex = { q: 1, r: 1 };
+  const playerHex = { q: 2, r: 1 };
+  const seed = 0x87654321;
+  const primary = liveUnit("dry-primary", playerHex, "W", 0);
+  const retaliator = { ...liveUnit("loaded-secondary", playerHex, "W", 6), type: "Medium_Tank" as const, onSentry: true };
+  const engine = liveEngine({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1, randomState: seed,
+    baseCamp: { hex: { q: 0, r: 1 }, key: "0,1" }, playerPlacements: [primary, retaliator],
+    botPlacements: [liveUnit("identity-attacker", botHex, "E", 6)], reserves: [] });
+  let summary: ReturnType<GameEngine["executeBotActivation"]>["attacks"][number] | null;
+  await Given("a dry primary defender stacked with a loaded tank that will return fire", () => {});
+  await When("the real bot attack resolves damage, counterfire and all resulting roster mutations", () => {
+    summary = engine["resolveBotAttack"](engine.botUnits.find((unit) => unit.unitId === "identity-attacker")!, botHex, playerHex);
+  });
+  await Then("the summary names the actual tank counterfire actor while the report keeps its primary defender", () => {
+    assert.ok(summary);
+    assert.equal(summary.attackerUnitId, "identity-attacker");
+    assert.equal(summary.defenderUnitId, "dry-primary");
+    assert.equal(summary.retaliation?.attackerUnitId, "loaded-secondary");
+    assert.equal(summary.retaliation?.attackerType, "Medium_Tank");
+    assert.ok((summary.retaliation?.damage ?? 0) > 0);
+    const report = engine.getCombatReports()[0];
+    assert.equal(report.attacker.unitId, "identity-attacker");
+    assert.equal(report.defender.unitId, "dry-primary");
+    assert.equal(report.retaliation, undefined);
+    assert.equal(engine.serialize().randomState, seed);
   });
 });

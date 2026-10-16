@@ -238,7 +238,13 @@ test.describe("Requisition Screen Layout", () => {
     }
   });
 
-  test("should support complete tutorial force composition", async ({ page }) => {
+  test("should support complete tutorial force composition", async ({ page }, info) => {
+    // Measured Windows WebKit actionability waits cost ~6s per native click.
+    // Budget the 13-click journey, without relaxing any per-action assertion.
+    if (info.project.name === 'webkit' && process.platform === 'win32') {
+      test.setTimeout(120_000);
+      page.setDefaultTimeout(45_000);
+    }
     const initialBudget = parseDisplayedRp(
       await page.locator("#budgetSpent").textContent(),
       "Initial spent budget"
@@ -277,12 +283,9 @@ test.describe("Requisition Screen Layout", () => {
       const list = await page.locator(listId);
       const item = await list.locator(`li.allocation-item[data-key="${unit.key}"]`);
       
-      // Scroll into view if needed
-      await item.scrollIntoViewIfNeeded();
-      
       const incrementBtn = await item.locator('[data-action="increment"]');
       
-      // Click the required number of times
+      // Native click owns scrolling and actionability; a prior scroll duplicates its stable-frame wait.
       for (let i = 0; i < unit.count; i++) {
         await incrementBtn.click();
         await page.waitForTimeout(50);

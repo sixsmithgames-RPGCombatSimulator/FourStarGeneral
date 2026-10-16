@@ -1,13 +1,13 @@
 {
   "version": 1,
   "lineBudgets": {
-    "src/game/GameEngine.ts": 17983,
-    "src/rendering/HexMapRenderer.ts": 6558,
+    "src/game/GameEngine.ts": 17949,
+    "src/rendering/HexMapRenderer.ts": 6466,
     "src/rendering/HexMapLayout.ts": 77,
     "src/rendering/PrecombatMiniMapRenderer.ts": 94,
     "src/rendering/TerrainFillPalette.ts": 50,
     "src/rendering/ViewportTransform.ts": 58,
-    "src/ui/screens/BattleScreen.ts": 14383,
+    "src/ui/screens/BattleScreen.ts": 14360,
     "src/ui/screens/PrecombatScreen.ts": 2240,
     "src/ui/airshow/AirShowDirector.ts": 1991,
     "src/ui/screens/CampaignScreen.ts": 4437,
@@ -32,7 +32,7 @@
     "src/game/battle/support/BattleSupportTargeting.ts": 124,
     "src/ui/airshow/AirShowTimelineInspection.ts": 288,
     "src/game/battle/combat/AirAttackResultScaling.ts": 31,
-    "src/game/battle/combat/BattleAttackOutcomeProjection.ts": 206,
+    "src/game/battle/combat/BattleAttackOutcomeProjection.ts": 215,
     "src/game/battle/air/AirCombatContracts.ts": 181,
     "src/rendering/UnitStackPresentation.ts": 186,
     "src/ui/campaign/CampaignSituationWorkspaceProjection.ts": 502,
@@ -111,6 +111,22 @@
     }
   ],
   "canonicalFunctionOwners": [
+    {
+      "owner": "src/rendering/CombatPresentationContext.ts",
+      "names": ["buildCombatFormationFireMix", "buildResolvedAttackPresentation", "buildPlayerAttackPresentation"]
+    },
+    {
+      "owner": "src/ui/controllers/BattleMovementPresentation.ts",
+      "names": ["buildMovementPresentationPath"]
+    },
+    {
+      "owner": "src/core/Stacking.ts",
+      "names": ["countsTowardCombatStack"]
+    },
+    {
+      "owner": "src/rendering/CombatEffectScheduling.ts",
+      "names": ["observeCombatEffect", "scheduleCombatEffect"]
+    },
     {
       "owner": "src/game/battle/combat/BattleRetaliationProjection.ts",
       "names": [
@@ -263,26 +279,26 @@
       "GameEngine.hydrateFromSerialized": 326,
       "GameEngine.previewAttack": 145,
       "GameEngine.moveUnit": 131,
-      "GameEngine.resolvePlayerAttack": 618,
+      "GameEngine.resolvePlayerAttack": 604,
       "GameEngine.serialize": 131,
       "GameEngine.getLogisticsSnapshot": 446,
       "GameEngine.buildAttackRequest": 140,
-      "GameEngine.executeHeuristicBotTurn": 160,
+      "GameEngine.executeHeuristicBotTurn": 144,
       "GameEngine.executeBotTurn": 185,
-      "GameEngine.resolveBotAttack": 596,
+      "GameEngine.resolveBotAttack": 594,
       "GameEngine.buildRosterSnapshot": 173
     },
     "src/rendering/HexMapRenderer.ts": {
       "HexMapRenderer.animateAirShowTimeline": 128,
       "HexMapRenderer.render": 194,
       "HexMapRenderer.playProjectileTracer": 139,
-      "HexMapRenderer.playAttackSequence": 327
+      "HexMapRenderer.playAttackSequence": 285
     },
     "src/ui/screens/BattleScreen.ts": {
       "BattleScreen.promptAttackConfirmation": 511,
       "BattleScreen.syncAirMissionLogs": 233,
-      "BattleScreen.executePendingAttack": 213,
-      "BattleScreen.playBotTurnAnimations": 172,
+      "BattleScreen.executePendingAttack": 207,
+      "BattleScreen.playBotTurnAnimations": 166,
       "BattleScreen.syncTutorialPhaseWithCurrentContext": 371,
       "BattleScreen.bindPanelEvents": 223,
       "BattleScreen.playAirOperations": 127,

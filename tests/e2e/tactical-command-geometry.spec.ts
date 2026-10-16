@@ -78,7 +78,7 @@ async function settleIntel(page: Page): Promise<void> {
 
 async function saveIntelEvidence(page: Page, info: TestInfo, name: string): Promise<void> {
   const selectors = ['.battle-map-pane', '.battle-map-header', '.map-viewport', '#battleIntelOverlay',
-    '#battleIntelOverlayBody', '#battleIntelOverlayTitle', '#battleIntelOverlayToggle', '#battleIntelOverlayDismiss',
+    '#battleIntelOverlayBody', '#battleIntelOverlayTitle', '#battleIntelOverlayMeta', '#battleIntelOverlayToggle', '#battleIntelOverlayDismiss',
     '.battle-intel-overlay__stats', '[data-selection-action="clear-path"]', '.group-advance-btn'];
   const geometry = Object.fromEntries(await Promise.all(selectors.map(async selector => {
     const locator = page.locator(`#battleScreen ${selector}`);
@@ -97,9 +97,18 @@ async function saveIntelEvidence(page: Page, info: TestInfo, name: string): Prom
 
 async function expectReadable(locator: Locator, containers: Locator[]): Promise<void> {
   const box = await bounds(locator);
-  expect(box.width, 'Content has visible width').toBeGreaterThan(0);
-  expect(box.height, 'Content has visible height').toBeGreaterThan(0);
-  expect(box.scrollWidth, 'Text fits without horizontal clipping').toBeLessThanOrEqual(box.clientWidth + 1);
+  const content = await locator.evaluate(element => ({
+    label: `${element.id || element.className || element.tagName}: ${element.textContent?.trim()}`,
+    overflowY: getComputedStyle(element).overflowY
+  }));
+  expect(box.width, `${content.label} has visible width`).toBeGreaterThan(0);
+  expect(box.height, `${content.label} has visible height`).toBeGreaterThan(0);
+  expect(box.scrollWidth, `${content.label} fits without horizontal clipping`).toBeLessThanOrEqual(box.clientWidth + 1);
+  // Visible glyph ink may exceed a tight line box without being clipped (e.g. 15px line / 17px ink).
+  // Enforce own-box vertical containment only where overflow actually hides or scrolls that ink.
+  if (/^(auto|scroll|hidden|clip)$/.test(content.overflowY)) {
+    expect(box.scrollHeight, `${content.label} fits without vertical clipping`).toBeLessThanOrEqual(box.clientHeight + 1);
+  }
   const clipping = await locator.evaluate(element => {
     const box = element.getBoundingClientRect();
     const failures: string[] = [];
@@ -220,11 +229,45 @@ async function mountBattleHeader(page: Page, defense = false): Promise<void> {
   await settleIntel(page);
 }
 
+/** A container can fit while its flexible text track collapses over its neighbour. */
+async function expectInitiativeStatusReadable(header: Locator): Promise<void> {
+  const status = header.locator('.initiative-status');
+  const frame = await bounds(status);
+  const selectors = ['.initiative-status__label', '.initiative-status__value', '.initiative-status__detail'];
+  const cells = await Promise.all(selectors.map(async selector => ({ selector, ...await bounds(status.locator(selector)) })));
+  for (const cell of cells) {
+    expect(cell.width, `${cell.selector} retains a visible track`).toBeGreaterThan(0);
+    expect(cell.scrollWidth, `${cell.selector} text fits its own track`).toBeLessThanOrEqual(cell.clientWidth + 1);
+    expect(cell.x, `${cell.selector} fits within status left edge`).toBeGreaterThanOrEqual(frame.x - 1);
+    expect(cell.right, `${cell.selector} fits within status right edge`).toBeLessThanOrEqual(frame.right + 1);
+    expect(cell.y, `${cell.selector} fits within status top edge`).toBeGreaterThanOrEqual(frame.y - 1);
+    expect(cell.bottom, `${cell.selector} fits within status bottom edge`).toBeLessThanOrEqual(frame.bottom + 1);
+  }
+  for (let first = 0; first < cells.length; first += 1) {
+    for (let second = first + 1; second < cells.length; second += 1) {
+      const a = cells[first];
+      const b = cells[second];
+      const overlapX = Math.min(a.right, b.right) - Math.max(a.x, b.x);
+      const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y);
+      expect(overlapX > 0.5 && overlapY > 0.5, `${a.selector} must not overlap ${b.selector}`).toBe(false);
+    }
+  }
+}
+
+async function expectInitiativeOwnerStatesReadable(page: Page, header: Locator, roundReady: boolean): Promise<void> {
+  await expectInitiativeStatusReadable(header);
+  if (roundReady) return;
+  await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryControls.updatePlayerTurn(false));
+  await expect(header.locator('.initiative-status__detail')).toHaveText('Enemy orders resolving');
+  await expectInitiativeStatusReadable(header);
+  await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryControls.updatePlayerTurn(true));
+}
+
 async function expectInitialIntel(page: Page, label: string): Promise<void> {
   const overlay = page.locator('#battleIntelOverlay');
   const body = page.locator('#battleIntelOverlayBody');
   await expect(page.locator('#battleIntelOverlayTitle')).toHaveText(label);
-  for (const text of await overlay.locator('#battleIntelOverlayTitle, .battle-intel-overlay__stat-label, .battle-intel-overlay__stat-value, .battle-intel-overlay__chip').all()) {
+  for (const text of await overlay.locator('#battleIntelOverlayTitle, #battleIntelOverlayMeta, .battle-intel-overlay__stat-label, .battle-intel-overlay__stat-value, .battle-intel-overlay__chip').all()) {
     await expectReadable(text, [overlay]);
   }
   expect(await body.evaluate(element => element.scrollTop), 'Initial stats must not require body scrolling').toBe(0);
@@ -240,9 +283,28 @@ async function bounds(locator: Locator) {
   return locator.evaluate(element => {
     const box = element.getBoundingClientRect();
     return { x: box.x, y: box.y, right: box.right, bottom: box.bottom, width: box.width, height: box.height,
-      scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+      scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+      scrollHeight: element.scrollHeight, clientHeight: element.clientHeight };
   });
 }
+
+test('readability contract distinguishes visible ink from clipped text', async ({ page }) => {
+  await page.setContent('<div id="frame" style="padding:24px;width:200px;overflow:hidden"><div id="text" style="height:1px;font:16px/16px sans-serif">100%</div></div>');
+  const text = page.locator('#text');
+  const frame = page.locator('#frame');
+  // The glyph is fully painted in the frame padding even though its own line box is short.
+  await expectReadable(text, [frame]);
+  for (const overflow of ['hidden', 'clip', 'auto', 'scroll']) {
+    await text.evaluate((element, value) => { (element as HTMLElement).style.overflowY = value; }, overflow);
+    await expect(expectReadable(text, [frame])).rejects.toThrow(/vertical clipping/);
+  }
+  await text.evaluate(element => {
+    const style = (element as HTMLElement).style;
+    style.overflow = 'visible';
+    style.transform = 'translateY(-28px)';
+  });
+  await expect(expectReadable(text, [frame])).rejects.toThrow(/clipping ancestor/);
+});
 
 async function wheelUntilContained(page: Page, owner: Locator, target: Locator): Promise<void> {
   const ownerBox = await bounds(owner);
@@ -262,11 +324,183 @@ async function wheelUntilContained(page: Page, owner: Locator, target: Locator):
   expect(item.bottom, 'Repeated real wheel gestures reveal the target from below').toBeLessThanOrEqual(frame.bottom + 1);
 }
 
+/** Read individual labels: the command group can fit while a button paints into its neighbour. */
+async function expectCommandButtonsReadable(header: Locator): Promise<void> {
+  const buttons = header.locator('.turn-controls-buttons button');
+  const boxes = [];
+  for (const button of await buttons.all()) {
+    await expectReadable(button, [header, header.locator('.turn-controls-buttons')]);
+    const box = await bounds(button);
+    expect(box.width, 'Command retains a 44px touch target').toBeGreaterThanOrEqual(43.99);
+    expect(box.height, 'Command retains a 44px touch target').toBeGreaterThanOrEqual(43.99);
+    boxes.push(box);
+  }
+  for (let index = 1; index < boxes.length; index += 1) {
+    expect(boxes[index - 1].right, 'Adjacent command buttons do not overlap').toBeLessThanOrEqual(boxes[index].x + 1);
+  }
+}
+
+/** A tall map rectangle may continue below its scrolling pane; count only pixels actually exposed. */
+async function visibleMapEntryHeight(page: Page): Promise<number> {
+  return page.locator('#battleScreen .map-viewport').evaluate(map => {
+    const pane = map.closest('.battle-map-pane');
+    if (!(pane instanceof HTMLElement)) throw new Error('Battle map is missing its scrolling pane.');
+    const mapBox = map.getBoundingClientRect();
+    const paneBox = pane.getBoundingClientRect();
+    const paneTop = paneBox.top + pane.clientTop;
+    const paneBottom = paneTop + pane.clientHeight;
+    return Math.max(0, Math.min(mapBox.bottom, innerHeight, paneBottom) - Math.max(mapBox.top, 0, paneTop));
+  });
+}
+
+for (const viewport of [
+  { width: 390, height: 844 }, { width: 601, height: 900 },
+  { width: 601, height: 360 }, { width: 640, height: 360 }
+]) {
+  test.describe(`${viewport.width}x${viewport.height} conventional command rail`, () => {
+    test.use({ viewport });
+    test('FSG_VIS_092 conventional End Turn preserves its original two-column header', async ({ page }, info) => {
+      await mountBattleHeader(page);
+      await page.evaluate(() => {
+        // Match the conventional consumer: it has the shipped End Turn, not initiative controls.
+        (window as unknown as FixtureWindow).tacticalGeometryControls.dispose();
+        document.querySelector('.enhanced-initiative-turn-controls')!.remove();
+        document.querySelectorAll('.initiative-controls-active').forEach(node => node.classList.remove('initiative-controls-active'));
+        const endTurn = document.querySelector<HTMLButtonElement>('#endTurn')!;
+        endTurn.style.removeProperty('display');
+        endTurn.disabled = false;
+      });
+      await settleIntel(page);
+      const header = page.locator('.battle-map-header');
+      const save = await bounds(header.locator('.battle-save-command'));
+      const commands = await bounds(header.locator('.battle-map-header__command-group'));
+      const map = await bounds(page.locator('#battleScreen .map-viewport'));
+      const spacing = await header.evaluate(element => {
+        const style = getComputedStyle(element);
+        const objective = getComputedStyle(element.querySelector('.battle-objective-card')!);
+        return { paddingTop: parseFloat(style.paddingTop), paddingBottom: parseFloat(style.paddingBottom),
+          gap: parseFloat(style.gap), objectivePadding: parseFloat(objective.paddingTop) };
+      });
+      writeFileSync(info.outputPath('conventional-command-geometry.json'), JSON.stringify({ viewport, save, commands, map, spacing }, null, 2));
+      await page.screenshot({ path: info.outputPath('conventional-command-rail.png'), scale: 'css' });
+      await expect(page.locator('.initiative-controls-active')).toHaveCount(0);
+      expect(save.y, 'Conventional Save/Load and End Turn retain one shared row').toBeCloseTo(commands.y, 0);
+      expect(save.right, 'Conventional actions retain separate columns').toBeLessThanOrEqual(commands.x + 1);
+      expect(save.width, 'Conventional save track retains its original allocation').toBeCloseTo(viewport.height <= 480 ? 136 : 152, 0);
+      if (viewport.height <= 480) {
+        const legacyObjectivePadding = await page.evaluate(() => {
+          // Compare the authored 0.46rem after the browser's own subpixel quantization.
+          const reference = document.querySelector('.battle-objective-card')!.cloneNode(false) as HTMLElement;
+          reference.removeAttribute('id');
+          reference.style.paddingTop = '0.46rem';
+          document.body.append(reference);
+          const padding = parseFloat(getComputedStyle(reference).paddingTop);
+          reference.remove();
+          return padding;
+        });
+        expect(spacing, 'Initiative-only density fixes do not change conventional short-screen spacing').toEqual({
+          paddingTop: 4, paddingBottom: 4, gap: 5.6, objectivePadding: legacyObjectivePadding
+        });
+      }
+      for (const selector of ['#battleSaveButton', '#battleLoadButton', '#endTurn']) {
+        const button = header.locator(selector);
+        await expectReadable(button, [header]);
+        const box = await bounds(button);
+        expect(box.width, 'Conventional action retains a 44px target').toBeGreaterThanOrEqual(43.99);
+        expect(box.height, 'Conventional action retains a 44px target').toBeGreaterThanOrEqual(43.99);
+      }
+      await expectReadable(header.locator('#battleSaveStatus'), [header]);
+      expect(map.y, 'Conventional header does not overlap the map').toBeGreaterThanOrEqual((await bounds(header)).bottom - 1);
+      expect(await visibleMapEntryHeight(page), 'Conventional map retains an initially visible 48px strip').toBeGreaterThanOrEqual(48);
+    });
+  });
+}
+
+for (const viewport of [
+  { width: 375, height: 667, stacked: true }, { width: 390, height: 844, stacked: true },
+  { width: 600, height: 900, stacked: false }, { width: 601, height: 900, stacked: true },
+  { width: 640, height: 900, stacked: true }, { width: 601, height: 360, stacked: false },
+  { width: 640, height: 360, stacked: false }
+]) {
+  test.describe(`${viewport.width}x${viewport.height} narrow command rail`, () => {
+    test.use({ viewport });
+    test('FSG_CAM_090 mobile command labels retain their own readable targets', async ({ page }, info) => {
+      await mountBattleHeader(page);
+      const header = page.locator('.battle-map-header');
+      await page.screenshot({ path: info.outputPath('mobile-command-rail.png'), scale: 'css' });
+      await expectCommandButtonsReadable(header);
+      await expectInitiativeOwnerStatesReadable(page, header, false);
+      for (const selector of ['#battleSaveButton', '#battleLoadButton', '#battleSaveStatus']) {
+        await expectReadable(header.locator(selector), [header]);
+      }
+      const save = await bounds(header.locator('.battle-save-command'));
+      const commands = await bounds(header.locator('.battle-map-header__command-group'));
+      if (viewport.stacked) {
+        expect(save.bottom, 'Save status clears the full-width initiative row').toBeLessThanOrEqual(commands.y + 1);
+      } else {
+        expect(save.y, 'Adequate panes retain the shared Save/Load and initiative row').toBeCloseTo(commands.y, 0);
+        expect(save.right, 'Adequate panes retain separate action columns').toBeLessThanOrEqual(commands.x + 1);
+      }
+      const headerBox = await bounds(header);
+      const map = await bounds(page.locator('#battleScreen .map-viewport'));
+      const visibleMapHeight = await visibleMapEntryHeight(page);
+      writeFileSync(info.outputPath('mobile-command-geometry.json'), JSON.stringify({ viewport, header: headerBox, map, visibleMapHeight, save, commands }, null, 2));
+      expect(map.y, 'Header does not overlap the map').toBeGreaterThanOrEqual(headerBox.bottom - 1);
+      expect(map.height, 'Mobile command readability retains a substantial map viewport').toBeGreaterThanOrEqual(viewport.height * 0.3);
+      expect(visibleMapHeight, 'At least 48px of map fits the viewport and scrolling pane before scrolling').toBeGreaterThanOrEqual(48);
+      expect(headerBox.scrollWidth, 'Header has no hidden horizontal overflow').toBeLessThanOrEqual(headerBox.clientWidth + 1);
+    });
+  });
+}
+
+test.describe('narrow command regression detector', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  test('FSG_CAM_090 rejects the former fixed Save/Load column squeezing command labels', async ({ page }) => {
+    await mountBattleHeader(page);
+    await page.addStyleTag({ content: '.battle-map-header__actions { grid-template-columns: 9.5rem minmax(0, 1fr) !important; }' });
+    await expect(expectCommandButtonsReadable(page.locator('.battle-map-header'))).rejects.toThrow(/horizontal clipping/);
+  });
+});
+
+for (const { height, breakpoint } of [{ height: 900, breakpoint: 480 }, { height: 360, breakpoint: 464 }]) {
+  test.describe(`command pane breakpoint ${breakpoint}px`, () => {
+    test.use({ viewport: { width: 900, height } });
+    test('FSG_CAM_090 narrow panes reflow without changing adequate neighbouring panes', async ({ page }) => {
+      await mountBattleHeader(page);
+      const header = page.locator('.battle-map-header');
+      for (const width of [breakpoint, breakpoint + 1]) {
+        await page.locator('.battle-map-pane').evaluate((pane, contentWidth) => {
+          const element = pane as HTMLElement;
+          const style = getComputedStyle(element);
+          const gutter = element.offsetWidth - element.clientWidth - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth);
+          element.style.boxSizing = 'content-box';
+          // Container queries measure usable content, excluding the reserved scrollbar gutter.
+          element.style.width = `${contentWidth + gutter}px`;
+        }, width);
+        expect(await page.locator('.battle-map-pane').evaluate(pane => {
+          const style = getComputedStyle(pane);
+          return pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        }), 'Boundary fixture measures actual container content width').toBeCloseTo(width, 0);
+        const save = await bounds(header.locator('.battle-save-command'));
+        const commands = await bounds(header.locator('.battle-map-header__command-group'));
+        if (height > 480 && width === breakpoint) expect(save.bottom).toBeLessThanOrEqual(commands.y + 1);
+        else {
+          expect(save.y, 'Two-column row preserves short-screen map space or adequate pane placement').toBeCloseTo(commands.y, 0);
+          expect(save.right).toBeLessThanOrEqual(commands.x + 1);
+        }
+        if (height <= 480) expect(save.width, 'Short screens allocate save width without shrinking hit targets').toBeCloseTo(width === breakpoint ? 104 : 136, 0);
+        for (const selector of ['#battleSaveButton', '#battleLoadButton', '#battleSaveStatus']) await expectReadable(header.locator(selector), [header]);
+        await expectCommandButtonsReadable(header);
+      }
+    });
+  });
+}
+
 for (const defense of [false, true]) {
 for (const viewport of [
   { width: 600, height: 900 },
   { width: 640, height: 360 }, { width: 753, height: 356 }, { width: 800, height: 900 },
-  { width: 1280, height: 720 }, { width: 1506, height: 768 }, { width: 1920, height: 1080 }
+  { width: 1280, height: 720 }, { width: 1440, height: 900 }, { width: 1506, height: 768 }, { width: 1920, height: 1080 }
 ]) {
   test.describe(`${viewport.width}x${viewport.height} ${defense ? 'expanded-log defense' : 'collapsed-log assault'}`, () => {
     // This reproduces the measured CSS viewport/DPR, not a claim of native Chrome zoom certification.
@@ -297,6 +531,7 @@ for (const viewport of [
             expect(box.right).toBeLessThanOrEqual(frame.right + 1);
           }
           await page.screenshot({ path: info.outputPath(`${name}-log-expanded.png`), scale: 'css' });
+          await expectInitiativeOwnerStatesReadable(page, header, ready);
           await drawerToggle.click();
           await settleIntel(page);
           await expect(page.locator('#battleActivityLog')).toHaveCSS('visibility', 'hidden');
@@ -322,6 +557,7 @@ for (const viewport of [
           })) }, null, 2));
         await info.attach(`${name}-geometry.json`, { path: geometryPath, contentType: 'application/json' });
         await page.screenshot({ path: info.outputPath(`${name}.png`), scale: 'css' });
+        await expectInitiativeOwnerStatesReadable(page, header, ready);
 
         for (const [selector, box] of Object.entries(measured)) {
           expect(box.width, `${selector} retains visible width`).toBeGreaterThan(0);
@@ -335,7 +571,7 @@ for (const viewport of [
         }
         expect(mapBox.height, 'Reflow leaves a positive map viewport').toBeGreaterThanOrEqual(48);
         expect(mapBox.y, 'The header does not overlap the map').toBeGreaterThanOrEqual(headerBox.bottom - 1);
-        expect(Math.min(mapBox.bottom, viewport.height) - Math.max(mapBox.y, 0), 'Map entry remains visible before scrolling').toBeGreaterThanOrEqual(48);
+        expect(await visibleMapEntryHeight(page), 'At least 48px of map fits the viewport and scrolling pane before scrolling').toBeGreaterThanOrEqual(48);
         expect(headerBox.scrollWidth, 'No hidden horizontal overflow in the header').toBeLessThanOrEqual(headerBox.clientWidth + 1);
 
         for (const button of await header.locator('button:visible').all()) {

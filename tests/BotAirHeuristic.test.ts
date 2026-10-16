@@ -282,6 +282,162 @@ function createBotTurnEngine(): GameEngine {
   return engine;
 }
 
+/** Uses the same undeployed allocation pool and mission request boundary as purchased aircraft. */
+function createReserveAirEngine(): GameEngine {
+  const engine = new GameEngine({ scenario: scenario(), unitTypes, terrain, playerSide: side(), botSide: side() });
+  engine.beginDeployment();
+  engine.initializeFromAllocations([
+    { ...make("Bomber", { q: 0, r: 0 }), unitId: "reserve-strike" },
+    { ...make("Fighter", { q: 0, r: 0 }), unitId: "reserve-player-cap" }
+  ]);
+  engine.setBaseCamp({ q: 0, r: 0 });
+  engine.finalizeDeployment();
+  engine.startPlayerTurnPhase();
+  engine["botPlacements"].set("0,0", { ...make("Fighter", { q: 0, r: 0 }), unitId: "reserve-response-cap" });
+  engine["botPlacements"].set("2,1", { ...make("Infantry_42", { q: 2, r: 1 }), unitId: "reserve-strike-target" });
+  return engine;
+}
+
+registerTest("BOT_CAP_RESPONDS_TO_OBSERVED_RESERVE_STRIKES_WITH_ONE_AIR_TICK_PER_ROUND", async ({ Given, When, Then }) => {
+  const engines = (["playerTurn", "botTurn", "allyTurn"] as const).map((phase) => ({ phase, engine: createReserveAirEngine() }));
+  await Given("real undeployed strike aircraft whose secret inventory and queued orders do not reveal a threat", async () => {
+    for (const { engine } of engines) {
+      assert.ok(engine.reserveUnits.some((entry) => entry.unit.unitId === "reserve-strike"));
+      assert.equal(engine.playerUnits.some((unit) => unit.unitId === "reserve-strike"), false);
+      assert.equal(engine["playerHasAvailableStrikeAircraft"](), false);
+      assert.equal(engine["maybeScheduleStrategicBotAirCover"](), false);
+      assert.equal(engine.tryScheduleAirMission({ kind: "strike", faction: "Player", unitId: "reserve-strike", unitHex: { q: 0, r: 0 }, targetHex: { q: 2, r: 1 } }).ok, true);
+      assert.equal(engine.tryScheduleAirMission({ kind: "airCover", faction: "Player", unitId: "reserve-player-cap", unitHex: { q: 0, r: 0 }, targetHex: { q: 0, r: 0 } }).ok, true);
+      assert.equal(engine["playerHasAvailableStrikeAircraft"](), false, "Queued orders are not observed aircraft.");
+      assert.equal(engine["maybeScheduleStrategicBotAirCover"](), false);
+    }
+  });
+  await When("the conventional, initiative and ally round-completion branches launch Player sorties", async () => {
+    for (const { phase, engine } of engines) {
+      engine["_phase"] = phase;
+      engine["_activeFaction"] = phase === "playerTurn" ? "Player" : phase === "botTurn" ? "Bot" : "Ally";
+      engine.endTurn();
+    }
+  });
+  await Then("both Bot planning paths react to the actual visible strike, and every branch advances each sortie exactly once", async () => {
+    for (const { phase, engine } of engines) {
+      if (phase !== "allyTurn") {
+        assert.ok(engine.getScheduledAirMissions("Bot").some((mission) => mission.kind === "airCover"), `${phase} must launch CAP against an observed reserve strike.`);
+      }
+      const arrivals = engine.consumeAirMissionArrivals().filter((entry) => entry.faction === "Player");
+      assert.equal(arrivals.filter((entry) => entry.unitKey === "reserve-strike").length, 1);
+      assert.equal(arrivals.filter((entry) => entry.unitKey === "reserve-player-cap").length, 1);
+      assert.equal(engine.getScheduledAirMissions("Player").find((mission) => mission.unitKey === "reserve-player-cap")?.turnsRemaining, 1, "A fresh one-round patrol must not receive a second lifecycle tick.");
+      assert.equal(engine.getAirMissionReports().filter((entry) => entry.unitKey === "reserve-strike" && entry.event === "resolved").length, 1);
+      assert.deepEqual(engine.consumeAirMissionArrivals(), []);
+    }
+  });
+});
+
+registerTest("BOT_CAP_IGNORES_UNOBSERVED_RESERVE_OPERATIONS_AND_THEIR_HISTORY", async ({ Given, When, Then }) => {
+  const engine = createReserveAirEngine();
+  const hiddenTarget = { q: 0, r: 7 };
+  await Given("a real reserve sortie flying to a location outside Bot observation", async () => {
+    assert.equal(engine["checkTargetSpotted"](hiddenTarget, "Bot"), false);
+    assert.equal(engine.tryScheduleAirMission({ kind: "strike", faction: "Player", unitId: "reserve-strike", unitHex: { q: 0, r: 0 }, targetHex: hiddenTarget }).ok, true);
+    engine["stepAirMissionsForFaction"]("Player");
+    assert.equal(engine.getScheduledAirMissions("Player")[0].status, "resolving");
+  });
+  await When("the bot evaluates the active operation, then scouts its location only after it finishes", async () => {
+    assert.equal(engine["playerHasAvailableStrikeAircraft"](), false);
+    assert.equal(engine["maybeScheduleStrategicBotAirCover"](), false);
+    engine["resolveReadyAirMissionsForRound"]();
+    assert.ok(engine.getAirMissionReports().some((entry) => entry.unitKey === "reserve-strike" && entry.event === "resolved"));
+    engine["botPlacements"].set("0,6", { ...make("Infantry_42", { q: 0, r: 6 }), unitId: "late-air-observer" });
+  });
+  await Then("neither a hidden operation nor retrospectively visible coordinates reveal secret mission history", async () => {
+    assert.equal(engine["checkTargetSpotted"](hiddenTarget, "Bot"), true);
+    assert.equal(engine["playerHasAvailableStrikeAircraft"](), false);
+    assert.equal(engine["maybeScheduleStrategicBotAirCover"](), false);
+    assert.deepEqual(engine.getScheduledAirMissions("Bot"), []);
+  });
+});
+
+registerTest("BOT_AIR_DEFENSE_INTELLIGENCE_REQUIRES_CAP_TO_ACTUALLY_LAUNCH", async ({ Given, When, Then }) => {
+  const engine = createReserveAirEngine();
+  const targetHex = { q: 2, r: 1 };
+  const bomber = { ...make("Bomber", { q: 0, r: 0 }), unitId: "cap-intel-bomber" };
+  let missionId: string;
+  await Given("a reserve fighter with a queued patrol order over an observed target", async () => {
+    const scheduled = engine.tryScheduleAirMission({ kind: "airCover", faction: "Player", unitId: "reserve-player-cap", unitHex: { q: 0, r: 0 }, targetHex });
+    if (!scheduled.ok) throw new Error(scheduled.reason);
+    missionId = scheduled.missionId;
+    assert.equal(engine["checkTargetSpotted"](targetHex, "Bot"), true);
+    assert.equal(engine["playerHasInterceptorPresence"](), false, "A future patrol order must remain private.");
+    assert.deepEqual(engine["estimateBotStrikeAttrition"](bomber, targetHex, null, new Set(), new Set()).engagedCapMissionIds, []);
+  });
+  await When("the real reserve patrol launches into the observed airspace", async () => {
+    engine["stepAirMissionsForFaction"]("Player");
+    assert.equal(engine.getScheduledAirMissions("Player").find((mission) => mission.id === missionId)?.status, "inFlight");
+  });
+  await Then("escort selection and strike-risk scoring both recognize the actual airborne defense", async () => {
+    assert.equal(engine["playerHasInterceptorPresence"](), true);
+    const risk = engine["estimateBotStrikeAttrition"](bomber, targetHex, null, new Set(), new Set());
+    assert.deepEqual(risk.engagedCapMissionIds, [missionId]);
+    assert.ok(risk.expectedAttrition > 0);
+  });
+});
+
+registerTest("BOT_AIR_RISK_ESTIMATES_EXCLUDE_UNOBSERVED_FLAK_UNTIL_A_SCOUT_SPOTS_IT", async ({ Given, When, Then }) => {
+  const engine = createBotTurnEngine();
+  const bomber = { ...make("Bomber", { q: 0, r: 0 }), unitId: "fog-bomber" };
+  const flak = { ...make("Flak_88", { q: 6, r: 1 }), unitId: "hidden-flak", onSentry: true };
+  const targetHex = { q: 3, r: 1 };
+  let hiddenRisk = 0;
+  let visibleRisk = 0;
+  await Given("a visible target covered by an unseen live battery beyond the bomber's spotting radius", async () => {
+    engine["botPlacements"].set("0,0", bomber);
+    engine["playerPlacements"].set("6,1", flak);
+    assert.equal(engine["checkTargetSpotted"](targetHex, "Bot"), true);
+    assert.equal(engine["checkTargetSpotted"](flak.hex, "Bot"), false);
+    assert.equal(engine["findAllActiveFlakUnitsForHex"]("Player", targetHex).length, 1, "The unseen battery must actually defend this target.");
+  });
+  await When("the bot estimates the mission before and after its own scout identifies the defense", async () => {
+    const hidden = engine["estimateBotStrikeAttrition"](bomber, targetHex, null, new Set(), new Set());
+    hiddenRisk = hidden.expectedAttrition;
+    assert.deepEqual(hidden.engagedFlakIds, []);
+    engine["botPlacements"].set("5,1", { ...make("Recon_Bike", { q: 5, r: 1 }), unitId: "flak-spotter" });
+    assert.equal(engine["checkTargetSpotted"](flak.hex, "Bot"), true);
+    const visible = engine["estimateBotStrikeAttrition"](bomber, targetHex, null, new Set(), new Set());
+    visibleRisk = visible.expectedAttrition;
+    assert.deepEqual(visible.engagedFlakIds, ["hidden-flak"]);
+  });
+  await Then("the decision gains defense knowledge only through observation, without disabling the real defense", async () => {
+    assert.equal(hiddenRisk, 0);
+    assert.ok(visibleRisk > hiddenRisk);
+    assert.equal(engine["findAllActiveFlakUnitsForHex"]("Player", targetHex).length, 1);
+    assert.equal(engine.playerUnits.find((unit) => unit.unitId === "hidden-flak")?.ammo, flak.ammo);
+  });
+});
+
+registerTest("BOT_AIR_STRIKES_REQUIRE_OBSERVED_TARGETS", async ({ Given, When, Then }) => {
+  const engine = createBotTurnEngine();
+  const bomber = { ...make("Bomber", { q: 0, r: 0 }), unitId: "search-bomber" };
+  const target = { ...make("Howitzer_105", { q: 0, r: 7 }), unitId: "unseen-battery" };
+  let hiddenLaunches = -1;
+  let observedLaunches = -1;
+  await Given("an in-range artillery target beyond all current enemy observation", async () => {
+    engine["botPlacements"].set("0,0", bomber);
+    engine["playerPlacements"].set("0,7", target);
+    assert.equal(engine["checkTargetSpotted"](target.hex, "Bot"), false);
+  });
+  await When("the air planner evaluates it before and after a scout makes contact", async () => {
+    hiddenLaunches = engine["maybeScheduleBotStrikesAgainstPlayer"]();
+    engine["botPlacements"].set("0,5", { ...make("Recon_Bike", { q: 0, r: 5 }), unitId: "target-spotter" });
+    assert.equal(engine["checkTargetSpotted"](target.hex, "Bot"), true);
+    observedLaunches = engine["maybeScheduleBotStrikesAgainstPlayer"]();
+  });
+  await Then("the bot cannot bomb unknown coordinates but exploits a genuine spotted high-value target", async () => {
+    assert.equal(hiddenLaunches, 0);
+    assert.equal(observedLaunches, 1);
+  });
+});
+
 registerTest("BOT_AIR_HEURISTIC_SKIPS_CAP_WHEN_PLAYER_HAS_NO_STRIKE_AIRCRAFT", async ({ Given, When, Then }) => {
   let engine: GameEngine;
 

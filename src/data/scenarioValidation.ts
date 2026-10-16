@@ -1,8 +1,10 @@
 import { hexDistance, type Axial } from "../core/Hex";
+import { COMBAT_STACK_LIMIT, countsTowardCombatStack } from "../core/Stacking";
 import type { MissionKey } from "../state/UIState";
 import type { ScenarioDeploymentZone, TileInstance, TilePalette } from "../core/types";
 import { getMissionDeploymentProfile, isValidMission } from "./missions";
 import { getFormation, isUnitAllocationKey } from "./unitSystem/formations";
+import { getUnitTypeDefinition } from "./unitSystem/derivedUnitTypes";
 import { finalizeDeploymentZone, measureDeploymentZoneGeometry, type DeploymentZonePlanningScenario } from "../ui/utils/deploymentZonePlanner";
 
 type SupportedMissionKey = MissionKey;
@@ -584,9 +586,11 @@ function validateSides(
     return;
   }
 
-  for (const faction of ["Player", "Bot"] as const) {
+  const placements = new Map<string, { coalition: string; combatCount: number }>();
+  for (const faction of ["Player", "Bot", "Ally"] as const) {
     const side = asRecord(sidesRecord[faction]);
     if (!side) {
+      if (faction === "Ally") continue;
       issues.push(`Scenario ${scenarioName ?? missionKey} must declare a ${faction} side.`);
       continue;
     }
@@ -604,6 +608,40 @@ function validateSides(
     if (size && !isWithinBounds(col, row, size)) {
       issues.push(`Scenario ${scenarioName ?? missionKey} ${faction} hq [${col},${row}] lies outside the ${size.cols}x${size.rows} map bounds.`);
     }
+    if (!Array.isArray(side.units)) {
+      issues.push(`Scenario ${scenarioName ?? missionKey} ${faction} must declare a units array.`);
+      continue;
+    }
+    side.units.forEach((entry, index) => {
+      const unit = asRecord(entry);
+      const label = `Scenario ${scenarioName ?? missionKey} ${faction} unit ${index}`;
+      const type = readString(unit?.type);
+      if (!type || !getUnitTypeDefinition(type)) issues.push(`${label} references unknown unit type "${type ?? "<missing>"}".`);
+      const strength = unit?.strength;
+      if (typeof strength !== "number" || !Number.isFinite(strength) || strength <= 0 || strength > 100) {
+        issues.push(`${label} must declare strength above 0 and at most 100.`);
+      }
+      const hex = unit?.hex;
+      const unitCol = Array.isArray(hex) ? readInteger(hex[0]) : null;
+      const unitRow = Array.isArray(hex) ? readInteger(hex[1]) : null;
+      if (unitCol === null || unitRow === null) {
+        issues.push(`${label} must declare an integer [col, row] hex.`);
+        return;
+      }
+      if (size && !isWithinBounds(unitCol, unitRow, size)) {
+        issues.push(`${label} [${unitCol},${unitRow}] lies outside the ${size.cols}x${size.rows} map bounds.`);
+      }
+      // Undeployed player allocations are reserves; their placeholder coordinates
+      // do not represent a live battlefield stack. Bot and ally rosters do.
+      if (faction === "Player" && unit?.preDeployed !== true) return;
+      const key = `${unitCol},${unitRow}`;
+      const coalition = faction === "Bot" ? "Bot" : "Friendly";
+      const placement = placements.get(key) ?? { coalition, combatCount: 0 };
+      if (placement.coalition !== coalition) issues.push(`${label} overlaps an opposing formation at [${key}].`);
+      if (type && countsTowardCombatStack(type)) placement.combatCount += 1;
+      if (placement.combatCount > COMBAT_STACK_LIMIT) issues.push(`${label} exceeds the ${COMBAT_STACK_LIMIT}-combat-formation stack limit at [${key}].`);
+      placements.set(key, placement);
+    });
   }
 }
 

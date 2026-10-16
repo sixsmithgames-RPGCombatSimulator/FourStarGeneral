@@ -692,6 +692,9 @@ export interface AttackEstimate {
   readonly expectedRetaliation: number;
 }
 
+/** Movement profiles include the engine's limbered artillery transport profile. */
+export type PlannerMovementType = UnitTypeDefinition["moveType"] | "truck";
+
 /** Input payload describing the static board state from the engine. */
 export interface BotPlannerInput {
   readonly botUnits: readonly PlannerUnitSnapshot[];
@@ -701,13 +704,23 @@ export interface BotPlannerInput {
   readonly map: {
     readonly inBounds: (hex: Axial) => boolean;
     readonly terrainAt: (hex: Axial) => TerrainDefinition | null;
-    readonly movementCost: (hex: Axial, moveType: UnitTypeDefinition["moveType"]) => number;
+    readonly movementCost: (hex: Axial, moveType: PlannerMovementType, from?: Axial) => number;
+    /** Engine-owned entry and transit legality, including friendly stack capacity. */
+    readonly canEnterHex?: (origin: Axial, destination: Axial, unitId?: string) => boolean;
+    /** Engine-owned fuel consumption for a path step. */
+    readonly fuelCost?: (hex: Axial, moveType: PlannerMovementType) => number;
     readonly featuresAt?: (hex: Axial) => readonly TerrainFeature[];
     readonly isRoad?: (hex: Axial) => boolean;
     readonly hexModificationsAt?: (hex: Axial) => readonly HexModification[];
   };
   readonly losAllows: (attackerHex: Axial, targetHex: Axial, isAir: boolean) => boolean;
   readonly movementAllowance: (snapshot: PlannerUnitSnapshot) => number;
+  /** Effective transport profile after any required limbering action. */
+  readonly movementType?: (snapshot: PlannerUnitSnapshot) => PlannerMovementType;
+  /** Engine-owned fuel budget for this activation. */
+  readonly fuelAllowance?: (snapshot: PlannerUnitSnapshot) => number;
+  /** Authoritative action-state gate, including movement already spent this activation. */
+  readonly canAttackAfterMoving?: (snapshot: PlannerUnitSnapshot, movementCost: number) => boolean;
   readonly attackEstimator: (
     attacker: PlannerUnitSnapshot,
     attackerHex: Axial,
@@ -1140,15 +1153,18 @@ function shouldCompareMarchPlans(
 export function computeReachableHexes(
   origin: Axial,
   allowance: number,
-  moveType: UnitTypeDefinition["moveType"],
+  moveType: PlannerMovementType,
   input: BotPlannerInput,
-  originKey: string
+  originKey: string,
+  fuelAllowance = Number.POSITIVE_INFINITY,
+  unitId?: string
 ): Map<string, ReachableHex> {
   const results = new Map<string, ReachableHex>();
-  const bestCosts = new Map<string, number>([[originKey, 0]]);
-  const frontier: Array<{ hex: Axial; cost: number; path: Axial[] }> = [{
+  const bestCosts = new Map<string, Array<{ cost: number; fuel: number }>>([[originKey, [{ cost: 0, fuel: 0 }]]]);
+  const frontier: Array<{ hex: Axial; cost: number; fuel: number; path: Axial[] }> = [{
     hex: origin,
     cost: 0,
+    fuel: 0,
     path: [origin]
   }];
 
@@ -1164,11 +1180,13 @@ export function computeReachableHexes(
 
     const currentKey = axialKey(current.hex);
     const bestKnownCost = bestCosts.get(currentKey);
-    if (bestKnownCost !== undefined && current.cost > bestKnownCost) {
+    if (bestKnownCost?.some((known) => known.cost <= current.cost && known.fuel <= current.fuel
+      && (known.cost < current.cost || known.fuel < current.fuel))) {
       continue;
     }
     const currentOccupant = input.occupancy.get(currentKey);
-    if (currentKey === originKey || currentOccupant !== "bot") {
+    if ((currentKey === originKey || input.map.canEnterHex || currentOccupant !== "bot")
+      && (!results.has(currentKey) || current.cost < results.get(currentKey)!.cost)) {
       results.set(currentKey, {
         hex: current.hex,
         cost: current.cost,
@@ -1186,7 +1204,7 @@ export function computeReachableHexes(
         continue;
       }
       const neighborKey = axialKey(neighbor);
-      const terrainCost = input.map.movementCost(neighbor, moveType);
+      const terrainCost = input.map.movementCost(neighbor, moveType, current.hex);
       if (!Number.isFinite(terrainCost) || terrainCost >= 999) {
         _impassableCount++;
         continue; // Treat very high cost as impassable for land units.
@@ -1196,24 +1214,31 @@ export function computeReachableHexes(
       }
 
       const occupant = input.occupancy.get(neighborKey);
-      if (occupant === "player") {
+      if (input.map.canEnterHex ? !input.map.canEnterHex(origin, neighbor, unitId) : occupant === "player") {
         continue; // Do not step onto enemy-occupied hexes; attacks target adjacent positions instead.
       }
 
       const newCost = current.cost + terrainCost;
-      if (newCost > allowance) {
+      const fuelCost = input.map.fuelCost?.(neighbor, moveType) ?? 0;
+      const newFuel = current.fuel + fuelCost;
+      if (newCost > allowance || newFuel > fuelAllowance + 1e-6) {
         continue;
       }
 
       const knownCost = bestCosts.get(neighborKey);
-      if (knownCost !== undefined && knownCost <= newCost) {
+      if (knownCost?.some((known) => known.cost <= newCost && known.fuel <= newFuel)) {
         continue;
       }
-      bestCosts.set(neighborKey, newCost);
+      // Keep nondominated movement/fuel alternatives: a road detour can save fuel.
+      bestCosts.set(neighborKey, [
+        ...(knownCost ?? []).filter((known) => known.cost < newCost || known.fuel < newFuel),
+        { cost: newCost, fuel: newFuel }
+      ]);
 
       frontier.push({
         hex: neighbor,
         cost: newCost,
+        fuel: newFuel,
         path: [...current.path, neighbor]
       });
     }
@@ -1381,7 +1406,7 @@ function calculatePressureDamagePotential(
 
   const againstArmor = isArmoredGroundUnit(defender.definition);
   const baseDamage = againstArmor
-    ? attacker.definition.hardAttack * 0.75 + attacker.definition.ap * 0.55
+    ? attacker.definition.hardAttack * 0.75 + (attacker.definition.ap ?? 0) * 0.55
     : attacker.definition.softAttack * 0.65 + attacker.definition.hardAttack * 0.15;
   const rangeFactor = Math.max(1, (attacker.definition.rangeMax ?? 1) * 0.35);
   return baseDamage + rangeFactor;
@@ -2163,7 +2188,7 @@ function calculateApproachPositionScore(
   const wantsCoveredApproach = requiresDirectLOS(snapshot.definition)
     || snapshot.definition.class === "recon"
     || isArmoredGroundUnit(snapshot.definition);
-  const terrainCost = input.map.movementCost(destination, snapshot.definition.moveType);
+  const terrainCost = input.map.movementCost(destination, input.movementType?.(snapshot) ?? snapshot.definition.moveType);
   const threatEnvelope = calculateApproachThreatEnvelope(snapshot, destination, input, focusHex, inAttackBand);
   const _visibleThreats = threatEnvelope.visible;
   const directImmediateThreats = threatEnvelope.directImmediate;
@@ -2730,6 +2755,9 @@ function pickBestCandidate(
     const rangeMin = snapshot.definition.rangeMin ?? 1;
 
     for (const option of reachable.values()) {
+      if (input.canAttackAfterMoving && !input.canAttackAfterMoving(snapshot, option.cost)) {
+        continue;
+      }
       // Artillery cannot move and fire in the same activation. Evaluating a mobile
       // firing hex produced plans whose move succeeded and whose attack was then
       // rejected by the engine, causing batteries to creep toward the front.
@@ -2909,15 +2937,18 @@ function pickBestCandidate(
 /**
  * Primary entry point used by GameEngine: produce a ranked action list for all bot-controlled units.
  */
-export function planHeuristicBotTurn(input: BotPlannerInput): PlannedBotAction[] {
+export function planHeuristicBotTurn(input: BotPlannerInput, shouldPlan: (snapshot: PlannerUnitSnapshot) => boolean = () => true): PlannedBotAction[] {
   const actions: PlannedBotAction[] = [];
   const activeObjectives = filterActiveObjectives(input.objectives, input.occupancy);
   const strongholds = buildStrongholdProfiles(activeObjectives, input);
   const eliminationObjectiveEnabled = activeObjectives.length === 0;
   input.botUnits.forEach((snapshot) => {
+    if (!shouldPlan(snapshot)) return;
     const allowance = Math.max(0, input.movementAllowance(snapshot));
     const originKey = axialKey(snapshot.unit.hex);
-    const reachable = computeReachableHexes(snapshot.unit.hex, allowance, snapshot.definition.moveType, input, originKey);
+    const reachable = computeReachableHexes(snapshot.unit.hex, allowance,
+      input.movementType?.(snapshot) ?? snapshot.definition.moveType, input, originKey,
+      input.fuelAllowance?.(snapshot) ?? Number.POSITIVE_INFINITY, snapshot.unit.unitId);
     const bestCandidate = pickBestCandidate(snapshot, input, reachable, activeObjectives, eliminationObjectiveEnabled, strongholds);
     if (!bestCandidate || !Number.isFinite(bestCandidate.score)) { return; }
     actions.push({

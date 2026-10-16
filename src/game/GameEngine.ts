@@ -56,6 +56,7 @@ import {
   type SupplyAttritionProfile
 } from "../core/Supply";
 import { axialKey, hexDistance, neighbors, type Axial } from "../core/Hex";
+import { COMBAT_STACK_LIMIT, countsTowardCombatStack } from "../core/Stacking";
 import { ensureDeploymentState, type ReserveBlueprint } from "../state/DeploymentState";
 import { resolveUnitAllocationKey } from "../data/unitAllocationIdentity";
 import {
@@ -65,8 +66,7 @@ import {
   type BotStrategyMode,
   type BotDifficulty,
   type PlannerUnitSnapshot,
-  type AttackEstimate,
-  type PlannedBotAction
+  type AttackEstimate
 } from "./bot/BotPlanner";
 import { AIR_MISSION_TEMPLATES } from "../data/airMissions";
 import { TOWED_ARTILLERY_UNITS } from "../data/transportModes";
@@ -753,6 +753,7 @@ export interface CombatReportEntry {
   readonly timestamp: string;
   readonly attacker: {
     readonly faction: TurnFaction;
+    readonly unitId?: string;
     readonly unitType: string;
     readonly position: Axial;
     readonly strengthBefore: number;
@@ -760,6 +761,7 @@ export interface CombatReportEntry {
   };
   readonly defender: {
     readonly faction: TurnFaction;
+    readonly unitId?: string;
     readonly unitType: string;
     readonly position: Axial;
     readonly strengthBefore: number;
@@ -1341,6 +1343,8 @@ export interface GameEngineAPI {
   queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial, callerUnitId?: string | null): boolean;
   cancelQueuedSupport(assetId: string): boolean;
   consumeBotTurnSummary(): BotTurnSummary | null;
+  /** Detached, non-consuming committed movements for synchronous mission evaluation. */
+  peekBotTurnSummary(): BotTurnSummary | null;
   enterSentry(hex: Axial, unitId?: string): boolean;
   exitSentry(hex: Axial, unitId?: string): boolean;
   moveOutTowableUnit(hex: Axial, unitId?: string): boolean;
@@ -6407,9 +6411,10 @@ private automateSupplyConvoys(
   private resolveBaseMovementAllowance(
     definition: UnitTypeDefinition,
     flags: UnitActionFlags,
+    faction: TurnFaction,
     unit?: ScenarioUnit
   ): number {
-    const moveScalar = this.commanderMoveScalar();
+    const moveScalar = this.commanderMoveScalar(faction);
     const experienceScalar = unit ? 1 + getExperienceBonus(unit) : 1;
     const baseMovement = Math.max(1, Math.ceil((definition.movement ?? 1) * moveScalar * experienceScalar));
     const rushingBonus = flags.isRushing && definition.class === "infantry" ? 1 : 0;
@@ -6432,11 +6437,11 @@ private automateSupplyConvoys(
       const definition = this.getUnitDefinition(unit.type);
       if (definition.moveType === "air") return;
       ensureFormationStatus(unit, unit.formationKey);
-      const grant = this.resolveBaseMovementAllowance(definition, this.createDefaultActionFlags(), unit);
+      const grant = this.resolveBaseMovementAllowance(definition, this.createDefaultActionFlags(), faction, unit);
       const experienceScalar = 1 + getExperienceBonus(unit);
       const nominalCap = Math.max(
         1,
-        Math.ceil((definition.movement ?? 1) * this.commanderMoveScalar() * experienceScalar)
+        Math.ceil((definition.movement ?? 1) * this.commanderMoveScalar(faction) * experienceScalar)
       );
       const prior = Math.max(0, Number(unit.movementCredit ?? 0));
       unit.movementCredit = Number(Math.min(nominalCap, prior + grant).toFixed(4));
@@ -6446,9 +6451,10 @@ private automateSupplyConvoys(
 
   private resolveTowHookupCost(
     definition: UnitTypeDefinition,
-    flags: UnitActionFlags
+    flags: UnitActionFlags,
+    faction: TurnFaction
   ): number {
-    return Math.max(1, Math.ceil(this.resolveBaseMovementAllowance(definition, flags) / 2));
+    return Math.max(1, Math.ceil(this.resolveBaseMovementAllowance(definition, flags, faction) / 2));
   }
 
   private getPlacementOverflowMapForFaction(faction: TurnFaction): Map<string, ScenarioUnit[]> {
@@ -6602,22 +6608,26 @@ private automateSupplyConvoys(
   }
 
   private isStackCountedUnit(unit: ScenarioUnit): boolean {
-    return !this.isSupplyTruckType(unit.type);
+    return countsTowardCombatStack(unit.type);
   }
 
   private countStackedCombatUnitsAtHex(hex: Axial, faction: TurnFaction): number {
     return this.buildCoalitionHexMembers(hex, faction).filter((entry) => this.isStackCountedUnit(entry.unit)).length;
   }
 
-  private canFactionEnterHex(unit: ScenarioUnit, faction: TurnFaction, hex: Axial): boolean {
+  private canFactionEnterHex(
+    unit: ScenarioUnit, faction: TurnFaction, hex: Axial,
+    isHostileObserved?: (hostile: ScenarioUnit) => boolean
+  ): boolean {
     const hostile = this.getHostileUnitsAtHex(hex, faction);
-    if (hostile.length > 0) {
+    // Plans use observed contacts; execution omits the predicate and checks physical truth.
+    if (hostile.some((entry) => !isHostileObserved || isHostileObserved(entry.unit))) {
       return false;
     }
     if (!this.isStackCountedUnit(unit)) {
       return true;
     }
-    return this.countStackedCombatUnitsAtHex(hex, faction) < 2;
+    return this.countStackedCombatUnitsAtHex(hex, faction) < COMBAT_STACK_LIMIT;
   }
 
   private findUnitInFactionAtHex(hex: Axial, faction: TurnFaction, unitId?: string | null): ScenarioUnit | null {
@@ -6783,10 +6793,12 @@ private automateSupplyConvoys(
   private queuedAllocations: PendingReserveRequest[] = [];
 
   /**
-   * Translates the mobility bonus percentage into a scalar applied to unit movement allowances.
+   * Uses each faction's general; Player retains its persisted runtime commander override.
    */
-  private commanderMoveScalar(): number {
-    const pct = this.playerCommanderStats.moveBonus ?? 0;
+  private commanderMoveScalar(faction: TurnFaction): number {
+    const general = faction === "Player" ? this.playerCommanderStats
+      : faction === "Bot" ? this.botSide.general : this.allySide?.general;
+    const pct = general?.moveBonus ?? 0;
     return Math.max(0, 1 + pct / 100);
   }
 
@@ -9764,7 +9776,8 @@ private automateSupplyConvoys(
 
     if (this._phase === "botTurn") {
       // Initiative-mode round advancement enters through botTurn without running executeBotTurn.
-      // Schedule bot air tasks here so enemy aircraft still launch before round resolution.
+      // Match conventional chronology: observe launched sorties before planning, never queued orders.
+      this.stepAirMissionsForFaction("Player");
       this.maybeScheduleHeuristicAirOps();
     }
 
@@ -9827,11 +9840,19 @@ private automateSupplyConvoys(
 
     // Bot turn was already resolved, so simply advance to the player's next turn.
     if (this._phase === "botTurn" || this._phase === "allyTurn") {
+      if (this._phase === "botTurn") this.applySupplyTickFor("Bot");
       // Initiative-mode round advancement can enter through bot/ally phases without flowing through
       // the player-turn branch; still advance player sortie lifecycles so queued player flights launch.
-      this.stepAirMissionsForFaction("Player");
+      if (this._phase === "allyTurn") this.stepAirMissionsForFaction("Player");
       this.advanceAirMissionRefits("Player");
       this.resolveReadyAirMissionsForRound();
+      // Initiative rounds do not pass through the conventional bot-turn preparation above.
+      // Refresh the next round exactly once, after all attacks and logistics have resolved.
+      this.accrueMovementCreditForFaction("Bot");
+      this.botActionFlags.clear();
+      this.clearFlakEngagementsFor("Bot");
+      this.clearSuppressionFor("Bot");
+      this.clearSentryFor("Bot");
       this._phase = "playerTurn";
       this._activeFaction = "Player";
       this._turnNumber += 1;
@@ -9840,6 +9861,7 @@ private automateSupplyConvoys(
       this.accrueMovementCreditForFaction("Player");
       this.playerActionFlags.clear();
       this.clearFlakEngagementsFor("Player");
+      this.clearSuppressionFor("Player");
       this.clearSentryFor("Player");
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
@@ -10291,7 +10313,7 @@ private automateSupplyConvoys(
     const moveType = this.resolveTowState(unit) === "towed" ? "truck" : baseMoveType;
     const flags = this.getUnitActionFlags("Player", unit);
 
-    const adjustedMax = this.resolveBaseMovementAllowance(definition, flags, unit);
+    const adjustedMax = this.resolveBaseMovementAllowance(definition, flags, "Player", unit);
     const unbankedRemaining = Math.max(0, adjustedMax - flags.movementPointsUsed);
     const creditedRemaining = typeof unit.movementCredit === "number"
       ? Math.max(0, unit.movementCredit)
@@ -10626,23 +10648,7 @@ private automateSupplyConvoys(
     if (this.isTowableUnit(unit) && this.resolveTowState(unit) === "towed") {
       return [];
     }
-    const halfMovement = Math.floor(def.movement / 2);
-
-    // Determine if unit can attack based on movement and attacks used
-    // Time scale halved: max 1 attack per turn regardless of movement
-    const maxAttacks = 1;
-    if (flags.movementPointsUsed > halfMovement) {
-      return []; // Moved too far to attack
-    }
-
-    // Artillery cannot attack if they've moved
-    if (def.class === "artillery" && flags.movementPointsUsed > 0) {
-      return [];
-    }
-
-    if (flags.attacksUsed >= maxAttacks) {
-      return []; // Used all attacks
-    }
+    if (this.attackMovementUnavailable(unit, def, flags, "Player")) return [];
 
     const rangeMin = def.rangeMin ?? 1;
     const rangeMax = def.rangeMax ?? 1;
@@ -10742,8 +10748,8 @@ private automateSupplyConvoys(
     const newRushState = !flags.isRushing;
     const nextFlags = { ...flags, isRushing: newRushState };
     if (typeof unit.movementCredit === "number") {
-      const previousAllowance = this.resolveBaseMovementAllowance(def, flags, unit);
-      const nextAllowance = this.resolveBaseMovementAllowance(def, nextFlags, unit);
+      const previousAllowance = this.resolveBaseMovementAllowance(def, flags, "Player", unit);
+      const nextAllowance = this.resolveBaseMovementAllowance(def, nextFlags, "Player", unit);
       unit.movementCredit = Math.max(
         0,
         Number((unit.movementCredit + nextAllowance - previousAllowance).toFixed(4))
@@ -10930,24 +10936,10 @@ private automateSupplyConvoys(
     const attackerIsAircraft = this.isAircraft(unitDef);
     const primaryDefenderIsAircraft = this.isAircraft(primaryDefenderDef);
     const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(unitDef, effectiveStance);
-    const moveScalar = this.commanderMoveScalar();
+    const moveScalar = this.commanderMoveScalar("Player");
     const boostedMovement = Math.max(1, Math.ceil((unitDef.movement ?? 1) * moveScalar * (1 + getExperienceBonus(attacker))));
-    const halfMovement = Math.floor(boostedMovement / 2);
-    const maxAttacks = 1;
-
-    const movedTooFar = flags.movementPointsUsed > halfMovement;
-    if (!attackerIsAircraft && movedTooFar) {
-      if (unitDef.class === "artillery") {
-        throw new Error("Artillery cannot attack after moving.");
-      }
-      throw new Error("Unit moved too far to attack this turn.");
-    }
-    if (unitDef.class === "artillery" && flags.movementPointsUsed > 0) {
-      throw new Error("Artillery cannot attack after moving.");
-    }
-    if (flags.attacksUsed >= maxAttacks) {
-      throw new Error(`This unit can only attack ${maxAttacks} time(s) this turn.`);
-    }
+    const movementUnavailable = this.attackMovementUnavailable(attacker, unitDef, flags, "Player");
+    if (movementUnavailable) throw new Error(movementUnavailable);
     if (!attackerIsAircraft && attacker.ammo < groundAttackAmmoCost) {
       throw new Error(this.buildGroundAmmoShortageMessage(unitDef, attacker.ammo, groundAttackAmmoCost));
     }
@@ -11701,7 +11693,7 @@ private automateSupplyConvoys(
     const sourceUnitId = this.ensureUnitId(unit);
     const status = ensureFormationStatus(unit, unit.formationKey);
     const sourceFlags = this.getUnitActionFlags(faction, unit);
-    const allowanceBefore = this.resolveBaseMovementAllowance(definition, sourceFlags, unit);
+    const allowanceBefore = this.resolveBaseMovementAllowance(definition, sourceFlags, faction, unit);
     const preview = buildLeaveBehindPreview(unit, definition.moveType ?? "track");
     if (preview.summary.personnel + preview.summary.equipment <= 0) {
       return null;
@@ -11710,7 +11702,7 @@ private automateSupplyConvoys(
     const detached = detachRecoverableStatus(status);
     unit.strength = deriveStrengthFromStatus(status, unit.strength);
     if (cause === "ordered" && typeof unit.movementCredit === "number") {
-      const allowanceAfter = this.resolveBaseMovementAllowance(definition, sourceFlags, unit);
+      const allowanceAfter = this.resolveBaseMovementAllowance(definition, sourceFlags, faction, unit);
       unit.movementCredit = Math.max(
         0,
         Number((unit.movementCredit + allowanceAfter - allowanceBefore).toFixed(4))
@@ -12089,6 +12081,11 @@ private automateSupplyConvoys(
    * Consumes and returns the pending bot turn summary, clearing it so it can only be read once.
    * Returns null if no bot turn has been executed since the last consumption.
    */
+  /** Read the committed turn without stealing its subsequent animation playback. */
+  peekBotTurnSummary(): BotTurnSummary | null {
+    return this.pendingBotTurnSummary ? structuredClone(this.pendingBotTurnSummary) : null;
+  }
+
   consumeBotTurnSummary(): BotTurnSummary | null {
     const result = this.pendingBotTurnSummary;
     this.pendingBotTurnSummary = null;
@@ -13046,7 +13043,7 @@ private automateSupplyConvoys(
     }
     const attackerFlags = this.getUnitActionFlags(attackerFaction, attacker);
     const attackerSuppression = this.resolveUnitSuppressionState(attacker).state;
-    const attackerBaseMovement = this.resolveBaseMovementAllowance(attackerType, attackerFlags, attacker);
+    const attackerBaseMovement = this.resolveBaseMovementAllowance(attackerType, attackerFlags, attackerFaction, attacker);
     const movementAttackWindow = Math.max(1, attackerBaseMovement / 2);
 
     const attackerCtx: AttackerContext = {
@@ -13095,11 +13092,11 @@ private automateSupplyConvoys(
 
   /** Check if target hex is spotted by any friendly unit that can plausibly see it. */
   private checkTargetSpotted(targetHex: Axial, faction: "Player" | "Bot" | "Ally"): boolean {
-    const placements = faction === "Player" ? this.playerPlacements : faction === "Bot" ? this.botPlacements : this.allyPlacements;
+    const observers = this.getAllUnitsForFaction(faction);
     const lister = this.createLosLister();
 
     // Check all friendly units for spotting capability
-    for (const [_, unit] of placements) {
+    for (const unit of observers) {
       const unitDef = this.getUnitDefinition(unit.type);
       const distanceToTarget = hexDistance(unit.hex, targetHex);
       const spottingRange = this.resolveSpottingRange(unitDef, unit);
@@ -13298,7 +13295,7 @@ private automateSupplyConvoys(
     const flags = this.getUnitActionFlags(faction, asset);
     let remainingMove = Math.max(
       0,
-      asset.movementCredit ?? this.resolveBaseMovementAllowance(definition, flags, asset)
+      asset.movementCredit ?? this.resolveBaseMovementAllowance(definition, flags, faction, asset)
     );
     let fuelSpent = 0;
     let movementSpent = 0;
@@ -13681,13 +13678,33 @@ private automateSupplyConvoys(
     return keys;
   }
 
-  private plannerMovementAllowance(snapshot: PlannerUnitSnapshot): number {
-    const def = snapshot.definition;
-    const baseMovement = def.movement ?? 1;
-    // Give bots sufficient movement allowance for multi-hex planning
-    // This allows pathfinding to explore far enough to find river crossings and strategic positions
-    // Infantry (movement=1) get 5 hexes, faster units get proportionally more
-    return Math.max(5, baseMovement * 5);
+  private plannerMovementAllowance(snapshot: PlannerUnitSnapshot, faction: TurnFaction): number {
+    const { unit, definition } = snapshot;
+    const flags = this.getUnitActionFlags(faction, unit);
+    if (this.isPinnedOrBroken(this.resolveUnitSuppressionState(unit).state)) return 0;
+    const unbanked = Math.max(0, this.resolveBaseMovementAllowance(definition, flags, faction, unit) - flags.movementPointsUsed);
+    const credit = Math.max(0, unit.movementCredit ?? unbanked);
+    const remaining = flags.attacksUsed > 0 ? Math.min(credit, unbanked) : credit;
+    const hookup = this.isTowableUnit(unit) && this.resolveTowState(unit) !== "towed"
+      ? this.resolveTowHookupCost(definition, flags, faction) : 0;
+    return Math.max(0, remaining - hookup);
+  }
+
+  private canBotAttackAfterMoving(snapshot: PlannerUnitSnapshot, movementCost: number, faction: TurnFaction): boolean {
+    const { unit, definition } = snapshot;
+    const flags = this.getUnitActionFlags(faction, unit);
+    if (this.isTowableUnit(unit) && (movementCost > 0 || (this.resolveTowState(unit) === "towed" && flags.movementPointsUsed > 0))) return false;
+    return !this.attackMovementUnavailable(unit, definition, flags, faction, movementCost)
+      && !this.isPinnedOrBroken(this.resolveUnitSuppressionState(unit).state);
+  }
+
+  private attackMovementUnavailable(unit: ScenarioUnit, definition: UnitTypeDefinition, flags: UnitActionFlags, faction: TurnFaction, additionalCost = 0): string | null {
+    const spent = flags.movementPointsUsed + additionalCost;
+    const allowance = Math.max(1, Math.ceil((definition.movement ?? 1) * this.commanderMoveScalar(faction) * (1 + getExperienceBonus(unit))));
+    if (definition.class === "artillery" && spent > 0) return "Artillery cannot attack after moving.";
+    if (definition.moveType !== "air" && spent > Math.floor(allowance / 2)) return "Unit moved too far to attack this turn.";
+    if (flags.attacksUsed >= 1) return "This unit can only attack 1 time(s) this turn.";
+    return null;
   }
 
   private plannerLOSAllows(attackerHex: Axial, targetHex: Axial, isAir: boolean): boolean {
@@ -13867,9 +13884,10 @@ private automateSupplyConvoys(
     opposingExtras: UnitPlacementMap[] = [],
     syntheticOpposingUnits: readonly PlannerUnitSnapshot[] = []
   ): BotPlannerInput {
+    const faction: TurnFaction = acting === this.allyPlacements ? "Ally" : "Bot";
     const actingUnits: PlannerUnitSnapshot[] = [];
     const opposingUnits: PlannerUnitSnapshot[] = [];
-    acting.forEach((unit) => {
+    (faction === "Ally" ? Array.from(acting.values()) : this.getAllUnitsForFaction(faction)).forEach((unit) => {
       const def = this.getUnitDefinition(unit.type);
       if (def.moveType === "air" || this.isSupplyTruckType(unit.type)) {
         return;
@@ -13878,7 +13896,9 @@ private automateSupplyConvoys(
     });
     const opposingMaps = [opposing, ...opposingExtras];
     opposingMaps.forEach((map) => {
-      map.forEach((unit) => {
+      const opposingFaction = map === this.playerPlacements ? "Player" : map === this.allyPlacements ? "Ally" : "Bot";
+      this.getAllUnitsForFaction(opposingFaction).forEach((unit) => {
+        if (!this.checkTargetSpotted(unit.hex, faction)) return;
         const def = this.getUnitDefinition(unit.type);
         opposingUnits.push({ unit: structuredClone(unit), definition: def });
       });
@@ -13890,141 +13910,76 @@ private automateSupplyConvoys(
       });
     });
 
-    const occupancy = this.buildOccupancyMap();
+    const occupancy = new Map(this.buildOccupancyMap());
+    if (faction === "Ally") occupancy.forEach((owner, key) => occupancy.set(key, owner === "bot" ? "player" : "bot"));
+    const observedEnemyHexes = new Set(opposingUnits.map((snapshot) => axialKey(snapshot.unit.hex)));
+    occupancy.forEach((owner, key) => { if (owner === "player" && !observedEnemyHexes.has(key)) occupancy.delete(key); });
 
     return {
       botUnits: actingUnits,
       playerUnits: opposingUnits,
-      objectives: this.scenario.objectives ?? [],
+      objectives: (this.scenario.objectives ?? []).map((objective) => ({ ...objective,
+        owner: occupancy.get(axialKey(objective.hex)) === "bot" ? "Bot"
+          : occupancy.get(axialKey(objective.hex)) === "player" ? "Player"
+          : faction === "Ally" ? (objective.owner === "Bot" ? "Player" : "Bot") : objective.owner })),
       occupancy,
       map: {
         inBounds: (hex) => this.inBounds(hex),
         terrainAt: (hex) => this.terrainAt(hex),
-        movementCost: (hex, moveType) => this.resolveMoveCost(moveType, this.terrainAt(hex), hex),
+        movementCost: (hex, moveType, from) => this.resolveMoveCost(moveType, this.terrainAt(hex), hex, from),
+        fuelCost: (hex, moveType) => this.resolveMovementFuelStep(moveType, hex),
+        canEnterHex: (origin, destination, unitId) => {
+          const unit = this.findUnitInFactionAtHex(origin, faction, unitId);
+          return Boolean(unit && (faction === "Ally" ? !this.isOccupied(destination)
+            : this.canFactionEnterHex(unit, faction, destination, (hostile) => observedEnemyHexes.has(axialKey(hostile.hex)))));
+        },
         featuresAt: (hex) => this.lookupTileDetails(hex)?.features ?? [],
         isRoad: (hex) => this.isRoad(hex),
         hexModificationsAt: (hex) => this.getHexModifications(hex)
       },
       losAllows: (a, b, isAir) => this.plannerLOSAllows(a, b, isAir),
-      movementAllowance: (snap) => this.plannerMovementAllowance(snap),
+      movementAllowance: (snap) => this.plannerMovementAllowance(snap, faction),
+      movementType: (snap) => faction === "Bot" && this.isTowableUnit(snap.unit) ? "truck" : snap.definition.moveType,
+      fuelAllowance: (snap) => this.resolveFuelBudget(snap.unit, snap.definition),
+      canAttackAfterMoving: (snap, cost) => this.canBotAttackAfterMoving(snap, cost, faction),
       attackEstimator: (a, ah, d, dh) => this.plannerAttackEstimate(a, ah, d, dh),
       difficulty
     } satisfies BotPlannerInput;
   }
 
-  /**
-   * Heuristic plans may intentionally route through friendly hexes so rear units can join the line once
-   * the lead elements step off. Execute those lane-clearing plans first so follow-on units do not bounce
-   * off the very blockers the planner expected to move.
-   */
-  private prioritizeHeuristicPlansForExecution(plans: readonly PlannedBotAction[]): PlannedBotAction[] {
-    if (plans.length <= 1) {
-      return [...plans];
-    }
-
-    const planByOrigin = new Map<string, PlannedBotAction>();
-    const dependencyMap = new Map<string, Set<string>>();
-    const dependentCounts = new Map<string, number>();
-    plans.forEach((plan) => {
-      const originKey = axialKey(plan.origin);
-      planByOrigin.set(originKey, plan);
-      dependencyMap.set(originKey, new Set<string>());
-      dependentCounts.set(originKey, 0);
-    });
-
-    plans.forEach((plan) => {
-      const planKey = axialKey(plan.origin);
-      const blockers = dependencyMap.get(planKey)!;
-      for (let i = 1; i < plan.path.length; i += 1) {
-        const stepKey = axialKey(plan.path[i]);
-        const blocker = planByOrigin.get(stepKey);
-        if (!blocker || stepKey === planKey || axialKey(blocker.destination) === stepKey || blockers.has(stepKey)) {
-          continue;
-        }
-        blockers.add(stepKey);
-        dependentCounts.set(stepKey, (dependentCounts.get(stepKey) ?? 0) + 1);
-      }
-    });
-
-    const comparePlans = (a: PlannedBotAction, b: PlannedBotAction): number => {
-      const aKey = axialKey(a.origin);
-      const bKey = axialKey(b.origin);
-      const dependentDelta = (dependentCounts.get(bKey) ?? 0) - (dependentCounts.get(aKey) ?? 0);
-      if (dependentDelta !== 0) {
-        return dependentDelta;
-      }
-      const movingDelta =
-        Number(axialKey(b.destination) !== bKey)
-        - Number(axialKey(a.destination) !== aKey);
-      if (movingDelta !== 0) {
-        return movingDelta;
-      }
-      if (b.score !== a.score) {
-        return b.score - a.score;
-      }
-      return a.unitKey.localeCompare(b.unitKey);
-    };
-
-    const remaining = new Map(planByOrigin);
-    const pendingDependencies = new Map<string, Set<string>>();
-    dependencyMap.forEach((blockers, key) => pendingDependencies.set(key, new Set(blockers)));
-    const ordered: PlannedBotAction[] = [];
-
-    while (remaining.size > 0) {
-      const ready = Array.from(remaining.values())
-        .filter((plan) => (pendingDependencies.get(axialKey(plan.origin))?.size ?? 0) === 0)
-        .sort(comparePlans);
-      const next = ready[0] ?? Array.from(remaining.values()).sort(comparePlans)[0];
-      if (!next) {
-        break;
-      }
-      const nextKey = axialKey(next.origin);
-      ordered.push(next);
-      remaining.delete(nextKey);
-      pendingDependencies.delete(nextKey);
-      pendingDependencies.forEach((blockers) => blockers.delete(nextKey));
-    }
-
-    return ordered;
+  /** Executes an initiative formation through the same planner and action rules as a conventional bot turn. */
+  executeBotActivation(unitId: string): BotTurnSummary {
+    return this.executeHeuristicBotTurn(unitId);
   }
 
-  private executeHeuristicBotTurn(): BotTurnSummary {
-    // Expanded air heuristic: attempt escort pairing for queued strikes, then strategic CAP over high-value areas.
-    this.maybeScheduleHeuristicAirOps();
+  private executeHeuristicBotTurn(activationUnitId?: string): BotTurnSummary {
+    if (!activationUnitId) this.maybeScheduleHeuristicAirOps();
     const moves: BotMoveSummary[] = [];
     const attacks: BotAttackSummary[] = [];
 
     console.log(`[Bot AI] Heuristic bot turn starting. Bot units: ${this.botPlacements.size}, Player units: ${this.playerPlacements.size}`);
 
-    if (this.playerPlacements.size === 0) {
-      const supplyReport = this.applySupplyTickFor("Bot");
-      return { moves, attacks, supplyReport };
-    }
-
-    const input = this.buildPlannerInputFor(
-      this.botPlacements,
-      this.playerPlacements,
-      this.botDifficulty,
-      this.allyPlacements.size > 0 ? [this.allyPlacements] : [],
-      this.buildPlannerCounterIntelDecoys("Player")
-    );
-    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input).filter((plan) => Number.isFinite(plan.score)));
-    console.log(`[Bot AI] Planner generated ${plans.length} plans`);
-
-    const occupancy = this.buildUnifiedOccupancySet();
-
-    for (const plan of plans) {
+    const buildInput = (): BotPlannerInput => this.buildPlannerInputFor(this.botPlacements, this.playerPlacements, this.botDifficulty,
+        this.allyPlacements.size > 0 ? [this.allyPlacements] : [], this.buildPlannerCounterIntelDecoys("Player"));
+    const initialPlans = planHeuristicBotTurn(buildInput(), (snap) => !activationUnitId || snap.unit.unitId === activationUnitId);
+    for (let index = 0; index < initialPlans.length; index += 1) {
+      const unitId = this.getSquadronId(initialPlans[index].unit.unit);
+      // Rank order once; replan only this actor after prior actions change the board.
+      // Re-ranking the entire remaining army here causes quadratic pathfinding work.
+      const plan = index === 0 ? initialPlans[0]
+        : planHeuristicBotTurn(buildInput(), (snap) => this.getSquadronId(snap.unit) === unitId)[0];
+      if (!plan) continue;
       const fromKey = axialKey(plan.origin);
       const toKey = axialKey(plan.destination);
       const fromLabel = this.formatAxial(plan.origin);
       const toLabel = this.formatAxial(plan.destination);
       console.log(`[Bot AI] Plan for ${plan.unit.unit.type} at ${fromLabel}: ${plan.rationale} (score: ${plan.score.toFixed(1)}, destination: ${toLabel}, path length: ${plan.path.length})`);
-      const unit = this.botPlacements.get(fromKey);
+      const unit = this.findUnitInFactionAtHex(plan.origin, "Bot", unitId);
       if (!unit) {
         console.log(`[Bot AI] Unit not found at ${fromLabel}, skipping plan`);
         continue;
       }
-      if (toKey !== fromKey && occupancy.has(toKey)) {
+      if (toKey !== fromKey && !this.canFactionEnterHex(unit, "Bot", plan.destination)) {
         console.log(`[Bot AI] Destination ${toLabel} is occupied, skipping plan`);
         continue;
       }
@@ -14037,22 +13992,22 @@ private automateSupplyConvoys(
         const unitDef = this.getUnitDefinition(unit.type);
         const botFlags = this.getUnitActionFlags("Bot", unit);
         let movementSpent = botFlags.movementPointsUsed;
+        const hookupCost = this.isTowableUnit(moved) && this.resolveTowState(moved) === "deployed"
+          ? this.resolveTowHookupCost(unitDef, botFlags, "Bot") : 0;
+        const availableMovement = this.plannerMovementAllowance({ unit, definition: unitDef }, "Bot") + hookupCost;
+        moved.movementCredit = availableMovement;
         if (this.isTowableUnit(moved) && this.resolveTowState(moved) === "deployed") {
           // Enemy batteries follow the same limbering drill as player batteries:
           // hooking up is part of the turn and the gun remains unable to fire.
           moved.towState = "towed";
           moved.onSentry = false;
           moved.entrench = 0;
-          const hookupCost = this.resolveTowHookupCost(unitDef, botFlags);
           movementSpent += hookupCost;
           if (typeof moved.movementCredit === "number") {
             moved.movementCredit = Math.max(0, Number((moved.movementCredit - hookupCost).toFixed(4)));
           }
         }
 
-        const availableMovement = typeof unit.movementCredit === "number"
-          ? Math.max(0, unit.movementCredit)
-          : this.resolveBaseMovementAllowance(unitDef, botFlags, unit);
         const maxMovement = botFlags.movementPointsUsed + availableMovement;
         const availableFuel = this.resolveFuelBudget(unit, unitDef);
         const botMoveType = this.resolveTowState(moved) === "towed" ? "truck" : unitDef.moveType;
@@ -14061,8 +14016,7 @@ private automateSupplyConvoys(
 
         for (let i = 1; i < plan.path.length; i += 1) {
           const step = plan.path[i];
-          const stepKey = axialKey(step);
-          if (occupancy.has(stepKey)) {
+          if (!this.canFactionEnterHex(unit, "Bot", step)) {
             console.log(`[Bot AI] Path blocked at ${this.formatAxial(step)}, stopping movement`);
             break;
           }
@@ -14097,19 +14051,17 @@ private automateSupplyConvoys(
             moved.fuel = Math.max(0, Number((moved.fuel - fuelSpent).toFixed(2)));
           }
           moved.entrench = 0;
-          const finalKey = axialKey(current);
           console.log(`[Bot AI] ${unit.type} moved from ${fromLabel} to ${this.formatAxial(current)} (${visited.length - 1} steps)`);
-          this.botPlacements.delete(fromKey);
-          this.botPlacements.set(finalKey, moved);
+          this.removeUnitFromFactionHex("Bot", unit.hex, unitId);
+          this.addUnitToFactionHex("Bot", moved);
+          this.updateSupplyPositionForFaction("Bot", unit.hex, current, unitId);
           this.overrunRecoverySitesAtHex("Bot", current);
-          this.syncBotFuel(current, moved.fuel);
-          this.syncBotEntrench(current, moved.entrench);
+          this.syncBotFuel(current, moved.fuel, unitId);
+          this.syncBotEntrench(current, moved.entrench, unitId);
           this.setUnitActionFlags("Bot", moved, {
             ...botFlags,
             movementPointsUsed: movementSpent
           });
-          occupancy.delete(fromKey);
-          occupancy.add(finalKey);
         moves.push({
           unitId: moved.unitId ?? null,
           unitType: moved.type,
@@ -14125,26 +14077,22 @@ private automateSupplyConvoys(
       }
 
       if (plan.attackTarget) {
-        const botUnit = this.botPlacements.get(axialKey(current))!;
+        const botUnit = this.findUnitInFactionAtHex(current, "Bot", unitId)!;
         const stance = this.chooseBotStance(botUnit, plan.attackTarget);
         const attack = this.resolveBotAttack(botUnit, current, plan.attackTarget, stance);
         if (attack) {
           attacks.push(attack);
-          if (attack.defenderDestroyed) {
-            const deadKey = axialKey(plan.attackTarget);
-            occupancy.delete(deadKey);
-          }
         }
       }
 
       if (!plan.attackTarget && plan.fieldAction === "digIn" && axialKey(current) === axialKey(plan.origin)) {
-        if (this.executeHeuristicBotDigIn(current)) {
+        if (this.executeHeuristicBotDigIn(current, unitId)) {
           console.log(`[Bot AI] ${unit.type} dug in at ${this.formatAxial(current)}`);
         }
       }
     }
 
-    const supplyReport = this.applySupplyTickFor("Bot");
+    const supplyReport = activationUnitId ? null : this.applySupplyTickFor("Bot");
     console.log(`[Bot AI] Heuristic bot turn complete. Moves: ${moves.length}, Attacks: ${attacks.length}`);
     return { moves, attacks, supplyReport };
   }
@@ -14154,9 +14102,8 @@ private automateSupplyConvoys(
    * while keeping the same battlefield abstraction: a five-minute turn across a 250 m hex is enough time to improve
    * a prepared position, but not to both maneuver and entrench in depth.
    */
-  private executeHeuristicBotDigIn(hex: Axial): boolean {
-    const key = axialKey(hex);
-    const unit = this.botPlacements.get(key);
+  private executeHeuristicBotDigIn(hex: Axial, unitId?: string): boolean {
+    const unit = this.findUnitInFactionAtHex(hex, "Bot", unitId);
     if (!unit) {
       return false;
     }
@@ -14172,9 +14119,13 @@ private automateSupplyConvoys(
       return false;
     }
 
+    const flags = this.getUnitActionFlags("Bot", unit);
+    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) return false;
     const updated = structuredClone(unit);
     updated.entrench = Math.min(2, (updated.entrench ?? 0) + 1);
-    this.botPlacements.set(key, updated);
+    updated.movementCredit = 0;
+    this.setUnitActionFlags("Bot", updated, { ...flags, attacksUsed: 1, movementPointsUsed: this.resolveBaseMovementAllowance(definition, flags, "Bot", unit) });
+    this.replaceUnitInFactionHex("Bot", updated);
     this.syncBotEntrench(hex, updated.entrench, this.getSquadronId(updated));
     return true;
   }
@@ -14185,7 +14136,7 @@ private automateSupplyConvoys(
     }
 
     const input = this.buildPlannerInputFor(this.allyPlacements, this.botPlacements, this.botDifficulty);
-    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input).filter((plan) => Number.isFinite(plan.score)));
+    const plans = planHeuristicBotTurn(input);
     const occupancy = this.buildUnifiedOccupancySet();
 
     for (const plan of plans) {
@@ -14208,7 +14159,7 @@ private automateSupplyConvoys(
         const movedFlags = this.getUnitActionFlags("Ally", unit);
         let remainingMovement = Math.max(
           0,
-          unit.movementCredit ?? this.resolveBaseMovementAllowance(movedDefinition, movedFlags, unit)
+          unit.movementCredit ?? this.resolveBaseMovementAllowance(movedDefinition, movedFlags, "Ally", unit)
         );
         for (let i = 1; i < plan.path.length; i += 1) {
           const step = plan.path[i];
@@ -14393,7 +14344,7 @@ private automateSupplyConvoys(
         movingUnit.towState = "towed";
         movingUnit.onSentry = false;
         movingUnit.entrench = 0;
-        const hookupCost = this.resolveTowHookupCost(unitDefinition, botFlags);
+        const hookupCost = this.resolveTowHookupCost(unitDefinition, botFlags, "Bot");
         movementSpent += hookupCost;
         if (typeof movingUnit.movementCredit === "number") {
           movingUnit.movementCredit = Math.max(0, Number((movingUnit.movementCredit - hookupCost).toFixed(4)));
@@ -14417,7 +14368,7 @@ private automateSupplyConvoys(
         );
         const movementAvailable = typeof movingUnit.movementCredit === "number"
           ? Math.max(0, movingUnit.movementCredit)
-          : Math.max(0, this.resolveBaseMovementAllowance(unitDefinition, botFlags, movingUnit) - movementSpent);
+          : Math.max(0, this.resolveBaseMovementAllowance(unitDefinition, botFlags, "Bot", movingUnit) - movementSpent);
         if (stepCost > movementAvailable) {
           break;
         }
@@ -14488,7 +14439,7 @@ private automateSupplyConvoys(
     const definition = this.getUnitDefinition(unit.type);
     const movePoints = typeof unit.movementCredit === "number"
       ? unit.movementCredit
-      : this.resolveBaseMovementAllowance(definition, this.getUnitActionFlags("Bot", unit), unit);
+      : this.resolveBaseMovementAllowance(definition, this.getUnitActionFlags("Bot", unit), "Bot", unit);
     const availableFuel = this.resolveFuelBudget(unit, definition);
     if (Number.isFinite(availableFuel) && availableFuel <= 0) {
       return 0;
@@ -14612,6 +14563,7 @@ private automateSupplyConvoys(
       requireAvailable?: boolean;
       includeAssigned?: boolean;
       includeReserves?: boolean;
+      observedBy?: TurnFaction;
     } = {}
   ): boolean {
     const {
@@ -14621,6 +14573,7 @@ private automateSupplyConvoys(
     } = options;
 
     for (const unit of this.collectAirRoleCandidateUnits(faction, includeReserves)) {
+      if (options.observedBy && !this.checkTargetSpotted(unit.hex, options.observedBy)) continue;
       const definition = this.getUnitDefinition(unit.type);
       const roles = definition.airSupport?.roles ?? [];
       if (!this.isAircraft(definition) || !roles.includes(role)) {
@@ -14644,13 +14597,25 @@ private automateSupplyConvoys(
     return false;
   }
 
-  /** CAP is only worthwhile if the player still has available strike aircraft to threaten bot positions. */
+  /** CAP responds to observed aircraft or airborne strikes, never secret reserves or queued orders. */
   private playerHasAvailableStrikeAircraft(): boolean {
+    const observedStrike = Array.from(this.scheduledAirMissions.values()).some((mission) =>
+      mission.faction === "Player" && mission.template.kind === "strike"
+      && this.isPlayerAirMissionObservedByBot(mission));
+    if (observedStrike) return true;
     return this.hasFactionAirRoleCapability("Player", "strike", {
       requireAvailable: true,
       includeAssigned: false,
-      includeReserves: true
+      includeReserves: false,
+      observedBy: "Bot"
     });
+  }
+
+  /** Air-defense estimates use an observed patrol location, never an unseen mission ledger. */
+  private isPlayerAirMissionObservedByBot(mission: ScheduledAirMission): boolean {
+    if (mission.status !== "inFlight" && mission.status !== "resolving") return false;
+    const hex = mission.targetHex ?? this.lookupUnitBySquadronId(mission.unitKey, "Player")?.unit.hex;
+    return Boolean(hex && this.checkTargetSpotted(hex, "Bot"));
   }
 
   /** Escorts matter whenever the player has active or available interception-capable fighters. */
@@ -14660,7 +14625,7 @@ private automateSupplyConvoys(
         (mission) =>
           mission.faction === "Player"
           && mission.template.kind === "airCover"
-          && (mission.status === "queued" || mission.status === "inFlight" || mission.status === "resolving")
+          && this.isPlayerAirMissionObservedByBot(mission)
       )
     ) {
       return true;
@@ -14669,7 +14634,8 @@ private automateSupplyConvoys(
     return this.hasFactionAirRoleCapability("Player", "cap", {
       requireAvailable: true,
       includeAssigned: false,
-      includeReserves: true
+      includeReserves: false,
+      observedBy: "Bot"
     });
   }
 
@@ -14755,7 +14721,7 @@ private automateSupplyConvoys(
     return 0;
   }
 
-  private estimateGroundTurnsToThreatHex(unit: ScenarioUnit, targetHex: Axial): number {
+  private estimateGroundTurnsToThreatHex(unit: ScenarioUnit, targetHex: Axial, faction: TurnFaction): number {
     const definition = this.getUnitDefinition(unit.type);
     if (definition.moveType === "air") {
       return 0;
@@ -14765,7 +14731,7 @@ private automateSupplyConvoys(
     const rangeMax = definition.rangeMax ?? 1;
     const distance = hexDistance(unit.hex, targetHex);
     const attackBandGap = this.distanceToAttackBand(distance, rangeMin, rangeMax);
-    const movementRate = Math.max(0.01, this.resolveBaseMovementAllowance(definition, this.createDefaultActionFlags(), unit));
+    const movementRate = Math.max(0.01, this.resolveBaseMovementAllowance(definition, this.createDefaultActionFlags(), faction, unit));
     let turns = attackBandGap <= 0 ? 0 : Math.ceil(attackBandGap / movementRate);
 
     if (this.requiresGroundLOS(definition) && !this.plannerLOSAllows(unit.hex, targetHex, false)) {
@@ -14845,7 +14811,7 @@ private automateSupplyConvoys(
       return 0;
     }
 
-    const playerSupportUnits = Array.from(this.playerPlacements.values()).filter((unit) => unit !== target);
+    const playerSupportUnits = this.getAllUnitsForFaction("Player").filter((unit) => unit.unitId !== target.unitId && this.checkTargetSpotted(unit.hex, "Bot"));
     let observerLeverage = 0;
     for (const exposedBotUnit of exposedBotUnits) {
       const exposedBotDef = this.getUnitDefinition(exposedBotUnit.type);
@@ -14861,7 +14827,7 @@ private automateSupplyConvoys(
           return sum + 6;
         }
 
-        const turnsToThreat = this.estimateGroundTurnsToThreatHex(supportUnit, exposedBotUnit.hex);
+        const turnsToThreat = this.estimateGroundTurnsToThreatHex(supportUnit, exposedBotUnit.hex, "Player");
         if (!Number.isFinite(turnsToThreat) || turnsToThreat > 1) {
           return sum;
         }
@@ -14917,7 +14883,7 @@ private automateSupplyConvoys(
     return (this.scenario.objectives ?? [])
       .filter((objective) => {
         const objectiveKey = axialKey(objective.hex);
-        return objective.owner === "Player" || this.playerPlacements.has(objectiveKey) || this.allyPlacements.has(objectiveKey);
+        return objective.owner === "Player" || (this.checkTargetSpotted(objective.hex, "Bot") && (this.playerPlacements.has(objectiveKey) || this.allyPlacements.has(objectiveKey)));
       })
       .map((objective) => objective.hex)
       .filter((hex, index, all) => all.findIndex((other) => axialKey(other) === axialKey(hex)) === index)
@@ -14942,7 +14908,7 @@ private automateSupplyConvoys(
       ) {
         leverage = 30;
       } else if (targetDef.class === "artillery") {
-        const turnsToThreat = this.estimateGroundTurnsToThreatHex(target, objectiveHex);
+        const turnsToThreat = this.estimateGroundTurnsToThreatHex(target, objectiveHex, "Player");
         if (Number.isFinite(turnsToThreat) && turnsToThreat <= 1) {
           leverage = 16;
         }
@@ -15189,7 +15155,7 @@ private automateSupplyConvoys(
 
     const flakUnits = this.findAllActiveFlakUnitsForHex("Player", targetHex).filter((entry) => {
       const flakId = this.getSquadronId(entry.unit);
-      return !reservedFlakIds.has(flakId);
+      return !reservedFlakIds.has(flakId) && this.checkTargetSpotted(entry.unit.hex, "Bot");
     });
 
     for (const flakEntry of flakUnits) {
@@ -15232,7 +15198,7 @@ private automateSupplyConvoys(
     }
 
     const availableCapMissions = this.findAllActiveAirCoverForHex("Player", axialKey(targetHex)).filter(
-      (mission) => mission.interceptions < 1 && !reservedCapMissionIds.has(mission.id)
+      (mission) => mission.interceptions < 1 && !reservedCapMissionIds.has(mission.id) && this.isPlayerAirMissionObservedByBot(mission)
     );
 
     if (availableCapMissions.length > 0) {
@@ -15384,8 +15350,8 @@ private automateSupplyConvoys(
       return 0;
     }
 
-    const playerUnits = Array.from(this.playerPlacements.values()).filter(
-      (candidate) => this.getUnitDefinition(candidate.type).moveType !== "air"
+    const playerUnits = this.getAllUnitsForFaction("Player").filter(
+      (candidate) => this.getUnitDefinition(candidate.type).moveType !== "air" && this.checkTargetSpotted(candidate.hex, "Bot")
     );
     if (playerUnits.length === 0) {
       return 0;
@@ -15698,13 +15664,11 @@ private automateSupplyConvoys(
 
   private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial, stance: CombatStance = "fireAtWill"): BotAttackSummary | null {
     this.ensureUnitId(attackingUnit);
+    if (!this.canBotAttackAfterMoving({ unit: attackingUnit, definition: this.getUnitDefinition(attackingUnit.type) }, 0, "Bot")) return null;
     let botFlags = this.getUnitActionFlags("Bot", attackingUnit);
     if (this.isTowableUnit(attackingUnit) && this.resolveTowState(attackingUnit) === "towed") {
       // A limbered battery may deploy and fire only if it has not moved. The bot
       // has no command-card click, so resolve that legal deployment automatically.
-      if (botFlags.movementPointsUsed > 0) {
-        return null;
-      }
       const deployed = structuredClone(attackingUnit);
       deployed.towState = "deployed";
       deployed.onSentry = false;
@@ -16003,7 +15967,7 @@ private automateSupplyConvoys(
     let primaryDefenderRemainingStrength = primaryDefender.strength;
     let primaryDefenderDestroyed = false;
     let primaryRetaliationResult: AttackResult | undefined;
-    let representativeRetaliationResult: AttackResult | undefined;
+    let representativeRetaliation: { result: AttackResult; unit: ScenarioUnit } | undefined;
     let primaryDefenderDamage: CombatDamageSummary | undefined;
     let primaryRetaliationDamage: CombatDamageSummary | undefined;
     let primaryRetaliationOccurred = false;
@@ -16189,7 +16153,7 @@ private automateSupplyConvoys(
         retaliationDamageSummary = this.buildCombatDamageSummary(attackerBeforeRetaliation, updatedAttacker, retaliationPacket);
         retaliationDamage = retaliationDamageSummary.readinessLoss;
         totalRetaliationDamage += retaliationDamage;
-        representativeRetaliationResult ??= retaliationResultForEntry;
+        representativeRetaliation ??= { result: retaliationResultForEntry, unit: structuredClone(retaliationSource) };
         if (this.isAircraft(defenderDef)) {
           if (canTrackAircraftAmmoForFaction(entry.faction)) {
             this.spendAircraftAmmo(entry.faction, resolveAircraftRegistryKey(entry.faction, retaliationDefender), attackerIsAircraft);
@@ -16282,7 +16246,7 @@ private automateSupplyConvoys(
       primaryRetaliationDamage,
       primaryRetaliationOccurred,
       retaliationOccurred: anyRetaliationOccurred,
-      representativeRetaliationResult,
+      representativeRetaliation,
       totalDefenderDamage,
       totalRetaliationDamage,
       allDefendersDestroyed
@@ -16828,6 +16792,7 @@ private automateSupplyConvoys(
       timestamp: this.nextDeterministicTimestamp(),
       attacker: {
         faction: engagement.attacker.faction,
+        ...(engagement.attacker.unit.unitId ? { unitId: engagement.attacker.unit.unitId } : {}),
         unitType: engagement.attacker.unit.type,
         position: structuredClone(engagement.attacker.hex),
         strengthBefore: engagement.attacker.strengthBefore,
@@ -16835,6 +16800,7 @@ private automateSupplyConvoys(
       },
       defender: {
         faction: engagement.defender.faction,
+        ...(engagement.defender.unit.unitId ? { unitId: engagement.defender.unit.unitId } : {}),
         unitType: engagement.defender.unit.type,
         position: structuredClone(engagement.defender.hex),
         strengthBefore: engagement.defender.strengthBefore,
@@ -17753,7 +17719,7 @@ private automateSupplyConvoys(
     unit.towState = "towed";
     unit.onSentry = false;
     unit.entrench = 0;
-    const hookupCost = this.resolveTowHookupCost(definition, flags);
+    const hookupCost = this.resolveTowHookupCost(definition, flags, "Player");
     if (typeof unit.movementCredit === "number") {
       unit.movementCredit = Math.max(0, Number((unit.movementCredit - hookupCost).toFixed(4)));
     }

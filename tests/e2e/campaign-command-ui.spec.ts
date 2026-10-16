@@ -361,6 +361,12 @@ for (const viewport of releaseViewports) {
   });
 
   test(`FSG_CAM_076 ${size}: inspector and primary action fit above the tray`, async ({ page }, info) => {
+    // Windows WebKit's DPR-2 paint and five-frame click checks exhaust the
+    // aggregate budget; retain each action's original bound and all assertions.
+    if (info.project.name === 'webkit' && process.platform === 'win32') {
+      test.setTimeout(90_000);
+      page.setDefaultTimeout(45_000);
+    }
     await openFront(page, viewport);
     const shell = await geometry(page.locator('.campaign-command-shell'));
     const inspector = await geometry(page.locator('#campaignContextInspector'));

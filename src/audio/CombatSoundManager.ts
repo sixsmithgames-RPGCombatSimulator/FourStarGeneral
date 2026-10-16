@@ -48,6 +48,7 @@ export interface WeaponSoundRequest extends QueuedWeaponSoundRequest {
  */
 export class CombatSoundManager {
   static readonly DEFAULT_MASTER_VOLUME = 0.7;
+  private static readonly RESUME_TIMEOUT_MS = 250;
 
   private readonly audioContext: AudioContext | null;
   private readonly masterGainNode: GainNode | null;
@@ -55,7 +56,8 @@ export class CombatSoundManager {
   private masterVolume = CombatSoundManager.DEFAULT_MASTER_VOLUME;
   private readonly bufferCache: Map<string, AudioBuffer> = new Map();
   private soundCatalog: SoundCatalog | null = null;
-  private preloadPromise: Promise<void> | null = null;
+  private catalogReady = false;
+  private catalogError: string | null = null;
 
   // Repetition control: track recently used variants
   private readonly transientHistory: Map<string, number[]> = new Map();
@@ -102,6 +104,7 @@ export class CombatSoundManager {
    * Load sound catalog from JSON.
    */
   async loadSoundCatalog(source: string | SoundCatalog): Promise<void> {
+    this.catalogReady = false;
     try {
       if (typeof source === "string") {
         const catalogUrl = new URL(source, document.baseURI);
@@ -115,10 +118,12 @@ export class CombatSoundManager {
         this.soundCatalog = source;
       }
 
-      this.preloadPromise = this.preloadCatalogBuffers();
-      await this.preloadPromise;
+      await this.preloadCatalogBuffers();
+      this.catalogError = null;
+      this.catalogReady = true;
       console.log(`[CombatSoundManager] Loaded sound catalog v${this.soundCatalog?.version} with ${Object.keys(this.soundCatalog?.assets ?? {}).length} assets`);
     } catch (error) {
+      this.catalogError = `Combat audio could not load: ${error instanceof Error ? error.message : String(error)}. Check your connection and reload the game to retry.`;
       console.error("[CombatSoundManager] Error loading sound catalog:", error);
       throw error;
     }
@@ -140,8 +145,7 @@ export class CombatSoundManager {
       const assetUrl = new URL(asset.filePath, document.baseURI);
       const response = await fetch(assetUrl);
       if (!response.ok) {
-        console.warn(`[CombatSoundManager] Failed to load ${asset.filePath}: ${response.statusText}`);
-        return null;
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
 
       const arrayBuffer = await response.arrayBuffer();
@@ -150,8 +154,7 @@ export class CombatSoundManager {
       this.bufferCache.set(asset.id, audioBuffer);
       return audioBuffer;
     } catch (error) {
-      console.error(`[CombatSoundManager] Error loading audio buffer for ${asset.id}:`, error);
-      return null;
+      throw new Error(`Failed to load audio asset ${asset.filePath}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -159,14 +162,19 @@ export class CombatSoundManager {
    * Play a weapon sound event with layered assembly.
    */
   async playWeaponSound(request: WeaponSoundRequest): Promise<void> {
+    if (!this.audioContext || this.masterVolume === 0 || this.catalogError) {
+      return;
+    }
     if (!this.soundCatalog) {
       console.warn("[CombatSoundManager] Sound catalog not loaded");
       return;
     }
 
-    await this.ensureAudioContextReady();
-    if (this.preloadPromise) {
-      await this.preloadPromise;
+    // Loading is optional presentation readiness, never a queue for old visual
+    // events. A fresh cue can play once the catalog has finished decoding.
+    if (!this.catalogReady) return;
+    if (this.masterVolume === 0 || !await this.ensureAudioContextReady() || this.masterVolume === 0) {
+      return;
     }
 
     const profile = WEAPON_AUDIO_PROFILES[request.weaponClass];
@@ -368,8 +376,8 @@ export class CombatSoundManager {
       return;
     }
     const buffer = await this.loadAudioBuffer(layer.asset);
-    if (!buffer) {
-      return; // Failed to load, skip
+    if (!buffer || this.masterVolume === 0 || this.audioContext.state !== "running") {
+      return;
     }
 
     const source = this.audioContext.createBufferSource();
@@ -382,20 +390,28 @@ export class CombatSoundManager {
     source.connect(gainNode);
     gainNode.connect(this.masterGainNode);
 
-    const startTime = this.audioContext.currentTime + layer.startOffsetMs / 1000;
-    source.start(startTime);
-
-    // Auto-cleanup
-    source.onended = () => {
+    const releaseNodes = (): void => {
       source.disconnect();
       gainNode.disconnect();
     };
+    source.onended = releaseNodes;
+    try {
+      const startTime = this.audioContext.currentTime + layer.startOffsetMs / 1000;
+      source.start(startTime);
+    } catch (error) {
+      releaseNodes();
+      console.error(`[CombatSoundManager] Failed to start audio asset ${layer.asset.filePath}:`, error);
+      throw error;
+    }
   }
 
   /**
    * Set master volume (0.0 to 1.0).
    */
   setMasterVolume(volume: number): void {
+    if (!Number.isFinite(volume)) {
+      throw new RangeError("Combat sound volume must be a finite number.");
+    }
     this.masterVolume = Math.max(0, Math.min(1, volume));
     if (this.masterGainNode) {
       this.masterGainNode.gain.value = this.masterVolume;
@@ -409,9 +425,11 @@ export class CombatSoundManager {
     return this.masterVolume;
   }
 
-  /** Reports immutable runtime capability without conflating it with the saved volume preference. */
+  /** Reports runtime capability and asset readiness independently of the saved volume preference. */
   getAvailability(): CombatAudioAvailability {
-    return this.availability;
+    return this.catalogError
+      ? { available: false, reason: this.catalogError }
+      : this.availability;
   }
 
   /**
@@ -422,13 +440,28 @@ export class CombatSoundManager {
     this.impactHistory.clear();
   }
 
-  private async ensureAudioContextReady(): Promise<void> {
-    if (this.audioContext?.state === "suspended") {
-      try {
-        await this.audioContext.resume();
-      } catch (error) {
-        console.warn("[CombatSoundManager] Failed to resume audio context:", error);
-      }
+  private async ensureAudioContextReady(): Promise<boolean> {
+    if (!this.audioContext || this.audioContext.state === "closed") return false;
+    if (this.audioContext.state === "running") return true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // Browsers may leave resume pending until a permitted gesture. Expire this
+      // visual cue instead of stalling combat or replaying it after a later unlock.
+      await Promise.race([
+        this.audioContext.resume(),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error(`Browser audio did not resume within ${CombatSoundManager.RESUME_TIMEOUT_MS}ms. Enable Battle Sound after interacting with the game to retry.`)),
+            CombatSoundManager.RESUME_TIMEOUT_MS);
+        })
+      ]);
+      // Web Audio can change state during the awaited resume even though TS
+      // retains the pre-await narrowed property type.
+      return (this.audioContext.state as AudioContextState) === "running";
+    } catch (error) {
+      console.warn("[CombatSoundManager] Skipping audio cue because the browser did not resume combat sound:", error);
+      return false;
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   }
 

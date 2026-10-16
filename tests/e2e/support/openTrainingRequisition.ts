@@ -5,7 +5,9 @@ import type { Page } from "@playwright/test";
  * and dismisses the tutorial overlay so layout checks can interact with the underlying UI.
  */
 export async function openTrainingRequisition(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  // Boot completion, not an unrelated third-party resource's load event, owns readiness.
+  await page.locator("#appBootStatus").waitFor({ state: "detached" });
   await page.waitForSelector("#landingScreen", { state: "visible" });
   await page.getByRole("button", { name: /Training Exercise/ }).click();
   await page.waitForSelector("#precombatScreen", { state: "visible" });

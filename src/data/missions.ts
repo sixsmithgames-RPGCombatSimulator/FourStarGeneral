@@ -116,7 +116,7 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they'll have a lodgment before dawn. " +
     "Deploy your patrols to occupy and hold each crossing with your units.\n\n" +
     "VICTORY: Hold ALL THREE fords simultaneously with your forces for 8 consecutive turns.\n" +
-    "DEFEAT: Mission fails if the enemy secures and holds any ford for 8 consecutive turns.",
+    "DEFEAT: Mission fails if the enemy holds any ford for 8 consecutive turns, all friendly forces are eliminated, or the 12-turn window closes before the hold objective is met.",
 
   assault_citadel_ridge:
     "Recon has identified a fortified ridge complex controlling the only road into the sector. Enemy infantry are already dug in, bunker guns cover the slopes, and heavy anti-air batteries protect the rear. " +
@@ -207,8 +207,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
   },
   patrol: {
     objectives: [
-      "Primary: Repel the enemy assault and keep the town in friendly hands.",
-      "Secondary: Destroy all enemy forces."
+      "Primary: Repel the enemy assault and keep the town in friendly hands."
     ],
     turnLimit: 25,
     doctrine: "Anchor the defense on the town perimeter, use the road lattice to shift reserves, and let artillery and anti-tank screens break up enemy armor before it reaches the center.",
@@ -266,7 +265,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     objectives: [
       "Primary: Capture Gela port, Ponte Olivo airfield, and Highway 115.",
       "Secondary: Keep the beachhead anchor in friendly hands.",
-      "Tertiary: Silence the enemy flak and artillery around the airfield."
+      "Tertiary: Keep an engineer formation operational."
     ],
     turnLimit: 18,
     doctrine: "Hold the landing beaches with infantry and guns, then drive armor and engineers inland once naval fire has broken the counterattack route.",
@@ -341,7 +340,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     objectives: [
       "Primary: Hold Arnhem Bridge and enough airborne objectives until relief can arrive.",
       "Secondary: Keep the Oosterbeek perimeter and drop zone in friendly hands.",
-      "Tertiary: Keep at least four airborne formations operational."
+      "Tertiary: Keep at least four airborne or engineer formations operational."
     ],
     turnLimit: 18,
     doctrine: "Keep bridge and perimeter forces mutually supporting, use anti-tank guns to delay armor, and protect the drop zone long enough to sustain the airborne line.",
@@ -391,7 +390,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     turnLimit: 12,
     doctrine: "Occupy all three crossings with your units. Shift forces between hedgerow lanes before the enemy can mass. Hold the two off-map artillery fire missions for the ford that starts to buckle.",
     supplies: [
-      { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
+      { label: "Predeployed Patrol", amount: "3 infantry formations, engineers, 2 recon bike patrols" },
       { label: "Off-map Artillery", amount: "2 fire missions" },
       { label: "Duration", amount: "12-turn operation" }
     ]
@@ -1074,5 +1073,5 @@ export function getAllMissionKeys(): MissionKey[] {
  * @returns True if the mission exists
  */
 export function isValidMission(key: string): key is MissionKey {
-  return key in missionTitles;
+  return Object.prototype.hasOwnProperty.call(missionTitles, key);
 }

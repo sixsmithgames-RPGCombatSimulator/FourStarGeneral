@@ -128,6 +128,8 @@ import { combat } from "../../core/balance";
 import { isSoftCombatTarget } from "../../core/armorEffects";
 import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
+import { buildMovementPresentationPath } from "../controllers/BattleMovementPresentation";
+import { buildPlayerAttackPresentation, buildResolvedAttackPresentation } from "../../rendering/CombatPresentationContext";
 import { resolveFactionUnitTypeLabel } from "../../data/unitSystem/factionUnitPresentation";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import {
@@ -178,7 +180,9 @@ const TUTORIAL_MOVEMENT_CAMERA_ZOOM = 2.55;
 const TUTORIAL_ATTACK_CAMERA_ZOOM = 3.15;
 const TUTORIAL_OVERVIEW_CAMERA_ZOOM = 3.0;
 const TUTORIAL_MAP_INPUT_SETTLE_MS = 450;
-const TUTORIAL_ENEMY_ACTIVATION_TIMEOUT_MS = 9000;
+const TUTORIAL_ENEMY_PHASES: readonly TutorialEnemyPhase[] = [
+  "enemy_activation", "enemy_response", "post_artillery_enemy_response", "round_handoff"
+];
 
 type ActiveAirShowPlaybackCaptureContext = {
   readonly base: Omit<
@@ -276,9 +280,8 @@ export class BattleScreen {
   private tutorialMapInputBlockedUntil = 0;
   private tutorialQueuedMapClickTimerId: number | null = null;
   private readonly tutorialGuidedHexKeys = new Set<string>();
-  private tutorialEnemyActivationMonitorActive = false;
-  private tutorialEnemyActivationStartedAt = 0;
-  private tutorialEnemyActivationSequenceStart = 0;
+  private tutorialEnemyActivationWait: { phase: TutorialEnemyPhase; timerId: number } | null = null;
+  private tutorialPhaseCompletion: { phase: TutorialPhase; timerId: number } | null = null;
   private battleUpdateUnsubscribe: (() => void) | null = null;
   private tutorialUpdateUnsubscribe: (() => void) | null = null;
   private missionRulesController: MissionRulesController | null = null;
@@ -1981,13 +1984,11 @@ export class BattleScreen {
             defenderUnitId ?? undefined
           );
           if (preview) {
-            const defenderDefinition = this.unitTypes?.[preview.defender.type as keyof UnitTypeDictionary];
-            const targetClass = defenderDefinition?.class;
-            const targetIsHardTarget = targetClass === "vehicle" || targetClass === "tank" || targetClass === "air";
+            const presentation = buildPlayerAttackPresentation(preview, this.unitTypes);
             await this.focusCameraOnHex(defenderHex);
             await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
             // Await combat animation so the visual cue lands before we mutate engine state.
-            await this.hexMapRenderer.playAttackSequence(attackerHex, defenderHex, targetIsHardTarget);
+            await this.hexMapRenderer.playAttackSequence(attackerHex, defenderHex, presentation.targetIsHard, presentation.forward);
           }
         } catch (animationError) {
           console.warn("[BattleScreen] Player attack animation failed; continuing without playback.", animationError);
@@ -2053,15 +2054,11 @@ export class BattleScreen {
 
       if (resolution?.retaliationOccurred && this.hexMapRenderer) {
         try {
-          const attackerDefinition = preview
-            ? this.unitTypes?.[preview.attacker.type as keyof UnitTypeDictionary]
-            : null;
-          const attackerClass = attackerDefinition?.class;
-          const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
+          const presentation = buildPlayerAttackPresentation(preview ?? this.pendingAttack?.preview ?? null, this.unitTypes, resolution.targetRichDefenders);
 
           await this.focusCameraOnHex(attackerHex);
           await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
-          await this.hexMapRenderer.playAttackSequence(defenderHex, attackerHex, retaliationTargetIsHardTarget);
+          await this.hexMapRenderer.playAttackSequence(defenderHex, attackerHex, presentation.retaliationTargetIsHard, presentation.retaliation);
         } catch (animationError) {
           console.warn("[BattleScreen] Retaliation animation failed; continuing without playback.", animationError);
         }
@@ -2261,14 +2258,12 @@ export class BattleScreen {
       // Pause to show the attack target
       await new Promise((resolve) => setTimeout(resolve, 600));
 
+      const presentation = buildResolvedAttackPresentation(attack, this.unitTypes);
       if (this.hexMapRenderer) {
-        const defenderDefinition = this.unitTypes?.[attack.defenderType as keyof UnitTypeDictionary];
-        const defenderClass = defenderDefinition?.class;
-        const targetIsHardTarget = defenderClass === "vehicle" || defenderClass === "tank" || defenderClass === "air";
 
         try {
           // Await the combined muzzle flash + explosion sequence so visual feedback lands before post-combat announcements.
-          await this.hexMapRenderer.playAttackSequence(attackerKey, targetKey, targetIsHardTarget);
+          await this.hexMapRenderer.playAttackSequence(attackerKey, targetKey, presentation.targetIsHard, presentation.forward);
         } catch (animationError) {
           console.warn("[BattleScreen] Bot attack animation failed; continuing without playback.", {
             attack,
@@ -2280,15 +2275,11 @@ export class BattleScreen {
       // Play retaliation animation if the defender returned fire
       if (attack.retaliation && attack.retaliation.damage > 0 && this.hexMapRenderer) {
         try {
-          const attackerDefinition = this.unitTypes?.[attack.attackerType as keyof UnitTypeDictionary];
-          const attackerClass = attackerDefinition?.class;
-          const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
-
           if (canFocusCamera) {
             await this.focusCameraOnHex(attackerKey);
           }
           await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
-          await this.hexMapRenderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
+          await this.hexMapRenderer.playAttackSequence(targetKey, attackerKey, presentation.retaliationTargetIsHard, presentation.retaliation);
         } catch (animationError) {
           console.warn("[BattleScreen] Retaliation animation failed; continuing without playback.", animationError);
         }
@@ -2501,18 +2492,7 @@ export class BattleScreen {
   }
 
   private toMovePathKeys(path: readonly Axial[] | undefined, fromKey: string, toKey: string): string[] {
-    const keys: string[] = [];
-    const appendKey = (key: string | null): void => {
-      if (!key || keys[keys.length - 1] === key) {
-        return;
-      }
-      keys.push(key);
-    };
-
-    appendKey(fromKey);
-    path?.forEach((hex) => appendKey(this.toHexKey(hex)));
-    appendKey(toKey);
-    return keys;
+    return buildMovementPresentationPath(path, fromKey, toKey, (hex) => this.toHexKey(hex));
   }
 
   private resolveMoveAnimationDuration(pathKeys: readonly string[], fallbackMs: number): number {
@@ -2911,17 +2891,31 @@ export class BattleScreen {
     if (tutorialState.getProgress().canProceed) {
       return;
     }
-    tutorialState.setCanProceed(true);
-    if (!shouldAdvance) {
-      return;
-    }
-    setTimeout(() => {
-      const nextPhase = this.resolveNextTutorialPhaseAfterCompletion(phase);
-      if (nextPhase) {
-        const nextStep = getTutorialStep(nextPhase);
-        tutorialState.advancePhase(nextPhase, nextStep?.waitForAction !== true);
+    if (shouldAdvance) {
+      if (this.tutorialPhaseCompletion) {
+        window.clearTimeout(this.tutorialPhaseCompletion.timerId);
       }
-    }, 800);
+      const completion = { phase, timerId: 0 };
+      this.tutorialPhaseCompletion = completion;
+      completion.timerId = window.setTimeout(() => {
+        if (this.tutorialPhaseCompletion !== completion) return;
+        this.tutorialPhaseCompletion = null;
+        const progress = tutorialState.getProgress();
+        if (!progress.isActive || progress.currentPhase !== phase || !progress.canProceed) return;
+        const enemyPhase = TUTORIAL_ENEMY_PHASES.find((candidate) => candidate === phase);
+        if (enemyPhase && !this.isTutorialEnemyHandoffReady(enemyPhase)) {
+          tutorialState.setCanProceed(false);
+          this.monitorTutorialEnemyActivation(enemyPhase);
+          return;
+        }
+        const nextPhase = this.resolveNextTutorialPhaseAfterCompletion(phase);
+        if (nextPhase) {
+          const nextStep = getTutorialStep(nextPhase);
+          tutorialState.advancePhase(nextPhase, nextStep?.waitForAction !== true);
+        }
+      }, 800);
+    }
+    tutorialState.setCanProceed(true);
   }
 
   private resolveNextTutorialPhaseAfterCompletion(phase: TutorialPhase): TutorialPhase | null {
@@ -3503,41 +3497,18 @@ export class BattleScreen {
   }
 
   private monitorTutorialEnemyActivation(phase: TutorialEnemyPhase): void {
-    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
-      this.completeTutorialPhase(phase);
-      return;
-    }
-
     const progress = ensureTutorialState().getProgress();
+    this.clearStaleTutorialWaits(progress.isActive ? progress.currentPhase : null);
     if (!progress.isActive || progress.currentPhase !== phase) {
-      this.tutorialEnemyActivationMonitorActive = false;
       return;
     }
-
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+      return;
+    }
     const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-    const activeGroup = this.resolveActiveInitiativeGroup(queue);
-    if (phase === "round_handoff" && activeGroup?.ownerId === "player") {
-      const smokeTarget = this.findFirstTutorialUnitTarget(
-        (_unit, commandState) => commandState?.isAutomated !== true && commandState?.canLaySmoke === true,
-        true
-      );
-      if (!smokeTarget) {
-        window.setTimeout(() => this.monitorTutorialEnemyActivation(phase), 220);
-        return;
-      }
-    }
-    if (!activeGroup || activeGroup.ownerId === "player") {
-      this.finishTutorialEnemyActivation(phase);
-      return;
-    }
-
-    if (!this.tutorialEnemyActivationMonitorActive) {
-      this.tutorialEnemyActivationMonitorActive = true;
-      this.tutorialEnemyActivationStartedAt = Date.now();
-      this.tutorialEnemyActivationSequenceStart = this.activityEventSequence;
-    }
-
     const currentActivation = this.initiativeMethods.getCurrentActivation();
+    // Resume only an unstarted queue head. Active playback owns its completion;
+    // elapsed presentation time must never skip or complete simulation orders.
     if (!currentActivation && this.hasPendingInitiativeActivations(queue)) {
       try {
         this.initiativeMethods.processNextInitiativeActivation();
@@ -3545,51 +3516,51 @@ export class BattleScreen {
         console.warn("[BattleScreen] Failed to resume tutorial enemy activation.", error);
       }
     }
-
-    const elapsedMs = Date.now() - this.tutorialEnemyActivationStartedAt;
-    if (elapsedMs >= TUTORIAL_ENEMY_ACTIVATION_TIMEOUT_MS) {
-      this.resolveTutorialEnemyActivationFallback(phase);
+    if (this.isTutorialEnemyHandoffReady(phase)) {
+      this.finishTutorialEnemyActivation(phase);
       return;
     }
-
-    window.setTimeout(() => this.monitorTutorialEnemyActivation(phase), 220);
+    if (this.tutorialEnemyActivationWait) return;
+    const wait = { phase, timerId: 0 };
+    this.tutorialEnemyActivationWait = wait;
+    wait.timerId = window.setTimeout(() => {
+      if (this.tutorialEnemyActivationWait !== wait) return;
+      this.tutorialEnemyActivationWait = null;
+      this.monitorTutorialEnemyActivation(phase);
+    }, 220);
   }
 
   private finishTutorialEnemyActivation(phase: TutorialEnemyPhase): void {
-    this.tutorialEnemyActivationMonitorActive = false;
+    if (this.tutorialEnemyActivationWait) {
+      window.clearTimeout(this.tutorialEnemyActivationWait.timerId);
+      this.tutorialEnemyActivationWait = null;
+    }
     this.highlightCurrentInitiativeGroup();
     this.syncInitiativeTurnControlsState();
     this.completeTutorialPhase(phase);
   }
 
-  private resolveTutorialEnemyActivationFallback(phase: TutorialEnemyPhase): void {
-    if (!this.initiativeMethods) {
-      this.finishTutorialEnemyActivation(phase);
-      return;
-    }
+  /** Projects handoff readiness from the current activation, never a timer or empty queue. */
+  private isTutorialEnemyHandoffReady(phase: TutorialEnemyPhase): boolean {
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) return false;
+    const current = this.initiativeMethods.getCurrentActivation();
+    const group = this.resolveActiveInitiativeGroup(this.initiativeMethods.getCurrentInitiativeQueue());
+    if (current?.ownerId !== "player" || group?.ownerId !== "player") return false;
+    return phase !== "round_handoff" || this.findFirstTutorialUnitTarget(
+      (_unit, commandState) => commandState?.isAutomated !== true && commandState?.canLaySmoke === true,
+      true
+    ) !== null;
+  }
 
-    const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-    const activeGroup = this.resolveActiveInitiativeGroup(queue);
-    if (!activeGroup || activeGroup.ownerId === "player") {
-      this.finishTutorialEnemyActivation(phase);
-      return;
+  /** Invalidates delayed work when the lesson changes, ends, or the screen unloads. */
+  private clearStaleTutorialWaits(phase: TutorialPhase | null): void {
+    for (const key of ["tutorialEnemyActivationWait", "tutorialPhaseCompletion"] as const) {
+      const wait = this[key];
+      if (wait && wait.phase !== phase) {
+        window.clearTimeout(wait.timerId);
+        this[key] = null;
+      }
     }
-
-    if (this.activityEventSequence === this.tutorialEnemyActivationSequenceStart) {
-      this.publishActivityEvent({
-        category: "enemy",
-        type: "log",
-        summary: "Enemy activation resolved with no observed movement or fire."
-      });
-    }
-
-    try {
-      this.initiativeMethods.skipCurrentGroup();
-    } catch (error) {
-      console.warn("[BattleScreen] Failed to skip stalled tutorial enemy group.", error);
-    }
-
-    this.finishTutorialEnemyActivation(phase);
   }
 
   private getSelectedTutorialFocusHexes(extraHexes: Iterable<string> = []): Set<string> {
@@ -4338,6 +4309,7 @@ export class BattleScreen {
       occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Ally");
     });
 
+    this.missionRulesController.observeBotMovements?.(engine.peekBotTurnSummary?.()?.moves ?? []);
     return this.missionRulesController.onTurnAdvanced({
       turnSummary,
       scenario: this.scenario,
@@ -6159,6 +6131,10 @@ export class BattleScreen {
   }
 
   private updateTurnStatusDisplay(summary: TurnSummary): void {
+    // The initiative sync also refreshes this live region; unchanged text must not re-announce.
+    const updateText = (element: HTMLElement, text: string): void => {
+      if (element.textContent !== text) element.textContent = text;
+    };
     const initiativeActive =
       this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
     const initiativeActivation = initiativeActive ? this.initiativeMethods?.getCurrentActivation() ?? null : null;
@@ -6170,29 +6146,29 @@ export class BattleScreen {
         : configuredTurnLimit > 0
           ? `${summary.turnNumber} of ${configuredTurnLimit}`
           : String(summary.turnNumber);
-      this.turnIndicatorElement.textContent = label;
+      updateText(this.turnIndicatorElement, label);
     }
     if (this.factionIndicatorElement) {
-      this.factionIndicatorElement.textContent =
+      updateText(this.factionIndicatorElement,
         initiativeActivation?.ownerId === "player"
           ? "Player"
           : initiativeActivation?.ownerId === "bot"
             ? "Enemy"
-            : this.formatFactionLabel(summary.activeFaction);
+            : this.formatFactionLabel(summary.activeFaction));
     }
     if (this.phaseIndicatorElement) {
       if (initiativeActive) {
         const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
         const hasPendingActivations = this.hasPendingInitiativeActivations(queue);
-        this.phaseIndicatorElement.textContent = initiativeActivation
+        updateText(this.phaseIndicatorElement, initiativeActivation
           ? initiativeActivation.ownerId === "player"
             ? "Your initiative group is active"
             : "Enemy initiative group is active"
           : hasPendingActivations
             ? "Initiative order updating"
-            : "Turn ready to end";
+            : "Turn ready to end");
       } else {
-        this.phaseIndicatorElement.textContent = this.formatPhaseLabel(summary.phase);
+        updateText(this.phaseIndicatorElement, this.formatPhaseLabel(summary.phase));
       }
     }
   }
@@ -7445,6 +7421,7 @@ export class BattleScreen {
 
     if (!this.tutorialUpdateUnsubscribe) {
       this.tutorialUpdateUnsubscribe = ensureTutorialState().subscribe((progress) => {
+        this.clearStaleTutorialWaits(progress.isActive ? progress.currentPhase : null);
         if (!progress.isActive) {
           return;
         }
@@ -7680,6 +7657,7 @@ export class BattleScreen {
    * the commander re-enters the screen multiple times during a session.
    */
   dispose(): void {
+    this.clearStaleTutorialWaits(null);
     if (this.battleUpdateUnsubscribe) {
       this.battleUpdateUnsubscribe();
       this.battleUpdateUnsubscribe = null;
@@ -10682,10 +10660,15 @@ export class BattleScreen {
     if (!this.isInitiativeSystemEnabled) {
       return;
     }
+    if (event.ownerId === "bot" && event.unitType && event.movementPath) {
+      this.missionRulesController?.observeBotMovements?.([{ unitType: event.unitType, path: event.movementPath }]);
+    }
 
     const renderer = this.hexMapRenderer;
-    const fromKey = this.toOffsetHexKey(event.fromHex);
-    const toKey = this.toOffsetHexKey(event.toHex);
+    const fromHex = event.movementPath?.[0] ?? event.fromHex;
+    const toHex = event.movementPath?.[event.movementPath.length - 1] ?? event.toHex;
+    const fromKey = this.toOffsetHexKey(fromHex);
+    const toKey = this.toOffsetHexKey(toHex);
     const isEnemyActivation = event.ownerId === "bot";
     const visibleBefore = isEnemyActivation
       ? (event.visibleBefore || (event.fromHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex) : false))
@@ -10698,11 +10681,9 @@ export class BattleScreen {
     const fallbackFocusKey = visibleBefore ? fromKey : visibleAfter ? toKey : null;
     const canFocusCamera = Boolean(this.mapViewport);
     const tutorialPhase = ensureTutorialState().getCurrentPhase();
-    const shouldHoldTutorialCamera = ensureTutorialState().isTutorialActive() && (
-      tutorialPhase === "enemy_activation" ||
-      tutorialPhase === "enemy_response" ||
-      tutorialPhase === "post_artillery_enemy_response"
-    );
+    // Next Group starts enemy playback synchronously before its delayed tutorial handoff.
+    const shouldHoldTutorialCamera = ensureTutorialState().isTutorialActive()
+      && (tutorialPhase === "spend_activation" || TUTORIAL_ENEMY_PHASES.some((phase) => phase === tutorialPhase));
     const shouldFocusCamera = canFocusCamera && this.battleAnimationMode !== "quick" && !shouldHoldTutorialCamera;
     let lastFocusedKey: string | null = null;
     const paceForAnimationStep = async (durationMs: number): Promise<void> => {
@@ -10722,10 +10703,8 @@ export class BattleScreen {
       await paceForAnimationStep(settleMs);
     };
 
-    const fromHex = event.fromHex;
-    const toHex = event.toHex;
-    if (renderer && event.moved && fromKey && toKey && fromHex && toHex) {
-      const movePath = this.toMovePathKeys([fromHex, toHex], fromKey, toKey);
+    if (renderer && (event.moved || (event.movementPath?.length ?? 0) > 1) && fromKey && toKey && fromHex && toHex) {
+      const movePath = this.toMovePathKeys(event.movementPath ?? [fromHex, toHex], fromKey, toKey);
       const moveHandle: MoveAnimationHandle | null = renderer.primeUnitMove(fromKey, toKey, {
         path: movePath,
         unitId: event.unitId
@@ -10757,13 +10736,11 @@ export class BattleScreen {
           continue;
         }
 
+        const presentation = buildResolvedAttackPresentation({ ...attack, attackerUnitId: attack.attackerUnitId ?? event.unitId }, this.unitTypes);
         try {
           await focusCameraForActivation(attackerKey, 180);
           await focusCameraForActivation(targetKey, 240);
-          const defenderDefinition = this.unitTypes?.[attack.defenderType as keyof UnitTypeDictionary];
-          const defenderClass = defenderDefinition?.class;
-          const targetIsHardTarget = defenderClass === "vehicle" || defenderClass === "tank" || defenderClass === "air";
-          await renderer.playAttackSequence(attackerKey, targetKey, targetIsHardTarget);
+          await renderer.playAttackSequence(attackerKey, targetKey, presentation.targetIsHard, presentation.forward);
           await paceForAnimationStep(180);
         } catch (animationError) {
           console.warn("[BattleScreen] Initiative bot attack animation failed; continuing.", {
@@ -10774,11 +10751,8 @@ export class BattleScreen {
 
         if (attack.retaliation && attack.retaliation.damage > 0) {
           try {
-            const attackerDefinition = this.unitTypes?.[attack.attackerType as keyof UnitTypeDictionary];
-            const attackerClass = attackerDefinition?.class;
-            const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
             await focusCameraForActivation(attackerKey, 220);
-            await renderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
+            await renderer.playAttackSequence(targetKey, attackerKey, presentation.retaliationTargetIsHard, presentation.retaliation);
             await paceForAnimationStep(220);
           } catch (animationError) {
             console.warn("[BattleScreen] Initiative bot retaliation animation failed; continuing.", animationError);
@@ -11018,6 +10992,9 @@ export class BattleScreen {
           }
         : null;
 
+      if (this.turnIndicatorElement || this.phaseIndicatorElement || this.factionIndicatorElement) {
+        this.updateTurnStatusDisplay(this.battleState.getCurrentTurnSummary());
+      }
       this.initiativeTurnControls.updateCurrentUnit(displayActivation);
       this.initiativeTurnControls.updateCurrentGroup(displayGroup);
       this.initiativeTurnControls.updatePlayerTurn((activeGroup?.ownerId ?? activation?.ownerId) === 'player');

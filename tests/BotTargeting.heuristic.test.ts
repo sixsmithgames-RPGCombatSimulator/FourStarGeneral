@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { axialKey, hexDistance, type Axial } from "../src/core/Hex";
 import type {
   ScenarioData,
@@ -12,10 +13,10 @@ import {
   computeReachableHexes,
   planHeuristicBotTurn,
   type BotPlannerInput,
-  type PlannerUnitSnapshot,
-  type PlannedBotAction
+  type PlannerUnitSnapshot
 } from "../src/game/bot/BotPlanner";
-import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { GameEngine, type CombatReportEntry, type GameEngineConfig } from "../src/game/GameEngine";
+import { GameEngineInitiativeMethods, type InitiativeBotActivationResult } from "../src/game/GameEngineInitiativeIntegration";
 import { registerTest } from "./harness";
 import { canonicalWeaponModel } from "./canonicalWeaponFixture";
 
@@ -228,6 +229,8 @@ const strikeUnitTypes: UnitTypeDictionary = {
   TestArtillery: playerArtilleryDef,
   TestBomber: bomberDef,
   TestGroundAttack: groundAttackDef,
+  Medium_Tank: playerTankDef,
+  Infantry_42: playerInfantryDef,
   Supply_Truck: supplyTruckDef
 } as unknown as UnitTypeDictionary;
 
@@ -251,32 +254,10 @@ function createPlannerSnapshot(
   };
 }
 
-function createPlannedAction(
-  type: string,
-  definition: UnitTypeDefinition,
-  origin: Axial,
-  destination: Axial,
-  path: readonly Axial[],
-  score: number
-): PlannedBotAction {
-  return {
-    unit: createPlannerSnapshot(type, definition, origin),
-    unitKey: axialKey(origin),
-    origin: { ...origin },
-    destination: { ...destination },
-    path: path.map((hex) => ({ ...hex })),
-    attackTarget: null,
-    expectedDamage: 0,
-    expectedRetaliation: 0,
-    score,
-    rationale: "Synthetic ordering regression"
-  };
-}
-
-function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
+function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = [], moveBonus = 0): ScenarioSide {
   return {
     hq,
-    general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
+    general: { accBonus: 0, dmgBonus: 0, moveBonus, supplyBonus: 0 },
     units
   };
 }
@@ -306,7 +287,8 @@ function createScenario(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[]): 
   } as unknown as ScenarioData;
 }
 
-function createHeuristicEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[]): GameEngine {
+function createHeuristicEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[], startPlayerTurn = true,
+  overrides: Partial<Pick<GameEngineConfig, "unitTypes" | "terrain" | "botDifficulty" | "playerSide" | "botSide" | "allySide">> = {}): GameEngine {
   const preDeployedPlayers = playerUnits.map((unit) => ({ ...unit, preDeployed: true }));
   const cfg: GameEngineConfig = {
     scenario: createScenario(preDeployedPlayers, botUnits),
@@ -314,15 +296,289 @@ function createHeuristicEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUn
     terrain,
     playerSide: side({ q: 0, r: 0 }, preDeployedPlayers),
     botSide: side({ q: 7, r: 0 }, botUnits),
-    botStrategyMode: "Heuristic"
+    botStrategyMode: "Heuristic",
+    ...overrides
   };
   const engine = new GameEngine(cfg);
   engine.beginDeployment();
   engine.setBaseCamp({ q: 0, r: 0 });
   engine.finalizeDeployment();
-  engine.startPlayerTurnPhase();
+  if (startPlayerTurn) engine.startPlayerTurnPhase();
   return engine;
 }
+
+registerTest("BOT_COMMANDER_MOBILITY_GRANTS_STAY_FACTION_LOCAL_AT_REAL_ROUND_BOUNDARIES", async ({ Given, When, Then }) => {
+  const definition = { ...playerInfantryDef, movement: 5, vision: 1 };
+  const player = { ...createPlannerSnapshot("Infantry_42", definition, { q: 0, r: 6 }).unit, unitId: "mobility-player", preDeployed: true };
+  const bot = { ...createPlannerSnapshot("Infantry_42", definition, { q: 7, r: 0 }).unit, unitId: "mobility-bot" };
+  const ally = { ...createPlannerSnapshot("Infantry_42", definition, { q: 0, r: 7 }).unit, unitId: "mobility-ally" };
+  const observed: number[][] = [];
+  await Given("isolated five-point formations under independently authored generals", async () => {});
+  await When("conventional and initiative rounds renew their real movement credits", async () => {
+    for (const [playerBonus, botBonus, allyBonus] of [[10, 0, 40], [0, 20, 0]]) {
+      for (const mode of ["conventional", "initiative"] as const) {
+        const engine = createHeuristicEngine([player], [bot], true, {
+          unitTypes: { ...strikeUnitTypes, Infantry_42: definition } as UnitTypeDictionary,
+          playerSide: side({ q: 0, r: 6 }, [player], playerBonus),
+          botSide: side({ q: 7, r: 0 }, [bot], botBonus),
+          allySide: side({ q: 0, r: 7 }, [ally], allyBonus)
+        });
+        if (mode === "initiative") engine.hydrateFromSerialized({ ...engine.serialize(), phase: "botTurn", activeFaction: "Bot" });
+        engine.endTurn();
+        const credits = [
+          engine.playerUnits.find((unit) => unit.unitId === player.unitId)!.movementCredit!,
+          engine.botUnits.find((unit) => unit.unitId === bot.unitId)!.movementCredit!
+        ];
+        if (mode === "conventional") credits.push(engine.allyUnits.find((unit) => unit.unitId === ally.unitId)!.movementCredit!);
+        observed.push(credits);
+      }
+    }
+  });
+  await Then("no faction receives another side's commander grant or carryover cap", async () => {
+    assert.deepEqual(observed, [[6, 5, 7], [6, 5], [5, 6, 5], [5, 6]]);
+  });
+});
+
+registerTest("BOT_COMMANDER_MOBILITY_PRESERVES_SAVED_PLAYER_OVERRIDE_WITHOUT_LEAKING_IT", async ({ Given, When, Then }) => {
+  const definition = { ...playerInfantryDef, movement: 5, vision: 1 };
+  const player = { ...createPlannerSnapshot("Infantry_42", definition, { q: 0, r: 6 }).unit, unitId: "saved-player" };
+  const bot = { ...createPlannerSnapshot("Infantry_42", definition, { q: 7, r: 0 }).unit, unitId: "saved-bot" };
+  const engine = createHeuristicEngine([player], [bot], true, { unitTypes: { ...strikeUnitTypes, Infantry_42: definition } as UnitTypeDictionary });
+  await Given("neutral authored generals and a save whose player commander has earned twenty percent mobility", async () => {
+    const saved = engine.serialize();
+    engine.hydrateFromSerialized({ ...saved, phase: "botTurn", activeFaction: "Bot", commanderStats: { ...saved.commanderStats!, moveBonus: 20 } });
+  });
+  await When("the restored initiative round completes", async () => { engine.endTurn(); });
+  await Then("the saved player budget remains six while the neutral bot receives five", async () => {
+    assert.equal(engine.getMovementBudget(player.hex, player.unitId)?.max, 6);
+    assert.equal(engine.playerUnits.find((unit) => unit.unitId === player.unitId)?.movementCredit, 6);
+    assert.equal(engine.botUnits.find((unit) => unit.unitId === bot.unitId)?.movementCredit, 5);
+    assert.equal(engine.serialize().commanderStats?.moveBonus, 20);
+  });
+});
+
+registerTest("BOT_COMMANDER_MOBILITY_CONTROLS_REAL_MOVE_THEN_FIRE_ELIGIBILITY", async ({ Given, When, Then }) => {
+  const definition = { ...playerTankDef, movement: 5 };
+  const bot = { ...createPlannerSnapshot("TestTank", definition, { q: 1, r: 0 }).unit, unitId: "mobility-attacker" };
+  const player = { ...createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 2, r: 0 }).unit, unitId: "mobility-defender", preDeployed: true, ammo: 0 };
+  const results: boolean[] = [];
+  await Given("a five-point tank which has already moved three points", async () => {});
+  await When("opposed commander bonuses are evaluated at the actual bot attack transaction", async () => {
+    for (const [playerBonus, botBonus] of [[10, 0], [0, 20]]) {
+      const engine = createHeuristicEngine([player], [bot], true, {
+        unitTypes: { ...strikeUnitTypes, TestTank: definition } as UnitTypeDictionary,
+        playerSide: side({ q: 0, r: 0 }, [player], playerBonus), botSide: side({ q: 7, r: 0 }, [bot], botBonus)
+      });
+      engine["botActionFlags"].set(bot.unitId, { movementPointsUsed: 3, attacksUsed: 0, retaliationsUsed: 0, isRushing: false });
+      const before = engine.serialize();
+      const result = engine["resolveBotAttack"](engine.botUnits.find((unit) => unit.unitId === bot.unitId)!, bot.hex, player.hex);
+      results.push(result !== null);
+      if (botBonus === 0) assert.deepEqual(engine.serialize(), before, "Rejected movement must not spend ammo, damage, or RNG.");
+      else {
+        assert.ok(result, "The acting commander's own bonus must authorize the third movement point.");
+        assert.equal(engine.serialize().actionFlags?.Bot.find(([id]) => id === bot.unitId)?.[1].attacksUsed, 1);
+        const after = engine.serialize();
+        assert.equal(engine["resolveBotAttack"](engine.botUnits.find((unit) => unit.unitId === bot.unitId)!, bot.hex, player.hex), null);
+        assert.deepEqual(engine.serialize(), after, "The bonus must never create a second attack.");
+      }
+    }
+  });
+  await Then("only the acting bot commander's bonus can extend the firing limit", async () => { assert.deepEqual(results, [false, true]); });
+});
+
+registerTest("BOT_COMMANDER_MOBILITY_PLANNER_AND_ACTIVATION_IGNORE_OPPOSING_BONUSES", async ({ Given, When, Then }) => {
+  const definition = { ...playerTankDef, movement: 5, vision: 6 };
+  const bot = { ...createPlannerSnapshot("TestTank", definition, { q: 0, r: 0 }).unit, unitId: "mobility-planner" };
+  const player = { ...createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 4, r: 0 }).unit, unitId: "mobility-contact", preDeployed: true, ammo: 0 };
+  const results: ReturnType<GameEngine["executeBotActivation"]>[] = [];
+  await Given("a visible contact requiring three points of movement before a legal shot", async () => {});
+  await When("real production activations vary only one side's mobility bonus", async () => {
+    for (const [playerBonus, botBonus] of [[0, 0], [10, 0], [0, 20], [0, 20]]) {
+      const engine = createHeuristicEngine([player], [bot], true, {
+        unitTypes: { ...strikeUnitTypes, TestTank: definition } as UnitTypeDictionary,
+        playerSide: side({ q: 0, r: 0 }, [player], playerBonus), botSide: side({ q: 7, r: 0 }, [bot], botBonus)
+      });
+      results.push(engine.executeBotActivation(bot.unitId));
+    }
+  });
+  await Then("opposing bonuses cannot change a bot plan and its own bonus produces a reproducible legal move/fire", async () => {
+    assert.deepEqual(results[1], results[0]);
+    assert.equal(results[0].attacks.length, 0);
+    assert.equal(results[2].attacks.length, 1);
+    assert.equal(results[2].moves[0]?.path.length, 4);
+    assert.deepEqual(results[3], results[2]);
+  });
+});
+
+registerTest("BOT_COMMANDER_MOBILITY_TOW_HOOKUP_USES_ACTING_FACTION", async ({ Given, When, Then }) => {
+  const definition = { ...antiTankGunDef, movement: 4, rangeMax: 1, vision: 5 };
+  const gun = { ...createPlannerSnapshot("AT_Gun_50mm", definition, { q: 0, r: 0 }).unit, unitId: "mobility-gun", towState: "deployed" as const };
+  const target = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 3, r: 0 }).unit, unitId: "tow-mobility-target", preDeployed: true };
+  const expenditures: number[][] = [];
+  await Given("a four-point gun and opposed neutral/twenty-five-percent mobility generals", async () => {});
+  await When("the bot limbers and traverses while the player issues the real move-out command", async () => {
+    for (const [playerBonus, botBonus] of [[25, 0], [0, 25]]) {
+      const unitTypes = { ...strikeUnitTypes, AT_Gun_50mm: definition } as UnitTypeDictionary;
+      const engine = createHeuristicEngine([target], [gun], true, {
+        unitTypes, playerSide: side({ q: 0, r: 0 }, [target], playerBonus), botSide: side({ q: 7, r: 0 }, [gun], botBonus)
+      });
+      const summary = engine.executeBotActivation(gun.unitId);
+      assert.equal(summary.moves.length, 1);
+      assert.equal(summary.attacks.length, 0);
+      const botFlags = engine.serialize().actionFlags?.Bot.find(([id]) => id === gun.unitId)?.[1];
+      const botHookup = botFlags!.movementPointsUsed - (summary.moves[0].path.length - 1);
+      const playerGun = { ...gun, preDeployed: true };
+      const playerEngine = createHeuristicEngine([playerGun], [target], true, {
+        unitTypes, playerSide: side({ q: 0, r: 0 }, [playerGun], playerBonus), botSide: side({ q: 7, r: 0 }, [target], botBonus)
+      });
+      assert.equal(playerEngine.moveOutTowableUnit(gun.hex, gun.unitId), true);
+      const playerHookup = playerEngine.serialize().actionFlags?.Player.find(([id]) => id === gun.unitId)?.[1].movementPointsUsed;
+      expenditures.push([playerHookup!, botHookup]);
+      assert.equal(engine.botUnits.find((unit) => unit.unitId === gun.unitId)?.towState, "towed");
+      assert.equal(engine.executeBotActivation(gun.unitId).attacks.length, 0);
+    }
+  });
+  await Then("each hookup cost is half its own rounded allowance, not the opponent's", async () => {
+    assert.deepEqual(expenditures, [[3, 2], [2, 3]]);
+  });
+});
+
+registerTest("BOT_COMMANDER_MOBILITY_LEGACY_LOGISTICS_USES_ITS_OWN_ALLOWANCE", async ({ Given, When, Then }) => {
+  const truck = { ...createPlannerSnapshot("Supply_Truck", supplyTruckDef, { q: 0, r: 0 }).unit, unitId: "legacy-mobility-truck", preDeployed: true };
+  const outcomes: boolean[] = [];
+  await Given("a legacy two-point convoy without banked movement facing a two-and-a-half-point edge", async () => {});
+  await When("the actual initiative logistics mover compares opposing mobility bonuses", async () => {
+    for (const faction of ["Player", "Bot"] as const) {
+      for (const ownBonus of [0, 50]) {
+        const players = faction === "Player" ? [truck] : [];
+        const bots = faction === "Bot" ? [truck] : [];
+        const playerBonus = faction === "Player" ? ownBonus : 50 - ownBonus;
+        const botBonus = faction === "Bot" ? ownBonus : 50 - ownBonus;
+        const engine = createHeuristicEngine(players, bots, true, {
+          terrain: { ...terrain, plains: { ...plains, moveCost: { ...plains.moveCost, wheel: 2.5 } } } as TerrainDictionary,
+          playerSide: side({ q: 0, r: 0 }, players, playerBonus), botSide: side({ q: 7, r: 0 }, bots, botBonus)
+        });
+        const saved = engine.serialize();
+        engine.hydrateFromSerialized({ ...saved,
+          playerPlacements: saved.playerPlacements.map((unit) => ({ ...unit, movementCredit: undefined })),
+          botPlacements: saved.botPlacements.map((unit) => ({ ...unit, movementCredit: undefined }))
+        });
+        const unit = (faction === "Player" ? engine.playerUnits : engine.botUnits).find((entry) => entry.unitId === truck.unitId)!;
+        assert.equal(unit.movementCredit, undefined);
+        const integration = new GameEngineInitiativeMethods(engine);
+        const harness = integration as unknown as { moveSingleHexToward(unit: ScenarioUnit, faction: "Player" | "Bot", target: Axial): boolean };
+        const before = engine.serialize();
+        const moved = harness.moveSingleHexToward(unit, faction, { q: 1, r: 0 });
+        outcomes.push(moved);
+        if (ownBonus === 0) assert.deepEqual(engine.serialize(), before);
+        else {
+          const after = (faction === "Player" ? engine.playerUnits : engine.botUnits).find((entry) => entry.unitId === truck.unitId)!;
+          assert.deepEqual(after.hex, { q: 1, r: 0 });
+          assert.equal(after.movementCredit, 0.5);
+          assert.ok(after.fuel < unit.fuel);
+        }
+      }
+    }
+  });
+  await Then("only the acting general enables the step and normal fuel/cost accounting remains intact", async () => {
+    assert.deepEqual(outcomes, [false, true, false, true]);
+  });
+});
+
+registerTest("BOT_COMMANDER_MOBILITY_COMBAT_CONTEXT_USES_ACTUAL_ATTACKER_FACTION", async ({ Given, When, Then }) => {
+  const definition = { ...playerTankDef, movement: 5 };
+  const player = { ...createPlannerSnapshot("TestTank", definition, { q: 0, r: 0 }).unit, unitId: "context-player", preDeployed: true };
+  const bot = { ...createPlannerSnapshot("TestTank", definition, { q: 1, r: 0 }).unit, unitId: "context-bot" };
+  const ally = { ...createPlannerSnapshot("TestTank", definition, { q: 0, r: 1 }).unit, unitId: "context-ally" };
+  const engine = createHeuristicEngine([player], [bot], true, {
+    unitTypes: { ...strikeUnitTypes, TestTank: definition } as UnitTypeDictionary,
+    playerSide: side({ q: 0, r: 0 }, [player], 0), botSide: side({ q: 7, r: 0 }, [bot], 0), allySide: side({ q: 0, r: 1 }, [ally], 40)
+  });
+  let windows: (number | undefined)[];
+  await Given("a saved player bonus of twenty percent, neutral bot and forty-percent ally", async () => {
+    const saved = engine.serialize();
+    engine.hydrateFromSerialized({ ...saved, commanderStats: { ...saved.commanderStats!, moveBonus: 20 } });
+  });
+  await When("the engine builds real forward and counterfire requests without resolving combat", async () => {
+    const before = engine.serialize();
+    const actualPlayer = engine.playerUnits.find((unit) => unit.unitId === player.unitId)!;
+    const actualBot = engine.botUnits.find((unit) => unit.unitId === bot.unitId)!;
+    const actualAlly = engine.allyUnits.find((unit) => unit.unitId === ally.unitId)!;
+    windows = [
+      engine["buildAttackRequest"](actualPlayer, actualBot, "Player", "Bot")?.attackerCtx.movementAttackWindow,
+      engine["buildAttackRequest"](actualBot, actualPlayer, "Bot", "Player", { isRetaliation: true })?.attackerCtx.movementAttackWindow,
+      engine["buildAttackRequest"](actualAlly, actualBot, "Ally", "Bot")?.attackerCtx.movementAttackWindow
+    ];
+    assert.deepEqual(engine.serialize(), before, "Mobility context projection must not consume RNG or mutate state.");
+  });
+  await Then("the movement windows follow each actual attacker, including the saved player override", async () => {
+    assert.deepEqual(windows, [3, 2.5, 3.5]);
+  });
+});
+
+registerTest("BOT_PLANNER_USES_ENGINE_STACK_CAPACITY_FOR_ENTRY_AND_TRANSIT", async ({ Given, When, Then }) => {
+  const mover = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 0 });
+  const input: BotPlannerInput = {
+    botUnits: [mover],
+    playerUnits: [],
+    objectives: [],
+    occupancy: new Map([["0,0", "bot"], ["1,0", "bot"], ["3,0", "bot"], ["5,0", "player"]]),
+    map: {
+      inBounds: (hex) => hex.r === 0 && hex.q >= 0 && hex.q <= 5,
+      terrainAt: () => plains,
+      movementCost: () => 1,
+      canEnterHex: (origin, destination) => {
+        assert.deepEqual(origin, mover.unit.hex, "Capacity must be checked for the acting formation's origin.");
+        return destination.q !== 3 && destination.q !== 5;
+      }
+    },
+    losAllows: () => true,
+    movementAllowance: () => 5,
+    attackEstimator: () => null
+  };
+  let reachable = new Map<string, { path: readonly Axial[] }>();
+
+  await Given("one friendly formation at 1,0, a full friendly stack at 3,0, and an enemy at 5,0", async () => {});
+  await When("the bot searches using the engine's authoritative stacking legality", async () => {
+    reachable = computeReachableHexes(mover.unit.hex, 5, "track", input, "0,0");
+  });
+  await Then("the spare friendly slot allows a destination and transit but full stacks block the lane", async () => {
+    assert.ok(reachable.has("1,0"), "The spare friendly slot must be a legal destination.");
+    assert.deepEqual(reachable.get("2,0")?.path.map(axialKey), ["0,0", "1,0", "2,0"]);
+    assert.equal(reachable.has("3,0"), false, "A full stack cannot receive a third unit.");
+    assert.equal(reachable.has("4,0"), false, "A full stack cannot be crossed.");
+    assert.equal(reachable.has("5,0"), false, "Hostile occupancy remains blocked.");
+  });
+});
+
+registerTest("BOT_PLANNER_PRICES_MOVEMENT_FROM_THE_PREVIOUS_HEX", async ({ Given, When, Then }) => {
+  const mover = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 0 });
+  const costEdges: string[] = [];
+  const input: BotPlannerInput = {
+    botUnits: [mover], playerUnits: [], objectives: [], occupancy: new Map([["0,0", "bot"]]),
+    map: {
+      inBounds: (hex) => hex.r === 0 && hex.q >= 0 && hex.q <= 2,
+      terrainAt: () => plains,
+      movementCost: (hex, _moveType, from) => {
+        costEdges.push(`${from ? axialKey(from) : "missing"}->${axialKey(hex)}`);
+        return from && from.q === 0 && hex.q === 1 ? 2 : 1;
+      }
+    },
+    losAllows: () => true, movementAllowance: () => 2, attackEstimator: () => null
+  };
+  let reachable = new Map<string, { cost: number }>();
+
+  await Given("a crossing whose two-point cost depends on the entering edge", async () => {});
+  await When("the bot computes positions reachable with two movement points", async () => {
+    reachable = computeReachableHexes(mover.unit.hex, 2, "track", input, "0,0");
+  });
+  await Then("the bot can reach the crossing but cannot invent a discounted step beyond it", async () => {
+    assert.equal(reachable.get("1,0")?.cost, 2);
+    assert.equal(reachable.has("2,0"), false);
+    assert.ok(costEdges.includes("0,0->1,0"));
+    assert.equal(costEdges.some((edge) => edge.startsWith("missing")), false);
+  });
+});
 
 registerTest("BOT_PLANNER_STAGES_FOR_ARMORED_TARGETS_WITH_A_REAL_FIRING_LANE", async ({ Given, When, Then }) => {
   let plannedDestination = "";
@@ -508,50 +764,377 @@ registerTest("BOT_PLANNER_ROUTES_AROUND_PLAYER_UNITS", async ({ Given, When, The
   });
 });
 
-registerTest("BOT_EXECUTION_MOVES_LANE_CLEARING_UNITS_BEFORE_THEIR_FOLLOWERS", async ({ Given, When, Then }) => {
-  let orderedOrigins: string[] = [];
+registerTest("BOT_EXECUTION_TRANSITS_A_SPARE_FRIENDLY_SLOT_WITHOUT_MOVING_THE_LEAD_UNIT", async ({ Given, When, Then }) => {
+  const rear = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 0 }).unit, unitId: "rear-tank" };
+  const screen = { ...createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 1, r: 0 }).unit, unitId: "screen" };
+  const target = { ...createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 3, r: 0 }).unit, unitId: "target" };
+  const engine = createHeuristicEngine([target], [rear, screen]);
+  let summary: ReturnType<GameEngine["executeBotActivation"]>;
 
-  await Given("a rear tank plan that depends on a lead element clearing the lane first", async () => {
-    const engine = createHeuristicEngine([], []);
-    const rearTankPlan = createPlannedAction(
-      "RearTank",
-      playerTankDef,
-      { q: 0, r: 0 },
-      { q: 3, r: 0 },
-      [
-        { q: 0, r: 0 },
-        { q: 1, r: 0 },
-        { q: 2, r: 0 },
-        { q: 3, r: 0 }
-      ],
-      25
-    );
-    const leadTankPlan = createPlannedAction(
-      "LeadTank",
-      playerTankDef,
-      { q: 1, r: 0 },
-      { q: 2, r: -1 },
-      [
-        { q: 1, r: 0 },
-        { q: 2, r: -1 }
-      ],
-      12
-    );
-
-    orderedOrigins = ((engine as any).prioritizeHeuristicPlansForExecution([
-      rearTankPlan,
-      leadTankPlan
-    ]) as PlannedBotAction[]).map((plan) => axialKey(plan.origin));
+  await Given("a rear tank and a stationary friendly screen with spare stacking capacity", async () => {});
+  await When("only the rear tank receives an activation", async () => { summary = engine.executeBotActivation("rear-tank"); });
+  await Then("its committed path crosses the friendly hex and preserves both stable unit identities", async () => {
+    assert.equal(summary.moves.length, 1);
+    assert.ok(summary.moves[0].path.some((hex) => axialKey(hex) === "1,0"));
+    assert.notEqual(axialKey(engine.botUnits.find((unit) => unit.unitId === "rear-tank")!.hex), "0,0");
+    assert.equal(axialKey(engine.botUnits.find((unit) => unit.unitId === "screen")!.hex), "1,0");
+    assert.equal(engine.botUnits.filter((unit) => unit.unitId === "rear-tank").length, 1);
+    assert.equal(summary.supplyReport, null, "An initiative activation must not run another supply tick.");
   });
+});
 
-  await When("the executor reorders heuristic plans for movement", async () => {
-    // Ordered results were captured during Given so the assertion stays focused on the sequencing.
+registerTest("BOT_INITIATIVE_USES_THE_PRODUCTION_PLANNER_AND_CONSUMES_ONE_LEGAL_ATTACK", async ({ Given, When, Then }) => {
+  const attacker = { ...createPlannerSnapshot("Medium_Tank", playerTankDef, { q: 0, r: 0 }).unit, unitId: "initiative-tank" };
+  const target = { ...createPlannerSnapshot("Infantry_42", playerInfantryDef, { q: 2, r: 0 }).unit, unitId: "initiative-target" };
+  const engine = createHeuristicEngine([target], [attacker], false);
+  const integration = new GameEngineInitiativeMethods(engine);
+  const activationResults: InitiativeBotActivationResult[] = [];
+  const logs: string[] = [];
+  let secondAttackCount = -1;
+  integration.setBotActivationListener((result) => { activationResults.push(result); });
+
+  await Given("a real engine whose enemy can move and fire after the combat-report ledger is already full", async () => {
+    const oldReports: CombatReportEntry[] = Array.from({ length: 50 }, (_, index) => ({
+      id: `old-report-${index}`, turn: 0, timestamp: "2026-10-15T00:00:00.000Z",
+      attacker: { faction: "Bot", unitType: "Medium_Tank", position: { q: 0, r: 0 }, strengthBefore: 100, strengthAfter: 100 },
+      defender: { faction: "Player", unitType: "Infantry_42", position: { q: 2, r: 0 }, strengthBefore: 100, strengthAfter: 100, destroyed: false },
+      attackResult: { damage: 0, terrainDefense: 0, accuracyMod: 0, range: 1, los: true }
+    }));
+    engine.hydrateFromSerialized({ ...engine.serialize(), combatReports: oldReports });
   });
+  await When("the production initiative queue activates the enemy formation", async () => {
+    const oldLog = console.log;
+    console.log = (...parts: unknown[]) => { logs.push(parts.map(String).join(" ")); };
+    try {
+      integration.startInitiativeTurnPhase();
+      integration.completeUnitActivation("initiative-target");
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      secondAttackCount = engine.executeBotActivation("initiative-tank").attacks.length;
+    } finally { console.log = oldLog; }
+  });
+  await Then("the shared planner moves the stable unit, fires once, and does not fall back or grant extra ammunition", async () => {
+    const result = activationResults.find((entry) => entry.unitId === "initiative-tank");
+    assert.ok(result, "The real queue must report the bot activation.");
+    assert.equal(result.attacks.length, 1);
+    assert.equal(engine.getCombatReports().length, 50, "A rollover must not hide the new attack from presentation.");
+    assert.equal(result.attacks[0].attackerUnitId, "initiative-tank");
+    assert.equal(result.attacks[0].defenderUnitId, "initiative-target");
+    assert.equal(result.moved, true);
+    assert.deepEqual(result.movementPath?.[0], result.fromHex);
+    assert.deepEqual(result.movementPath?.[result.movementPath.length - 1], result.toHex);
+    assert.equal(secondAttackCount, 0);
+    const survivor = engine.botUnits.find((unit) => unit.unitId === "initiative-tank");
+    assert.ok(survivor);
+    assert.ok(survivor.ammo < attacker.ammo);
+    assert.ok(survivor.fuel < attacker.fuel);
+    assert.ok(logs.some((line) => line.startsWith("[Bot AI] Plan for ")));
+    assert.equal(logs.some((line) => /adapter unavailable|fallback bot|Advanced AI/.test(line)), false);
+  });
+});
 
-  await Then("the lane-clearing unit should execute before the rear unit that needs the vacated hex", async () => {
-    if (orderedOrigins.join(" -> ") !== "1,0 -> 0,0") {
-      throw new Error(`Expected lead unit at 1,0 to move before follower at 0,0, but saw ${orderedOrigins.join(" -> ") || "no order"}.`);
+registerTest("BOT_INITIATIVE_ROUND_WRAP_RENEWS_ACTIONS_AND_MOVEMENT_WITHOUT_FREE_EXTRA_ATTACKS", async ({ Given, When, Then }) => {
+  const bot = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 0 }).unit, unitId: "round-attacker" };
+  const target = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 2, r: 0 }).unit, unitId: "round-defender", ammo: 0 };
+  const engine = createHeuristicEngine([target], [bot]);
+  const attacksPerRound: number[] = [];
+  await Given("a legal tank attack which consumes movement and the round's only shot", async () => {
+    const first = engine.executeBotActivation("round-attacker");
+    attacksPerRound.push(first.attacks.length);
+    assert.equal(first.moves.length, 1);
+    assert.equal(engine.executeBotActivation("round-attacker").attacks.length, 0);
+  });
+  await When("two completed initiative rounds enter the real engine round boundary", async () => {
+    for (let round = 0; round < 2; round += 1) {
+      engine.hydrateFromSerialized({ ...engine.serialize(), phase: "botTurn", activeFaction: "Bot" });
+      engine.endTurn();
+      assert.equal(engine.serialize().actionFlags?.Bot.length, 0);
+      assert.ok((engine.botUnits.find((unit) => unit.unitId === "round-attacker")?.movementCredit ?? 0) > 0);
+      const next = engine.executeBotActivation("round-attacker");
+      attacksPerRound.push(next.attacks.length);
+      assert.equal(engine.executeBotActivation("round-attacker").attacks.length, 0);
     }
+  });
+  await Then("the stable formation can fight in every new round, never twice within one round", async () => {
+    assert.deepEqual(attacksPerRound, [1, 1, 1]);
+    assert.equal(engine.botUnits.filter((unit) => unit.unitId === "round-attacker").length, 1);
+  });
+});
+
+registerTest("BOT_ACTIVATION_RESPECTS_EMPTY_FUEL_AND_SPENT_MOVEMENT", async ({ Given, When, Then }) => {
+  const target = { ...createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 2, r: 0 }).unit, unitId: "budget-target" };
+  const cases = [
+    { unitId: "empty-tank", fuel: 0, movementCredit: 3 },
+    { unitId: "spent-tank", fuel: 50, movementCredit: 0 }
+  ];
+  const summaries: ReturnType<GameEngine["executeBotActivation"]>[] = [];
+  await Given("one tank with no fuel and another whose movement credit has been spent", async () => {});
+  await When("each receives an activation with a visible target beyond its firing range", async () => {
+    for (const state of cases) {
+      const unit = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 0 }).unit, ...state };
+      const engine = createHeuristicEngine([target], [unit]);
+      summaries.push(engine.executeBotActivation(state.unitId));
+    }
+  });
+  await Then("neither gains a free move or a shot from an unreachable firing position", async () => {
+    for (const summary of summaries) {
+      assert.equal(summary.moves.length, 0);
+      assert.equal(summary.attacks.length, 0);
+    }
+  });
+});
+
+registerTest("BOT_ACTIVATION_DOES_NOT_HUNT_UNOBSERVED_FORMATIONS", async ({ Given, When, Then }) => {
+  const unit = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 0 }).unit, unitId: "fog-tank" };
+  const target = { ...createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 0, r: 6 }).unit, unitId: "hidden-target" };
+  let input: BotPlannerInput;
+  let result: ReturnType<GameEngine["executeBotActivation"]>;
+  await Given("an enemy beyond every bot observer's spotting radius and no contested objective", async () => {});
+  await When("the real engine builds its knowledge and executes the tank activation", async () => {
+    const engine = createHeuristicEngine([target], [unit]);
+    const harness = engine as unknown as {
+      readonly botPlacements: Map<string, ScenarioUnit>;
+      readonly playerPlacements: Map<string, ScenarioUnit>;
+      buildPlannerInputFor(acting: Map<string, ScenarioUnit>, opposing: Map<string, ScenarioUnit>, difficulty: "Normal"): BotPlannerInput;
+    };
+    input = harness.buildPlannerInputFor(harness.botPlacements, harness.playerPlacements, "Normal");
+    result = engine.executeBotActivation("fog-tank");
+  });
+  await Then("hidden identities and positions do not enter scoring and the bot cannot chase them", async () => {
+    assert.equal(input.playerUnits.some((entry) => entry.unit.unitId === "hidden-target"), false);
+    assert.equal(input.occupancy.has(axialKey(target.hex)), false);
+    assert.equal(result.moves.length, 0);
+    assert.equal(result.attacks.length, 0);
+  });
+});
+
+registerTest("BOT_ROUTES_ARE_IDENTICAL_WHEN_ONLY_UNOBSERVED_HOSTILE_OCCUPANCY_CHANGES", async ({ Given, When, Then }) => {
+  const tankDefinition = { ...playerTankDef, movement: 4, vision: 1 };
+  const mover = { ...createPlannerSnapshot("Medium_Tank", tankDefinition, { q: 0, r: 3 }).unit, unitId: "route-scout" };
+  const hidden = { ...createPlannerSnapshot("Infantry_42", playerInfantryDef, { q: 0, r: 5 }).unit, unitId: "route-hidden" };
+  const overrides = { unitTypes: { ...strikeUnitTypes, Medium_Tank: tankDefinition } as UnitTypeDictionary };
+  const clearEngine = createHeuristicEngine([], [mover], true, overrides);
+  const hiddenEngine = createHeuristicEngine([hidden], [mover], true, overrides);
+  const inputs = [clearEngine, hiddenEngine].map((engine) => ({
+    ...engine["buildPlannerInputFor"](engine["botPlacements"], engine["playerPlacements"], "Normal"),
+    objectives: [{ hex: { q: 0, r: 6 }, owner: "Player" as const, vp: 100 }]
+  }));
+  let paths: ReturnType<typeof computeReachableHexes>[];
+  let plans: ReturnType<typeof planHeuristicBotTurn>[];
+  await Given("otherwise identical maps with a hostile unit outside the moving tank's vision", async () => {
+    assert.equal(hiddenEngine["checkTargetSpotted"](hidden.hex, "Bot"), false);
+    assert.equal(inputs[1].occupancy.has(axialKey(hidden.hex)), false);
+    assert.equal(inputs[1].playerUnits.some((entry) => entry.unit.unitId === hidden.unitId), false);
+    assert.equal(hiddenEngine["canFactionEnterHex"](mover, "Bot", hidden.hex), false, "Execution must still enforce actual collision.");
+  });
+  await When("the real engine planner compares all reachable paths and chooses the next order", async () => {
+    paths = inputs.map((input) => computeReachableHexes(mover.hex, 4, "track", input, axialKey(mover.hex), mover.fuel, mover.unitId));
+    plans = inputs.map((input) => planHeuristicBotTurn(input, (entry) => entry.unit.unitId === mover.unitId));
+  });
+  await Then("hidden truth changes neither route costs nor tactical choices, while physical execution remains guarded", async () => {
+    assert.ok(paths[0].has(axialKey(hidden.hex)), "The counterfactual must actually cover the hidden blocker.");
+    assert.deepEqual(paths[1], paths[0]);
+    assert.equal(plans[0].length, 1);
+    assert.deepEqual(plans[1], plans[0]);
+    assert.ok(plans[0][0].path.some((hex) => axialKey(hex) === axialKey(hidden.hex)), "The identical planned route must not secretly detour around the hidden unit.");
+    assert.equal(hiddenEngine["canFactionEnterHex"](mover, "Bot", hidden.hex), false);
+  });
+});
+
+registerTest("BOT_ATTACK_REJECTS_EXCESS_MOVEMENT_WITHOUT_CHANGING_STATE", async ({ Given, When, Then }) => {
+  const bot = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 1, r: 0 }).unit, unitId: "spent-attacker" };
+  const player = { ...createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 2, r: 0 }).unit, unitId: "spent-defender" };
+  const engine = createHeuristicEngine([player], [bot]);
+  const harness = engine as unknown as {
+    botActionFlags: Map<string, { movementPointsUsed: number; attacksUsed: number; retaliationsUsed: number; isRushing: boolean }>;
+    resolveBotAttack(unit: ScenarioUnit, from: Axial, to: Axial): unknown;
+  };
+  let before: ReturnType<GameEngine["serialize"]>;
+  let result: unknown;
+  await Given("a three-point-movement tank that has already spent two points", async () => {
+    harness.botActionFlags.set("spent-attacker", { movementPointsUsed: 2, attacksUsed: 0, retaliationsUsed: 0, isRushing: false });
+    before = engine.serialize();
+  });
+  await When("the real bot attack boundary is asked to fire anyway", async () => {
+    result = harness.resolveBotAttack(engine.botUnits.find((unit) => unit.unitId === "spent-attacker")!, bot.hex, player.hex);
+  });
+  await Then("the same movement-before-fire limit as the player rejects it without any mutation", async () => {
+    assert.equal(result, null);
+    assert.deepEqual(engine.serialize(), before);
+  });
+});
+
+registerTest("BOT_EXECUTION_PRESERVES_FULL_FRIENDLY_STACKS_WHILE_ROUTING_AROUND_THEM", async ({ Given, When, Then }) => {
+  const mover = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 0 }).unit, unitId: "stack-mover" };
+  const screen = createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 1, r: 0 }).unit;
+  const target = createPlannerSnapshot("TestInfantry", playerInfantryDef, { q: 3, r: 0 }).unit;
+  const engine = createHeuristicEngine([target], [mover, { ...screen, unitId: "screen-one" }, { ...screen, unitId: "screen-two" }]);
+  let summary: ReturnType<GameEngine["executeBotActivation"]>;
+  await Given("two friendly combat formations occupying the direct approach hex", async () => {});
+  await When("a third formation receives a move-and-fight activation", async () => { summary = engine.executeBotActivation("stack-mover"); });
+  await Then("the actual move avoids the full hex and leaves both stacked formations intact", async () => {
+    summary.moves.forEach((move) => assert.equal(move.path.some((hex) => axialKey(hex) === "1,0"), false));
+    assert.deepEqual(engine.botUnits.filter((unit) => axialKey(unit.hex) === "1,0").map((unit) => unit.unitId).sort(), ["screen-one", "screen-two"]);
+    assert.equal(engine.botUnits.filter((unit) => unit.unitId === "stack-mover").length, 1);
+  });
+});
+
+registerTest("BOT_TOWED_ATTACK_READINESS_REJECTS_MOVEMENT_BELOW_THE_NORMAL_FIRE_LIMIT", async ({ Given, When, Then }) => {
+  const definition = { ...antiTankGunDef, movement: 4 };
+  const gun = { ...createPlannerSnapshot("AT_Gun_50mm", definition, { q: 0, r: 0 }).unit, unitId: "moved-towed-gun", towState: "towed" as const };
+  const target = createPlannerSnapshot("TestTank", playerTankDef, { q: 1, r: 0 }).unit;
+  const engine = createHeuristicEngine([target], [gun], true, {
+    unitTypes: { ...strikeUnitTypes, AT_Gun_50mm: definition } as UnitTypeDictionary
+  });
+  let before: ReturnType<GameEngine["serialize"]>;
+  let result: unknown;
+  await Given("a limbered gun that moved one point, below its normal two-point movement-before-fire limit", async () => {
+    engine["botActionFlags"].set("moved-towed-gun", { movementPointsUsed: 1, attacksUsed: 0, retaliationsUsed: 0, isRushing: false });
+    before = engine.serialize();
+  });
+  await When("the real attack boundary evaluates its shared tow readiness", async () => {
+    result = engine["resolveBotAttack"](engine.botUnits.find((unit) => unit.unitId === gun.unitId)!, gun.hex, target.hex);
+  });
+  await Then("it refuses before deployment, damage or resource mutation", async () => {
+    assert.equal(result, null);
+    assert.deepEqual(engine.serialize(), before);
+  });
+});
+
+registerTest("BOT_CONVENTIONAL_TURN_REPLANS_AFTER_EACH_COMMITTED_ACTION", async ({ Given, When, Then }) => {
+  const first = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 0 }).unit, unitId: "first-attacker" };
+  const second = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 1 }).unit, unitId: "second-attacker" };
+  const target = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 2, r: 0 }).unit, unitId: "replan-target", ammo: 0 };
+  const engine = createHeuristicEngine([target], [first, second]);
+  const observations: string[][] = [];
+  const harness = engine as unknown as {
+    buildPlannerInputFor(...args: unknown[]): BotPlannerInput;
+  };
+  const originalBuilder = harness.buildPlannerInputFor.bind(engine);
+  harness.buildPlannerInputFor = (...args: unknown[]): BotPlannerInput => {
+    const input = originalBuilder(...args);
+    observations.push(input.botUnits.map((snapshot) => `${snapshot.unit.unitId}@${axialKey(snapshot.unit.hex)}`));
+    return input;
+  };
+  await Given("two tanks whose initial plans compete for a firing lane", async () => {});
+  await When("a conventional enemy turn commits its actions", async () => { engine.endTurn(); });
+  await Then("the second decision observes the first committed move and each stable formation fires at most once", async () => {
+    assert.ok(observations.length >= 2, "One frozen plan list cannot account for changed occupancy and contacts.");
+    assert.notDeepEqual(observations[0], observations[1]);
+    const observedSummary = engine.peekBotTurnSummary();
+    assert.ok(observedSummary);
+    assert.notStrictEqual(observedSummary.moves, engine.peekBotTurnSummary()?.moves, "Mission observation must be detached from animation history.");
+    const summary = engine.consumeBotTurnSummary();
+    assert.ok(summary);
+    assert.equal(summary.attacks.length, 2, "Both formations should exploit their legal firing opportunity.");
+    assert.equal(engine.peekBotTurnSummary(), null);
+    assert.equal(new Set(engine.botUnits.map((unit) => unit.unitId)).size, engine.botUnits.length);
+    const actionFlags = engine.serialize().actionFlags?.Bot ?? [];
+    for (const unitId of ["first-attacker", "second-attacker"]) {
+      assert.equal(actionFlags.find(([id]) => id === unitId)?.[1].attacksUsed, 1);
+    }
+  });
+});
+
+registerTest("BOT_PRODUCTION_DIFFICULTIES_APPLY_LEGAL_REPRODUCIBLE_PRESSURE", async ({ Given, When, Then }) => {
+  const bot = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r: 0 }).unit, unitId: "difficulty-attacker" };
+  const target = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 2, r: 0 }).unit, unitId: "difficulty-target", ammo: 0 };
+  const damageByDifficulty = new Map<string, number>();
+  await Given("identical seeded tank engagements at Easy, Normal, and Hard", async () => {});
+  await When("the real production planner and combat resolver commit each difficulty's activation twice from identical starts", async () => {
+    for (const botDifficulty of ["Easy", "Normal", "Hard"] as const) {
+      const runs: ReturnType<GameEngine["executeBotActivation"]>[] = [];
+      for (let repeat = 0; repeat < 2; repeat += 1) {
+        const engine = createHeuristicEngine([target], [bot], true, { botDifficulty });
+        const result = engine.executeBotActivation("difficulty-attacker");
+        assert.equal(result.attacks.length, 1, `${botDifficulty} must exploit the legal firing lane.`);
+        assert.equal(result.moves.length, 1);
+        assert.ok(result.moves[0].path.length <= 2, "No difficulty grants extra move-and-fire range.");
+        assert.equal(engine.executeBotActivation("difficulty-attacker").attacks.length, 0);
+        runs.push(result);
+      }
+      assert.deepEqual(runs[0], runs[1], `${botDifficulty} must replay deterministically.`);
+      damageByDifficulty.set(botDifficulty, runs[0].attacks[0].inflictedDamage);
+    }
+  });
+  await Then("all difficulties create actual pressure while Hard retains its authored stronger combat modifier", async () => {
+    assert.ok(damageByDifficulty.get("Easy")! > 0);
+    assert.ok(damageByDifficulty.get("Normal")! >= damageByDifficulty.get("Easy")!);
+    assert.ok(damageByDifficulty.get("Hard")! >= damageByDifficulty.get("Normal")!);
+  });
+});
+
+registerTest("BOT_CONVENTIONAL_REPLANNING_SCORES_ONLY_THE_NEXT_ACTOR_AFTER_INITIAL_RANKING", async ({ Given, When, Then }) => {
+  const bots = Array.from({ length: 4 }, (_, r) => ({
+    ...createPlannerSnapshot("TestTank", playerTankDef, { q: 0, r }).unit, unitId: `bounded-actor-${r}`
+  }));
+  const target = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 3, r: 1 }).unit, ammo: 0 };
+  const engine = createHeuristicEngine([target], bots);
+  const searchesPerDecision: number[] = [];
+  const originalBuilder = engine["buildPlannerInputFor"].bind(engine);
+  engine["buildPlannerInputFor"] = (...args): BotPlannerInput => {
+    const input = originalBuilder(...args);
+    const decisionIndex = searchesPerDecision.push(0) - 1;
+    return { ...input, movementAllowance: (snapshot) => {
+      searchesPerDecision[decisionIndex] += 1;
+      return input.movementAllowance(snapshot);
+    } };
+  };
+  await Given("four formations sharing a live battlefield whose first ranking determines activation order", async () => {});
+  await When("the conventional turn replans after each committed action", async () => { engine.endTurn(); });
+  await Then("it scores the army once, then exactly one fresh actor per decision instead of quadratic repeated army searches", async () => {
+    assert.deepEqual(searchesPerDecision, [4, 1, 1, 1]);
+    assert.equal(engine.botUnits.filter((unit) => unit.unitId?.startsWith("bounded-actor-")).length, 4);
+  });
+});
+
+registerTest("BOT_TOWED_MOVEMENT_USES_PLAYER_TRANSPORT_COSTS_AND_PAYS_HOOKUP", async ({ Given, When, Then }) => {
+  const gunDefinition: UnitTypeDefinition = { ...antiTankGunDef, movement: 4, rangeMax: 1, vision: 5 };
+  const overrides = {
+    unitTypes: { ...strikeUnitTypes, AT_Gun_50mm: gunDefinition } as UnitTypeDictionary,
+    terrain: { ...terrain, plains: { ...plains, moveCost: { ...plains.moveCost, wheel: 3 } } } as TerrainDictionary
+  };
+  const gun = { ...createPlannerSnapshot("AT_Gun_50mm", gunDefinition, { q: 0, r: 0 }).unit, unitId: "tow-gun", towState: "deployed" as const };
+  const enemy = { ...createPlannerSnapshot("TestTank", playerTankDef, { q: 3, r: 0 }).unit, unitId: "tow-target" };
+  const botEngine = createHeuristicEngine([enemy], [gun], true, overrides);
+  const playerEngine = createHeuristicEngine([gun], [enemy], true, overrides);
+  let summary: ReturnType<GameEngine["executeBotActivation"]>;
+  await Given("a deployed anti-tank gun where its wheel definition and limbered truck costs differ", async () => {});
+  await When("the bot plans and commits its move and the player issues the equivalent tow-and-move order", async () => {
+    summary = botEngine.executeBotActivation("tow-gun");
+    assert.equal(summary.moves.length, 1, "The two-point transport lane must be planned after paying two-point hookup.");
+    assert.equal(playerEngine.moveOutTowableUnit(gun.hex, "tow-gun"), true);
+    playerEngine.moveUnit(gun.hex, summary.moves[0].to, "tow-gun");
+  });
+  await Then("both formations pay the same transport cost, preserve their identity and cannot move-and-fire", async () => {
+    const botGun = botEngine.botUnits.find((unit) => unit.unitId === "tow-gun")!;
+    const playerGun = playerEngine.playerUnits.find((unit) => unit.unitId === "tow-gun")!;
+    assert.notDeepEqual(botGun.hex, gun.hex);
+    assert.deepEqual(botGun.hex, playerGun.hex);
+    assert.equal(botGun.movementCredit, playerGun.movementCredit);
+    assert.equal(botGun.towState, "towed");
+    assert.equal(summary.attacks.length, 0);
+    const botFlags = botEngine.serialize().actionFlags?.Bot.find(([id]) => id === "tow-gun")?.[1];
+    const playerFlags = playerEngine.serialize().actionFlags?.Player.find(([id]) => id === "tow-gun")?.[1];
+    assert.equal(botFlags?.movementPointsUsed, playerFlags?.movementPointsUsed);
+    assert.equal(botFlags?.movementPointsUsed, 2 + summary.moves[0].path.length - 1);
+    assert.equal(botEngine.executeBotActivation("tow-gun").attacks.length, 0);
+  });
+});
+
+registerTest("BOT_INITIATIVE_AUTOMATED_LOGISTICS_CANNOT_MOVE_WITHOUT_FUEL", async ({ Given, When, Then }) => {
+  const truck = { ...createPlannerSnapshot("Supply_Truck", supplyTruckDef, { q: 0, r: 0 }).unit, unitId: "dry-convoy", fuel: 0 };
+  const engine = createHeuristicEngine([truck], []);
+  const integration = new GameEngineInitiativeMethods(engine);
+  const harness = integration as unknown as { moveSingleHexToward(unit: ScenarioUnit, faction: "Player", target: Axial): boolean };
+  let before: ReturnType<GameEngine["serialize"]>;
+  let moved = true;
+  await Given("a real automated player convoy with movement credit but empty fuel", async () => { before = engine.serialize(); });
+  await When("the logistics activation requests a step toward its supply assignment", async () => {
+    moved = harness.moveSingleHexToward(engine.playerUnits.find((unit) => unit.unitId === "dry-convoy")!, "Player", { q: 2, r: 0 });
+  });
+  await Then("it holds with position, fuel, credit, occupancy and action flags untouched", async () => {
+    assert.equal(moved, false);
+    assert.deepEqual(engine.serialize(), before);
   });
 });
 

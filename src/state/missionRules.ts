@@ -54,7 +54,15 @@ export interface MissionSnapshot {
   readonly allyUnits?: readonly ScenarioUnit[];
 }
 
+/** Engine-committed movement evidence, independent of fog-of-war presentation. */
+export interface MissionBotMovement {
+  readonly unitType: string;
+  readonly path: readonly Axial[];
+}
+
 export interface MissionRulesController {
+  /** Record accepted enemy routes before evaluating the resulting mission snapshot. */
+  observeBotMovements?(movements: readonly MissionBotMovement[]): void;
   onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus;
   getStatus(): MissionStatus;
   serializeState(): SerializedMissionRulesState;
@@ -79,6 +87,23 @@ function readMissionRuleState(
   return snapshot.data as Record<string, unknown>;
 }
 
+/** Missing turn markers identify legacy saves; present markers must be valid round numbers. */
+function readHoldTurnMarker(data: Record<string, unknown>): number | null {
+  if (!Object.prototype.hasOwnProperty.call(data, "lastCountedTurn")) return null;
+  if (!Number.isInteger(data.lastCountedTurn) || Number(data.lastCountedTurn) < 0) {
+    throw new Error("Mission hold-clock snapshot has an invalid lastCountedTurn; load an intact battle save.");
+  }
+  return Number(data.lastCountedTurn);
+}
+
+/** Hold objectives sample control once per numbered player-round boundary. */
+function shouldCountHoldTurn(turn: TurnSummary, lastCountedTurn: number | null): boolean {
+  if (lastCountedTurn !== null && lastCountedTurn > turn.turnNumber) {
+    throw new Error("Mission hold-clock snapshot is ahead of the battle round; load a matching battle save.");
+  }
+  return turn.phase === "playerTurn" && turn.turnNumber > (lastCountedTurn ?? turn.turnNumber);
+}
+
 function makeKey(hex: Axial): string {
   return `${hex.q},${hex.r}`;
 }
@@ -98,6 +123,8 @@ interface FordTracker {
   outcome: MissionOutcome;
   blockedFordsStreak: number;
   phase: MissionPhaseStatus;
+  lastCountedTurn: number | null;
+  commsReachedCentralFord: boolean;
 }
 
 interface TownDefenseTracker {
@@ -164,7 +191,9 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
     counters: new Map<string, number>(),
     outcome: { state: "inProgress" },
     blockedFordsStreak: 0,
-    phase: createRiverWatchPhase(0, 0, difficulty)
+    phase: createRiverWatchPhase(0, 0, difficulty),
+    lastCountedTurn: 0,
+    commsReachedCentralFord: false
   };
 
   const buildObjectives = (
@@ -190,12 +219,16 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
       id: "secondary_destroy_comms",
       label: "Destroy the enemy comms team before it reaches the central ford",
       tier: "secondary",
-      state: commsDestroyed
+      state: tracker.commsReachedCentralFord
+        ? "failed"
+        : commsDestroyed
         ? "completed"
         : outcome.state === "inProgress"
           ? "inProgress"
           : "failed",
-      detail: commsDestroyed
+      detail: tracker.commsReachedCentralFord
+        ? "Enemy comms team reached the central ford before it was eliminated."
+        : commsDestroyed
         ? "Enemy comms team eliminated before the patrol withdrew."
         : outcome.state === "inProgress"
           ? "Enemy comms team remains active."
@@ -265,8 +298,17 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
       return occupant === "Player" || occupant === "Ally";
     });
 
-    tracker.blockedFordsStreak = allFordsBlocked ? tracker.blockedFordsStreak + 1 : 0;
-    tracker.phase = createRiverWatchPhase(turnSummary.turnNumber, tracker.blockedFordsStreak, difficulty);
+    // Status is evaluated again after save hydration and during faction transitions.
+    // Only a new player-round boundary may advance a consecutive-turn objective.
+    const countTurn = outcome.state === "inProgress" && shouldCountHoldTurn(turnSummary, tracker.lastCountedTurn);
+    if (tracker.lastCountedTurn === null || countTurn) tracker.lastCountedTurn = turnSummary.turnNumber;
+    if (countTurn) tracker.blockedFordsStreak = allFordsBlocked ? tracker.blockedFordsStreak + 1 : 0;
+    const centralFordKey = fordKeys[1]?.key;
+    if (outcome.state === "inProgress") {
+      tracker.commsReachedCentralFord ||= botUnits.some((unit) =>
+        unit.type === "Recon_Bike" && makeKey(unit.hex) === centralFordKey);
+      tracker.phase = createRiverWatchPhase(turnSummary.turnNumber, tracker.blockedFordsStreak, difficulty);
+    }
 
     // Check for unit elimination victory/defeat conditions
     if (outcome.state === "inProgress") {
@@ -278,7 +320,7 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
     }
 
     // Check ford control for defeat (enemy holds any ford for 8 turns)
-    fordKeys.forEach(({ key }) => {
+    if (countTurn) fordKeys.forEach(({ key }) => {
       const occupant = occupancy.get(key);
       const heldByBot = occupant === "Bot";
       const previous = tracker.counters.get(key) ?? 0;
@@ -294,9 +336,9 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
       outcome = { state: "playerVictory", reason: "Denied enemy control of all fords for 8 turns." };
     }
 
-    // Turn limit fallback (should never be reached with turnLimit = 999)
+    // Surviving the deadline does not satisfy the published eight-turn hold order.
     if (turnLimit !== null && turnLimit < 999 && turnSummary.turnNumber >= turnLimit && outcome.state === "inProgress") {
-      outcome = { state: "playerVictory", reason: "Held river line through the final turn." };
+      outcome = { state: "playerDefeat", reason: "The patrol window closed before all three fords were held for 8 consecutive turns." };
     }
 
     tracker.outcome = outcome;
@@ -311,6 +353,14 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
   };
 
   return {
+    observeBotMovements(movements: readonly MissionBotMovement[]): void {
+      if (tracker.outcome.state !== "inProgress" || tracker.commsReachedCentralFord) return;
+      const centralFordKey = fordKeys[1]?.key;
+      // A route can cross the ford and leave it before the next snapshot, or the
+      // comms team can die to counterfire afterward. Committed history wins.
+      tracker.commsReachedCentralFord = movements.some((movement) =>
+        movement.unitType === "Recon_Bike" && movement.path.some((hex) => makeKey(hex) === centralFordKey));
+    },
     onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus {
       return deriveStatus(snapshot);
     },
@@ -331,6 +381,8 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
           counters: Array.from(tracker.counters.entries()),
           outcome: structuredClone(tracker.outcome),
           blockedFordsStreak: tracker.blockedFordsStreak,
+          ...(tracker.lastCountedTurn === null ? {} : { lastCountedTurn: tracker.lastCountedTurn }),
+          commsReachedCentralFord: tracker.commsReachedCentralFord,
           phase: structuredClone(tracker.phase)
         }
       };
@@ -344,6 +396,10 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
       (data.counters as Array<[string, number]>).forEach(([key, value]) => tracker.counters.set(key, value));
       tracker.outcome = structuredClone(data.outcome as MissionOutcome);
       tracker.blockedFordsStreak = Number(data.blockedFordsStreak);
+      // Version-one saves written before round tracking adopt their first restored
+      // snapshot as the boundary; loading must never award a free hold turn.
+      tracker.lastCountedTurn = readHoldTurnMarker(data);
+      tracker.commsReachedCentralFord = data.commsReachedCentralFord === true;
       tracker.phase = structuredClone(data.phase as MissionPhaseStatus);
     }
   } satisfies MissionRulesController;
@@ -526,6 +582,7 @@ interface PointeDuHocTracker {
   outcome: MissionOutcome;
   phase: MissionPhaseStatus;
   counterattackAnnounced: boolean;
+  lastCountedTurn: number | null;
 }
 
 function createPointeDuHocPhase(turnNumber: number, counterattackAnnounced: boolean): MissionPhaseStatus {
@@ -563,7 +620,8 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
     holdStreak: 0,
     outcome: { state: "inProgress" },
     phase: createPointeDuHocPhase(0, false),
-    counterattackAnnounced: false
+    counterattackAnnounced: false,
+    lastCountedTurn: 0
   };
 
   const buildObjectives = (
@@ -667,11 +725,11 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
     const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
     const turnLimit = snapScenario.turnLimit ?? null;
 
-    const counterattackJustArrived = turnSummary.turnNumber === 3 && !tracker.counterattackAnnounced;
+    const counterattackJustArrived = tracker.outcome.state === "inProgress" && turnSummary.turnNumber === 3 && !tracker.counterattackAnnounced;
     if (counterattackJustArrived) {
       tracker.counterattackAnnounced = true;
     }
-    tracker.phase = createPointeDuHocPhase(turnSummary.turnNumber, !counterattackJustArrived);
+    if (tracker.outcome.state === "inProgress") tracker.phase = createPointeDuHocPhase(turnSummary.turnNumber, !counterattackJustArrived);
 
     let outcome: MissionOutcome = tracker.outcome;
 
@@ -687,11 +745,9 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
       const allGunsCaptured = gunPositions.length > 0 &&
         gunPositions.every(({ key }) => isFriendlyOccupant(occupancy.get(key)));
 
-      if (allGunsCaptured) {
-        tracker.holdStreak += 1;
-      } else {
-        tracker.holdStreak = 0;
-      }
+      const countTurn = shouldCountHoldTurn(turnSummary, tracker.lastCountedTurn);
+      if (tracker.lastCountedTurn === null || countTurn) tracker.lastCountedTurn = turnSummary.turnNumber;
+      if (countTurn) tracker.holdStreak = allGunsCaptured ? tracker.holdStreak + 1 : 0;
 
       if (tracker.holdStreak >= HOLD_TARGET) {
         outcome = { state: "playerVictory", reason: "All gun positions held for 6 consecutive turns. Pointe du Hoc is secure." };
@@ -731,6 +787,7 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
         kind: "pointeDuHoc",
         data: {
           holdStreak: tracker.holdStreak,
+          ...(tracker.lastCountedTurn === null ? {} : { lastCountedTurn: tracker.lastCountedTurn }),
           outcome: structuredClone(tracker.outcome),
           phase: structuredClone(tracker.phase),
           counterattackAnnounced: tracker.counterattackAnnounced
@@ -743,6 +800,7 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
         throw new Error("Pointe du Hoc mission-rule snapshot is malformed.");
       }
       tracker.holdStreak = Number(data.holdStreak);
+      tracker.lastCountedTurn = readHoldTurnMarker(data);
       tracker.outcome = structuredClone(data.outcome as MissionOutcome);
       tracker.phase = structuredClone(data.phase as MissionPhaseStatus);
       tracker.counterattackAnnounced = data.counterattackAnnounced;

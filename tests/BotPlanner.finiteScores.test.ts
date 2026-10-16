@@ -133,3 +133,55 @@ registerTest("BOT_PLANNER_QUARANTINES_NON_FINITE_SCORES_WITHOUT_DROPPING_NEGATIV
     assert.ok(negativePlans[0].score < 0);
   });
 });
+
+registerTest("BOT_PLANNER_SHIPPED_FORMATIONS_ADVANCE_AGAINST_ARMOR_AT_EVERY_DIFFICULTY", async ({ Given, When, Then }) => {
+  const formations = Object.entries(unitTypesData).filter(([, definition]) =>
+    definition.moveType !== "air"
+    && definition.class !== "artillery"
+    && definition.class !== "recon"
+    && definition.combat.role !== "support"
+    && definition.hardAttack > 0
+  );
+  const armor = Object.entries(unitTypesData).find(([, definition]) => definition.class === "tank");
+  assert.ok(armor, "The shipped roster must contain armor for the challenge fixture.");
+  const plans: Array<{ type: string; difficulty: BotDifficulty; actions: ReturnType<typeof planHeuristicBotTurn> }> = [];
+
+  await Given("shipped formations whose canonical weapon model does not require legacy top-level AP", async () => {
+    assert.ok(formations.length >= 5, "Exercise the real combat roster, not only a synthetic infantry definition.");
+    assert.ok(formations.some(([, definition]) => definition.ap === undefined));
+  });
+
+  await When("each difficulty sees known enemy armor beyond this turn's firing range in an open lane", async () => {
+    for (const difficulty of ["Easy", "Normal", "Hard"] as const) {
+      for (const [type, definition] of formations) {
+        const bot = createInfantrySnapshot(`pressure-${type}`, { q: 0, r: 0 });
+        const player = createInfantrySnapshot("known-enemy-armor", { q: 30, r: 0 });
+        const input: BotPlannerInput = {
+          ...createSingleAttackInput(0, 0, difficulty),
+          botUnits: [{ unit: { ...bot.unit, type: type as typeof bot.unit.type }, definition }],
+          playerUnits: [{ unit: { ...player.unit, type: armor[0] as typeof player.unit.type }, definition: armor[1] }],
+          occupancy: new Map([["0,0", "bot"], ["30,0", "player"]]),
+          map: {
+            inBounds: (hex) => hex.r === 0 && hex.q >= 0 && hex.q <= 30,
+            terrainAt: () => null,
+            movementCost: () => 1
+          },
+          movementAllowance: () => 2,
+          attackEstimator: () => null
+        };
+        plans.push({ type, difficulty, actions: planHeuristicBotTurn(input) });
+      }
+    }
+  });
+
+  await Then("every formation retains a finite legal pressure plan instead of silently disappearing", async () => {
+    for (const { type, difficulty, actions } of plans) {
+      const label = `${difficulty} ${type}`;
+      assert.equal(actions.length, 1, `${label} lost its plan.`);
+      const [action] = actions;
+      assert.ok(Number.isFinite(action.score), `${label} produced a non-finite score.`);
+      assert.ok(action.destination.q > 0 && action.destination.q <= 2, `${label} should advance within its two-point budget.`);
+      assert.equal(action.attackTarget, null, `${label} cannot shoot a target thirty hexes away.`);
+    }
+  });
+});

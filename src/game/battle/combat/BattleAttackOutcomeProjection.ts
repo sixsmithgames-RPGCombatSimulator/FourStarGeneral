@@ -50,6 +50,8 @@ export interface AttackResolution {
 }
 
 export interface BotAttackSummary {
+  readonly attackerUnitId?: string;
+  readonly defenderUnitId?: string;
   readonly attackerType: string;
   readonly defenderType: string;
   readonly from: Axial;
@@ -59,6 +61,9 @@ export interface BotAttackSummary {
   readonly defenderDamage?: CombatDamageSummary;
   readonly defenderDestroyed: boolean;
   readonly retaliation?: {
+    /** First actual counterfire actor; may differ from the primary defender. */
+    readonly attackerUnitId?: string;
+    readonly attackerType?: string;
     readonly damage: number;
     readonly summary?: string;
     readonly damageSummary?: CombatDamageSummary;
@@ -112,7 +117,7 @@ export interface PlayerAttackOutcomeProjectionInput extends AttackOutcomeProject
 export interface BotAttackOutcomeProjectionInput extends AttackOutcomeProjectionBase {
   readonly kind: "bot";
   readonly retaliationOccurred: boolean;
-  readonly representativeRetaliationResult?: AttackResult;
+  readonly representativeRetaliation?: { readonly result: AttackResult; readonly unit: ScenarioUnit };
   readonly totalDefenderDamage: number;
   readonly totalRetaliationDamage: number;
   readonly allDefendersDestroyed: boolean;
@@ -178,10 +183,12 @@ export function projectBattleAttackOutcome(
     };
   }
 
-  const representativeRetaliationResult = input.representativeRetaliationResult;
+  const representativeRetaliation = input.representativeRetaliation;
   return {
     report,
     summary: {
+      ...(input.attacker.unit.unitId ? { attackerUnitId: input.attacker.unit.unitId } : {}),
+      ...(input.defender.unit.unitId ? { defenderUnitId: input.defender.unit.unitId } : {}),
       attackerType: input.attacker.unit.type,
       defenderType: input.defender.unit.type,
       from: structuredClone(input.attacker.hex),
@@ -190,13 +197,15 @@ export function projectBattleAttackOutcome(
       damageSummary: input.defenderDamage?.summary,
       defenderDamage: cloneOptional(input.defenderDamage),
       defenderDestroyed: input.allDefendersDestroyed,
-      retaliation: input.retaliationOccurred && representativeRetaliationResult
+      retaliation: input.retaliationOccurred && representativeRetaliation
         ? {
+            attackerUnitId: representativeRetaliation.unit.unitId,
+            attackerType: representativeRetaliation.unit.type,
             damage: input.totalRetaliationDamage,
             summary: input.primaryRetaliationDamage?.summary,
             damageSummary: cloneOptional(input.primaryRetaliationDamage),
             terrainDefense: 0,
-            accuracyMod: Math.round(representativeRetaliationResult.accuracy * 100),
+            accuracyMod: Math.round(representativeRetaliation.result.accuracy * 100),
             attackerStrengthAfter: input.attacker.strengthAfter
           }
         : undefined

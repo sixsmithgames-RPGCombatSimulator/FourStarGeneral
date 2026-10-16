@@ -75,7 +75,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .air-readiness-board {
           display: grid;
           gap: 0.28rem;
-          min-width: min(310px, 100%);
+          min-width: 310px;
           justify-items: end;
         }
         .air-readiness-board__label {
