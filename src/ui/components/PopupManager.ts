@@ -2615,7 +2615,7 @@ export class PopupManager implements IPopupManager {
 
     if (serviceRecord) {
       parts.push(
-        `${identity.name} has led ${serviceRecord.missionsCompleted} mission${serviceRecord.missionsCompleted === 1 ? "" : "s"} with ${serviceRecord.victoriesAchieved} victory${serviceRecord.victoriesAchieved === 1 ? "" : "ies"}.`
+        `${identity.name} has led ${serviceRecord.missionsCompleted} mission${serviceRecord.missionsCompleted === 1 ? "" : "s"} with ${serviceRecord.victoriesAchieved} ${serviceRecord.victoriesAchieved === 1 ? "victory" : "victories"}.`
       );
       parts.push(`Total units deployed: ${serviceRecord.unitsDeployed}. Total casualties: ${serviceRecord.casualtiesSustained}.`);
 

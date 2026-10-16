@@ -1,5 +1,7 @@
 # Air Brief 3 arrow repair — 16 October 2026
 
+Current follow-up: the remaining findings below are corrected and pass fresh acceptance in [TUTORIAL_BRIEF_FOLLOWUP_2026-10-16.md](TUTORIAL_BRIEF_FOLLOWUP_2026-10-16.md), which owns the follow-up release status. This document preserves the original pointer release and its historical observations; it is not a competing current release decision.
+
 ## Intent, scope and risk
 
 Fix the observed Air Brief 3 arrow that faces away from the highlighted sortie board after its prompt flips sides. Keep tutorial progression, authored instructions, target selection, gameplay state, saves and popup geometry unchanged. This is a bounded behavior repair in `TutorialOverlay`, not an architecture refactor.
@@ -60,8 +62,18 @@ This run used an ignored configuration that imports the same project configurati
 
 ## Release status and limits
 
-**Local acceptance complete; authorized production release pending.** Starting production is `6916e9bf7df82a67b017356e9d69d34176a62304`; authenticated preflight confirms the existing Vite project/team and `https://fsg.sixsmithgames.com`. Local and remote main still match that starting commit, and no active production build was returned. Release one reviewed commit through the existing Git-connected production workflow, then verify READY status, exact commit/alias ownership, artifacts and available error logs. Existing unrelated generated changes and the prior local release receipt are preserved. The production receipt will be appended after the release rather than triggering a second documentation-only deployment.
+**Deployed to production after acceptance passed.** Commit `c3f5ad612f875b6685857013bf7e0c9951a9a0f4` was released through the existing Git-connected workflow, on top of `6916e9bf7df82a67b017356e9d69d34176a62304`. Authenticated deployment metadata confirms READY, the exact commit, production target and `https://fsg.sixsmithgames.com` alias. Local and remote main agree. Existing unrelated generated changes are preserved. This post-release receipt remains a local documentation update so it does not trigger a second documentation-only deployment.
 
 This is bounded tutorial-pointer acceptance, not a new certification of every mission, live campaign, populated-sortie controls, subjective audio or native Safari. Windows browser-specific image references do not certify other operating systems. The separately named tutorial playthrough report has still not been supplied; this repair closes the directly observed arrow issue, not an unread report's entire contents.
 
-The skill's full unit gate was executed from a fresh, ignored `dist-tsc-check/tutorial-arrow-20261016` compilation instead of invoking `npm test` through `-Full`, because that script overwrites the user's already-dirty tracked `dist-tsc-jest` output. The same registered runner completed all 1,078 tests. Full manual journeys at 1680 and 390, manual tutorial pan/zoom stress, and a comprehensive Class A certificate are not claimed. Prioritized non-blocking follow-up: fix the Logistics target scope, align the three stale panel descriptions, correct Service Notes pluralization, then extend manual coverage and populated-sortie acceptance.
+The skill's full unit gate was executed from a fresh, ignored `dist-tsc-check/tutorial-arrow-20261016` compilation using the same compiler, assets and registered runner, which completed all 1,078 tests. Clarification: `npm test` replaces `dist-tsc`; it is `test:jest` that replaces the already-dirty tracked `dist-tsc-jest` output. The isolated output preserved existing generated files. Full manual journeys at 1680 and 390, manual tutorial pan/zoom stress, and a comprehensive Class A certificate are not claimed. The historical non-blocking Logistics target, stale descriptions and Service Notes findings are now covered by the linked follow-up; broader populated-sortie acceptance remains separate.
+
+## Production receipt — 16 October 2026, 19:31 UTC
+
+- URL: `https://fsg.sixsmithgames.com`; immutable deployment: `https://fourstargeneral-gzwibgcgt.vercel.app`.
+- Target: **production**; state: **READY**; framework: **Vite**; deployment: `dpl_82b1keo2rQAa9Hc5qvUJdRwdgThm`; commit: `c3f5ad612f875b6685857013bf7e0c9951a9a0f4`.
+- Build started 19:26:17.918 UTC, completed 19:27:45.963 UTC: **88.045 seconds**. READY at 19:27:49.894 UTC; no alias error. Production build retained six JavaScript files, an 82,205-byte initial script and no static chunk cycles.
+- Public artifact check at 19:28:24.246 UTC: **25/25 pass**. All 23 scripts/styles/catalog/audio files are byte-identical to the tested output. The two HTML pages match after removing carriage-return bytes only; they are not claimed byte-identical. Evidence: `diagnostics/tutorial-arrow-20261016-deployed-artifacts.json`.
+- Initial observability window, READY through approximately 19:31:03 UTC: project runtime-error aggregation reports no errors; deployment-scoped production error/fatal logs return no matching records. This short server-log window does not cover client-only errors or certify continued production health. The separate manual preview walkthrough recorded no browser warnings/errors.
+- Drain inspection returned HTTP 404 from `GET /v1/drains` for the authenticated project/team. Drain configuration is **unverified**, not assumed absent; no monitoring settings were changed and no ongoing monitor was scheduled.
+- Test source and nine visual reference hashes matched their freeze before release. All task-owned browser tabs and preview processes were closed. Existing user tabs and unrelated generated files were untouched. Remaining local changes from this task are this receipt and the master audit's release-status link.

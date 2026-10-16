@@ -80,7 +80,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
       },
       {
         title: "Command Bonuses",
-        content: "These figures show the active bonuses applied to movement, supply, reconnaissance, and combat.",
+        content: "These figures show the active accuracy, damage, mobility and supply bonuses. Read each bonus before planning your orders.",
         highlightSelector: ".battle-popup[data-popup-key=\"generalProfile\"] .general-profile__benefit",
         highlightFirstMatch: true,
         position: "left",
@@ -120,7 +120,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
       },
       {
         title: "Read The Contact",
-        content: "Check the reported position, age, and confidence before acting. Move observers forward to refresh a weak or missing report.",
+        content: "Check each contact's position, activity, observation source and estimated strength before acting. Move observers forward to gain sight of missing contacts.",
         highlightSelector: ".battle-popup[data-popup-key=\"recon\"] .recon-contact-item",
         highlightFirstMatch: true,
         position: "left",
@@ -200,8 +200,8 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
       },
       {
         title: "Follow The Convoys",
-        content: "Convoy status shows each load and destination. Keep these routes open or frontline formations will run short.",
-        highlightSelector: ".battle-popup[data-popup-key=\"logistics\"] .logistics-convoy-item",
+        content: "Track each convoy's cargo, route, status and arrival time here. No active convoys means there are none to track. Keep supply routes open.",
+        highlightSelector: ".battle-popup[data-popup-key=\"logistics\"] [data-logistics-convoys] > :is(.logistics-convoy-item, .logistics-panel__empty)",
         highlightFirstMatch: true,
         position: "left",
         arrowDirection: "right",
@@ -223,7 +223,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
       },
       {
         title: "Frontline Readiness",
-        content: "Frontline entries show strength, ammunition, fuel, movement, and suppression. Check them before assigning the next attack.",
+        content: "Frontline entries show strength, experience, ammunition and fuel. Read personnel, equipment and suppression details when shown before assigning an attack.",
         highlightSelector: ".battle-popup[data-popup-key=\"armyRoster\"] [data-roster-list=\"frontline\"] .army-roster-entry",
         highlightFirstMatch: true,
         position: "left",

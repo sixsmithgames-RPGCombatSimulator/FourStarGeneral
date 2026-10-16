@@ -59,7 +59,7 @@ export class TutorialOverlay {
   private currentStep: TutorialStep | null = null;
   private lastRenderedPhase: TutorialPhase | null = null;
   private syncingCanProceed = false;
-  private onViewportChange: (() => void) | null = null;
+  private onViewportChange: ((event: Event) => void) | null = null;
   private domObserver: MutationObserver | null = null;
   private domObserverScheduled = false;
   private domObserverRafId: number | null = null;
@@ -263,7 +263,11 @@ export class TutorialOverlay {
     });
 
     if (!this.onViewportChange) {
-      this.onViewportChange = () => {
+      this.onViewportChange = (event) => {
+        if (event.type === "resize" && this.activeMiniTutorial && this.currentStep?.highlightFirstMatch
+          && this.currentStep.highlightSelector) {
+          this.scrollTargetIntoView(this.currentStep.highlightSelector);
+        }
         // Keep spotlight/panel aligned as the UI changes (scrolling, resize, popups opening)
         if (this.currentStep?.highlightSelector && this.currentStep.showSpotlight !== false) {
           this.positionSpotlight(this.currentStep.highlightSelector);
@@ -760,6 +764,19 @@ export class TutorialOverlay {
       return;
     }
 
+    // A compact, bounded sidebar card must sit above the bottom-docked prompt.
+    // Native centering uses the whole popup and would put its details behind the prompt.
+    // Leave map targets, large boards and desktop placement on their existing paths.
+    if (window.innerWidth <= 768 && this.activeMiniTutorial && this.currentStep?.highlightFirstMatch
+      && targetElement.closest(".battle-popup")) {
+      this.positionPanelForCurrentStep();
+      const contentBottom = this.panelElement!.getBoundingClientRect().top - 16;
+      this.scrollNearestScrollableAncestorIntoView(targetElement, contentBottom);
+      this.positionSpotlight(selector);
+      this.positionPanelForCurrentStep();
+      return;
+    }
+
     const scrolledAncestor = this.scrollNearestScrollableAncestorIntoView(targetElement);
 
     const rect = targetElement.getBoundingClientRect();
@@ -805,7 +822,7 @@ export class TutorialOverlay {
     }
   }
 
-  private scrollNearestScrollableAncestorIntoView(targetElement: HTMLElement): boolean {
+  private scrollNearestScrollableAncestorIntoView(targetElement: HTMLElement, contentBottom?: number): boolean {
     let ancestor = targetElement.parentElement;
     while (ancestor && ancestor !== document.body) {
       const styles = window.getComputedStyle(ancestor);
@@ -817,7 +834,11 @@ export class TutorialOverlay {
         const targetRect = targetElement.getBoundingClientRect();
         const ancestorRect = ancestor.getBoundingClientRect();
         const targetTop = targetRect.top - ancestorRect.top + ancestor.scrollTop;
-        const centeredTop = targetTop - Math.max(0, (ancestor.clientHeight - targetRect.height) / 2);
+        const visibleTop = contentBottom === undefined ? ancestorRect.top : Math.max(0, ancestorRect.top) + 8;
+        const visibleBottom = contentBottom === undefined ? ancestorRect.top + ancestor.clientHeight
+          : Math.min(ancestorRect.bottom, contentBottom);
+        const centeredTop = targetTop - (visibleTop - ancestorRect.top)
+          - Math.max(0, (visibleBottom - visibleTop - targetRect.height) / 2);
         const maxScroll = ancestor.scrollHeight - ancestor.clientHeight;
         const nextScroll = Math.max(0, Math.min(maxScroll, centeredTop));
         if (Math.abs(ancestor.scrollTop - nextScroll) > 1) {
@@ -903,7 +924,8 @@ export class TutorialOverlay {
     const phaseClass = `tutorial-phase-${step.phase.replace(/[^a-z0-9_-]/gi, "-")}`;
     const waitClass = step.waitForAction === true ? " tutorial-wait-step" : "";
     const battleDockClass = this.isTopDockedBattleStep(step) ? " tutorial-battle-docked" : "";
-    this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}${battleDockClass}`;
+    const boundedCardClass = this.activeMiniTutorial && step.highlightFirstMatch ? " tutorial-bounded-card" : "";
+    this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}${battleDockClass}${boundedCardClass}`;
 
     // Viewport boundaries with minimum margin
     const viewportMargin = 20;
@@ -1089,6 +1111,30 @@ export class TutorialOverlay {
             this.panelElement.style.left = `${centeredLeft}px`;
           }
           nudgeWithinViewport();
+        }
+        // Wide sidebar rows cannot always leave room at either side of the popup.
+        // Use a clear vertical edge when it fits, without changing large-board placement.
+        if (boundedCardClass && viewportWidth > 768 && overlaps(getPanelRect(), rect)) {
+          const above = rect.top - panelHeight - offset;
+          const below = rect.bottom + offset;
+          const clearTop = above >= viewportMargin ? above
+            : below + panelHeight <= viewportHeight - viewportMargin ? below : null;
+          if (clearTop !== null) {
+            this.panelElement.style.removeProperty("right");
+            this.panelElement.style.removeProperty("bottom");
+            this.panelElement.style.left = `${centeredLeft}px`;
+            this.panelElement.style.top = `${clearTop}px`;
+          } else {
+            // Short desktops can fit the card and prompt, but not around a centered card.
+            // Move the card into the upper reading area using the same popup scroller.
+            const promptTop = viewportHeight - panelHeight - viewportMargin;
+            this.panelElement.style.removeProperty("right");
+            this.panelElement.style.removeProperty("bottom");
+            this.panelElement.style.left = `${centeredLeft}px`;
+            this.panelElement.style.top = `${promptTop}px`;
+            this.scrollNearestScrollableAncestorIntoView(targetElement, promptTop - offset);
+            this.positionSpotlight(step.highlightSelector);
+          }
         }
         this.updateArrow(step);
         return;

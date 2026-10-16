@@ -48,6 +48,7 @@ import "./SelectionIntelOverlay.commandCards.test.js";
 import "./FocusedScrollReveal.test.js";
 import "./TutorialOverlay.multiTarget.test.js";
 import "./SidebarMiniTutorials.test.js";
+import "./SidebarBriefContent.test.js";
 import "./PopupManager.lifecycle.test.js";
 import "./unitSpriteCatalog.test.js";
 import "./deploymentZonePlanner.test.js";

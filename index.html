@@ -8586,6 +8586,14 @@
 
     /* Responsive adjustments */
     @media (max-width: 768px) {
+      /* Allow even the last bounded card to scroll above its tutorial prompt.
+         Derived from the active overlay: no spacer survives dismissal or another brief. */
+      body:has(#tutorialOverlayContainer:not(.hidden) .tutorial-bounded-card) .battle-popup [data-popup-body]::after {
+        content: "";
+        display: block;
+        height: 100vh;
+      }
+
       .tutorial-panel {
         width: calc(100vw - 32px);
         max-width: none;

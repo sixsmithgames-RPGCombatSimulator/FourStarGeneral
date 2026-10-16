@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { expectGuidedPolygonVisible, waitForTutorialPanelEntrance } from "./support/tutorialEvidence";
 import { expectAirReadinessVisible } from "./support/airReadinessGeometry";
 import { expectAirBriefArrow } from "./support/tutorialArrowGeometry";
+import { expectTutorialCardVisible } from "./support/tutorialCardGeometry";
 
 const tutorialPanel = (page: Page): Locator => page.locator(".tutorial-panel");
 
@@ -315,8 +316,15 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await captureTutorialScreenshot(page, outputPath("sidebar-general-brief.png"));
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "General Brief 2 of 3", "Command Bonuses", ".general-profile__benefit");
+  await expect(page.locator('.general-profile__benefit dt')).toHaveText(['Accuracy Bonus', 'Damage Bonus', 'Mobility Bonus', 'Supply Bonus']);
+  await expect(tutorialPanel(page)).toContainText('accuracy, damage, mobility and supply');
+  await expect(tutorialPanel(page)).not.toContainText('reconnaissance');
+  await expectTutorialCardVisible(page, page.locator('.general-profile__benefit').first());
+  await captureTutorialScreenshot(page, outputPath('sidebar-general-bonuses.png'));
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "General Brief 3 of 3", "Traits And Directives", "#generalProfileDirectives");
+  await expect(page.locator('#generalProfileHistory')).toContainText('0 victories.');
+  await expect(page.locator('#generalProfileHistory')).not.toContainText('victoryies');
   await advanceMiniBrief(page);
   await closeStandardBattlePopup(page);
 
@@ -326,6 +334,14 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await expectMiniBriefStep(page, "Recon Brief 2 of 3", "Your Observers", ".recon-observer-card");
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Recon Brief 3 of 3", "Read The Contact", ".recon-contact-item");
+  await expect(tutorialPanel(page)).toContainText('position, activity, observation source and estimated strength');
+  await expect(tutorialPanel(page)).not.toContainText(/age,|confidence/);
+  const firstContact = page.locator('.recon-contact-item').first();
+  await expectTutorialCardVisible(page, firstContact);
+  await expect(firstContact.locator('.recon-contact-pill').first()).not.toBeEmpty();
+  await expect(firstContact.locator('.recon-contact-pill--activity')).toContainText(/Holding|Maneuvering|Engaged/i);
+  await expect(firstContact.locator('.recon-contact-item__meta')).toContainText(/Direct sight|Tracked by recon|Spotted/);
+  await expect(firstContact.locator('.recon-contact-item__meta')).toContainText(/Strength est\.|Strength unknown/);
   await captureTutorialScreenshot(page, outputPath("sidebar-recon-brief.png"));
   await advanceMiniBrief(page);
   await closeStandardBattlePopup(page);
@@ -362,7 +378,13 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await captureTutorialScreenshot(page, outputPath("sidebar-logistics-brief.png"));
   await expect(page.locator(".tutorial-action-btn")).toBeHidden();
   await page.locator('.logistics-priority-card [data-logistics-priority="critical"]').first().click();
-  await expectMiniBriefStep(page, "Logistics Brief 4 of 4", "Follow The Convoys", ".logistics-convoy-item");
+  const convoyTarget = '[data-logistics-convoys] > :is(.logistics-convoy-item, .logistics-panel__empty)';
+  await expectMiniBriefStep(page, "Logistics Brief 4 of 4", "Follow The Convoys", convoyTarget);
+  await expect(page.locator('[data-logistics-care-teams] .tutorial-highlight')).toHaveCount(0);
+  await expect(page.locator(`${convoyTarget}.tutorial-highlight`)).toHaveCount(1);
+  await expect(tutorialPanel(page)).toContainText('No active convoys');
+  await expectTutorialCardVisible(page, page.locator(convoyTarget).first());
+  await captureTutorialScreenshot(page, outputPath('sidebar-logistics-convoys.png'));
   await advanceMiniBrief(page);
   await closeStandardBattlePopup(page);
 
@@ -370,6 +392,11 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await expectMiniBriefStep(page, "Roster Brief 1 of 4", "Order Of Battle", ".army-roster-summary");
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Roster Brief 2 of 4", "Frontline Readiness", "[data-roster-list=\"frontline\"] .army-roster-entry");
+  await expect(page.locator('[data-roster-list="frontline"] .army-roster-entry').first().locator('abbr')).toHaveText(['STR', 'EXP', 'AMMO', 'FUEL']);
+  await expect(tutorialPanel(page)).toContainText('strength, experience, ammunition and fuel');
+  await expect(tutorialPanel(page)).not.toContainText('movement');
+  await expectTutorialCardVisible(page, page.locator('[data-roster-list="frontline"] .army-roster-entry').first());
+  await captureTutorialScreenshot(page, outputPath('sidebar-roster-readiness.png'));
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Roster Brief 3 of 4", "Reserves And Support", "[data-roster-section=\"reserves\"] > header");
   await advanceMiniBrief(page);

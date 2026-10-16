@@ -1,0 +1,56 @@
+# Tutorial brief follow-up — 16 October 2026
+
+## Intent, scope and risk
+
+Close the remaining observed defects in `TUTORIAL_ARROW_REPAIR_2026-10-16.md`: Logistics Brief 4 targets a care team rather than a convoy; General Brief 2, Recon Brief 3 and Roster Brief 2 describe unavailable fields; General Service Notes renders `victoryies`.
+
+Change the existing authored brief definitions and existing service-history formatter. No new state, events, persistence, timers, engine rules, layout authority or duplicate renderer. Scope the convoy selector to the real convoy list, including its existing empty-state row. Copy must explain that empty state and match the production-rendered General, Recon and Roster fields.
+
+Visual review found mobile card details hidden by the bottom-docked prompt despite passing spotlight geometry. Hold release and correct the existing TutorialOverlay scroll owner to center bounded popup targets in the unobscured area. Add actual target/prompt/clipping intersection assertions. The same assertion found desktop convoy rows too wide for either side placement; use a clear vertical edge only when it fits. Keep map focusing, Air references and oversized-board behavior unchanged.
+
+Risks: narrower selectors could lose an empty-state target; copy could wrap on mobile; shared formatting could break singular/plural history. Cover empty/populated logistics with care teams present, multiple convoys, zero/one/multiple victories, and field agreement using production rendering. Retain Air arrow visual references unchanged. Run full tutorial journeys, build, strict checks, zero-warning lint and all registered tests before deployment; repeat the ordinary player journey and inspect screenshots. Preserve unrelated generated files and close task-owned browser/server resources.
+
+## Verification and release
+
+**Accepted for this tutorial repair; deployment pending.** All five remaining findings from the pointer repair report are corrected, together with the bounded-card occlusion found during this verification. No release-blocking defect was observed in the tested tutorial matrix. Prior receipts remain historical evidence, not acceptance of this follow-up.
+
+## Repairs and regression contracts
+
+- **Low — camera/spotlight — Logistics Brief 4:** the original selector selected a medical/repair team. It now selects one real convoy under the existing convoy list, or that list's real `No active convoys` row. Empty, one and two convoy fixtures include both care-team types; production rendering and authored selectors are used, not duplicate rendering.
+- **Low — copy/tone — General Brief 2, Recon Brief 3, Roster Brief 2:** instructions now name the fields actually rendered by each production board. Contracts compare the copy with rendered bonuses, contact metadata and frontline stats; optional detailed readiness fields are described conditionally.
+- **Low — copy/tone — General Brief 3 / Service Notes:** select the complete word `victory`/`victories`; zero, one and two victories are covered, including mission pluralization.
+- **Medium — camera/spotlight — bounded sidebar cards:** screenshots exposed hidden lower card details on 390×844 and the wide convoy row behind the desktop prompt. Expected: the whole bounded target lies outside the prompt and within viewport/scroll clipping boundaries. `TutorialOverlay` remains the only position/scroll owner. On mobile it centers these cards in the unobscured scroll area; a CSS-only trailing spacer derived from the active bounded-card class supplies room for the final row and disappears on dismissal or a different step. Desktop uses a clear vertical edge when neither horizontal side fits. No new saved state, event, timer or alternate renderer. Resize and close cleanup are tested.
+
+The new card geometry assertion fails on the original mobile General step. Initial repaired runs exposed the final convoy's scroll limit and the desktop row's side-placement overlap; these failures are retained as development evidence, not acceptance. The original nine new semantic cases produced eight expected failures and one passing singular control before repair. A mistaken decimal-format assertion in a development test was corrected to match the renderer, without changing product formatting.
+
+Earlier local gates passed production build/strict checks, architecture/asset verification, zero-warning lint, and **1,087/1,087 registered tests**, using a fresh ignored output with the same compiler, copied assets and registered runner to preserve unrelated generated files. Existing chunk-size advisory remains; no budgets, deadlines, image references or tolerances were relaxed. Earlier focused Chromium arrows/convoys: **15/15 pass**; final acceptance is separate.
+
+Development freezes at 22:44 and 22:51 were superseded. Screenshot review found missing UTF-8 metadata in the isolated convoy test page (the real app already declares UTF-8). The next normal-player review then found a Roster Brief 2 overlap at 1280×720: neither vertical edge could fit around the centered card. A new real-roster fixture reproduced it. The existing positioning owner now moves that card into the upper reading area when a short desktop has room for the card plus prompt but not around the centered card. No state or renderer was added. Earlier partial browser runs were stopped and are not acceptance passes.
+
+Final freeze at **23:07:26.204 UTC**, 566 files, SHA-256 **`2b49fcd0dacf31b0aab69ffe2e2e1c98e8df2c10c58367c6bac3140fae135e97`**. Evidence prefix: `diagnostics/tutorial-followup-20261016-`; authoritative final browser frames: `diagnostics/tutorial-followup-certified-results/`. The expanded focused card/arrow matrix passes **66/66** across Chromium, Firefox and Windows Playwright WebKit. The final production build, zero-warning lint and all **1,087** registered tests pass again, using the isolated `dist-tsc-check/tutorial-followup-certified-20261016` output. The full acceptance passes **111/111**, with **zero failures, skips, flaky cases or runner errors**, in **25 minutes 30.676 seconds**, beginning at 23:07:28.820 UTC. It includes nine complete 37-step/six-brief journeys across three browsers at 1680×857, 1440×900 and 390×844, plus focused geometry, arrow and empty/populated-card regressions. Additional focused fixtures cover 1280×720. The source fingerprint still matches at 23:33:32.646 UTC after all tests.
+
+Reproducible gates: `npm run build`; `npm run lint` (already enforces `--max-warnings=0`); `npx tsc --outDir dist-tsc-check/tutorial-followup-certified-20261016`, copy the normal `src/assets` tree into that output, then run its `tests/index.js` with `--loader ./tools/resolve-js-extension-loader.mjs`. This is the complete registered runner, not a filtered unit selection. The isolated output substitutes for the skill runner's destructive cleanup of the normal generated directory.
+
+Final browser invocation:
+
+```text
+npx playwright test tests/e2e/tutorial-arrow.spec.ts tests/e2e/tutorial-flow.spec.ts tests/e2e/tutorial-brief-cards.spec.ts tests/e2e/air-readiness-geometry.spec.ts tests/e2e/tutorial-evidence.spec.ts --config diagnostics/tutorial-followup-20261016.config.mjs --output diagnostics/tutorial-followup-certified-results --update-snapshots=none
+```
+
+The local configuration inherits the repository's browser projects, disables its extra server because a task-owned production preview is already running on port 54510, uses one worker and zero retries, and emits line/JSON evidence. The new tests are also discovered by the normal repository Playwright configuration. The focused 66-case run overlaps the full matrix and is not an additional 66 unique accepted cases.
+
+## Ordinary-player and visual review
+
+The final frozen candidate was played from a fresh landing tab at 1280×720 through all 37 training steps and all six command-rail briefs. Normal controls and visible hexes were used; no phase jumps, forced clicks, injected state, storage edits or fixture data were used in this walkthrough. It covered requisition, deployment/base camp, both recon moves, engineer fortification, an off-map artillery request, direct attack confirmation, initiative/enemy-response handoff, smoke placement and final dismissal. The final Roster action opened the real Battle Requisitions panel and hid the tutorial. Browser warnings/errors collected for this tab: **none**. The task-owned tab was closed after verification.
+
+Manually inspected corrected General bonuses, Recon metadata, Logistics convoy and Roster readiness cards against their surrounding UI. General Service Notes reads `0 missions with 0 victories`. Logistics Brief 4 highlights the supply convoy, not either care-team type. Roster Brief 2 now leaves its full readiness row visible above the prompt at 1280×720. Air Brief 3 still points left toward the sortie board. The main lesson's highlighted hex remained usable after zooming. This is not a claim that native right/middle-button panning or every input device was manually exercised.
+
+Final-run screenshots at 390×844 were inspected for all four corrected brief cards: complete highlighted content, readable wrapped copy, accessible action/close controls and no prompt overlap. These are under `tutorial-flow-Training-tut-740e6--command-sequence-on-mobile-chromium/` in the authoritative output, named `sidebar-general-bonuses.png`, `sidebar-recon-brief.png`, `sidebar-logistics-convoys.png` and `sidebar-roster-readiness.png`. The focused final 1280×720 Roster frames were also inspected in Chromium and Windows Playwright WebKit. Screenshot capture accompanies actual card/viewport/clipping/prompt intersection checks; a spotlight rectangle alone is not treated as proof of readability.
+
+Also inspected the final Firefox 1440×900 counterparts, Chromium mobile artillery/fire/smoke/fortification handoffs, Windows WebKit mobile empty/populated convoy fixtures, and the final full-journey WebKit wide/mobile Logistics and Roster frames. The complete highlighted cards and taught actions remain readable. All nine pre-existing Air arrow PNG hashes match their prior receipt; no reference regeneration was used. The source fingerprint was rechecked during acceptance and still matches the final freeze. Browser inventory after the manual run contains no remaining task-owned tabs.
+
+## Scope limits and future improvements
+
+This is a tutorial repair and regression assessment, not a new certification of campaign balance, all missions, multiplayer, or the subjective audio mix. Windows Playwright WebKit is not native Safari or a physical iPhone. Mobile coverage is automated and visually reviewed; the ordinary-player walkthrough was desktop. Existing broader gameplay/campaign limitations remain in the gameplay audit.
+
+Optional future copy improvements observed but not changed here: specify the right/middle-button map-pan gesture in the scout lesson, and consider replacing “Another formation” in the direct-fire instruction because the observer may also legally be the firing unit. Neither blocked the taught sequence. Extremely short/zoomed viewports outside the tested matrix remain a responsive-design risk, not a guaranteed result. No new gameplay state, persistence or competing positioning authority was introduced.
