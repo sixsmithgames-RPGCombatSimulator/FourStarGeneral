@@ -1,8 +1,12 @@
 import "./domEnvironment.js";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { CombatSoundManager } from "../src/audio/CombatSoundManager.js";
 import type { SoundAssetMeta, SoundCatalog } from "../src/audio/SoundAssetMetadata.js";
+import { WEAPON_AUDIO_PROFILES, type WeaponAudioProfile } from "../src/audio/WeaponAudioProfiles.js";
 import { registerTest } from "./harness.js";
 
 interface AudioSourceProbe {
@@ -43,8 +47,34 @@ const assets: SoundAssetMeta[] = [
 const catalog: SoundCatalog = { version: "audio-boundary-test", assets: Object.fromEntries(assets.map((asset) => [asset.id, asset])) };
 const shot = { weaponClass: "small_arms", playbackMode: "transient_only", seed: 17 } as const;
 
+/** Read the authored source, rather than a potentially stale compiled catalog copy. */
+function readShippedCatalog(directory = "src"): SoundCatalog {
+  return JSON.parse(readFileSync(resolve(process.cwd(), directory, "data/soundCatalog.json"), "utf8")) as SoundCatalog;
+}
+
+/** Recording identity must follow bytes, not filenames that can hide duplicate variants. */
+function recordingHash(asset: SoundAssetMeta): string {
+  return createHash("sha256").update(readFileSync(resolve(process.cwd(), "public", asset.filePath))).digest("hex");
+}
+
+/** Enumerate each independently selectable pool without conflating reused cross-weapon recordings. */
+function profilePools(profile: WeaponAudioProfile): Array<{ name: string; ids: readonly string[] }> {
+  return [
+    { name: "transient", ids: profile.transientPool },
+    { name: "body", ids: profile.bodyPool ?? [] },
+    { name: "mechanical", ids: profile.mechanicalPool ?? [] },
+    { name: "flight", ids: profile.flightPool ?? [] },
+    { name: "tail", ids: profile.tailPools ?? [] },
+    ...Object.entries(profile.impactPoolsByMaterial).map(([material, ids]) => ({ name: `impact:${material}`, ids })),
+    ...Object.entries(profile.debrisPoolsByMaterial ?? {}).map(([material, ids]) => ({ name: `debris:${material}`, ids }))
+  ];
+}
+
 /** Install the minimum Web Audio boundary and always restore global browser services. */
-async function withAudioFixture(test: (fixture: AudioFixture, manager: CombatSoundManager) => Promise<void>): Promise<void> {
+async function withAudioFixture(
+  test: (fixture: AudioFixture, manager: CombatSoundManager) => Promise<void>,
+  fixtureAssets: readonly SoundAssetMeta[] = assets
+): Promise<void> {
   const originalContext = Object.getOwnPropertyDescriptor(window, "AudioContext");
   const originalFetch = globalThis.fetch;
   const fixture: AudioFixture = {
@@ -75,7 +105,7 @@ async function withAudioFixture(test: (fixture: AudioFixture, manager: CombatSou
   Object.defineProperty(window, "AudioContext", { configurable: true, value: function () { return fixture; } });
   globalThis.fetch = async (input) => {
     const path = String(input);
-    const asset = assets.find((entry) => path.endsWith(entry.filePath));
+    const asset = fixtureAssets.find((entry) => path.endsWith(entry.filePath));
     assert.ok(asset, `Unexpected audio fetch: ${path}`);
     return new Response(new TextEncoder().encode(asset.id), { status: 200 });
   };
@@ -97,6 +127,86 @@ registerTest("COMBAT_SOUND_MUTED_CUES_NEVER_RESUME_OR_CREATE_SOURCES", async () 
     assert.equal(fixture.resumeCalls, 0, "A muted cue must not unlock or resume audio.");
     assert.equal(fixture.sources.length, 0, "A muted cue must not remain playing silently until sound is enabled.");
     assert.equal(manager.getAvailability().available, true, "Mute must remain separate from audio capability.");
+  });
+});
+
+registerTest("COMBAT_SOUND_CATALOG_PUBLIC_AND_BUNDLED_METADATA_AGREE", () => {
+  const shipped = readShippedCatalog();
+  assert.deepEqual(readShippedCatalog("public"), shipped, "Public decoding and bundled gameplay must share identical audio metadata.");
+  for (const [id, asset] of Object.entries(shipped.assets)) {
+    assert.equal(asset.id, id, "Catalog keys must agree with the IDs used by the buffer cache.");
+    assert.ok(Number.isInteger(asset.durationMs) && asset.durationMs > 0, `${id}: full-clip duration must be positive whole milliseconds.`);
+    assert.ok(recordingHash(asset), `${id}: the authored recording must be present.`);
+  }
+});
+
+registerTest("COMBAT_SOUND_PROFILE_REFERENCES_RESOLVE_TO_SHIPPED_ASSETS", () => {
+  const shipped = readShippedCatalog();
+  for (const profile of Object.values(WEAPON_AUDIO_PROFILES)) {
+    for (const pool of profilePools(profile)) {
+      for (const id of pool.ids) {
+        assert.ok(shipped.assets[id], `${profile.weaponClass}/${pool.name}: missing asset ${id}.`);
+      }
+    }
+  }
+});
+
+registerTest("COMBAT_SOUND_SELECTABLE_POOL_RECORDINGS_ARE_DISTINCT", () => {
+  const shipped = readShippedCatalog();
+  for (const profile of Object.values(WEAPON_AUDIO_PROFILES)) {
+    for (const pool of profilePools(profile)) {
+      const seen = new Map<string, string>();
+      for (const id of pool.ids) {
+        const asset = shipped.assets[id];
+        assert.ok(asset, `${profile.weaponClass}/${pool.name}: missing asset ${id}.`);
+        const hash = recordingHash(asset);
+        assert.ok(!seen.has(hash), `${profile.weaponClass}/${pool.name}: ${id} duplicates ${seen.get(hash)} and defeats variation cooldown.`);
+        seen.set(hash, id);
+      }
+    }
+  }
+});
+
+registerTest("COMBAT_SOUND_MG_COOLDOWN_PREVENTS_REPEATED_RECORDINGS", async () => {
+  const shipped = readShippedCatalog();
+  await withAudioFixture(async (fixture, manager) => {
+    await manager.loadSoundCatalog(shipped);
+    let previousHash: string | undefined;
+    for (let cue = 1; cue <= 24; cue += 1) {
+      // Spread first draws over the pool; adjacent tiny LCG seeds sample only
+      // its first indices and would miss the duplicated third recording.
+      await manager.playWeaponSound({ weaponClass: "mg", playbackMode: "transient_only", seed: cue * 1009 });
+      assert.equal(fixture.sources.length, cue, "Each fresh muzzle cue must create exactly one source.");
+      const source = fixture.sources[cue - 1]!;
+      const asset = Object.values(shipped.assets).find((entry) => fixture.buffers.get(entry.id) === source.buffer);
+      assert.ok(asset, "Public playback must select a decoded authored recording.");
+      const hash = recordingHash(asset);
+      assert.notEqual(hash, previousHash, `Cue ${cue} repeats the previous MG recording under a different variant ID.`);
+      previousHash = hash;
+      source.onended?.();
+    }
+  }, Object.values(shipped.assets));
+});
+
+registerTest("COMBAT_SOUND_DURATION_METADATA_NEVER_SCHEDULES_OR_WAITS_FOR_PLAYBACK", async () => {
+  await withAudioFixture(async (fixture, manager) => {
+    const observations: Array<{ starts: number[]; pitch: number; gain: number }> = [];
+    for (const durationMs of [1, 3_600_000]) {
+      const durationCatalog: SoundCatalog = {
+        ...catalog,
+        assets: Object.fromEntries(assets.map((asset) => [asset.id, { ...asset, durationMs }]))
+      };
+      await manager.loadSoundCatalog(durationCatalog);
+      manager.clearRepetitionHistory();
+      const playback = manager.playWeaponSound(shot);
+      assert.equal(await Promise.race([playback.then(() => "started"), wait(100).then(() => "blocked")]), "started",
+        "Clip metadata must never become a visual-cue delay or an awaited sound-completion clock.");
+      const source = fixture.sources[fixture.sources.length - 1]!;
+      observations.push({ starts: source.starts, pitch: source.playbackRate.value, gain: fixture.gains[fixture.gains.length - 1]!.gain.value });
+      assert.equal(source.disconnected, false, "Playback readiness must settle before the real source-ended event.");
+      source.onended?.();
+    }
+    assert.deepEqual(observations[1], observations[0], "Changing descriptive clip length must not change start time, pitch or gain.");
   });
 });
 

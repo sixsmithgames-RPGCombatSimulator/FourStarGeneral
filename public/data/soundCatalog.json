@@ -1,12 +1,12 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "assets": {
     "small_arms_fire_01": {
       "id": "small_arms_fire_01",
       "family": "transient",
       "weaponClass": "small_arms",
       "variantIndex": 0,
-      "durationMs": 180,
+      "durationMs": 2000,
       "loudnessClass": "light",
       "tags": ["rifle", "shot"],
       "filePath": "sounds/combat/small_arms_fire_01.mp3"
@@ -16,7 +16,7 @@
       "family": "transient",
       "weaponClass": "small_arms",
       "variantIndex": 1,
-      "durationMs": 185,
+      "durationMs": 2000,
       "loudnessClass": "light",
       "tags": ["rifle", "shot"],
       "filePath": "sounds/combat/small_arms_fire_02.mp3"
@@ -26,7 +26,7 @@
       "family": "transient",
       "weaponClass": "mg",
       "variantIndex": 0,
-      "durationMs": 240,
+      "durationMs": 1000,
       "loudnessClass": "medium",
       "tags": ["machinegun", "burst"],
       "filePath": "sounds/combat/mg_fire_01.mp3"
@@ -36,27 +36,17 @@
       "family": "transient",
       "weaponClass": "mg",
       "variantIndex": 1,
-      "durationMs": 250,
+      "durationMs": 1000,
       "loudnessClass": "medium",
       "tags": ["machinegun", "burst"],
       "filePath": "sounds/combat/mg_fire_02.mp3"
-    },
-    "mg_fire_03": {
-      "id": "mg_fire_03",
-      "family": "transient",
-      "weaponClass": "mg",
-      "variantIndex": 2,
-      "durationMs": 255,
-      "loudnessClass": "medium",
-      "tags": ["machinegun", "burst"],
-      "filePath": "sounds/combat/mg_fire_03.mp3"
     },
     "mg_cluster_01": {
       "id": "mg_cluster_01",
       "family": "body",
       "weaponClass": "mg",
       "variantIndex": 0,
-      "durationMs": 620,
+      "durationMs": 2000,
       "loudnessClass": "medium",
       "tags": ["machinegun", "sustained"],
       "filePath": "sounds/combat/mg_cluster_01.mp3"
@@ -66,7 +56,7 @@
       "family": "body",
       "weaponClass": "mg",
       "variantIndex": 1,
-      "durationMs": 610,
+      "durationMs": 2000,
       "loudnessClass": "medium",
       "tags": ["machinegun", "sustained"],
       "filePath": "sounds/combat/mg_cluster_02.mp3"
@@ -76,7 +66,7 @@
       "family": "transient",
       "weaponClass": "cannon",
       "variantIndex": 0,
-      "durationMs": 420,
+      "durationMs": 2000,
       "loudnessClass": "heavy",
       "tags": ["cannon", "fire"],
       "filePath": "sounds/combat/cannon_fire_01.mp3"
@@ -86,7 +76,7 @@
       "family": "transient",
       "weaponClass": "cannon",
       "variantIndex": 1,
-      "durationMs": 430,
+      "durationMs": 2000,
       "loudnessClass": "heavy",
       "tags": ["cannon", "fire"],
       "filePath": "sounds/combat/cannon_fire_02.mp3"
@@ -96,7 +86,7 @@
       "family": "transient",
       "weaponClass": "cannon",
       "variantIndex": 2,
-      "durationMs": 440,
+      "durationMs": 2000,
       "loudnessClass": "heavy",
       "tags": ["cannon", "fire"],
       "filePath": "sounds/combat/cannon_fire_03.mp3"
@@ -107,7 +97,7 @@
       "weaponClass": "cannon",
       "material": "armor",
       "variantIndex": 0,
-      "durationMs": 190,
+      "durationMs": 2000,
       "loudnessClass": "medium",
       "tags": ["impact", "armor", "metal"],
       "filePath": "sounds/combat/impact_armor_01.mp3"
@@ -118,7 +108,7 @@
       "weaponClass": "cannon",
       "material": "armor",
       "variantIndex": 1,
-      "durationMs": 195,
+      "durationMs": 2000,
       "loudnessClass": "medium",
       "tags": ["impact", "armor", "metal"],
       "filePath": "sounds/combat/impact_armor_02.mp3"
@@ -128,7 +118,7 @@
       "family": "transient",
       "weaponClass": "artillery",
       "variantIndex": 0,
-      "durationMs": 760,
+      "durationMs": 2000,
       "loudnessClass": "heavy",
       "tags": ["explosion", "detonation"],
       "filePath": "sounds/combat/explosion_01.mp3"
@@ -138,7 +128,7 @@
       "family": "transient",
       "weaponClass": "artillery",
       "variantIndex": 1,
-      "durationMs": 780,
+      "durationMs": 2000,
       "loudnessClass": "heavy",
       "tags": ["explosion", "detonation"],
       "filePath": "sounds/combat/explosion_02.mp3"
@@ -148,7 +138,7 @@
       "family": "body",
       "weaponClass": "artillery",
       "variantIndex": 2,
-      "durationMs": 820,
+      "durationMs": 2000,
       "loudnessClass": "heavy",
       "tags": ["explosion", "body"],
       "filePath": "sounds/combat/explosion_03.mp3"

@@ -1,5 +1,9 @@
 # Mission correctness audit — 15 October 2026
 
+## 17 October follow-up
+
+Subsequent review found terminal reporting inconsistencies in Pointe du Hoc and Citadel Ridge that the original outcome-only checks did not catch. See [the gameplay-quality follow-up](GAMEPLAY_QUALITY_FOLLOWUP_2026-10-17.md) for the current repair, regression and deployment receipt. Original results below remain historical evidence, not primary-objective/debrief parity checks for elimination victories.
+
 ## Intent and scope
 
 Validate every registered authored mission against the same normalization, movement, deployment, and mission-rule contracts used in play. Fix proven contradictions without changing mission difficulty or inventing new victory conditions. The campaign registry entry is a seed map; generated campaign engagements require their separate campaign tests and live certification.

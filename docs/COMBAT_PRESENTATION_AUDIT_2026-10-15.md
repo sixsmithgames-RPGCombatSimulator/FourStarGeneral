@@ -1,5 +1,9 @@
 # Combat presentation audit — 2026-10-15
 
+## 17 October follow-up
+
+The duplicate machine-gun recording and incorrect duration metadata identified below are the subject of a bounded follow-up repair. See [the gameplay-quality follow-up](GAMEPLAY_QUALITY_FOLLOWUP_2026-10-17.md) for current verification and deployment status. Original measurements and lifecycle results remain historical; subjective overlapping-mix listening remains uncompleted.
+
 ## Intent and boundaries
 
 Verify that combat sound follows the existing visual event, cannot strand an

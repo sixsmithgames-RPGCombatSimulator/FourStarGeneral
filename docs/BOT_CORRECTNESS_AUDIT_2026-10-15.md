@@ -1,5 +1,9 @@
 # Enemy bot correctness audit — 15 October 2026
 
+## 17 October compatibility-path clarification
+
+Normal newly started UI battles explicitly configure Heuristic and transfer every allied formation to Player before initiative initialization. The Simple and autonomous Ally defects discussed below are compatibility-path limitations, not the active enemy policy. No affected older production save was found during review. The [gameplay-quality follow-up](GAMEPLAY_QUALITY_FOLLOWUP_2026-10-17.md) adds catalog-wide handoff regression coverage without changing a strategy, API default or executor; that report owns current verification and deployment status.
+
 ## Intent and evidence before changes
 
 The enemy should challenge the player through legal, purposeful decisions using the same movement and combat rules as the player. Tests must exercise committed engine behavior as well as planner scoring.

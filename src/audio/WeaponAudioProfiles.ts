@@ -51,7 +51,9 @@ export interface WeaponAudioProfile {
 
 const ARMOR_IMPACT_POOL = ["impact_armor_01", "impact_armor_02"] as const;
 const SMALL_ARMS_POOL = ["small_arms_fire_01", "small_arms_fire_02"] as const;
-const MG_FIRE_POOL = ["mg_fire_01", "mg_fire_02", "mg_fire_03"] as const;
+// Only distinct recordings belong in this pool; a duplicate filename defeats
+// index-based cooldown and overweights the repeated sound.
+const MG_FIRE_POOL = ["mg_fire_01", "mg_fire_02"] as const;
 const MG_CLUSTER_POOL = ["mg_cluster_01", "mg_cluster_02"] as const;
 const CANNON_POOL = ["cannon_fire_01", "cannon_fire_02", "cannon_fire_03"] as const;
 const EXPLOSION_POOL = ["explosion_01", "explosion_02", "explosion_03"] as const;

@@ -69,7 +69,7 @@ export interface SoundAssetMeta {
   readonly material?: ImpactMaterial;
   /** Variant index within its pool */
   readonly variantIndex: number;
-  /** Duration in milliseconds */
+  /** Decoded full-clip length in whole milliseconds; descriptive, never a playback or visual-event clock. */
   readonly durationMs: number;
   /** Loudness classification for gain staging */
   readonly loudnessClass: LoudnessClass;

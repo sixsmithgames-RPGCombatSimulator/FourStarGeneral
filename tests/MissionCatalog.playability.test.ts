@@ -1,4 +1,5 @@
 import "./domEnvironment.js";
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import { axialKey, type Axial } from "../src/core/Hex";
 import type { ScenarioData, ScenarioUnit, TerrainDictionary, UnitTypeDictionary } from "../src/core/types";
@@ -9,6 +10,7 @@ import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 import { normalizeScenarioSource, tupleToAxial } from "../src/data/scenarioNormalizer";
 import { validateScenarioSource } from "../src/data/scenarioValidation";
 import { GameEngine, type TurnFaction } from "../src/game/GameEngine";
+import { buildBattleMissionRecord, resolveMissionEndResolution } from "../src/game/battle/reporting/BattleMissionReport";
 import { ensureDeploymentState, resetDeploymentState } from "../src/state/DeploymentState";
 import { createMissionRulesController, type MissionSnapshot } from "../src/state/missionRules";
 import type { MissionKey } from "../src/state/UIState";
@@ -171,6 +173,148 @@ for (const missionKey of getAllMissionKeys().filter((key) => key !== "campaign")
       if (victory.outcome.state !== "playerVictory") throw new Error(`${missionKey}: authored win remains ${victory.outcome.state}.`);
       if (defeat.outcome.state !== "playerDefeat") throw new Error(`${missionKey}: unmet deadline produces ${defeat.outcome.state}.`);
       if (eliminated.outcome.state !== "playerVictory") throw new Error(`${missionKey}: enemy elimination remains ${eliminated.outcome.state}.`);
+    });
+  });
+}
+
+for (const missionKey of getAllMissionKeys().filter((key) => key !== "training" && key !== "campaign")) {
+  registerTest(`MISSION_CATALOG_ELIMINATION_REPORT_PARITY_${missionKey}`, async ({ Then }) => {
+    const scenario = normalizedMission(missionKey);
+    const controller = createMissionRulesController(missionKey, scenario);
+    const snapshot = { ...ruleSnapshot(scenario, 2, new Map()), botUnits: [] };
+    const status = controller.onTurnAdvanced(snapshot);
+    const saved = controller.serializeState();
+    const repeated = controller.onTurnAdvanced(snapshot);
+    const restored = createMissionRulesController(missionKey, scenario);
+    restored.hydrateState(saved);
+    const resumed = restored.onTurnAdvanced(snapshot);
+    const record = buildBattleMissionRecord({
+      missionKey,
+      missionTitle: scenario.name,
+      completedAt: "2026-10-17T00:00:00.000Z",
+      missionStatus: status,
+      initialPlayerUnits: snapshot.playerUnits,
+      currentPlayerUnits: snapshot.playerUnits,
+      initialBotUnits: scenario.sides.Bot.units,
+      currentBotUnits: [],
+      playerSupplyHistory: [],
+      airMissionReports: [],
+      livePlayerUnitIds: snapshot.playerUnits.flatMap((unit) => unit.unitId ? [unit.unitId] : [])
+    });
+    const resolution = resolveMissionEndResolution(status, 0);
+
+    await Then("enemy elimination has one terminal truth in objectives, debrief, service history and restored snapshots", async () => {
+      assert.equal(status.outcome.state, "playerVictory", missionKey);
+      const primary = status.objectives.filter((objective) => objective.tier === "primary");
+      assert.ok(primary.length > 0, `${missionKey}: primary objective is missing.`);
+      assert.ok(primary.every((objective) => objective.state === "completed"),
+        `${missionKey}: elimination victory leaves the primary objective unresolved.`);
+      assert.equal(resolution.success, true);
+      assert.equal(resolution.objectivesContested, 0, `${missionKey}: terminal debrief still reports contested objectives.`);
+      assert.equal(record.success, true);
+      assert.equal(record.objectives.primaryCompleted, primary.length);
+      assert.equal(record.objectives.primaryTotal, primary.length);
+      assert.equal(resolution.objectivesCompleted,
+        record.objectives.primaryCompleted + record.objectives.secondaryCompleted + record.objectives.tertiaryCompleted);
+      assert.deepEqual(repeated, status, `${missionKey}: repeated snapshot changed the terminal result.`);
+      assert.deepEqual(resumed, status, `${missionKey}: save/resume changed terminal reporting.`);
+      assert.deepEqual(controller.serializeState(), saved);
+      assert.deepEqual(restored.serializeState(), saved);
+      // Elimination completes the order without inventing physical occupation or
+      // elapsed hold rounds. Keep the actual objective counts and marker facts.
+      assert.equal(snapshot.occupancy.size, 0);
+      assert.ok((status.markers ?? []).every((marker) => marker.status !== "player"));
+      if (missionKey === "patrol_pointe_du_hoc") {
+        assert.equal(saved.data.holdStreak, 0);
+        assert.equal(primary[0].detail,
+          `${status.outcome.reason} Gun positions held: 0/3; hold clock: 0/6 turns.`);
+        assert.equal(status.objectives.find((objective) => objective.id === "tertiary_assault_force")?.state, "failed",
+          "Elimination victory must not complete the unmet three-survivor bonus.");
+      }
+      if (missionKey === "assault_citadel_ridge") {
+        assert.match(primary[0].detail ?? "", /Captured: 0\/4/);
+      }
+    });
+  });
+}
+
+for (const missionKey of ["patrol_pointe_du_hoc", "assault_citadel_ridge"] as const) {
+  registerTest(`MISSION_PRIMARY_TERMINAL_NEGATIVE_CONTROLS_${missionKey}`, async ({ Then }) => {
+    const scenario = normalizedMission(missionKey);
+    const controller = createMissionRulesController(missionKey, scenario);
+    const opening = controller.onTurnAdvanced(ruleSnapshot(scenario, 2, new Map()));
+    const partialOccupancy = new Map<string, TurnFaction>(scenario.objectives
+      .filter((_objective, index) => missionKey === "patrol_pointe_du_hoc" || index < 3)
+      .map((objective) => [axialKey(objective.hex), "Player"]));
+    const partial = controller.onTurnAdvanced(ruleSnapshot(scenario, 3, partialOccupancy));
+    const expired = controller.onTurnAdvanced(ruleSnapshot(scenario, scenario.turnLimit!, new Map()));
+
+    await Then("surviving enemies still require the published hold or command-ridge capture, and an unmet deadline fails", async () => {
+      for (const status of [opening, partial]) {
+        assert.equal(status.outcome.state, "inProgress");
+        assert.equal(status.objectives.find((objective) => objective.tier === "primary")?.state, "inProgress");
+      }
+      if (missionKey === "patrol_pointe_du_hoc") {
+        assert.match(partial.objectives[0].detail ?? "", /1\/6 turns/);
+      } else {
+        assert.match(partial.objectives[0].detail ?? "", /Command Ridge required/);
+      }
+      assert.equal(expired.outcome.state, "playerDefeat");
+      assert.equal(expired.objectives.find((objective) => objective.tier === "primary")?.state, "failed");
+      assert.ok(expired.objectives[0].detail?.startsWith(expired.outcome.reason!));
+      assert.doesNotMatch(expired.objectives[0].detail ?? "", /start the hold clock|Command Ridge required|Assault phase|Hold phase/);
+    });
+  });
+}
+
+registerTest("MISSION_CITADEL_PRIMARY_LABEL_MATCHES_BRIEFING_AND_CAPTURE_THRESHOLD", async ({ Then }) => {
+  const missionKey = "assault_citadel_ridge";
+  const scenario = normalizedMission(missionKey);
+  const controller = createMissionRulesController(missionKey, scenario);
+  const primary = controller.getStatus().objectives.find((objective) => objective.tier === "primary");
+  const briefing = getMissionSummaryPackage(missionKey, "Normal").objectives.find((line) => line.startsWith("Primary:"));
+  const occupancy = new Map<string, TurnFaction>(scenario.objectives
+    .filter((_objective, index) => index === 0 || index === 1 || index === 3)
+    .map((objective) => [axialKey(objective.hex), "Player"]));
+  const captured = controller.onTurnAdvanced(ruleSnapshot(scenario, 3, occupancy));
+
+  await Then("the live order and briefing both require the command ridge plus two other strongpoints", async () => {
+    assert.equal(briefing, `Primary: ${primary?.label}.`);
+    assert.equal(captured.outcome.state, "playerVictory");
+    assert.equal(captured.objectives.find((objective) => objective.tier === "primary")?.state, "completed");
+    assert.equal(captured.objectives[0].detail, `${captured.outcome.reason} Captured: 3/4 strongpoints.`);
+  });
+});
+
+for (const missionKey of ["patrol_pointe_du_hoc", "assault_citadel_ridge"] as const) {
+  registerTest(`MISSION_PRIMARY_TERMINAL_LEGACY_WITHOUT_REASON_${missionKey}`, async ({ Then }) => {
+    const scenario = normalizedMission(missionKey);
+    const controller = createMissionRulesController(missionKey, scenario);
+    const saved = controller.serializeState();
+    const terminalSave = { ...saved, data: { ...saved.data, outcome: { state: "playerVictory" } } };
+    controller.hydrateState(terminalSave);
+    const status = controller.onTurnAdvanced({ ...ruleSnapshot(scenario, 2, new Map()), botUnits: [] });
+
+    await Then("a compatible terminal save without an optional reason keeps factual detail without fabricated text", async () => {
+      assert.deepEqual(status.outcome, { state: "playerVictory" });
+      assert.equal(status.objectives[0].state, "completed");
+      assert.equal(status.objectives[0].detail, missionKey === "patrol_pointe_du_hoc"
+        ? "Gun positions held: 0/3; hold clock: 0/6 turns."
+        : "Captured: 0/4 strongpoints.");
+      assert.deepEqual(controller.serializeState(), terminalSave);
+    });
+  });
+
+  registerTest(`MISSION_PRIMARY_TERMINAL_DETAIL_EXPLAINS_RESOLUTION_${missionKey}`, async ({ Then }) => {
+    const scenario = normalizedMission(missionKey);
+    const controller = createMissionRulesController(missionKey, scenario);
+    const status = controller.onTurnAdvanced({ ...ruleSnapshot(scenario, 2, new Map()), botUnits: [] });
+    const primary = status.objectives.find((objective) => objective.tier === "primary");
+
+    await Then("terminal details explain the canonical result instead of giving obsolete capture or hold instructions", async () => {
+      assert.ok(status.outcome.reason);
+      assert.ok(primary?.detail?.startsWith(status.outcome.reason));
+      assert.doesNotMatch(primary?.detail ?? "", /start the hold clock|Command Ridge required|Assault phase|Hold phase/);
     });
   });
 }

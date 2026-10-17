@@ -74,6 +74,9 @@ test("all combat sound assets decode to finite audible samples", async ({ page }
   for (const asset of measurements) {
     expect(asset.sampleCount, asset.id).toBeGreaterThan(0);
     expect(asset.durationMs, asset.id).toBeGreaterThan(0);
+    // Browsers differ by one decoded MP3 sample; whole-millisecond catalog
+    // metadata describes the complete recording, never the visual cue duration.
+    expect(Math.abs(asset.durationMs - asset.catalogDurationMs), `${asset.id}: catalog must describe the decoded full clip`).toBeLessThanOrEqual(1);
     expect(asset.nonFiniteSamples, asset.id).toBe(0);
     expect(asset.peak, `${asset.id} must not be silent`).toBeGreaterThan(0.01);
     expect(asset.rms, `${asset.id} must contain audible energy`).toBeGreaterThan(0.0001);

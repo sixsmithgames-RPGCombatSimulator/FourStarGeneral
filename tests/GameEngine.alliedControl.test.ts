@@ -4,9 +4,20 @@
  * WHY: Mission-start control must preserve formation state and include stacked units before initiative is built.
  */
 
+import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import assert from "node:assert/strict";
+import { axialKey } from "../src/core/Hex";
+import type { UnitActivation } from "../src/core/InitiativeQueue";
+import terrainData from "../src/data/terrain.json";
+import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
+import { getAllMissionKeys, getMissionTurnLimit } from "../src/data/missions";
+import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
+import { normalizeScenarioSource, tupleToAxial } from "../src/data/scenarioNormalizer";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { GameEngineInitiativeMethods } from "../src/game/GameEngineInitiativeIntegration";
+import { ensureDeploymentState, resetDeploymentState } from "../src/state/DeploymentState";
+import { finalizeDeploymentZone } from "../src/ui/utils/deploymentZonePlanner";
 import type {
   ScenarioData,
   ScenarioSide,
@@ -199,3 +210,103 @@ registerTest("GAME_ENGINE_TRANSFERS_ALL_STACKED_ALLIES_TO_PLAYER_CONTROL", async
     }
   });
 });
+
+// Campaign battles are generated from a frozen campaign package, not the registry's
+// compatibility alias to training. This cohort covers every authored tactical mission.
+for (const missionKey of getAllMissionKeys().filter((key) => key !== "campaign")) {
+  registerTest(`GAME_ENGINE_CATALOG_ALLIED_HANDOFF_${missionKey}`, async ({ Given, When, Then }) => {
+    resetDeploymentState();
+    try {
+      const scenario = normalizeScenarioSource(structuredClone(getScenarioByMissionKey(missionKey)), {
+        turnLimit: getMissionTurnLimit(missionKey, "Normal")
+      });
+      const zones = (scenario.deploymentZones ?? []).map((zone) => finalizeDeploymentZone(zone, scenario, missionKey));
+      const deployment = ensureDeploymentState();
+      // A real recon purchase gives every mission a player-controlled opening
+      // activation, so initialization cannot launch asynchronous enemy orders.
+      deployment.initialize([{ key: "reconBike", label: "Recon Bike", remaining: 1 }]);
+      deployment.registerZones(zones);
+      const engine = new GameEngine({
+        scenario,
+        unitTypes: unitTypesData as UnitTypeDictionary,
+        terrain: terrainData as TerrainDictionary,
+        playerSide: scenario.sides.Player,
+        botSide: scenario.sides.Bot,
+        allySide: scenario.sides.Ally,
+        botStrategyMode: "Heuristic",
+        botDifficulty: "Normal"
+      });
+      await Given("the complete authored force and a legal player recon deployment", async () => {
+        engine.beginDeployment();
+        const occupied = new Set([...engine.playerUnits, ...engine.botUnits, ...engine.allyUnits].map((unit) => axialKey(unit.hex)));
+        const startKey = zones.filter((zone) => zone.faction === "Player").flatMap((zone) => zone.hexKeys)
+          .find((key) => {
+            const [col, row] = key.split(",").map(Number);
+            return !occupied.has(axialKey(tupleToAxial([col, row])));
+          });
+        assert.ok(startKey, `${missionKey}: no empty player deployment hex.`);
+        const [col, row] = startKey.split(",").map(Number);
+        const base = tupleToAxial([col, row]);
+        engine.setBaseCamp(base);
+        engine.deployUnitByKey(base, "reconBike");
+        engine.finalizeDeployment();
+      });
+
+      const playerBefore = engine.playerUnits;
+      const alliesBefore = engine.allyUnits;
+      const enemyBefore = engine.botUnits;
+      const reservesBefore = engine.reserveUnits;
+      const allBefore = [...playerBefore, ...alliesBefore, ...enemyBefore];
+      assert.ok(allBefore.every((unit) => Boolean(unit.unitId)), `${missionKey}: every deployed formation needs a persistent ID.`);
+      assert.equal(new Set(allBefore.map((unit) => unit.unitId)).size, allBefore.length, `${missionKey}: duplicate deployed identity before transfer.`);
+      const expectedPlayer = [...playerBefore, ...alliesBefore.map((unit) => ({ ...unit, controlledBy: "Player" as const }))];
+
+      await When("the canonical ownership transaction runs before initiative initialization", async () => {
+        assert.equal(engine.transferAllAlliedUnitsToPlayerControl(), alliesBefore.length, `${missionKey}: transfer count differs from the complete allied roster.`);
+      });
+
+      await Then("every persistent formation, readiness field and stack member survives with no allied owner remaining", async () => {
+        assert.equal(engine.allyUnits.length, 0, `${missionKey}: allied formations remain outside player command.`);
+        assert.deepEqual(new Map(engine.playerUnits.map((unit) => [unit.unitId, unit])), new Map(expectedPlayer.map((unit) => [unit.unitId, unit])), `${missionKey}: transfer changed formation state beyond allied control ownership.`);
+        assert.deepEqual(engine.botUnits, enemyBefore, `${missionKey}: allied transfer changed enemy formations.`);
+        assert.deepEqual(engine.reserveUnits, reservesBefore, `${missionKey}: allied transfer changed reserves.`);
+        const allAfter = [...engine.playerUnits, ...engine.botUnits, ...engine.allyUnits];
+        assert.equal(allAfter.length, allBefore.length, `${missionKey}: transfer changed total deployed quantity.`);
+        assert.deepEqual(allAfter.map((unit) => unit.unitId).sort(), allBefore.map((unit) => unit.unitId).sort(), `${missionKey}: transfer lost or duplicated a persistent identity.`);
+        for (const [key, hex] of new Map(expectedPlayer.map((unit) => [axialKey(unit.hex), unit.hex]))) {
+          const members = engine.getHexStackMembers(hex, "Player");
+          assert.deepEqual(members.map((member) => member.unitId).sort(), expectedPlayer.filter((unit) => axialKey(unit.hex) === key).map((unit) => unit.unitId).sort(), `${missionKey}: stack ${key} lost or duplicated a formation.`);
+          assert.ok(members.every((member) => member.faction === "Player"), `${missionKey}: stack ${key} retains allied ownership.`);
+        }
+        const settled = engine.serialize();
+        assert.equal(engine.transferAllAlliedUnitsToPlayerControl(), 0, `${missionKey}: repeated transfer is not idempotent.`);
+        assert.deepEqual(engine.serialize(), settled, `${missionKey}: repeated transfer changed settled state.`);
+      });
+
+      await Then("the real opening initiative assigns transferred combat units to the player and preserves automated logistics", async () => {
+        const initiative = new GameEngineInitiativeMethods(engine);
+        initiative.startInitiativeTurnPhase(true);
+        assert.equal(initiative.getCurrentActivation()?.ownerId, "player", `${missionKey}: opening recon activation should wait for the player.`);
+        const queue = initiative.serializeState().integration.manager.initiativeQueue;
+        assert.ok(queue, `${missionKey}: opening initiative queue was not built.`);
+        assert.equal(new Set(queue.activations.map((activation) => activation.unitId)).size, queue.activations.length, `${missionKey}: duplicate initiative identity.`);
+        for (const prior of alliesBefore) {
+          const activations: readonly UnitActivation[] = queue.activations.filter((activation) => activation.unitId === prior.unitId);
+          const definition = unitTypesData[prior.type];
+          if (definition.initiative <= 0) {
+            assert.equal(activations.length, 0, `${missionKey}: aircraft must remain outside the ground initiative queue.`);
+            continue;
+          }
+          assert.equal(activations.length, 1, `${missionKey}: transferred ${prior.unitId} needs exactly one activation.`);
+          const member = engine.getHexStackMembers(prior.hex, "Player").find((entry) => entry.unitId === prior.unitId);
+          assert.ok(member, `${missionKey}: transferred ${prior.unitId} is missing from its stack.`);
+          assert.equal(activations[0].ownerId, member.isAutomated ? "bot" : "player", `${missionKey}: transferred ${prior.unitId} has incorrect initiative ownership.`);
+        }
+        assert.equal(engine.allyUnits.length, 0, `${missionKey}: initiative recreated allied ownership.`);
+        assert.deepEqual(engine.playerUnits.map((unit) => unit.unitId).sort(), expectedPlayer.map((unit) => unit.unitId).sort(), `${missionKey}: initiative lost or duplicated player formations.`);
+      });
+    } finally {
+      resetDeploymentState();
+    }
+  });
+}

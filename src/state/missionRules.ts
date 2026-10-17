@@ -636,14 +636,18 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
       id: "primary_hold_battery",
       label: "Capture and hold all three gun positions for 6 consecutive turns",
       tier: "primary",
-      state: outcome.state === "playerVictory" && tracker.holdStreak >= HOLD_TARGET
+      state: outcome.state === "playerVictory"
         ? "completed"
         : outcome.state === "playerDefeat"
           ? "failed"
           : "inProgress",
-      detail: capturedCount < gunPositions.length
-        ? `Assault phase: ${capturedCount}/${gunPositions.length} gun positions captured. All three must be held simultaneously to start the hold clock.`
-        : `Hold phase: ${tracker.holdStreak}/${HOLD_TARGET} turns. All three positions must remain in friendly hands.`
+      // Elimination is already a canonical victory. Report that resolution while
+      // retaining the actual occupation and hold facts, not unfinished orders.
+      detail: outcome.state !== "inProgress"
+        ? `${outcome.reason ? `${outcome.reason} ` : ""}Gun positions held: ${capturedCount}/${gunPositions.length}; hold clock: ${tracker.holdStreak}/${HOLD_TARGET} turns.`
+        : capturedCount < gunPositions.length
+          ? `Assault phase: ${capturedCount}/${gunPositions.length} gun positions captured. All three must be held simultaneously to start the hold clock.`
+          : `Hold phase: ${tracker.holdStreak}/${HOLD_TARGET} turns. All three positions must remain in friendly hands.`
     };
 
     const batteryUnitsRemaining = botUnits.filter(
@@ -1783,14 +1787,16 @@ function createCitadelRidgeController(scenario: ScenarioData, _difficulty: BotDi
 
     const primary: ObjectiveProgress = {
       id: "primary_break_ridge",
-      label: "Seize the command ridge and at least three strongpoints",
+      label: "Seize the command ridge and any two additional strongpoints",
       tier: "primary",
-      state: outcome.state === "playerVictory" && commandRidgeCaptured && capturedStrongpoints.length >= 3
+      state: outcome.state === "playerVictory"
         ? "completed"
         : outcome.state === "playerDefeat"
           ? "failed"
           : "inProgress",
-      detail: `Captured: ${capturedStrongpoints.length}/4 strongpoints${commandRidgeCaptured ? " (Command Ridge secured)" : " (Command Ridge required)"}. ${strongpointKeys
+      detail: outcome.state !== "inProgress"
+        ? `${outcome.reason ? `${outcome.reason} ` : ""}Captured: ${capturedStrongpoints.length}/4 strongpoints.`
+        : `Captured: ${capturedStrongpoints.length}/4 strongpoints${commandRidgeCaptured ? " (Command Ridge secured)" : " (Command Ridge required)"}. ${strongpointKeys
         .map(({ label, key }) => {
           const occupant = occupancy.get(key);
           const status = occupant === "Player" || occupant === "Ally" ? "[X]" : "[ ]";
