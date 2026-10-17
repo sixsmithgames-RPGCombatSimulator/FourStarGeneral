@@ -18,10 +18,13 @@ import { InitiativeBotIntegration } from './bot/InitiativeBotIntegration';
 import { hexDistance, neighbors, type Axial } from '../core/Hex';
 import type { ScenarioUnit } from '../core/types';
 import type { UnitActivation } from '../core/InitiativeQueue';
+import type { BotTurnSummary } from './GameEngine';
 
 export interface InitiativeBotActivationResult {
   readonly unitId: string;
   readonly ownerId: 'player' | 'bot';
+  /** Actual combat allegiance; queue ownerId describes control, not hostility. */
+  readonly faction?: 'Player' | 'Bot' | 'Ally';
   readonly unitType: string | null;
   readonly moved: boolean;
   readonly fromHex: Axial | null;
@@ -380,6 +383,11 @@ export class GameEngineInitiativeMethods {
     return this.integration.getCurrentActivation();
   }
 
+  /** Canonical in-flight allegiance, retained when counterfire removes the actor before playback completes. */
+  public getCurrentActiveFaction(): 'Player' | 'Bot' | 'Ally' {
+    return this.integration.getCurrentActiveFaction();
+  }
+
   /** Captures initiative, support-resolution, and planner fallback state for tactical persistence. */
   public serializeState(): SerializedGameEngineInitiativeState {
     return {
@@ -574,9 +582,6 @@ export class GameEngineInitiativeMethods {
     // This would emit an event for the UI to react to
     console.log(`Activation started: ${activation.unitId} (${activation.ownerId})`);
     
-    // Update game engine state
-    this.gameEngine._activeFaction = activation.ownerId === 'player' ? 'Player' : 'Bot';
-    
     const automatedActivation = activation.ownerId === 'bot' || this.isAutomatedPlayerActivation(activation);
     if (supportImpactsQueued) {
       // The barrage is part of the artillery initiative. Automated artillery must wait until
@@ -632,7 +637,8 @@ export class GameEngineInitiativeMethods {
   private executeBotTurn(activation: UnitActivation): void {
     const beforeState = this.resolveActivationUnit(activation);
     const beforeHex = this.cloneHex(beforeState?.unit.hex ?? null);
-    const activationIsEnemy = activation.ownerId === 'bot';
+    const faction = beforeState?.faction ?? (activation.ownerId === 'player' ? 'Player' : 'Bot');
+    const activationIsEnemy = faction === 'Bot';
     const visibleBefore = activationIsEnemy
       ? this.isBotUnitVisibleToPlayer(activation.unitId, beforeHex)
       : true;
@@ -643,8 +649,10 @@ export class GameEngineInitiativeMethods {
     try {
       console.log(`Executing bot turn for ${activation.unitId}`);
 
-      if (activation.ownerId === 'bot' && beforeState?.faction === 'Bot') {
-        const summary = this.botIntegration.executeActivation(activation);
+      if (activation.ownerId === 'bot' && beforeState && beforeState.faction !== 'Player') {
+        const summary = beforeState.faction === 'Ally'
+          ? (this.gameEngine as { executeAllyActivation(id: string): BotTurnSummary }).executeAllyActivation(activation.unitId)
+          : this.botIntegration.executeActivation(activation);
         movementPath = summary.moves.find((move) => move.unitId === activation.unitId)?.path.map((hex) => ({ ...hex }));
         completedAttacks = summary.attacks.map(({ from, target, ...attack }) => ({
           ...structuredClone(attack), fromHex: { ...from }, targetHex: { ...target }
@@ -661,6 +669,7 @@ export class GameEngineInitiativeMethods {
       const result: InitiativeBotActivationResult = {
         unitId: activation.unitId,
         ownerId: activation.ownerId,
+        faction,
         unitType: afterState?.unit.type ?? beforeState?.unit.type ?? null,
         moved: Boolean(beforeHex && afterHex && (beforeHex.q !== afterHex.q || beforeHex.r !== afterHex.r)),
         fromHex: beforeHex,
@@ -679,10 +688,11 @@ export class GameEngineInitiativeMethods {
       const visibleAfter = activationIsEnemy
         ? this.isBotUnitVisibleToPlayer(activation.unitId, afterHex)
         : true;
-      const attacks = this.collectBotCombatReportDelta(previousCombatReportIds);
+      const attacks = this.collectBotCombatReportDelta(previousCombatReportIds, faction);
       const result: InitiativeBotActivationResult = {
         unitId: activation.unitId,
         ownerId: activation.ownerId,
+        faction,
         unitType: afterState?.unit.type ?? beforeState?.unit.type ?? null,
         moved: Boolean(beforeHex && afterHex && (beforeHex.q !== afterHex.q || beforeHex.r !== afterHex.r)),
         fromHex: beforeHex,
@@ -784,7 +794,7 @@ export class GameEngineInitiativeMethods {
     return new Set(reports.map((report) => report.id));
   }
 
-  private collectBotCombatReportDelta(previousIds: ReadonlySet<string>): InitiativeBotAttackResult[] {
+  private collectBotCombatReportDelta(previousIds: ReadonlySet<string>, faction: 'Player' | 'Bot' | 'Ally' = 'Bot'): InitiativeBotAttackResult[] {
     const engine = this.gameEngine as {
       getCombatReports?: () => ReadonlyArray<{
         id: string;
@@ -806,7 +816,7 @@ export class GameEngineInitiativeMethods {
     const attacks: InitiativeBotAttackResult[] = [];
     reports
       // The report ledger rolls over at 50 entries, so length is not an event cursor.
-      .filter((report) => !previousIds.has(report.id) && report?.attacker?.faction === 'Bot')
+      .filter((report) => !previousIds.has(report.id) && report?.attacker?.faction === faction)
       .forEach((report) => {
         const fromHex = this.cloneHex(report.attacker?.position ?? null);
         const targetHex = this.cloneHex(report.defender?.position ?? null);
@@ -839,7 +849,7 @@ export class GameEngineInitiativeMethods {
 
   private resolveActivationUnit(
     activation: UnitActivation
-  ): { unit: ScenarioUnit; faction: 'Player' | 'Bot' } | null {
+  ): { unit: ScenarioUnit; faction: 'Player' | 'Bot' | 'Ally' } | null {
     if (Array.isArray(this.gameEngine.botUnits)) {
       const botUnit = (this.gameEngine.botUnits as ScenarioUnit[]).find((entry) => entry.unitId === activation.unitId) ?? null;
       if (botUnit) {
@@ -853,7 +863,10 @@ export class GameEngineInitiativeMethods {
         return { unit: playerUnit, faction: 'Player' };
       }
     }
-
+    if (Array.isArray(this.gameEngine.allyUnits)) {
+      const allyUnit = (this.gameEngine.allyUnits as ScenarioUnit[]).find((entry) => entry.unitId === activation.unitId);
+      if (allyUnit) return { unit: allyUnit, faction: 'Ally' };
+    }
     return null;
   }
 

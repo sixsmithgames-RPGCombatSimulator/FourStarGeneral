@@ -10,6 +10,14 @@
 import type { UnitActivation } from '../../core/InitiativeQueue';
 import type { ExtendedBattlePhase } from '../../game/GameEngineInitiativeExtensions';
 
+/** Ephemeral roster-derived presentation; the serialized queue owner remains unchanged. */
+export type InitiativeActivationPresentation = UnitActivation & { readonly faction?: 'Player' | 'Bot' | 'Ally' };
+
+/** Older callers provide only the automation owner; explicit faction disambiguates autonomous Allies. */
+export function initiativePresentationFaction(activation: Pick<InitiativeActivationPresentation, 'ownerId' | 'faction'>): 'Player' | 'Bot' | 'Ally' {
+  return activation.faction ?? (activation.ownerId === 'player' ? 'Player' : 'Bot');
+}
+
 /**
  * Turn control configuration
  */
@@ -55,7 +63,7 @@ export class InitiativeTurnControls {
   private readonly container: HTMLElement;
   private readonly config: TurnControlConfig;
   private readonly events: TurnControlEvents;
-  private currentActivation: UnitActivation | null = null;
+  private currentActivation: InitiativeActivationPresentation | null = null;
   private currentPhase: ExtendedBattlePhase = 'deployment';
   private isPlayerTurn = false;
 
@@ -85,7 +93,7 @@ export class InitiativeTurnControls {
    * 
    * @param activation - Current unit activation or null
    */
-  public updateCurrentActivation(activation: UnitActivation | null): void {
+  public updateCurrentActivation(activation: InitiativeActivationPresentation | null): void {
     this.currentActivation = activation;
     this.updateControlStates();
     this.updateCurrentUnitDisplay();
@@ -368,7 +376,7 @@ export class InitiativeTurnControls {
     if (this.currentActivation) {
       unitInfo.style.display = 'block';
       unitName.textContent = `Unit ${this.currentActivation.unitId}`;
-      unitOwner.textContent = `${this.currentActivation.ownerId === 'player' ? 'Player' : 'Bot'} (Initiative ${this.currentActivation.initiative})`;
+      unitOwner.textContent = `${initiativePresentationFaction(this.currentActivation)} (Initiative ${this.currentActivation.initiative})`;
     } else {
       unitInfo.style.display = 'none';
     }
@@ -410,7 +418,7 @@ export class InitiativeTurnControls {
 
     if (this.currentPhase === 'initiativeTurn' && this.currentActivation) {
       indicatorDot.className = 'indicator-dot indicator-active';
-      indicatorText.textContent = `${this.currentActivation.ownerId === 'player' ? 'Player' : 'Bot'} Acting`;
+      indicatorText.textContent = `${initiativePresentationFaction(this.currentActivation)} Acting`;
     } else if (this.currentPhase === 'initiativeTurn') {
       indicatorDot.className = 'indicator-dot indicator-ready';
       indicatorText.textContent = 'Ready';

@@ -257,10 +257,43 @@ async function expectInitiativeStatusReadable(header: Locator): Promise<void> {
 async function expectInitiativeOwnerStatesReadable(page: Page, header: Locator, roundReady: boolean): Promise<void> {
   await expectInitiativeStatusReadable(header);
   if (roundReady) return;
-  await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryControls.updatePlayerTurn(false));
-  await expect(header.locator('.initiative-status__detail')).toHaveText('Enemy orders resolving');
-  await expectInitiativeStatusReadable(header);
-  await page.evaluate(() => (window as unknown as FixtureWindow).tacticalGeometryControls.updatePlayerTurn(true));
+  const original = await page.evaluate(() => {
+    const controls = (window as unknown as FixtureWindow).tacticalGeometryControls;
+    return { unit: controls.getCurrentUnit(), group: controls.getCurrentGroup() };
+  });
+  try {
+    await page.evaluate(({ unit, group }) => {
+      const controls = (window as unknown as FixtureWindow).tacticalGeometryControls;
+      const player = unit ?? group?.units.find(candidate => candidate.ownerId === 'player');
+      if (!player) throw new Error('Geometry handoff fixture requires a Player actor.');
+      controls.updateCurrentUnit(player);
+      controls.updatePlayerTurn(false);
+    }, original);
+    // Permission changes do not turn the still-current friendly actor into an enemy.
+    await expect(header.locator('.initiative-status__value')).toHaveText('Your group');
+    await expect(header.locator('.initiative-status__detail')).toHaveText('Orders resolving');
+    await expect(header.locator('.initiative-status')).not.toContainText(/formations? ready/);
+    await expectInitiativeStatusReadable(header);
+
+    await page.evaluate(({ group }) => {
+      if (!group) throw new Error('Geometry handoff fixture requires an initiative group.');
+      const controls = (window as unknown as FixtureWindow).tacticalGeometryControls;
+      const units = group.units.map(unit => ({ ...unit, unitId: `enemy-${unit.unitId}`, ownerId: 'bot' as const, faction: 'Bot' as const }));
+      controls.updateCurrentUnit(units[group.currentUnitIndex]);
+      controls.updateCurrentGroup({ ...group, units });
+    }, original);
+    await expect(header.locator('.initiative-status__value')).toHaveText('Enemy group');
+    await expect(header.locator('.initiative-status__detail')).toHaveText('Enemy orders resolving');
+    await expect(header.locator('.initiative-status')).not.toContainText(/formations? ready/);
+    await expectInitiativeStatusReadable(header);
+  } finally {
+    await page.evaluate(({ unit, group }) => {
+      const controls = (window as unknown as FixtureWindow).tacticalGeometryControls;
+      controls.updateCurrentUnit(unit);
+      controls.updateCurrentGroup(group);
+      controls.updatePlayerTurn(true);
+    }, original);
+  }
 }
 
 async function expectInitialIntel(page: Page, label: string): Promise<void> {

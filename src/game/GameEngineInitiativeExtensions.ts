@@ -7,7 +7,7 @@
  * @since Initiative System v1.0
  */
 
-import type { BattlePhase } from './GameEngine';
+import type { BattlePhase, GameEngine } from './GameEngine';
 import { type InitiativeQueue, type UnitActivation } from '../core/InitiativeQueue';
 import type { ScenarioUnit } from '../core/types';
 import {
@@ -149,7 +149,7 @@ export class GameEngineInitiativeIntegration {
 
     if (nextActivation) {
       // Update engine state to reflect current activation
-      this.updateEngineActiveFaction(nextActivation.ownerId === 'player' ? 'Player' : 'Bot');
+      this.updateEngineActiveFaction(this.resolveActivationFaction(nextActivation) ?? (nextActivation.ownerId === 'player' ? 'Player' : 'Bot'));
     }
 
     return nextActivation;
@@ -267,7 +267,20 @@ export class GameEngineInitiativeIntegration {
       return this.gameEngine._activeFaction;
     }
 
+    const faction = this.resolveActivationFaction(currentActivation);
+    if (faction) return faction;
+    // Counterfire may remove the acting formation while its observer is still presenting the committed action.
+    if (Array.isArray(this.gameEngine.allyUnits)) return this.gameEngine._activeFaction;
     return currentActivation.ownerId === 'player' ? 'Player' : 'Bot';
+  }
+
+  /** Resolve allegiance from canonical identities, never the automated queue ownership category. */
+  private resolveActivationFaction(activation: UnitActivation): 'Player' | 'Bot' | 'Ally' | null {
+    const engine = this.gameEngine as Pick<GameEngine, 'playerUnits' | 'botUnits' | 'allyUnits'>;
+    for (const [faction, units] of [['Player', engine.playerUnits], ['Bot', engine.botUnits], ['Ally', engine.allyUnits]] as const) {
+      if (Array.isArray(units) && units.some((unit) => unit.unitId === activation.unitId)) return faction;
+    }
+    return null;
   }
 
   /**
@@ -461,7 +474,7 @@ export class GameEngineInitiativeIntegration {
       ? structuredClone(snapshot.currentActivation)
       : null;
     if (this.extensions.currentActivation) {
-      this.updateEngineActiveFaction(this.extensions.currentActivation.ownerId === "player" ? "Player" : "Bot");
+      this.updateEngineActiveFaction(this.getCurrentActiveFaction());
     }
   }
 }

@@ -38,6 +38,7 @@ import {
 import { extractCampaignBattleResultPackage } from "../../game/campaign/results/CampaignBattleResultExtractor";
 import { buildCampaignTacticalSupportAssets } from "../../game/campaign/CampaignTacticalSupportAdapter";
 import { EnhancedInitiativeTurnControls } from "../components/EnhancedInitiativeTurnControls";
+import { initiativePresentationFaction } from "../components/InitiativeTurnControls";
 import { BattleTacticalSaveController } from "../controllers/BattleTacticalSaveController";
 import {
   resolveActiveInitiativeGroup as projectActiveInitiativeGroup,
@@ -3911,7 +3912,7 @@ export class BattleScreen {
 
     const keys = new Set<string>();
     currentBand.activations.forEach((activation) => {
-      const hexKey = this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId);
+      const hexKey = this.resolveActivationOffsetHexKey(activation.unitId);
       if (hexKey) {
         keys.add(hexKey);
       }
@@ -6138,6 +6139,7 @@ export class BattleScreen {
     const initiativeActive =
       this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
     const initiativeActivation = initiativeActive ? this.initiativeMethods?.getCurrentActivation() ?? null : null;
+    const initiativeFaction = initiativeActivation ? this.resolveInitiativeFaction(initiativeActivation) : summary.activeFaction;
 
     if (this.turnIndicatorElement) {
       const configuredTurnLimit = this.battleState.getPrecombatMissionInfo()?.turnLimit ?? this.scenario.turnLimit;
@@ -6149,21 +6151,16 @@ export class BattleScreen {
       updateText(this.turnIndicatorElement, label);
     }
     if (this.factionIndicatorElement) {
-      updateText(this.factionIndicatorElement,
-        initiativeActivation?.ownerId === "player"
-          ? "Player"
-          : initiativeActivation?.ownerId === "bot"
-            ? "Enemy"
-            : this.formatFactionLabel(summary.activeFaction));
+      updateText(this.factionIndicatorElement, this.formatFactionLabel(initiativeFaction));
     }
     if (this.phaseIndicatorElement) {
       if (initiativeActive) {
         const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
         const hasPendingActivations = this.hasPendingInitiativeActivations(queue);
         updateText(this.phaseIndicatorElement, initiativeActivation
-          ? initiativeActivation.ownerId === "player"
+          ? initiativeFaction === "Player"
             ? "Your initiative group is active"
-            : "Enemy initiative group is active"
+            : `${initiativeFaction === "Ally" ? "Allied" : "Enemy"} initiative group is active`
           : hasPendingActivations
             ? "Initiative order updating"
             : "Turn ready to end");
@@ -9852,7 +9849,7 @@ export class BattleScreen {
         : [activeGroup.activations[0]].filter((activation): activation is { unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number } => Boolean(activation));
 
       const unitHexes = highlightActivations
-        .map((activation) => this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId))
+        .map((activation) => this.resolveActivationOffsetHexKey(activation.unitId))
         .filter((hexKey): hexKey is string => Boolean(hexKey));
 
       // Apply highlights to the map renderer
@@ -10056,13 +10053,28 @@ export class BattleScreen {
     });
   }
 
-  private resolveActivationOffsetHexKey(unitId: string, ownerId: "player" | "bot"): string | null {
-    const engine = this.battleState.ensureGameEngine();
-    const units = ownerId === "player" ? engine.playerUnits : engine.botUnits;
-    const unit = units.find((entry) => entry.unitId === unitId);
-    return this.toOffsetHexKey(unit?.hex);
+  /** Queue ownership describes automation, not allegiance; resolve the canonical live formation. */
+  private resolveInitiativeActor(unitId: string): { unit: ScenarioUnit; faction: TurnFaction } | null {
+    const engine = this.battleState?.ensureGameEngine();
+    if (!engine) return null;
+    for (const faction of ["Player", "Bot", "Ally"] as const) {
+      const units = faction === "Player" ? engine.playerUnits : faction === "Bot" ? engine.botUnits : engine.allyUnits;
+      const unit = units?.find((entry) => entry.unitId === unitId);
+      if (unit) return { unit, faction };
+    }
+    return null;
   }
-
+  private resolveActivationOffsetHexKey(unitId: string): string | null {
+    return this.toOffsetHexKey(this.resolveInitiativeActor(unitId)?.unit.hex);
+  }
+  /** Committed result identity survives casualties; only the current actor may use active-faction truth. */
+  private resolveInitiativeFaction(activation: { unitId: string; ownerId: "player" | "bot"; faction?: TurnFaction }): TurnFaction {
+    const knownFaction = activation.faction ?? this.resolveInitiativeActor(activation.unitId)?.faction;
+    if (knownFaction) return knownFaction;
+    const activeFaction = this.initiativeMethods?.getCurrentActivation()?.unitId === activation.unitId
+      ? this.initiativeMethods?.getCurrentActiveFaction?.() : null;
+    return activeFaction ?? initiativePresentationFaction(activation);
+  }
   private resolveActiveInitiativeGroup(currentQueue: any): TutorialInitiativeGroup | null {
     return projectActiveInitiativeGroup(currentQueue);
   }
@@ -10660,7 +10672,8 @@ export class BattleScreen {
     if (!this.isInitiativeSystemEnabled) {
       return;
     }
-    if (event.ownerId === "bot" && event.unitType && event.movementPath) {
+    const faction = this.resolveInitiativeFaction(event);
+    if (faction === "Bot" && event.unitType && event.movementPath) {
       this.missionRulesController?.observeBotMovements?.([{ unitType: event.unitType, path: event.movementPath }]);
     }
 
@@ -10669,7 +10682,7 @@ export class BattleScreen {
     const toHex = event.movementPath?.[event.movementPath.length - 1] ?? event.toHex;
     const fromKey = this.toOffsetHexKey(fromHex);
     const toKey = this.toOffsetHexKey(toHex);
-    const isEnemyActivation = event.ownerId === "bot";
+    const isEnemyActivation = faction === "Bot";
     const visibleBefore = isEnemyActivation
       ? (event.visibleBefore || (event.fromHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex) : false))
       : true;
@@ -10778,39 +10791,33 @@ export class BattleScreen {
     fromKey: string | null,
     toKey: string | null
   ): void {
-    const unitLabel = resolveFactionUnitTypeLabel(event.unitType ?? "Unit", event.ownerId === "player" ? "Player" : "Bot");
-    const eventVisibleBefore = Boolean(event.visibleBefore);
-    const eventVisibleAfter = Boolean(event.visibleAfter);
-
-    if (event.ownerId === "player") {
+    const faction = this.resolveInitiativeFaction(event);
+    const unitLabel = resolveFactionUnitTypeLabel(event.unitType ?? "Unit", faction);
+    const eventVisibleBefore = faction === "Ally" || Boolean(event.visibleBefore);
+    const eventVisibleAfter = faction === "Ally" || Boolean(event.visibleAfter);
+    if (faction === "Player") {
       if (event.moved) {
         const moveSummary = fromKey && toKey
           ? `Friendly ${unitLabel} repositioned from ${fromKey} to ${toKey}.`
           : `Friendly ${unitLabel} repositioned.`;
-        this.publishActivityEvent({
-          category: "player",
-          type: "move",
-          summary: moveSummary
-        });
+        this.publishActivityEvent({ category: "player", type: "move", summary: moveSummary });
       }
       return;
     }
 
-    const contact = this.resolveEnemyContactSnapshot(event.unitId);
+    const ownerLabel = faction === "Ally" ? "Allied" : "Enemy";
+    const category = faction === "Ally" ? "player" : "enemy";
+    const contact = faction === "Bot" ? this.resolveEnemyContactSnapshot(event.unitId) : null;
     const contactHexKey = this.toOffsetHexKey(contact?.hex ?? null);
     if (event.moved) {
       const moveSummary = eventVisibleBefore || eventVisibleAfter
-        ? `Enemy ${unitLabel} repositioned from ${fromKey ?? "unknown"} to ${toKey ?? "unknown"}.`
+        ? `${ownerLabel} ${unitLabel} repositioned from ${fromKey ?? "unknown"} to ${toKey ?? "unknown"}.`
         : contact?.state === "identified" && contactHexKey
           ? `Identified enemy ${unitLabel} maneuvered near ${contactHexKey}.`
           : contactHexKey
             ? `Enemy movement detected near ${contactHexKey}.`
             : "Enemy movement detected outside direct observation.";
-      this.publishActivityEvent({
-        category: "enemy",
-        type: "move",
-        summary: moveSummary
-      });
+      this.publishActivityEvent({ category, type: "move", summary: moveSummary });
     }
 
     event.attacks.forEach((attack) => {
@@ -10822,28 +10829,20 @@ export class BattleScreen {
       const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
       const retaliationDamage = attack.retaliation ? this.formatDamageAmount(attack.retaliation.damage) : null;
       const retaliationSummary = retaliationDamage ? ` Counterfire dealt ${retaliationDamage} damage.` : "";
-      const attackerLabel = resolveFactionUnitTypeLabel(attack.attackerType, "Bot");
+      const attackerLabel = resolveFactionUnitTypeLabel(attack.attackerType, faction);
       const defenderLabel = this.toTitleCase(attack.defenderType);
       const summary = attackerVisible
-        ? `Enemy ${attackerLabel} attacked ${defenderLabel} from ${attackerHex} to ${targetHex} for ${damage} damage.${effects}${destructionNote}${retaliationSummary}`
+        ? `${ownerLabel} ${attackerLabel} attacked ${defenderLabel} from ${attackerHex} to ${targetHex} for ${damage} damage.${effects}${destructionNote}${retaliationSummary}`
         : `Enemy fire was detected against ${defenderLabel}. Damage: ${damage}.${effects}${destructionNote}${retaliationSummary}`;
 
-      this.publishActivityEvent({
-        category: "enemy",
-        type: "attack",
-        summary
-      });
+      this.publishActivityEvent({ category, type: "attack", summary });
     });
 
     if (!event.moved && event.attacks.length === 0) {
       const holdSummary = eventVisibleBefore || eventVisibleAfter
-        ? `Enemy ${unitLabel} held position and reported no fire this activation.`
+        ? `${ownerLabel} ${unitLabel} held position and reported no fire this activation.`
         : "Enemy activation resolved with no observed movement or fire.";
-      this.publishActivityEvent({
-        category: "enemy",
-        type: "log",
-        summary: holdSummary
-      });
+      this.publishActivityEvent({ category, type: "log", summary: holdSummary });
     }
   }
 
@@ -10970,7 +10969,7 @@ export class BattleScreen {
       const activation = this.initiativeMethods.getCurrentActivation();
       const activeGroup = this.resolveActiveInitiativeGroup(queue);
       this.ensureFocusedPlayerInitiativeUnit(activeGroup);
-      const displayActivation = activation;
+      const displayActivation = activation ? { ...activation, faction: this.resolveInitiativeFaction(activation) } : null;
       const hasRemainingActivations = this.hasPendingInitiativeActivations(queue);
       const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
       const canAdvanceRound = initiativeActive && !hasRemainingActivations && !activation;
@@ -10985,6 +10984,7 @@ export class BattleScreen {
             initiative: activeGroup.initiative,
             units: activeGroup.activations.map((activation, index) => ({
               ...activation,
+              faction: this.resolveInitiativeFaction(activation),
               sortOrder: activation.sortOrder ?? index
             })),
             isCompleted: false,

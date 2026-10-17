@@ -10,6 +10,7 @@
 import type { UnitActivation } from '../../core/InitiativeQueue';
 import type { InitiativeGroup } from '../../core/GroupedInitiativeQueue';
 import type { ExtendedBattlePhase } from '../../game/GameEngineInitiativeExtensions';
+import { initiativePresentationFaction, type InitiativeActivationPresentation } from './InitiativeTurnControls';
 
 /**
  * Enhanced turn control configuration
@@ -82,7 +83,7 @@ export class EnhancedInitiativeTurnControls {
   private readonly container: HTMLElement;
   private readonly config: EnhancedTurnControlConfig;
   private readonly events: EnhancedTurnControlEvents;
-  private currentUnit: UnitActivation | null = null;
+  private currentUnit: InitiativeActivationPresentation | null = null;
   private currentGroup: InitiativeGroup | null = null;
   private currentPhase: ExtendedBattlePhase = 'deployment';
   private isPlayerTurn = false;
@@ -116,7 +117,7 @@ export class EnhancedInitiativeTurnControls {
    * 
    * @param activation - Current unit activation or null
    */
-  public updateCurrentUnit(activation: UnitActivation | null): void {
+  public updateCurrentUnit(activation: InitiativeActivationPresentation | null): void {
     this.currentUnit = activation;
     this.updateControlStates();
     this.updateCurrentUnitDisplay();
@@ -526,8 +527,9 @@ export class EnhancedInitiativeTurnControls {
 
     if (this.currentUnit) {
       unitInfo.style.display = 'block';
-      unitName.textContent = this.currentUnit.ownerId === 'player' ? 'Player Unit' : 'Enemy Unit';
-      unitOwner.textContent = `${this.currentUnit.ownerId === 'player' ? 'Player' : 'Bot'} (Initiative ${this.currentUnit.initiative})`;
+      const faction = initiativePresentationFaction(this.currentUnit);
+      unitName.textContent = faction === 'Player' ? 'Player Unit' : faction === 'Ally' ? 'Allied Unit' : 'Enemy Unit';
+      unitOwner.textContent = `${faction} (Initiative ${this.currentUnit.initiative})`;
 
       // Update action status
       const completionState = this.unitCompletionStates.get(this.currentUnit.unitId);
@@ -571,9 +573,10 @@ export class EnhancedInitiativeTurnControls {
       groupInfo.style.display = 'block';
       groupInitiative.textContent = `Initiative ${this.currentGroup.initiative}`;
 
-      if (this.isEnemyGroupActivity()) {
+      const automatedFaction = this.automatedGroupFaction();
+      if (this.hasAutomatedGroupActivity()) {
         progressFill.style.removeProperty('width');
-        progressText.textContent = 'Enemy orders resolving';
+        progressText.textContent = automatedFaction ? `${automatedFaction === 'Ally' ? 'Allied' : 'Enemy'} orders resolving` : 'Orders resolving';
         return;
       }
       
@@ -596,13 +599,21 @@ export class EnhancedInitiativeTurnControls {
   }
 
   /**
-   * The initiative queue may update its group and current activation in separate calls. Treat
-   * either enemy-owned value as private during that handoff, and cover the empty-group tail of
-   * an enemy initiative without retaining the just-completed roster cardinality.
+   * Group membership can mix Bot and Ally at one initiative. The current actor owns the label,
+   * while the independent privacy guard covers either roster during separate handoff updates.
    */
-  private isEnemyGroupActivity(): boolean {
-    return this.currentUnit?.ownerId === 'bot'
-      || Boolean(this.currentGroup?.units.some((unit) => unit.ownerId === 'bot'))
+  private automatedGroupFaction(): 'Bot' | 'Ally' | null {
+    const currentFaction = this.currentUnit ? initiativePresentationFaction(this.currentUnit) : null;
+    if (currentFaction) return currentFaction === 'Player' ? null : currentFaction;
+    const factions = (this.currentGroup?.units ?? []).map(initiativePresentationFaction);
+    if (factions.includes('Bot')) return 'Bot';
+    if (factions.includes('Ally')) return 'Ally';
+    return this.currentGroup && this.currentPhase === 'initiativeTurn' && !this.isPlayerTurn ? 'Bot' : null;
+  }
+
+  /** Never expose automated roster counts, including a stale roster beside a new friendly actor. */
+  private hasAutomatedGroupActivity(): boolean {
+    return this.currentUnit?.ownerId === 'bot' || Boolean(this.currentGroup?.units.some((unit) => unit.ownerId === 'bot'))
       || Boolean(this.currentGroup && this.currentPhase === 'initiativeTurn' && !this.isPlayerTurn);
   }
 
@@ -648,10 +659,10 @@ export class EnhancedInitiativeTurnControls {
 
     if (this.currentGroup) {
       const remaining = this.currentGroup.units.filter((unit) => !unit.isActivated).length;
-      const enemyActivity = this.isEnemyGroupActivity();
+      const automatedFaction = this.automatedGroupFaction();
       const hasKnownOwner = Boolean(this.currentUnit) || this.currentGroup.units.length > 0;
-      const ownerLabel = enemyActivity
-        ? "Enemy group"
+      const ownerLabel = automatedFaction
+        ? `${automatedFaction === 'Ally' ? 'Allied' : 'Enemy'} group`
         : this.currentUnit?.ownerId === 'player'
           ? "Your group"
           : hasKnownOwner && this.isPlayerTurn
@@ -660,8 +671,8 @@ export class EnhancedInitiativeTurnControls {
       statusElement.dataset.currentInitiativeGroup = String(this.currentGroup.initiative);
       labelElement.textContent = `Initiative ${this.currentGroup.initiative}`;
       valueElement.textContent = ownerLabel;
-      detailElement.textContent = enemyActivity
-        ? "Enemy orders resolving"
+      detailElement.textContent = this.hasAutomatedGroupActivity()
+        ? automatedFaction ? `${automatedFaction === 'Ally' ? 'Allied' : 'Enemy'} orders resolving` : "Orders resolving"
         : !hasKnownOwner
           ? "Orders resolving"
         : `${remaining} formation${remaining === 1 ? "" : "s"} ready`;
@@ -669,7 +680,8 @@ export class EnhancedInitiativeTurnControls {
     }
 
     if (this.currentUnit) {
-      const ownerLabel = this.currentUnit.ownerId === 'player' ? "Your formation" : "Enemy formation";
+      const faction = initiativePresentationFaction(this.currentUnit);
+      const ownerLabel = faction === 'Player' ? "Your formation" : faction === 'Ally' ? "Allied formation" : "Enemy formation";
       statusElement.dataset.currentInitiativeGroup = String(this.currentUnit.initiative);
       labelElement.textContent = `Initiative ${this.currentUnit.initiative}`;
       valueElement.textContent = ownerLabel;
@@ -700,7 +712,7 @@ export class EnhancedInitiativeTurnControls {
 
     if (this.currentPhase === 'initiativeTurn' && this.currentUnit) {
       indicatorDot.className = 'indicator-dot indicator-active';
-      indicatorText.textContent = `${this.currentUnit.ownerId === 'player' ? 'Player' : 'Bot'} Acting`;
+      indicatorText.textContent = `${initiativePresentationFaction(this.currentUnit)} Acting`;
     } else if (this.currentPhase === 'initiativeTurn') {
       indicatorDot.className = 'indicator-dot indicator-ready';
       indicatorText.textContent = 'Ready';

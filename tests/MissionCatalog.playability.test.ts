@@ -45,7 +45,8 @@ registerTest("MISSION_CATALOG_AUTHORED_REGISTRATION_GUARD_REJECTS_DORMANT_IMPORT
 
 registerTest("MISSION_CATALOG_COMPATIBILITY_VISIBILITY_AND_MIRROR_COVERAGE_REMAINS_REGISTERED", () => {
   const source = readFileSync("tests/index.ts", "utf8");
-  for (const module of ["./BotSimple.compatibility.test.js", "./Recon.visibility.test.js", "./deploymentMirror.test.js"]) {
+  for (const module of ["./BotSimple.compatibility.test.js", "./BotAlly.compatibility.test.js", "./BotAlly.initiative.test.js",
+    "./BattleScreen.allyActivation.test.js", "./Recon.visibility.test.js", "./deploymentMirror.test.js"]) {
     assert.ok(importsHarnessModule(source, module), `The default runner must execute ${module}.`);
     assert.equal(importsHarnessModule(`/* import "${module}"; */`, module), false);
     assert.equal(importsHarnessModule(`import type {} from "${module}";`, module), false);

@@ -9845,6 +9845,19 @@ private automateSupplyConvoys(
       // the player-turn branch; still advance player sortie lifecycles so queued player flights launch.
       if (this._phase === "allyTurn") this.stepAirMissionsForFaction("Player");
       this.advanceAirMissionRefits("Player");
+      if (this.allyPlacements.size > 0) {
+        // Autonomous Allies have already acted in the initiative queue: service and refresh only.
+        if (this._phase === "botTurn") {
+          this.stepAirMissionsForFaction("Ally");
+          this.advanceAirMissionRefits("Ally");
+        }
+        this.applySupplyTickFor("Ally");
+        this.accrueMovementCreditForFaction("Ally");
+        this.allyActionFlags.clear();
+        this.clearFlakEngagementsFor("Ally");
+        this.clearSuppressionFor("Ally");
+        this.clearSentryFor("Ally");
+      }
       this.resolveReadyAirMissionsForRound();
       // Initiative rounds do not pass through the conventional bot-turn preparation above.
       // Refresh the next round exactly once, after all attacks and logistics have resolved.
@@ -12171,12 +12184,6 @@ private automateSupplyConvoys(
     this.recordSupplySnapshot("Ally");
   }
 
-  /** Executes the ally turn. Placeholder: allies hold position until dedicated ally AI is implemented. */
-  private executeAllyTurn(): void {
-    // Intentionally minimal: allies currently do not perform autonomous maneuvers.
-    // Supply upkeep and air mission progression are still applied in endTurn sequencing.
-  }
-
   setSupplyPriority(unitId: string, priority: SupplyPriority): boolean {
     if (!unitId) {
       return false;
@@ -12939,6 +12946,12 @@ private automateSupplyConvoys(
     return null;
   }
 
+  /** Combat bonuses belong to the actual side, including autonomous Allies restored from saves. */
+  private combatGeneralForFaction(faction: TurnFaction): UnitCombatState["general"] {
+    return faction === "Player" ? this.playerSide.general : faction === "Bot" ? this.botSide.general
+      : this.allySide?.general ?? { accBonus: 0, dmgBonus: 0 };
+  }
+
   /** Backward-compatible overload (legacy call sites assume Player attacks Bot). */
   private buildAttackRequest(attacker: ScenarioUnit, defender: ScenarioUnit, options?: { allowBomberAirAttack?: boolean; stance?: CombatStance; isRetaliation?: boolean; isOnSentry?: boolean; defenderIsAssaulting?: boolean }): AttackRequest | null;
   /** Faction-aware overload. */
@@ -13018,8 +13031,8 @@ private automateSupplyConvoys(
       isSpottedOnly = !isObserverDirectedIndirectFire;
     }
 
-    const attackerGeneral = attackerFaction === "Player" ? this.playerSide.general : this.botSide.general;
-    const defenderGeneral = defenderFaction === "Player" ? this.playerSide.general : this.botSide.general;
+    const attackerGeneral = this.combatGeneralForFaction(attackerFaction);
+    const defenderGeneral = this.combatGeneralForFaction(defenderFaction);
     const attackerStrength = this.deriveCombatStrength(attacker);
     const defenderStrength = this.deriveCombatStrength(defender);
 
@@ -13715,7 +13728,9 @@ private automateSupplyConvoys(
     attacker: PlannerUnitSnapshot,
     attackerHex: Axial,
     defender: PlannerUnitSnapshot,
-    defenderHex: Axial
+    defenderHex: Axial,
+    attackerFaction: TurnFaction,
+    defenderFaction: TurnFaction
   ): AttackEstimate | null {
     const atkUnit = structuredClone(attacker.unit);
     atkUnit.hex = structuredClone(attackerHex);
@@ -13730,8 +13745,8 @@ private automateSupplyConvoys(
     const req = this.buildAttackRequest(
       atkUnit,
       defUnit,
-      "Bot",
-      "Player",
+      attackerFaction,
+      defenderFaction,
       preferredStance ? { stance: preferredStance } : undefined
     );
     if (!req) {
@@ -13770,7 +13785,7 @@ private automateSupplyConvoys(
       const rMin = defDef.rangeMin ?? 1;
       const rMax = defDef.rangeMax ?? 1;
       if (distance >= rMin && distance <= rMax) {
-        const revReq = this.buildAttackRequest(defUnit, atkUnit, "Player", "Bot", {
+        const revReq = this.buildAttackRequest(defUnit, atkUnit, defenderFaction, attackerFaction, {
           allowBomberAirAttack: true,
           stance: preferredStance === "assault" ? "assault" : undefined,
           isRetaliation: true,
@@ -13888,7 +13903,8 @@ private automateSupplyConvoys(
     const faction: TurnFaction = acting === this.allyPlacements ? "Ally" : "Bot";
     const actingUnits: PlannerUnitSnapshot[] = [];
     const opposingUnits: PlannerUnitSnapshot[] = [];
-    (faction === "Ally" ? Array.from(acting.values()) : this.getAllUnitsForFaction(faction)).forEach((unit) => {
+    const opposingFactions = new Map<string, TurnFaction>();
+    this.getAllUnitsForFaction(faction).forEach((unit) => {
       const def = this.getUnitDefinition(unit.type);
       if (def.moveType === "air" || this.isSupplyTruckType(unit.type)) {
         return;
@@ -13902,9 +13918,11 @@ private automateSupplyConvoys(
         if (!this.checkTargetSpotted(unit.hex, faction)) return;
         const def = this.getUnitDefinition(unit.type);
         opposingUnits.push({ unit: structuredClone(unit), definition: def });
+        opposingFactions.set(this.getSquadronId(unit), opposingFaction);
       });
     });
     syntheticOpposingUnits.forEach((entry) => {
+      opposingFactions.set(this.getSquadronId(entry.unit), faction === "Bot" ? "Player" : "Bot");
       opposingUnits.push({
         unit: structuredClone(entry.unit),
         definition: entry.definition
@@ -13931,8 +13949,7 @@ private automateSupplyConvoys(
         fuelCost: (hex, moveType) => this.resolveMovementFuelStep(moveType, hex),
         canEnterHex: (origin, destination, unitId) => {
           const unit = this.findUnitInFactionAtHex(origin, faction, unitId);
-          return Boolean(unit && (faction === "Ally" ? !this.isOccupied(destination)
-            : this.canFactionEnterHex(unit, faction, destination, (hostile) => observedEnemyHexes.has(axialKey(hostile.hex)))));
+          return Boolean(unit && this.canFactionEnterHex(unit, faction, destination, (hostile) => observedEnemyHexes.has(axialKey(hostile.hex))));
         },
         featuresAt: (hex) => this.lookupTileDetails(hex)?.features ?? [],
         isRoad: (hex) => this.isRoad(hex),
@@ -13940,10 +13957,14 @@ private automateSupplyConvoys(
       },
       losAllows: (a, b, isAir) => this.plannerLOSAllows(a, b, isAir),
       movementAllowance: (snap) => this.plannerMovementAllowance(snap, faction),
-      movementType: (snap) => faction === "Bot" && this.isTowableUnit(snap.unit) ? "truck" : snap.definition.moveType,
+      movementType: (snap) => this.isTowableUnit(snap.unit) ? "truck" : snap.definition.moveType,
       fuelAllowance: (snap) => this.resolveFuelBudget(snap.unit, snap.definition),
       canAttackAfterMoving: (snap, cost) => this.canBotAttackAfterMoving(snap, cost, faction),
-      attackEstimator: (a, ah, d, dh) => this.plannerAttackEstimate(a, ah, d, dh),
+      attackEstimator: (a, ah, d, dh) => {
+        const defenderFaction = opposingFactions.get(this.getSquadronId(d.unit));
+        if (!defenderFaction) throw new Error("Planner target has no faction identity.");
+        return this.plannerAttackEstimate(a, ah, d, dh, faction, defenderFaction);
+      },
       difficulty
     } satisfies BotPlannerInput;
   }
@@ -13953,15 +13974,20 @@ private automateSupplyConvoys(
     return this.executeHeuristicBotTurn(unitId);
   }
 
-  private executeHeuristicBotTurn(activationUnitId?: string): BotTurnSummary {
-    if (!activationUnitId) this.maybeScheduleHeuristicAirOps();
+  /** Execute one autonomous Ally through the same transaction; round upkeep remains at the round boundary. */
+  executeAllyActivation(unitId: string): BotTurnSummary {
+    return this.executeHeuristicBotTurn(unitId, "Ally");
+  }
+
+  private executeHeuristicBotTurn(activationUnitId?: string, faction: "Bot" | "Ally" = "Bot"): BotTurnSummary {
+    if (faction === "Bot" && !activationUnitId) this.maybeScheduleHeuristicAirOps();
     const moves: BotMoveSummary[] = [];
     const attacks: BotAttackSummary[] = [];
 
-    console.log(`[Bot AI] Heuristic bot turn starting. Bot units: ${this.botPlacements.size}, Player units: ${this.playerPlacements.size}`);
-
-    const buildInput = (): BotPlannerInput => this.buildPlannerInputFor(this.botPlacements, this.playerPlacements, this.botDifficulty,
-        this.allyPlacements.size > 0 ? [this.allyPlacements] : [], this.buildPlannerCounterIntelDecoys("Player"));
+    const buildInput = (): BotPlannerInput => faction === "Ally"
+      ? this.buildPlannerInputFor(this.allyPlacements, this.botPlacements, this.botDifficulty)
+      : this.buildPlannerInputFor(this.botPlacements, this.playerPlacements, this.botDifficulty,
+          this.allyPlacements.size > 0 ? [this.allyPlacements] : [], this.buildPlannerCounterIntelDecoys("Player"));
     const initialPlans = planHeuristicBotTurn(buildInput(), (snap) => !activationUnitId || snap.unit.unitId === activationUnitId);
     for (let index = 0; index < initialPlans.length; index += 1) {
       const unitId = this.getSquadronId(initialPlans[index].unit.unit);
@@ -13974,31 +14000,31 @@ private automateSupplyConvoys(
       const toKey = axialKey(plan.destination);
       const fromLabel = this.formatAxial(plan.origin);
       const toLabel = this.formatAxial(plan.destination);
-      console.log(`[Bot AI] Plan for ${plan.unit.unit.type} at ${fromLabel}: ${plan.rationale} (score: ${plan.score.toFixed(1)}, destination: ${toLabel}, path length: ${plan.path.length})`);
-      const unit = this.findUnitInFactionAtHex(plan.origin, "Bot", unitId);
+      console.log(`[${faction} AI] Plan for ${plan.unit.unit.type} at ${fromLabel}: ${plan.rationale} (score: ${plan.score.toFixed(1)}, destination: ${toLabel}, path length: ${plan.path.length})`);
+      const unit = this.findUnitInFactionAtHex(plan.origin, faction, unitId);
       if (!unit) {
-        console.log(`[Bot AI] Unit not found at ${fromLabel}, skipping plan`);
+        console.log(`[${faction} AI] Unit not found at ${fromLabel}, skipping plan`);
         continue;
       }
-      if (toKey !== fromKey && !this.canFactionEnterHex(unit, "Bot", plan.destination)) {
-        console.log(`[Bot AI] Destination ${toLabel} is occupied, skipping plan`);
+      if (toKey !== fromKey && !this.canFactionEnterHex(unit, faction, plan.destination)) {
+        console.log(`[${faction} AI] Destination ${toLabel} is occupied, skipping plan`);
         continue;
       }
 
       let current = structuredClone(plan.origin);
       const visited: Axial[] = [structuredClone(plan.origin)];
       if (toKey !== fromKey) {
-        console.log(`[Bot AI] Executing move for ${unit.type} from ${fromLabel} to ${toLabel}`);
+        console.log(`[${faction} AI] Executing move for ${unit.type} from ${fromLabel} to ${toLabel}`);
         const moved = structuredClone(unit);
         const unitDef = this.getUnitDefinition(unit.type);
-        const botFlags = this.getUnitActionFlags("Bot", unit);
+        const botFlags = this.getUnitActionFlags(faction, unit);
         let movementSpent = botFlags.movementPointsUsed;
         const hookupCost = this.isTowableUnit(moved) && this.resolveTowState(moved) === "deployed"
-          ? this.resolveTowHookupCost(unitDef, botFlags, "Bot") : 0;
-        const availableMovement = this.plannerMovementAllowance({ unit, definition: unitDef }, "Bot") + hookupCost;
+          ? this.resolveTowHookupCost(unitDef, botFlags, faction) : 0;
+        const availableMovement = this.plannerMovementAllowance({ unit, definition: unitDef }, faction) + hookupCost;
         moved.movementCredit = availableMovement;
         if (this.isTowableUnit(moved) && this.resolveTowState(moved) === "deployed") {
-          // Enemy batteries follow the same limbering drill as player batteries:
+          // Autonomous batteries follow the same limbering drill as player batteries:
           // hooking up is part of the turn and the gun remains unable to fire.
           moved.towState = "towed";
           moved.onSentry = false;
@@ -14017,8 +14043,8 @@ private automateSupplyConvoys(
 
         for (let i = 1; i < plan.path.length; i += 1) {
           const step = plan.path[i];
-          if (!this.canFactionEnterHex(unit, "Bot", step)) {
-            console.log(`[Bot AI] Path blocked at ${this.formatAxial(step)}, stopping movement`);
+          if (!this.canFactionEnterHex(unit, faction, step)) {
+            console.log(`[${faction} AI] Path blocked at ${this.formatAxial(step)}, stopping movement`);
             break;
           }
 
@@ -14028,11 +14054,11 @@ private automateSupplyConvoys(
           const stepFuel = this.resolveMovementFuelStep(botMoveType, step);
 
           if (movementSpent + stepCost > maxMovement) {
-            console.log(`[Bot AI] Movement exhausted after ${hexesMoved} hex(es): spent ${movementSpent}, next step cost ${stepCost}, max ${maxMovement}`);
+            console.log(`[${faction} AI] Movement exhausted after ${hexesMoved} hex(es): spent ${movementSpent}, next step cost ${stepCost}, max ${maxMovement}`);
             break;
           }
           if (Number.isFinite(availableFuel) && fuelSpent + stepFuel > availableFuel + 1e-6) {
-            console.log(`[Bot AI] Fuel exhausted after ${hexesMoved} hex(es): spent ${fuelSpent.toFixed(2)}, next step costs ${stepFuel.toFixed(2)}, available ${availableFuel.toFixed(2)}`);
+            console.log(`[${faction} AI] Fuel exhausted after ${hexesMoved} hex(es): spent ${fuelSpent.toFixed(2)}, next step costs ${stepFuel.toFixed(2)}, available ${availableFuel.toFixed(2)}`);
             break;
           }
 
@@ -14052,14 +14078,14 @@ private automateSupplyConvoys(
             moved.fuel = Math.max(0, Number((moved.fuel - fuelSpent).toFixed(2)));
           }
           moved.entrench = 0;
-          console.log(`[Bot AI] ${unit.type} moved from ${fromLabel} to ${this.formatAxial(current)} (${visited.length - 1} steps)`);
-          this.removeUnitFromFactionHex("Bot", unit.hex, unitId);
-          this.addUnitToFactionHex("Bot", moved);
-          this.updateSupplyPositionForFaction("Bot", unit.hex, current, unitId);
-          this.overrunRecoverySitesAtHex("Bot", current);
-          this.syncBotFuel(current, moved.fuel, unitId);
-          this.syncBotEntrench(current, moved.entrench, unitId);
-          this.setUnitActionFlags("Bot", moved, {
+          console.log(`[${faction} AI] ${unit.type} moved from ${fromLabel} to ${this.formatAxial(current)} (${visited.length - 1} steps)`);
+          this.removeUnitFromFactionHex(faction, unit.hex, unitId);
+          this.addUnitToFactionHex(faction, moved);
+          this.updateSupplyPositionForFaction(faction, unit.hex, current, unitId);
+          this.overrunRecoverySitesAtHex(faction, current);
+          this.syncFuelForFaction(faction, current, moved.fuel, unitId);
+          this.syncEntrenchForFaction(faction, current, moved.entrench, unitId);
+          this.setUnitActionFlags(faction, moved, {
             ...botFlags,
             movementPointsUsed: movementSpent
           });
@@ -14073,28 +14099,28 @@ private automateSupplyConvoys(
             duration: Math.max(visited.length - 1, 1)
           });
         } else {
-          console.log(`[Bot AI] ${unit.type} could not progress along planned path from ${fromLabel}; holding position`);
+          console.log(`[${faction} AI] ${unit.type} could not progress along planned path from ${fromLabel}; holding position`);
         }
       }
 
       if (plan.attackTarget) {
-        const botUnit = this.findUnitInFactionAtHex(current, "Bot", unitId)!;
+        const botUnit = this.findUnitInFactionAtHex(current, faction, unitId)!;
         const stance = this.chooseBotStance(botUnit, plan.attackTarget);
-        const attack = this.resolveBotAttack(botUnit, current, plan.attackTarget, stance);
+        const attack = this.resolveBotAttack(botUnit, current, plan.attackTarget, stance, faction);
         if (attack) {
           attacks.push(attack);
         }
       }
 
       if (!plan.attackTarget && plan.fieldAction === "digIn" && axialKey(current) === axialKey(plan.origin)) {
-        if (this.executeHeuristicBotDigIn(current, unitId)) {
-          console.log(`[Bot AI] ${unit.type} dug in at ${this.formatAxial(current)}`);
+        if (this.executeHeuristicBotDigIn(current, unitId, faction)) {
+          console.log(`[${faction} AI] ${unit.type} dug in at ${this.formatAxial(current)}`);
         }
       }
     }
 
-    const supplyReport = activationUnitId ? null : this.applySupplyTickFor("Bot");
-    console.log(`[Bot AI] Heuristic bot turn complete. Moves: ${moves.length}, Attacks: ${attacks.length}`);
+    const supplyReport = faction === "Bot" && !activationUnitId ? this.applySupplyTickFor(faction) : null;
+    console.log(`[${faction} AI] Heuristic bot turn complete. Moves: ${moves.length}, Attacks: ${attacks.length}`);
     return { moves, attacks, supplyReport };
   }
 
@@ -14103,8 +14129,8 @@ private automateSupplyConvoys(
    * while keeping the same battlefield abstraction: a five-minute turn across a 250 m hex is enough time to improve
    * a prepared position, but not to both maneuver and entrench in depth.
    */
-  private executeHeuristicBotDigIn(hex: Axial, unitId?: string): boolean {
-    const unit = this.findUnitInFactionAtHex(hex, "Bot", unitId);
+  private executeHeuristicBotDigIn(hex: Axial, unitId?: string, faction: "Bot" | "Ally" = "Bot"): boolean {
+    const unit = this.findUnitInFactionAtHex(hex, faction, unitId);
     if (!unit) {
       return false;
     }
@@ -14120,129 +14146,19 @@ private automateSupplyConvoys(
       return false;
     }
 
-    const flags = this.getUnitActionFlags("Bot", unit);
+    const flags = this.getUnitActionFlags(faction, unit);
     if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) return false;
     const updated = structuredClone(unit);
     updated.entrench = Math.min(2, (updated.entrench ?? 0) + 1);
     updated.movementCredit = 0;
-    this.setUnitActionFlags("Bot", updated, { ...flags, attacksUsed: 1, movementPointsUsed: this.resolveBaseMovementAllowance(definition, flags, "Bot", unit) });
-    this.replaceUnitInFactionHex("Bot", updated);
-    this.syncBotEntrench(hex, updated.entrench, this.getSquadronId(updated));
+    this.setUnitActionFlags(faction, updated, { ...flags, attacksUsed: 1, movementPointsUsed: this.resolveBaseMovementAllowance(definition, flags, faction, unit) });
+    this.replaceUnitInFactionHex(faction, updated);
+    this.syncEntrenchForFaction(faction, hex, updated.entrench, this.getSquadronId(updated));
     return true;
   }
 
   private executeHeuristicAllyTurn(): void {
-    if (this.botPlacements.size === 0 || this.allyPlacements.size === 0) {
-      return;
-    }
-
-    const input = this.buildPlannerInputFor(this.allyPlacements, this.botPlacements, this.botDifficulty);
-    const plans = planHeuristicBotTurn(input);
-    const occupancy = this.buildUnifiedOccupancySet();
-
-    for (const plan of plans) {
-      const fromKey = axialKey(plan.origin);
-      const toKey = axialKey(plan.destination);
-      const unit = this.allyPlacements.get(fromKey);
-      if (!unit) {
-        continue;
-      }
-      if (toKey !== fromKey && occupancy.has(toKey)) {
-        continue;
-      }
-
-      let current = structuredClone(plan.origin);
-      const visited: Axial[] = [structuredClone(plan.origin)];
-      if (toKey !== fromKey) {
-        this.allyPlacements.delete(fromKey);
-        const moved = structuredClone(unit);
-        const movedDefinition = this.getUnitDefinition(unit.type);
-        const movedFlags = this.getUnitActionFlags("Ally", unit);
-        let remainingMovement = Math.max(
-          0,
-          unit.movementCredit ?? this.resolveBaseMovementAllowance(movedDefinition, movedFlags, "Ally", unit)
-        );
-        for (let i = 1; i < plan.path.length; i += 1) {
-          const step = plan.path[i];
-          const stepKey = axialKey(step);
-          if (occupancy.has(stepKey)) {
-            break;
-          }
-          const stepCost = this.resolveMoveCost(movedDefinition.moveType, this.terrainAt(step), step, current);
-          if (stepCost > remainingMovement + 1e-6) {
-            break;
-          }
-          moved.facing = this.resolveFacingToward(current, step, moved.facing);
-          moved.hex = structuredClone(step);
-          current = structuredClone(step);
-          remainingMovement -= stepCost;
-          visited.push(structuredClone(step));
-        }
-        moved.movementCredit = Math.max(0, Number(remainingMovement.toFixed(4)));
-        if (visited.length > 1) {
-          moved.entrench = 0;
-        }
-        this.allyPlacements.set(axialKey(current), moved);
-        this.overrunRecoverySitesAtHex("Ally", current);
-        this.syncEntrenchForFaction("Ally", current, moved.entrench);
-        occupancy.delete(fromKey);
-        occupancy.add(axialKey(current));
-      }
-
-      if (plan.attackTarget) {
-        const attacker = this.allyPlacements.get(axialKey(current));
-        const defender = this.botPlacements.get(axialKey(plan.attackTarget));
-        if (attacker && defender) {
-          attacker.facing = this.resolveFacingToward(current, plan.attackTarget, attacker.facing);
-          const request = this.buildAttackRequest(attacker, defender, "Ally", "Bot");
-          if (request) {
-            const result = resolveAttack(request);
-            const updatedDefender = structuredClone(defender);
-            updatedDefender.facing = this.resolveFacingToward(plan.attackTarget, current, defender.facing);
-            const attackerDef = this.getUnitDefinition(attacker.type);
-            const defenderDef = this.getUnitDefinition(defender.type);
-            const damagePacket = this.applyCombatDamageToUnit(
-              attacker,
-              attackerDef,
-              updatedDefender,
-              defenderDef,
-              result,
-              current,
-              plan.attackTarget
-            );
-            const damageSummary = this.buildCombatDamageSummary(defender, updatedDefender, damagePacket);
-            this.allyPlacements.set(axialKey(current), structuredClone(attacker));
-            if (updatedDefender.strength <= 0) {
-              this.botPlacements.delete(axialKey(plan.attackTarget));
-              this.removeSupplyEntryForFaction("Bot", plan.attackTarget, this.getSquadronId(defender));
-              occupancy.delete(axialKey(plan.attackTarget));
-            } else {
-              this.botPlacements.set(axialKey(plan.attackTarget), updatedDefender);
-              this.syncStrengthForFaction("Bot", plan.attackTarget, updatedDefender.strength, this.getSquadronId(updatedDefender));
-            }
-            this.recordCombatReport({
-              attacker: {
-                unit: attacker,
-                hex: current,
-                faction: "Ally",
-                strengthBefore: attacker.strength,
-                strengthAfter: attacker.strength
-              },
-              defender: {
-                unit: defender,
-                hex: plan.attackTarget,
-                faction: "Bot",
-                strengthBefore: defender.strength,
-                strengthAfter: updatedDefender.strength,
-                destroyed: updatedDefender.strength <= 0
-              },
-              attackResult: result,
-              damage: damageSummary
-            });
-          }
-        }
-      }
-    }
+    this.executeHeuristicBotTurn(undefined, "Ally");
   }
 
   /** Sync defender strength to bot supply mirror after combat. */
@@ -15615,22 +15531,22 @@ private automateSupplyConvoys(
     return "fireAtWill";
   }
 
-  private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial, stance: CombatStance = "fireAtWill"): BotAttackSummary | null {
+  private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial, stance: CombatStance = "fireAtWill", faction: "Bot" | "Ally" = "Bot"): BotAttackSummary | null {
     this.ensureUnitId(attackingUnit);
-    if (!this.canBotAttackAfterMoving({ unit: attackingUnit, definition: this.getUnitDefinition(attackingUnit.type) }, 0, "Bot")) return null;
-    let botFlags = this.getUnitActionFlags("Bot", attackingUnit);
+    if (!this.canBotAttackAfterMoving({ unit: attackingUnit, definition: this.getUnitDefinition(attackingUnit.type) }, 0, faction)) return null;
+    let botFlags = this.getUnitActionFlags(faction, attackingUnit);
     if (this.isTowableUnit(attackingUnit) && this.resolveTowState(attackingUnit) === "towed") {
       // A limbered battery may deploy and fire only if it has not moved. The bot
       // has no command-card click, so resolve that legal deployment automatically.
       const deployed = structuredClone(attackingUnit);
       deployed.towState = "deployed";
       deployed.onSentry = false;
-      this.replaceUnitInFactionHex("Bot", deployed);
+      this.replaceUnitInFactionHex(faction, deployed);
       attackingUnit = deployed;
-      botFlags = this.getUnitActionFlags("Bot", attackingUnit);
+      botFlags = this.getUnitActionFlags(faction, attackingUnit);
     }
     const attackerKey = this.getSquadronId(attackingUnit);
-    const defenderEntries = this.getHostileUnitsAtHex(targetHex, "Bot");
+    const defenderEntries = this.getHostileUnitsAtHex(targetHex, faction);
     const preferredPrimaryDefender = defenderEntries[0] ?? null;
     const primaryDefender = preferredPrimaryDefender?.unit ?? null;
     if (!primaryDefender) {
@@ -15642,6 +15558,7 @@ private automateSupplyConvoys(
     const effectiveStance = this.resolveCombatStanceForAttacker(attackingUnit, attackerDef, stance, targetHex);
     const attackerIsAircraft = this.isAircraft(attackerDef);
     const primaryDefenderIsAircraft = this.isAircraft(primaryDefenderDef);
+    if (attackerIsAircraft && faction === "Ally") return null;
     const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(attackerDef, effectiveStance);
     const attackerFlags = botFlags;
     const resolveAircraftRegistryKey = (faction: TurnFaction, unit: ScenarioUnit): string => {
@@ -15666,8 +15583,7 @@ private automateSupplyConvoys(
       attackerIsBomber: this.isBomber(attackingDefinition),
       defenderIsAircraft: this.isAircraft(defendingDefinition)
     });
-    const botDifficultyDamageModifier = 1 + (getDifficultyModifiers(this.botDifficulty).damageMod / 100);
-
+    const botDifficultyDamageModifier = faction === "Bot" ? 1 + (getDifficultyModifiers(this.botDifficulty).damageMod / 100) : 1;
     if (primaryDefenderIsAircraft && !attackerIsAircraft && !this.hasAntiAirCapability(attackerDef)) {
       return null;
     }
@@ -15685,10 +15601,10 @@ private automateSupplyConvoys(
       return null;
     }
     if (attackerIsAircraft) {
-      const aircraftAmmoKey = resolveAircraftRegistryKey("Bot", attackingUnit);
+      const aircraftAmmoKey = resolveAircraftRegistryKey(faction, attackingUnit);
       const aircraftAmmunitionReadiness = projectBattleAircraftAttackAmmunitionReadiness({
         defenderIsAircraft: primaryDefenderIsAircraft,
-        ammunition: this.getAircraftAmmoState("Bot", aircraftAmmoKey, attackerDef)
+        ammunition: this.getAircraftAmmoState(faction, aircraftAmmoKey, attackerDef)
       });
       if (aircraftAmmunitionReadiness.unavailableReason) {
         return null;
@@ -15709,7 +15625,7 @@ private automateSupplyConvoys(
       (attackerDef.class === "artillery" || attackerDef.traits.includes("indirect"));
     let isSpottedOnly = false;
     if (!hasDirectLOS) {
-      if (!this.canAttackWithoutDirectLOS(attackerDef) || !this.checkTargetSpotted(targetHex, "Bot")) {
+      if (!this.canAttackWithoutDirectLOS(attackerDef) || !this.checkTargetSpotted(targetHex, faction)) {
         return null;
       }
       // Coordinated indirect fires use spotting to authorize the mission, but once
@@ -15912,7 +15828,7 @@ private automateSupplyConvoys(
     const attackRequestSource = attackerPreparation.attackRequestSource;
     let updatedAttacker = attackerPreparation.updatedAttacker;
     if (attackerIsAircraft) {
-      this.spendAircraftAmmo("Bot", resolveAircraftRegistryKey("Bot", attackingUnit), primaryDefenderIsAircraft);
+      this.spendAircraftAmmo(faction, resolveAircraftRegistryKey(faction, attackingUnit), primaryDefenderIsAircraft);
     }
 
     let primaryAttackResult: AttackResult | null = null;
@@ -15944,13 +15860,13 @@ private automateSupplyConvoys(
           unit: attackerDef,
           strength: this.deriveCombatStrength(attackRequestSource),
           experience: getEffectiveExperience(attackRequestSource),
-          general: this.botSide.general
+          general: this.combatGeneralForFaction(faction)
         },
         defender: {
           unit: defenderDef,
           strength: this.deriveCombatStrength(defenderBefore),
           experience: getEffectiveExperience(defenderBefore),
-          general: entry.faction === "Player" ? this.playerSide.general : (this.allySide?.general ?? this.playerSide.general)
+          general: this.combatGeneralForFaction(entry.faction)
         },
         attackerCtx: {
           hex: attackRequestSource.hex,
@@ -16079,7 +15995,7 @@ private automateSupplyConvoys(
         this.getAircraftAmmoState(entry.faction, defenderAmmoKey, defenderDef);
       }
       const retaliationReq = retaliation.allowed
-        ? this.buildAttackRequest(retaliationDefender, updatedAttacker, entry.faction, "Bot", {
+        ? this.buildAttackRequest(retaliationDefender, updatedAttacker, entry.faction, faction, {
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined,
             isRetaliation: true,
@@ -16152,28 +16068,28 @@ private automateSupplyConvoys(
       attackerAfterCombat: updatedAttacker, targetHex, stance: effectiveStance, allDefendersDestroyed, attackerIsAircraft, primaryDefenderIsAircraft });
     updatedAttacker = disposedAttacker;
     if (attackerDisposition === "destroyed") {
-      this.removeUnitFromFactionHex("Bot", attackerHex, attackerKey);
-      this.deleteUnitActionFlags("Bot", attackingUnit);
-      this.removeSupplyEntryForFaction("Bot", attackerHex, attackerKey);
+      this.removeUnitFromFactionHex(faction, attackerHex, attackerKey);
+      this.deleteUnitActionFlags(faction, attackingUnit);
+      this.removeSupplyEntryForFaction(faction, attackerHex, attackerKey);
       if (attackerIsAircraft) {
-        this.clearAircraftAmmoStateForUnit("Bot", attackingUnit);
+        this.clearAircraftAmmoStateForUnit(faction, attackingUnit);
       }
     } else if (attackerDisposition === "advance") {
-      const originRemainder = this.getUnitsAtHexForFaction(attackerHex, "Bot").filter(
+      const originRemainder = this.getUnitsAtHexForFaction(attackerHex, faction).filter(
         (candidate) => this.getSquadronId(candidate) !== attackerKey
       );
-      this.setUnitsAtHexForFaction(attackerHex, "Bot", originRemainder);
-      this.addUnitToFactionHex("Bot", updatedAttacker);
-      this.overrunRecoverySitesAtHex("Bot", targetHex);
-      this.updateSupplyPositionForFaction("Bot", attackerHex, targetHex, attackerKey);
-      this.syncEntrenchForFaction("Bot", targetHex, updatedAttacker.entrench, attackerKey);
+      this.setUnitsAtHexForFaction(attackerHex, faction, originRemainder);
+      this.addUnitToFactionHex(faction, updatedAttacker);
+      this.overrunRecoverySitesAtHex(faction, targetHex);
+      this.updateSupplyPositionForFaction(faction, attackerHex, targetHex, attackerKey);
+      this.syncEntrenchForFaction(faction, targetHex, updatedAttacker.entrench, attackerKey);
     } else {
-      this.replaceUnitInFactionHex("Bot", updatedAttacker);
+      this.replaceUnitInFactionHex(faction, updatedAttacker);
     }
     if (updatedAttacker.strength > 0) {
-      this.syncAmmoForFaction("Bot", updatedAttacker.hex, updatedAttacker.ammo, attackerKey);
-      this.syncStrengthForFaction("Bot", updatedAttacker.hex, updatedAttacker.strength, attackerKey);
-      this.setUnitActionFlags("Bot", updatedAttacker, attackerPreparation.nextActionFlags);
+      this.syncAmmoForFaction(faction, updatedAttacker.hex, updatedAttacker.ammo, attackerKey);
+      this.syncStrengthForFaction(faction, updatedAttacker.hex, updatedAttacker.strength, attackerKey);
+      this.setUnitActionFlags(faction, updatedAttacker, attackerPreparation.nextActionFlags);
     }
 
     const outcome = projectBattleAttackOutcome({
@@ -16181,7 +16097,7 @@ private automateSupplyConvoys(
       attacker: {
         unit: attackRequestSource,
         hex: attackerHex,
-        faction: "Bot",
+        faction,
         strengthBefore: attackRequestSource.strength,
         strengthAfter: updatedAttacker.strength
       },
