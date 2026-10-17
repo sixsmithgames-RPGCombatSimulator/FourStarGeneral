@@ -2,6 +2,8 @@
 
 ## 17 October follow-up
 
+The later [Pointe phase-presentation follow-up](GAMEPLAY_COMPATIBILITY_REPAIR_2026-10-17.md) removes invented reinforcement-arrival claims while preserving phase IDs, timing, markers, outcomes and the six-turn hold ledger. Its report owns current verification/release status; narrative counterattack windows are advisory, not a spawn event.
+
 Subsequent review found terminal reporting inconsistencies in Pointe du Hoc and Citadel Ridge that the original outcome-only checks did not catch. See [the gameplay-quality follow-up](GAMEPLAY_QUALITY_FOLLOWUP_2026-10-17.md) for the current repair, regression and deployment receipt. Original results below remain historical evidence, not primary-objective/debrief parity checks for elimination victories.
 
 ## Intent and scope

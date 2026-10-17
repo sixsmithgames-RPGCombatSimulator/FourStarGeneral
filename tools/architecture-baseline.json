@@ -1,7 +1,7 @@
 {
   "version": 1,
   "lineBudgets": {
-    "src/game/GameEngine.ts": 17949,
+    "src/game/GameEngine.ts": 17902,
     "src/rendering/HexMapRenderer.ts": 6466,
     "src/rendering/HexMapLayout.ts": 77,
     "src/rendering/PrecombatMiniMapRenderer.ts": 94,
@@ -284,7 +284,7 @@
       "GameEngine.getLogisticsSnapshot": 446,
       "GameEngine.buildAttackRequest": 140,
       "GameEngine.executeHeuristicBotTurn": 144,
-      "GameEngine.executeBotTurn": 185,
+      "GameEngine.executeBotTurn": 141,
       "GameEngine.resolveBotAttack": 594,
       "GameEngine.buildRosterSnapshot": 173
     },

@@ -585,23 +585,22 @@ interface PointeDuHocTracker {
   lastCountedTurn: number | null;
 }
 
-function createPointeDuHocPhase(turnNumber: number, counterattackAnnounced: boolean): MissionPhaseStatus {
+/** Turn-based advisory windows must not claim an unobserved enemy arrival or move. */
+function createPointeDuHocPhase(turnNumber: number): MissionPhaseStatus {
   if (turnNumber >= 3) {
     return {
       id: "phase2_commitment",
-      label: "Phase 2: Counterattack",
-      detail: "German infantry are pushing from the inland forest toward the battery. Hold every gun position simultaneously to keep the clock running.",
-      announcement: counterattackAnnounced
-        ? "German counterattack force is pressing from the forest road."
-        : "Pointe du Hoc: German counterattack force has emerged from the forest — defend the captured positions."
+      label: "Phase 2: Counterattack Window",
+      detail: "The counterattack window is open; surviving defenders may contest the battery. All three gun positions must remain friendly-held to keep the six-turn hold clock running.",
+      announcement: "Pointe du Hoc: counterattack window reached. Objective control and the hold clock remain decisive."
     };
   }
 
   return {
     id: "phase1_probe",
     label: "Phase 1: Assault",
-    detail: "Break through the forward ridge line and clear each gun emplacement before the inland reserve can counterattack.",
-    announcement: "Assault force is in position. Seize the battery line before reinforcements arrive."
+    detail: "The battery line is the assault objective. All three gun positions must be friendly-held to start the six-turn hold clock.",
+    announcement: "Pointe du Hoc: assault window open. The hold clock requires all three gun positions."
   };
 }
 
@@ -619,7 +618,7 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
   const tracker: PointeDuHocTracker = {
     holdStreak: 0,
     outcome: { state: "inProgress" },
-    phase: createPointeDuHocPhase(0, false),
+    phase: createPointeDuHocPhase(0),
     counterattackAnnounced: false,
     lastCountedTurn: 0
   };
@@ -729,11 +728,11 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
     const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
     const turnLimit = snapScenario.turnLimit ?? null;
 
-    const counterattackJustArrived = tracker.outcome.state === "inProgress" && turnSummary.turnNumber === 3 && !tracker.counterattackAnnounced;
-    if (counterattackJustArrived) {
+    const counterattackWindowReached = tracker.outcome.state === "inProgress" && turnSummary.turnNumber === 3 && !tracker.counterattackAnnounced;
+    if (counterattackWindowReached) {
       tracker.counterattackAnnounced = true;
     }
-    if (tracker.outcome.state === "inProgress") tracker.phase = createPointeDuHocPhase(turnSummary.turnNumber, !counterattackJustArrived);
+    if (tracker.outcome.state === "inProgress") tracker.phase = createPointeDuHocPhase(turnSummary.turnNumber);
 
     let outcome: MissionOutcome = tracker.outcome;
 
@@ -807,6 +806,10 @@ function createPointeDuHocController(scenario: ScenarioData, _difficulty: BotDif
       tracker.lastCountedTurn = readHoldTurnMarker(data);
       tracker.outcome = structuredClone(data.outcome as MissionOutcome);
       tracker.phase = structuredClone(data.phase as MissionPhaseStatus);
+      // Terminal saves freeze their phase. Refresh recognized copy without reopening
+      // the outcome, altering the hold ledger, or guessing an unknown saved phase.
+      if (tracker.phase.id === "phase1_probe") tracker.phase = createPointeDuHocPhase(0);
+      if (tracker.phase.id === "phase2_commitment") tracker.phase = createPointeDuHocPhase(3);
       tracker.counterattackAnnounced = data.counterattackAnnounced;
     }
   } satisfies MissionRulesController;

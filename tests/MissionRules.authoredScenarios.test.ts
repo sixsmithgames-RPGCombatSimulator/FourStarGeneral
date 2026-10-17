@@ -454,3 +454,176 @@ registerTest("CITADEL_LEGACY_TERMINAL_SAVE_WITHOUT_REASON_REDERIVES_PRESENTATION
     assert.deepEqual(controller.serializeState(), legacy);
   });
 });
+
+const pointeAdvisoryPhases: Readonly<Record<"phase1_probe" | "phase2_commitment", MissionPhaseStatus>> = {
+  phase1_probe: {
+    id: "phase1_probe",
+    label: "Phase 1: Assault",
+    detail: "The battery line is the assault objective. All three gun positions must be friendly-held to start the six-turn hold clock.",
+    announcement: "Pointe du Hoc: assault window open. The hold clock requires all three gun positions."
+  },
+  phase2_commitment: {
+    id: "phase2_commitment",
+    label: "Phase 2: Counterattack Window",
+    detail: "The counterattack window is open; surviving defenders may contest the battery. All three gun positions must remain friendly-held to keep the six-turn hold clock running.",
+    announcement: "Pointe du Hoc: counterattack window reached. Objective control and the hold clock remain decisive."
+  }
+};
+
+function pointeSnapshot(turnNumber: number, overrides: Partial<MissionSnapshot> = {}): MissionSnapshot {
+  const scenario = normalizeScenarioSource(structuredClone(getScenarioByMissionKey("patrol_pointe_du_hoc")), { turnLimit: 20 });
+  return {
+    scenario,
+    turnSummary: turn(turnNumber),
+    occupancy: new Map(scenario.sides.Bot.units.map((unit) => [`${unit.hex.q},${unit.hex.r}`, "Bot" as const])),
+    playerUnits: structuredClone(playerAssaultUnits),
+    botUnits: scenario.sides.Bot.units,
+    ...overrides
+  };
+}
+
+for (const turnNumber of [0, 2, 3, 4]) {
+  registerTest(`POINTE_PHASE_TRUTH_STATIONARY_AUTHORED_FORCE_TURN_${turnNumber}`, async ({ Then }) => {
+    const snapshot = pointeSnapshot(turnNumber);
+    const before = structuredClone(snapshot);
+    const controller = createMissionRulesController("patrol_pointe_du_hoc", snapshot.scenario);
+    const status = turnNumber === 0 ? controller.getStatus() : controller.onTurnAdvanced(snapshot);
+
+    await Then("the existing turn boundary selects an advisory window without inventing reserve movement or reinforcements", () => {
+      assert.deepEqual(status.phase, pointeAdvisoryPhases[turnNumber < 3 ? "phase1_probe" : "phase2_commitment"]);
+      assert.equal(status.outcome.state, "inProgress");
+      assert.deepEqual(snapshot, before);
+      assert.equal(snapshot.botUnits.length, 15);
+      assert.equal(controller.serializeState().data.holdStreak, 0);
+    });
+  });
+}
+
+registerTest("POINTE_PHASE_TRUTH_DESTROYED_RESERVE_DOES_NOT_REAPPEAR", async ({ Then }) => {
+  const snapshot = pointeSnapshot(3);
+  // Only the predeployed battery guns survive; no forest force remains to arrive.
+  const guns = snapshot.botUnits.filter((unit) => unit.type === "Howitzer_105" || unit.type === "Flak_88");
+  const controller = createMissionRulesController("patrol_pointe_du_hoc", snapshot.scenario);
+  const occupancy = new Map(guns.map((unit) => [`${unit.hex.q},${unit.hex.r}`, "Bot" as const]));
+  const status = controller.onTurnAdvanced({ ...snapshot, botUnits: guns, occupancy });
+
+  await Then("a clock-based window never reports that destroyed troops emerged or are pressing an attack", () => {
+    assert.equal(guns.length, 3);
+    assert.equal(status.outcome.state, "inProgress");
+    assert.deepEqual(status.phase, pointeAdvisoryPhases.phase2_commitment);
+    assert.equal(status.objectives.find((objective) => objective.tier === "secondary")?.state, "inProgress");
+    assert.deepEqual(status.markers?.map((marker) => marker.status), ["enemy", "enemy", "enemy"]);
+  });
+});
+
+registerTest("POINTE_PHASE_TRUTH_ELIMINATION_VICTORY_NEVER_ANNOUNCES_ENEMY_ARRIVAL", async ({ Then }) => {
+  const snapshot = pointeSnapshot(3, { botUnits: [], occupancy: new Map() });
+  const controller = createMissionRulesController("patrol_pointe_du_hoc", snapshot.scenario);
+  const status = controller.onTurnAdvanced(snapshot);
+  const serialized = controller.serializeState();
+  const later = controller.onTurnAdvanced({ ...snapshot, turnSummary: turn(20) });
+
+  await Then("terminal truth, the frozen hold clock and actual vacant positions remain unchanged", () => {
+    assert.deepEqual(status.outcome, { state: "playerVictory", reason: "All German forces eliminated." });
+    assert.equal(status.objectives[0].state, "completed");
+    assert.deepEqual(status.phase, pointeAdvisoryPhases.phase2_commitment);
+    assert.deepEqual(status.markers?.map((marker) => marker.status), ["unoccupied", "unoccupied", "unoccupied"]);
+    assert.equal(serialized.data.holdStreak, 0);
+    assert.deepEqual(later.outcome, status.outcome);
+    assert.deepEqual(later.phase, status.phase);
+    assert.deepEqual(controller.serializeState(), serialized);
+  });
+});
+
+registerTest("POINTE_PHASE_TRUTH_REPEAT_AND_RESTORE_KEEP_ONE_HOLD_CLOCK", async ({ Then }) => {
+  const snapshot = pointeSnapshot(1);
+  const occupancy = new Map(snapshot.scenario.objectives.map((objective) => [`${objective.hex.q},${objective.hex.r}`, "Player" as const]));
+  const controller = createMissionRulesController("patrol_pointe_du_hoc", snapshot.scenario);
+  for (const turnNumber of [1, 2]) controller.onTurnAdvanced({ ...snapshot, occupancy, turnSummary: turn(turnNumber) });
+  const third = { ...snapshot, occupancy, turnSummary: turn(3) };
+  const status = controller.onTurnAdvanced(third);
+  const saved = controller.serializeState();
+  // The production save is JSON, not an in-memory shared object.
+  const roundTrip: SerializedMissionRulesState = JSON.parse(JSON.stringify(saved));
+  const restored = createMissionRulesController("patrol_pointe_du_hoc", snapshot.scenario);
+  restored.hydrateState(roundTrip);
+
+  await Then("repeat projections and hydration preserve presentation and the existing version-one ledger without another hold tick", () => {
+    assert.deepEqual(status.phase, pointeAdvisoryPhases.phase2_commitment);
+    assert.deepEqual(controller.onTurnAdvanced(third), status);
+    assert.deepEqual(restored.onTurnAdvanced(third), status);
+    assert.deepEqual(saved, {
+      version: 1,
+      kind: "pointeDuHoc",
+      data: {
+        holdStreak: 3,
+        lastCountedTurn: 3,
+        outcome: { state: "inProgress" },
+        phase: pointeAdvisoryPhases.phase2_commitment,
+        counterattackAnnounced: true
+      }
+    });
+    assert.deepEqual(controller.serializeState(), saved);
+    assert.deepEqual(restored.serializeState(), saved);
+  });
+});
+
+for (const phaseId of ["phase1_probe", "phase2_commitment"] as const) {
+  registerTest(`POINTE_PHASE_TRUTH_LEGACY_TERMINAL_SAVE_${phaseId.toUpperCase()}`, async ({ Then }) => {
+    const snapshot = pointeSnapshot(6, { botUnits: [], occupancy: new Map() });
+    const legacyPhase: MissionPhaseStatus = {
+      id: phaseId,
+      label: phaseId === "phase1_probe" ? "Phase 1: Assault" : "Phase 2: Counterattack",
+      detail: "German infantry are pushing from the inland forest toward the battery.",
+      announcement: phaseId === "phase1_probe"
+        ? "Seize the battery line before reinforcements arrive."
+        : "Pointe du Hoc: German counterattack force has emerged from the forest."
+    };
+    const saved: SerializedMissionRulesState = {
+      version: 1,
+      kind: "pointeDuHoc",
+      data: {
+        holdStreak: 2,
+        lastCountedTurn: 2,
+        outcome: { state: "playerVictory", reason: "All German forces eliminated." },
+        phase: legacyPhase,
+        counterattackAnnounced: phaseId === "phase2_commitment"
+      }
+    };
+    const original = structuredClone(saved);
+    const controller = createMissionRulesController("patrol_pointe_du_hoc", snapshot.scenario);
+    controller.hydrateState(saved);
+    const status = controller.onTurnAdvanced(snapshot);
+
+    await Then("old terminal saves receive canonical copy without changing their phase identity, outcome or hold ledger", () => {
+      assert.deepEqual(controller.getStatus().phase, pointeAdvisoryPhases[phaseId]);
+      assert.deepEqual(status.phase, pointeAdvisoryPhases[phaseId]);
+      assert.deepEqual(controller.serializeState(), { ...saved, data: { ...saved.data, phase: pointeAdvisoryPhases[phaseId] } });
+      assert.deepEqual(saved, original);
+      assert.equal(status.outcome.state, "playerVictory");
+    });
+  });
+}
+
+registerTest("POINTE_PHASE_TRUTH_UNKNOWN_SAVED_PHASE_IS_NOT_REINTERPRETED", async ({ Then }) => {
+  const snapshot = pointeSnapshot(6);
+  const phase: MissionPhaseStatus = {
+    id: "phase3_escalation",
+    label: "Unrecognized legacy phase",
+    detail: "Unrecognized presentation retained for diagnosis.",
+    announcement: "Unrecognized presentation retained for diagnosis."
+  };
+  const saved: SerializedMissionRulesState = {
+    version: 1,
+    kind: "pointeDuHoc",
+    data: { holdStreak: 2, lastCountedTurn: 2, outcome: { state: "playerDefeat" }, phase, counterattackAnnounced: true }
+  };
+  const controller = createMissionRulesController("patrol_pointe_du_hoc", snapshot.scenario);
+  controller.hydrateState(saved);
+
+  await Then("the recognized-copy migration does not silently assign another tactical phase to unknown saved presentation", () => {
+    assert.deepEqual(controller.getStatus().phase, phase);
+    assert.deepEqual(controller.onTurnAdvanced(snapshot).phase, phase);
+    assert.deepEqual(controller.serializeState(), saved);
+  });
+});

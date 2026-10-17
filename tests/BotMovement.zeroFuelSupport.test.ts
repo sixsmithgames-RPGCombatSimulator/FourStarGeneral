@@ -44,7 +44,7 @@ const towGunDef: UnitTypeDefinition = {
   combat: { category: "specialist", weight: "medium", role: "antiTank", signature: "medium" },
   movement: 2,
   moveType: "wheel",
-  vision: 2,
+  vision: 6,
   ammo: 5,
   fuel: 0,
   rangeMin: 1,

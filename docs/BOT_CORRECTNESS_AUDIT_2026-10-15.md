@@ -2,6 +2,8 @@
 
 ## 17 October compatibility-path clarification
 
+The subsequent [Simple compatibility repair](GAMEPLAY_COMPATIBILITY_REPAIR_2026-10-17.md) addresses stable stacked actors, observable targets, canonical movement/fuel and stale post-combat state publication without changing the API default or Heuristic policy. That report owns its verification and release status. Autonomous Ally limitations below remain open and are not included in the Simple repair.
+
 Normal newly started UI battles explicitly configure Heuristic and transfer every allied formation to Player before initiative initialization. The Simple and autonomous Ally defects discussed below are compatibility-path limitations, not the active enemy policy. No affected older production save was found during review. The [gameplay-quality follow-up](GAMEPLAY_QUALITY_FOLLOWUP_2026-10-17.md) adds catalog-wide handoff regression coverage without changing a strategy, API default or executor; that report owns current verification and deployment status.
 
 ## Intent and evidence before changes

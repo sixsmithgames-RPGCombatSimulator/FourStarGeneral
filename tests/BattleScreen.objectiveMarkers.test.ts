@@ -205,6 +205,13 @@ function objectiveFixture(recapture = false): { scenario: ScenarioData; config: 
   const starts = scenario.objectives.map(({ hex }) => ({ q: hex.q + 1, r: hex.r }));
   const first = scenario.objectives[0].hex;
   const botOrigin = recapture ? { q: first.q - 1, r: first.r } : { q: 0, r: 0 };
+  if (recapture) {
+    // This tests recapture presentation, not a hidden-target pursuit. The generated
+    // city blocks infantry spotting across the point; provide one real clear lane.
+    const originOffset = CoordinateSystem.axialToOffset(botOrigin.q, botOrigin.r);
+    const pointOffset = CoordinateSystem.axialToOffset(first.q, first.r);
+    scenario.tiles[pointOffset.row][pointOffset.col] = structuredClone(scenario.tiles[originOffset.row][originOffset.col]);
+  }
   scenario.sides.Player.units = starts.map((hex, index) => objectiveUnit(`defender-${index}`, hex));
   scenario.sides.Bot.units = [objectiveUnit("attacker-0", botOrigin)];
   delete scenario.sides.Ally;
@@ -358,6 +365,8 @@ registerTest("FSG_CAM_099_DEFENDER_OBJECTIVE_RECAPTURE_RETAINS_VISIT_BUT_REQUIRE
       view.screen.evaluateMissionRules();
     });
     await When("the real enemy turn moves onto the vacated objective", () => {
+      assert.equal(engine["checkTargetSpotted"](starts[0], "Bot"), true,
+        "The recapture fixture must expose a real visible target, not rely on hidden knowledge.");
       engine.endTurn();
       assert.ok(engine.botUnits.some((unit) => unit.hex.q === scenario.objectives[0].hex.q && unit.hex.r === scenario.objectives[0].hex.r), "The real bot must occupy the objective, not a fabricated occupancy map.");
       view.screen.evaluateMissionRules();
@@ -516,6 +525,58 @@ registerTest("BATTLESCREEN_CITADEL_CARD_AND_REAL_SVG_SHARE_CANONICAL_OCCUPANCY",
       assert.deepEqual(view.screen.missionStatus, before);
       assert.deepEqual(controller.serializeState(), serialized, "Rendering must not create a marker/phase authority.");
       assert.equal(view.svg.querySelectorAll(".objective-marker").length, 4);
+    });
+  } finally {
+    document.body.replaceChildren();
+  }
+});
+
+registerTest("BATTLESCREEN_POINTE_PHASE_CHANGE_ANNOUNCES_ADVICE_NOT_AN_INVENTED_ARRIVAL", async ({ Given, When, Then }) => {
+  try {
+    const scenario = normalizeScenarioSource(
+      JSON.parse(readFileSync("src/data/scenario_pointe_du_hoc.json", "utf8")) as RawScenarioInput,
+      { turnLimit: 20 }
+    );
+    let turnNumber = 2;
+    const playerUnits = [objectiveUnit("pointe-assault-fixture", { q: 0, r: 0 })];
+    const botUnits = structuredClone(scenario.sides.Bot.units);
+    const before = JSON.stringify(botUnits);
+    const engine: MissionPresentationEngine = {
+      getTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber }),
+      playerUnits, botUnits, allyUnits: []
+    };
+    const controller = createMissionRulesController("patrol_pointe_du_hoc", scenario);
+    const view = mountObjectiveScreen(scenario, () => engine, controller);
+    const announcements: string[] = [];
+    const announce = view.screen.announceBattleUpdate.bind(view.screen);
+    view.screen.announceBattleUpdate = message => { announcements.push(message); announce(message); };
+    await Given("a real Pointe controller with its entire authored enemy force still at opening positions", () => {
+      view.screen.missionStatus = controller.getStatus();
+      view.screen.lastMissionPhaseId = view.screen.missionStatus.phase?.id ?? null;
+      view.screen.evaluateMissionRules();
+      assert.equal(view.screen.missionStatus?.phase?.id, "phase1_probe");
+      assert.deepEqual(announcements, []);
+    });
+    await When("the ordinary status consumer sees turn three without any enemy movement", () => {
+      turnNumber = 3;
+      view.screen.evaluateMissionRules();
+      assert.equal(view.screen.missionStatus?.phase?.id, "phase2_commitment");
+      assert.equal(view.screen.missionStatus?.phase?.label, "Phase 2: Counterattack Window");
+      assert.deepEqual(announcements, [view.screen.missionStatus?.phase?.announcement]);
+      assert.doesNotMatch(announcements[0], /has emerged|is pressing|reinforcements arrive/i);
+      assert.equal(view.screen.element.querySelector("#battleAnnouncements")?.textContent, announcements[0]);
+      assert.equal(view.screen.element.querySelector("#battleAnnouncements")?.getAttribute("aria-live"), "polite");
+    });
+    await Then("repeated evaluation leaves the advisory, enemy units and announcement count unchanged", () => {
+      const status = structuredClone(view.screen.missionStatus);
+      const saved = controller.serializeState();
+      view.screen.evaluateMissionRules();
+      view.screen.evaluateMissionRules();
+      assert.deepEqual(view.screen.missionStatus, status);
+      assert.deepEqual(controller.serializeState(), saved);
+      assert.equal(announcements.length, 1);
+      assert.equal(JSON.stringify(botUnits), before);
+      assert.equal(view.svg.querySelectorAll(".objective-marker").length, scenario.objectives.length);
     });
   } finally {
     document.body.replaceChildren();

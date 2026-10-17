@@ -13834,7 +13834,8 @@ private automateSupplyConvoys(
   }
 
   private buildBotPerceivedTargets(): BotPerceivedTarget[] {
-    const targets: BotPerceivedTarget[] = Array.from(this.playerPlacements.values()).map((unit) => ({
+    const targets: BotPerceivedTarget[] = this.getAllUnitsForFaction("Player")
+      .filter((unit) => this.checkTargetSpotted(unit.hex, "Bot")).map((unit) => ({
       hex: structuredClone(unit.hex),
       bias: 0,
       isDeception: false,
@@ -14255,7 +14256,7 @@ private automateSupplyConvoys(
     const moves: BotMoveSummary[] = [];
     const attacks: BotAttackSummary[] = [];
 
-    const playerUnits = Array.from(this.playerPlacements.values());
+    const playerUnits = this.getAllUnitsForFaction("Player");
     const perceivedTargets = this.buildBotPerceivedTargets();
     if (playerUnits.length === 0 || perceivedTargets.length === 0) {
       // With no player opposition the bot cannot act; still advance the supply tick.
@@ -14263,31 +14264,23 @@ private automateSupplyConvoys(
       return { moves, attacks, supplyReport };
     }
 
-    // Track live player targets so successive bots react to casualties and deception decay.
-    const liveTargets = perceivedTargets.map((target) => ({
-      ...target,
-      hex: structuredClone(target.hex)
-    }));
-
-    const botUnits = Array.from(this.botPlacements.entries());
-    botUnits.forEach(([_key, unit]) => {
+    const botUnits = this.getAllUnitsForFaction("Bot");
+    botUnits.forEach((snapshot) => {
+      const unitId = this.getSquadronId(snapshot);
+      const unit = this.findUnitInFactionAtHex(snapshot.hex, "Bot", unitId);
+      if (!unit) return;
       const def = this.getUnitDefinition(unit.type);
       // Skip aircraft in the generic ground bot loop; they are handled via air mission heuristics.
       if (def.moveType === "air" || this.isSupplyTruckType(unit.type)) {
         return;
       }
       const origin = structuredClone(unit.hex);
-      console.log(`[Bot AI] ${unit.type} at ${this.formatAxial(origin)} evaluating movement`);
-
-      const nearestTarget = this.selectBotPerceivedTarget(origin, liveTargets);
+      // Prior actors may remove only one member of a target stack or reveal a contact.
+      const nearestTarget = this.selectBotPerceivedTarget(origin, this.buildBotPerceivedTargets());
       if (!nearestTarget) {
-        console.log(`[Bot AI] ${unit.type}: No player targets found`);
         return;
       }
       const nearest = nearestTarget.hex;
-
-      const distance = hexDistance(origin, nearest);
-      console.log(`[Bot AI] ${unit.type}: Nearest player at ${this.formatAxial(nearest)}, distance: ${distance}`);
 
       const attemptAttack = (attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial): void => {
         const stance = this.chooseBotStance(attackingUnit, targetHex);
@@ -14296,22 +14289,12 @@ private automateSupplyConvoys(
           return;
         }
         attacks.push(attack);
-        if (attack.defenderDestroyed) {
-          const destroyedKey = axialKey(targetHex);
-          const index = liveTargets.findIndex((target) => !target.isDeception && axialKey(target.hex) === destroyedKey);
-          if (index >= 0) {
-            liveTargets.splice(index, 1);
-          }
-        }
       };
 
       const engagementDistance = nearestTarget.isDeception ? 0 : 1;
 
       // Real contacts can be attacked adjacent; deception screens instead pull the bot onto the false axis.
       if (hexDistance(origin, nearest) <= engagementDistance) {
-        console.log(
-          `[Bot AI] ${unit.type}: ${nearestTarget.isDeception ? "Reached deception focus" : "Already adjacent, attempting attack"}`
-        );
         if (!nearestTarget.isDeception) {
           attemptAttack(unit, origin, nearest);
         }
@@ -14319,112 +14302,86 @@ private automateSupplyConvoys(
       }
 
       const movementAllowance = this.calculateBotMovementAllowance(unit);
-      console.log(`[Bot AI] ${unit.type}: Movement allowance: ${movementAllowance}`);
-
-      const plannedPath = this.planBotPath(unit.hex, nearest, movementAllowance);
+      const plannedPath = this.planBotPath(unit.hex, nearest, movementAllowance, unitId, engagementDistance);
       if (!plannedPath) {
-        console.log(`[Bot AI] ${unit.type}: No valid path found to target`);
         return;
       }
 
-      console.log(`[Bot AI] ${unit.type}: Planned path with ${plannedPath.length - 1} steps`);
-
-      // Execute each step in the planned path, animating them sequentially.
+      // Commit the complete legal movement transaction before canonical combat can
+      // remove, damage or advance this actor. No pre-combat snapshot is written afterward.
       let current = structuredClone(origin);
       const visited: Axial[] = [structuredClone(origin)];
-      const moveBudget = plannedPath.length - 1;
-      let lastMovedUnit: ScenarioUnit | null = null;
       const unitDefinition = this.getUnitDefinition(unit.type);
       const availableFuel = this.resolveFuelBudget(unit, unitDefinition);
       let fuelSpent = 0;
       const botFlags = this.getUnitActionFlags("Bot", unit);
       let movementSpent = botFlags.movementPointsUsed;
-      let movingUnit = structuredClone(unit);
+      const movingUnit = structuredClone(unit);
+      movingUnit.movementCredit = movementAllowance;
       if (this.isTowableUnit(movingUnit) && this.resolveTowState(movingUnit) === "deployed") {
         movingUnit.towState = "towed";
         movingUnit.onSentry = false;
         movingUnit.entrench = 0;
         const hookupCost = this.resolveTowHookupCost(unitDefinition, botFlags, "Bot");
         movementSpent += hookupCost;
-        if (typeof movingUnit.movementCredit === "number") {
-          movingUnit.movementCredit = Math.max(0, Number((movingUnit.movementCredit - hookupCost).toFixed(4)));
-        }
       }
+      const moveType = this.resolveTowState(movingUnit) === "towed" ? "truck" : unitDefinition.moveType;
 
       for (let index = 1; index < plannedPath.length; index += 1) {
         const step = plannedPath[index];
-        if (this.isOccupied(step)) {
+        if (!this.canFactionEnterHex(unit, "Bot", step)) {
           break;
         }
-        const stepFuel = this.resolveMovementFuelStep(unitDefinition.moveType, step);
+        const stepFuel = this.resolveMovementFuelStep(moveType, step);
         if (Number.isFinite(availableFuel) && fuelSpent + stepFuel > availableFuel + 1e-6) {
           break;
         }
         const stepCost = this.resolveMoveCost(
-          this.resolveTowState(movingUnit) === "towed" ? "truck" : unitDefinition.moveType,
+          moveType,
           this.terrainAt(step),
           step,
           current
         );
-        const movementAvailable = typeof movingUnit.movementCredit === "number"
-          ? Math.max(0, movingUnit.movementCredit)
-          : Math.max(0, this.resolveBaseMovementAllowance(unitDefinition, botFlags, "Bot", movingUnit) - movementSpent);
-        if (stepCost > movementAvailable) {
+        if (stepCost > movingUnit.movementCredit) {
           break;
         }
-
-        this.botPlacements.delete(axialKey(current));
-        const moved = structuredClone(movingUnit);
-        moved.facing = this.resolveFacingToward(current, step, moved.facing);
-        moved.hex = structuredClone(step);
-        if (typeof moved.movementCredit === "number") {
-          moved.movementCredit = Math.max(0, Number((moved.movementCredit - stepCost).toFixed(4)));
-        }
-        moved.entrench = 0;
+        movingUnit.facing = this.resolveFacingToward(current, step, movingUnit.facing);
+        movingUnit.hex = structuredClone(step);
+        movingUnit.movementCredit = Math.max(0, Number((movingUnit.movementCredit - stepCost).toFixed(4)));
+        movingUnit.entrench = 0;
         current = structuredClone(step);
         fuelSpent += stepFuel;
         movementSpent += stepCost;
-        movingUnit = moved;
-        this.botPlacements.set(axialKey(step), moved);
-        this.overrunRecoverySitesAtHex("Bot", step);
-        this.updateBotSupplyPosition(visited[visited.length - 1], step);
-        this.syncBotEntrench(step, moved.entrench);
-        this.setUnitActionFlags("Bot", moved, {
-          ...botFlags,
-          movementPointsUsed: movementSpent
-        });
         visited.push(structuredClone(step));
-        lastMovedUnit = moved;
-
-        // If the unit becomes adjacent to its target after this step, resolve the attack and stop moving.
         if (hexDistance(step, nearest) <= engagementDistance) {
-          if (!nearestTarget.isDeception) {
-            attemptAttack(moved, step, nearest);
-          }
-          break;
-        }
-        // Limit to one full path per unit per turn to avoid infinite loops in degenerate cases.
-        if (index >= moveBudget) {
           break;
         }
       }
 
-      if (visited.length > 1 && lastMovedUnit) {
+      if (visited.length > 1) {
         if (Number.isFinite(availableFuel) && fuelSpent > 0) {
-          lastMovedUnit.fuel = Math.max(0, Number((lastMovedUnit.fuel - fuelSpent).toFixed(2)));
-          this.botPlacements.set(axialKey(lastMovedUnit.hex), structuredClone(lastMovedUnit));
+          movingUnit.fuel = Math.max(0, Number((movingUnit.fuel - fuelSpent).toFixed(2)));
         }
-        this.syncBotFuel(lastMovedUnit.hex, lastMovedUnit.fuel);
+        this.removeUnitFromFactionHex("Bot", origin, unitId);
+        this.addUnitToFactionHex("Bot", movingUnit);
+        this.updateSupplyPositionForFaction("Bot", origin, current, unitId);
+        visited.slice(1).forEach((step) => this.overrunRecoverySitesAtHex("Bot", step));
+        this.syncBotFuel(current, movingUnit.fuel, unitId);
+        this.syncBotEntrench(current, movingUnit.entrench, unitId);
+        this.setUnitActionFlags("Bot", movingUnit, { ...botFlags, movementPointsUsed: movementSpent });
         const distance = visited.length - 1;
         moves.push({
-          unitId: lastMovedUnit.unitId ?? null,
-          unitType: lastMovedUnit.type,
+          unitId,
+          unitType: movingUnit.type,
           from: structuredClone(origin),
-          to: structuredClone(lastMovedUnit.hex),
+          to: structuredClone(current),
           path: visited,
           distance,
           duration: Math.max(distance, 1)
         });
+        if (!nearestTarget.isDeception && hexDistance(current, nearest) <= engagementDistance) {
+          attemptAttack(movingUnit, current, nearest);
+        }
       }
     });
 
@@ -14437,44 +14394,39 @@ private automateSupplyConvoys(
    */
   private calculateBotMovementAllowance(unit: ScenarioUnit): number {
     const definition = this.getUnitDefinition(unit.type);
-    const movePoints = typeof unit.movementCredit === "number"
-      ? unit.movementCredit
-      : this.resolveBaseMovementAllowance(definition, this.getUnitActionFlags("Bot", unit), "Bot", unit);
+    const movePoints = this.plannerMovementAllowance({ unit, definition }, "Bot");
     const availableFuel = this.resolveFuelBudget(unit, definition);
     if (Number.isFinite(availableFuel) && availableFuel <= 0) {
       return 0;
     }
-    return Math.max(0, Math.floor(movePoints));
+    return Math.max(0, movePoints);
   }
 
   /**
-   * Plans a simple straight-line path for bot movement toward the target using axial neighbors.
-   * Stops when the movement allowance is exhausted or the path reaches the target.
+   * Retains Simple's nearest-neighbor policy while pricing canonical movement edges.
+   * The original actor stays authoritative while hypothetical path hexes remain empty.
    */
-  private planBotPath(origin: Axial, target: Axial, allowance: number): Axial[] | null {
-    if (allowance <= 0) {
+  private planBotPath(origin: Axial, target: Axial, allowance: number, unitId?: string, engagementDistance = 1): Axial[] | null {
+    const unit = this.findUnitInFactionAtHex(origin, "Bot", unitId);
+    if (allowance <= 0 || !unit) {
       return null;
     }
-
+    const definition = this.getUnitDefinition(unit.type);
+    const moveType = this.isTowableUnit(unit) ? "truck" : definition.moveType;
     const path: Axial[] = [structuredClone(origin)];
+    const visited = new Set([axialKey(origin)]);
     let current = structuredClone(origin);
+    let remaining = allowance;
 
-    for (let stepCount = 0; stepCount < allowance; stepCount += 1) {
-      if (hexDistance(current, target) <= 1) {
-        break;
-      }
-
-      const next = this.selectBotStepToward(current, target);
+    while (hexDistance(current, target) > engagementDistance) {
+      const next = this.selectBotStepToward(current, target, unit, moveType, visited, remaining);
       if (!next) {
         break;
       }
-
+      remaining -= this.resolveMoveCost(moveType, this.terrainAt(next), next, current);
       path.push(structuredClone(next));
+      visited.add(axialKey(next));
       current = next;
-
-      if (hexDistance(current, target) <= 1) {
-        break;
-      }
     }
 
     if (path.length <= 1) {
@@ -14499,32 +14451,33 @@ private automateSupplyConvoys(
   }
 
   /** Choose the single-step axial move that most reduces distance to the target. */
-  private selectBotStepToward(origin: Axial, target: Axial): Axial | null {
-    const originUnit = this.lookupUnit(origin, "Bot");
-    if (!originUnit) {
-      return null;
-    }
-    const unitDef = this.getUnitDefinition(originUnit.type);
-    const moveType = unitDef.moveType;
-
+  private selectBotStepToward(origin: Axial, target: Axial,
+    unit: ScenarioUnit | null = this.lookupUnit(origin, "Bot"),
+    moveType: string = unit ? this.getUnitDefinition(unit.type).moveType : "leg",
+    visited: ReadonlySet<string> = this.buildUnifiedOccupancySet(), remaining = Number.POSITIVE_INFINITY): Axial | null {
+    // Existing single-step callers resolve the actor at a real origin; path planning
+    // supplies it explicitly because subsequent hypothetical hexes have no occupant.
+    // The legacy single-step caller excludes all physical occupancy; only plans
+    // pass a route-local visited set and may cross an available friendly slot.
+    if (!unit) return null;
     let best: Axial | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     let impassableCount = 0;
 
     neighbors(origin).forEach((candidate) => {
-      if (!this.inBounds(candidate)) {
+      if (!this.inBounds(candidate) || visited.has(axialKey(candidate))) {
         return;
       }
 
-      // Check if the hex is occupied
-      if (this.isOccupied(candidate)) {
+      // Unknown hostile positions cannot influence plans; execution still checks physical truth.
+      if (!this.canFactionEnterHex(unit, "Bot", candidate, (hostile) => this.checkTargetSpotted(hostile.hex, "Bot"))) {
         return;
       }
 
       // Check if the terrain is passable for this unit type
       const terrain = this.terrainAt(candidate);
       const moveCost = this.resolveMoveCost(moveType, terrain, candidate, origin);
-      if (moveCost >= 999) {
+      if (moveCost >= 999 || moveCost > remaining) {
         impassableCount++;
         return; // Impassable terrain
       }
