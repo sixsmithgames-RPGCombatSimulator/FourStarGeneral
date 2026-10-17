@@ -1,5 +1,7 @@
 import "./domEnvironment.js";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { registerTest } from "./harness.js";
 import { axialKey, type Axial } from "../src/core/Hex";
 import type { ScenarioData, ScenarioUnit, TerrainDictionary, UnitTypeDictionary } from "../src/core/types";
@@ -15,6 +17,31 @@ import { ensureDeploymentState, resetDeploymentState } from "../src/state/Deploy
 import { createMissionRulesController, type MissionSnapshot } from "../src/state/missionRules";
 import type { MissionKey } from "../src/state/UIState";
 import { finalizeDeploymentZone } from "../src/ui/utils/deploymentZonePlanner";
+
+/** Only an executable top-level side-effect import registers this harness module. */
+function importsAuthoredRules(source: string): boolean {
+  const parsed = ts.createSourceFile("tests/index.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return parsed.statements.some((statement) => ts.isImportDeclaration(statement)
+    && statement.importClause === undefined
+    && ts.isStringLiteral(statement.moduleSpecifier)
+    && statement.moduleSpecifier.text === "./MissionRules.authoredScenarios.test.js");
+}
+
+registerTest("MISSION_CATALOG_AUTHORED_RULES_REMAIN_REGISTERED", () => {
+  // Keep this guard outside the formerly dormant file: removing its import must not remove its guard.
+  assert.ok(importsAuthoredRules(readFileSync("tests/index.ts", "utf8")),
+    "The default regression suite must execute the authored Pointe du Hoc and Citadel contracts.");
+});
+
+registerTest("MISSION_CATALOG_AUTHORED_REGISTRATION_GUARD_REJECTS_DORMANT_IMPORTS", () => {
+  const registration = 'import "./MissionRules.authoredScenarios.test.js";';
+  assert.equal(importsAuthoredRules(registration), true);
+  for (const inert of ["", `/*\n${registration}\n*/`, `// ${registration}`,
+    'import type {} from "./MissionRules.authoredScenarios.test.js";',
+    'const dormant = () => import("./MissionRules.authoredScenarios.test.js");']) {
+    assert.equal(importsAuthoredRules(inert), false, "Comments, type imports and unused callbacks must not satisfy registration.");
+  }
+});
 
 function normalizedMission(missionKey: MissionKey): ScenarioData {
   return normalizeScenarioSource(structuredClone(getScenarioByMissionKey(missionKey)), {

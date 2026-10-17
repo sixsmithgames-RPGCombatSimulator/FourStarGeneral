@@ -1,7 +1,15 @@
+import assert from "node:assert/strict";
 import { registerTest } from "./harness.js";
 import type { ScenarioData, ScenarioUnit } from "../src/core/types.js";
 import type { TurnFaction, TurnSummary } from "../src/game/GameEngine.js";
-import { createMissionRulesController } from "../src/state/missionRules.js";
+import { normalizeScenarioSource } from "../src/data/scenarioNormalizer.js";
+import { getScenarioByMissionKey } from "../src/data/scenarioRegistry.js";
+import {
+  createMissionRulesController,
+  type MissionPhaseStatus,
+  type MissionSnapshot,
+  type SerializedMissionRulesState
+} from "../src/state/missionRules.js";
 
 function makeSide(units: ScenarioUnit[] = []) {
   return {
@@ -174,5 +182,275 @@ registerTest("missionRules: citadel ridge victory returns phase and objective ma
     if (commandMarker?.status !== "player") {
       throw new Error("Expected command ridge marker to be secured.");
     }
+  });
+});
+
+const citadelMarkerPoints = [
+  { hex: { q: 16, r: -4 }, label: "North Battery" },
+  { hex: { q: 16, r: 0 }, label: "Central Citadel" },
+  { hex: { q: 16, r: 4 }, label: "South Battery" },
+  { hex: { q: 20, r: -2 }, label: "Command Ridge" }
+] as const;
+
+function citadelSnapshot(
+  turnNumber: number,
+  occupancy: ReadonlyArray<readonly [string, TurnFaction]> = [],
+  overrides: Partial<MissionSnapshot> = {}
+): MissionSnapshot {
+  return {
+    turnSummary: turn(turnNumber),
+    scenario: citadelRidgeScenario,
+    occupancy: new Map(occupancy),
+    playerUnits: [playerAssaultUnits[0]],
+    botUnits: [liveBotUnit],
+    ...overrides
+  };
+}
+
+registerTest("CITADEL_INITIAL_STATUS_AND_AUTHORED_COORDINATES", async ({ Then }) => {
+  const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const status = controller.getStatus();
+  const authored = normalizeScenarioSource(structuredClone(getScenarioByMissionKey("assault_citadel_ridge")), {
+    turnLimit: 17
+  });
+
+  await Then("initial status projects approach and the four real authored points without inventing occupation", async () => {
+    assert.equal(status.turn, 0);
+    assert.equal(status.outcome.state, "inProgress");
+    assert.equal(status.phase?.id, "phase1_probe");
+    assert.equal(status.phase?.label, "Phase 1: Approach");
+    assert.deepEqual(authored.objectives.map((objective) => objective.hex), citadelMarkerPoints.map((point) => point.hex));
+    assert.deepEqual(status.markers, citadelMarkerPoints.map(({ hex, label }) => ({
+      hex,
+      status: "unoccupied",
+      tooltip: `${label} - Unoccupied.`
+    })));
+    assert.deepEqual(controller.serializeState(), {
+      version: 1,
+      kind: "citadelRidge",
+      data: { outcome: { state: "inProgress" } }
+    });
+  });
+});
+
+const citadelPhaseCases: ReadonlyArray<{
+  readonly name: string;
+  readonly turnNumber: number;
+  readonly occupancy: ReadonlyArray<readonly [string, TurnFaction]>;
+  readonly phase: MissionPhaseStatus["id"];
+  readonly label: string;
+}> = [
+  { name: "OPENING", turnNumber: 1, occupancy: [], phase: "phase1_probe", label: "Phase 1: Approach" },
+  { name: "BEFORE_BREACH_TURN", turnNumber: 4, occupancy: [], phase: "phase1_probe", label: "Phase 1: Approach" },
+  { name: "BREACH_TURN", turnNumber: 5, occupancy: [], phase: "phase2_commitment", label: "Phase 2: Breach" },
+  { name: "BEFORE_COUNTERATTACK_TURN", turnNumber: 8, occupancy: [], phase: "phase2_commitment", label: "Phase 2: Breach" },
+  { name: "COUNTERATTACK_TURN", turnNumber: 9, occupancy: [], phase: "phase3_escalation", label: "Phase 3: Counterattack Window" },
+  { name: "ONE_PLAYER_POINT", turnNumber: 1, occupancy: [["16,-4", "Player"]], phase: "phase2_commitment", label: "Phase 2: Breach" },
+  { name: "ONE_ALLY_POINT", turnNumber: 1, occupancy: [["16,4", "Ally"]], phase: "phase2_commitment", label: "Phase 2: Breach" },
+  { name: "COMMAND_ALONE", turnNumber: 1, occupancy: [["20,-2", "Player"]], phase: "phase2_commitment", label: "Phase 2: Breach" },
+  { name: "TWO_PLAYER_POINTS", turnNumber: 1, occupancy: [["16,-4", "Player"], ["16,0", "Player"]], phase: "phase3_escalation", label: "Phase 3: Counterattack Window" },
+  { name: "MIXED_FRIENDLY_POINTS", turnNumber: 1, occupancy: [["16,-4", "Player"], ["16,0", "Ally"]], phase: "phase3_escalation", label: "Phase 3: Counterattack Window" },
+  { name: "TWO_ALLY_POINTS", turnNumber: 1, occupancy: [["16,4", "Ally"], ["20,-2", "Ally"]], phase: "phase3_escalation", label: "Phase 3: Counterattack Window" },
+  { name: "ENEMY_DOES_NOT_ADVANCE", turnNumber: 1, occupancy: [["16,-4", "Bot"], ["16,0", "Bot"], ["20,-2", "Bot"]], phase: "phase1_probe", label: "Phase 1: Approach" },
+  { name: "NON_OBJECTIVE_DOES_NOT_ADVANCE", turnNumber: 1, occupancy: [["0,0", "Player"], ["1,0", "Ally"]], phase: "phase1_probe", label: "Phase 1: Approach" },
+  { name: "COUNTERATTACK_PRECEDENCE_OVER_BREACH", turnNumber: 9, occupancy: [["16,-4", "Player"]], phase: "phase3_escalation", label: "Phase 3: Counterattack Window" }
+];
+
+for (const phaseCase of citadelPhaseCases) {
+  registerTest(`CITADEL_PHASE_BOUNDARY_${phaseCase.name}`, async ({ Then }) => {
+    const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+    const snapshot = citadelSnapshot(phaseCase.turnNumber, phaseCase.occupancy);
+    const before = structuredClone(snapshot);
+    const status = controller.onTurnAdvanced(snapshot);
+
+    await Then("turn and current friendly occupation determine one advisory phase without altering gameplay state", async () => {
+      assert.equal(status.phase?.id, phaseCase.phase);
+      assert.equal(status.phase?.label, phaseCase.label);
+      assert.ok(status.phase?.detail.trim());
+      assert.ok(status.phase?.announcement.trim());
+      assert.doesNotMatch(`${status.phase?.detail} ${status.phase?.announcement}`,
+        /reinforcements? (?:have |has )?(?:arrived|spawned)|counterattack (?:has |is )(?:begun|underway)|defenders (?:have )?launch(?:ed)?/i);
+      assert.equal(status.outcome.state, "inProgress");
+      assert.deepEqual(snapshot, before);
+      assert.deepEqual(controller.onTurnAdvanced(snapshot), status);
+      assert.deepEqual(controller.serializeState(), {
+        version: 1,
+        kind: "citadelRidge",
+        data: { outcome: { state: "inProgress" } }
+      });
+    });
+  });
+}
+
+for (const faction of ["Player", "Ally", "Bot"] as const) {
+  registerTest(`CITADEL_ALL_MARKERS_${faction.toUpperCase()}`, async ({ Then }) => {
+    const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+    const occupancy = citadelMarkerPoints.map(({ hex }) => [`${hex.q},${hex.r}`, faction] as const);
+    const status = controller.onTurnAdvanced(citadelSnapshot(2, occupancy));
+
+    await Then("all four markers preserve authored order, axial coordinates and the canonical faction meaning", async () => {
+      assert.deepEqual(status.markers, citadelMarkerPoints.map(({ hex, label }) => ({
+        hex,
+        status: faction === "Bot" ? "enemy" : "player",
+        tooltip: `${label} - ${faction === "Bot" ? "Enemy-held" : "Friendly-held"}.`
+      })));
+      assert.equal(status.outcome.state, faction === "Bot" ? "inProgress" : "playerVictory");
+      assert.equal(status.objectives[0].state, faction === "Bot" ? "inProgress" : "completed");
+      assert.match(status.objectives[0].detail ?? "", faction === "Bot" ? /Captured: 0\/4/ : /Captured: 4\/4/);
+    });
+  });
+}
+
+registerTest("CITADEL_MIXED_OCCUPANCY_MARKERS_AND_OBJECTIVE_AGREE", async ({ Then }) => {
+  const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const status = controller.onTurnAdvanced(citadelSnapshot(2, [
+    ["16,-4", "Player"], ["16,0", "Ally"], ["16,4", "Bot"]
+  ]));
+
+  await Then("mixed Player, Ally, Bot and vacant facts appear consistently without claiming command-ridge control", async () => {
+    assert.deepEqual(status.markers, [
+      { hex: { q: 16, r: -4 }, status: "player", tooltip: "North Battery - Friendly-held." },
+      { hex: { q: 16, r: 0 }, status: "player", tooltip: "Central Citadel - Friendly-held." },
+      { hex: { q: 16, r: 4 }, status: "enemy", tooltip: "South Battery - Enemy-held." },
+      { hex: { q: 20, r: -2 }, status: "unoccupied", tooltip: "Command Ridge - Unoccupied." }
+    ]);
+    assert.equal(status.phase?.id, "phase3_escalation");
+    assert.equal(status.outcome.state, "inProgress");
+    assert.match(status.objectives[0].detail ?? "", /Captured: 2\/4 strongpoints \(Command Ridge required\)/);
+  });
+});
+
+registerTest("CITADEL_VACATING_AND_RECAPTURE_RECOMPUTE_CURRENT_SNAPSHOT", async ({ Then }) => {
+  const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const both = controller.onTurnAdvanced(citadelSnapshot(2, [["16,-4", "Player"], ["16,0", "Ally"]]));
+  const one = controller.onTurnAdvanced(citadelSnapshot(2, [["16,0", "Ally"]]));
+  const vacant = controller.onTurnAdvanced(citadelSnapshot(2));
+  const enemy = controller.onTurnAdvanced(citadelSnapshot(2, [["16,-4", "Bot"]]));
+  const recaptured = controller.onTurnAdvanced(citadelSnapshot(2, [["16,-4", "Ally"]]));
+  const laterVacant = controller.onTurnAdvanced(citadelSnapshot(9));
+
+  await Then("advisory phases and markers follow current occupation, with elapsed-turn thresholds still authoritative", async () => {
+    assert.deepEqual([both, one, vacant, enemy, recaptured, laterVacant].map((status) => status.phase?.id), [
+      "phase3_escalation", "phase2_commitment", "phase1_probe", "phase1_probe", "phase2_commitment", "phase3_escalation"
+    ]);
+    assert.deepEqual(one.markers?.map((marker) => marker.status), ["unoccupied", "player", "unoccupied", "unoccupied"]);
+    assert.deepEqual(vacant.markers?.map((marker) => marker.status), ["unoccupied", "unoccupied", "unoccupied", "unoccupied"]);
+    assert.deepEqual(enemy.markers?.map((marker) => marker.status), ["enemy", "unoccupied", "unoccupied", "unoccupied"]);
+    assert.deepEqual(recaptured.markers?.map((marker) => marker.status), ["player", "unoccupied", "unoccupied", "unoccupied"]);
+    for (const status of [both, one, vacant, enemy, recaptured, laterVacant]) {
+      assert.equal(status.outcome.state, "inProgress");
+      assert.equal(status.objectives[0].state, "inProgress");
+    }
+    assert.match(vacant.objectives[0].detail ?? "", /Captured: 0\/4/);
+    assert.match(recaptured.objectives[0].detail ?? "", /Captured: 1\/4/);
+  });
+});
+
+registerTest("CITADEL_ELIMINATION_DOES_NOT_INVENT_CAPTURE_OR_ESCALATION", async ({ Then }) => {
+  const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const status = controller.onTurnAdvanced(citadelSnapshot(1, [], { botUnits: [] }));
+
+  await Then("enemy elimination completes the mission while vacant points and the early advisory phase stay factual", async () => {
+    assert.equal(status.outcome.state, "playerVictory");
+    assert.equal(status.objectives[0].state, "completed");
+    assert.equal(status.phase?.id, "phase1_probe");
+    assert.match(status.objectives[0].detail ?? "", /Captured: 0\/4/);
+    assert.deepEqual(status.markers, citadelMarkerPoints.map(({ hex, label }) => ({
+      hex,
+      status: "unoccupied",
+      tooltip: `${label} - Unoccupied.`
+    })));
+  });
+});
+
+registerTest("CITADEL_DEADLINE_AND_FINAL_TURN_CAPTURE_KEEP_EXISTING_OUTCOMES", async ({ Then }) => {
+  const losingController = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const winningController = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const loss = losingController.onTurnAdvanced(citadelSnapshot(17, [["20,-2", "Ally"], ["16,-4", "Player"]]));
+  const win = winningController.onTurnAdvanced(citadelSnapshot(17, [
+    ["20,-2", "Ally"], ["16,-4", "Player"], ["16,0", "Ally"]
+  ]));
+
+  await Then("two total positions fail at the deadline, but command ridge plus two additional positions still win", async () => {
+    assert.equal(loss.outcome.state, "playerDefeat");
+    assert.equal(loss.objectives[0].state, "failed");
+    assert.equal(loss.phase?.id, "phase3_escalation");
+    assert.deepEqual(loss.markers?.map((marker) => marker.status), ["player", "unoccupied", "unoccupied", "player"]);
+    assert.equal(win.outcome.state, "playerVictory");
+    assert.equal(win.objectives[0].state, "completed");
+    assert.equal(win.phase?.id, "phase3_escalation");
+    assert.deepEqual(win.markers?.map((marker) => marker.status), ["player", "player", "unoccupied", "player"]);
+  });
+});
+
+registerTest("CITADEL_TERMINAL_OUTCOME_IS_NOT_REOPENED_BY_PHASE_OR_OCCUPANCY", async ({ Then }) => {
+  const winningController = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const winning = winningController.onTurnAdvanced(citadelSnapshot(1, [], { botUnits: [] }));
+  const afterWin = winningController.onTurnAdvanced(citadelSnapshot(17, [["20,-2", "Bot"]], { playerUnits: [] }));
+  const losingController = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const losing = losingController.onTurnAdvanced(citadelSnapshot(1, [], { playerUnits: [] }));
+  const afterLoss = losingController.onTurnAdvanced(citadelSnapshot(2, [
+    ["16,-4", "Player"], ["16,0", "Player"], ["20,-2", "Player"]
+  ], { botUnits: [] }));
+
+  await Then("terminal state remains canonical while later projections do not fabricate control or revive the mission", async () => {
+    assert.deepEqual(afterWin.outcome, winning.outcome);
+    assert.equal(afterWin.objectives[0].state, "completed");
+    assert.equal(afterWin.markers?.[3].status, "enemy");
+    assert.deepEqual(afterLoss.outcome, losing.outcome);
+    assert.equal(afterLoss.objectives[0].state, "failed");
+    assert.equal(afterLoss.markers?.[3].status, "player");
+    assert.equal(winning.phase?.id, "phase1_probe");
+    assert.equal(losing.phase?.id, "phase1_probe");
+    assert.equal(afterWin.phase?.id, "phase3_escalation");
+    assert.equal(afterLoss.phase?.id, "phase3_escalation");
+  });
+});
+
+for (const restoreCase of [
+  { name: "APPROACH", snapshot: citadelSnapshot(2) },
+  { name: "TIMED_BREACH", snapshot: citadelSnapshot(5) },
+  { name: "EARLY_COUNTERATTACK_WINDOW", snapshot: citadelSnapshot(2, [["16,-4", "Player"], ["16,0", "Ally"]]) },
+  { name: "CAPTURE_VICTORY", snapshot: citadelSnapshot(7, [["16,-4", "Player"], ["16,0", "Ally"], ["20,-2", "Player"]]) },
+  { name: "ELIMINATION_VICTORY", snapshot: citadelSnapshot(2, [], { botUnits: [] }) },
+  { name: "DEADLINE_DEFEAT", snapshot: citadelSnapshot(17) }
+]) {
+  registerTest(`CITADEL_OUTCOME_ONLY_SAVE_ROUNDTRIP_${restoreCase.name}`, async ({ Then }) => {
+    const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+    const status = controller.onTurnAdvanced(restoreCase.snapshot);
+    const serialized = controller.serializeState();
+    // Parse the serialization produced by this typed controller, just as a persisted JSON save does.
+    const roundTrip: SerializedMissionRulesState = JSON.parse(JSON.stringify(serialized));
+    const restored = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+    restored.hydrateState(roundTrip);
+    const resumed = restored.onTurnAdvanced(restoreCase.snapshot);
+
+    await Then("legacy outcome-only data reconstructs the exact phase and marker projection from the restored engine snapshot", async () => {
+      assert.deepEqual(serialized, { version: 1, kind: "citadelRidge", data: { outcome: status.outcome } });
+      assert.deepEqual(resumed, status);
+      assert.deepEqual(restored.onTurnAdvanced(restoreCase.snapshot), status);
+      assert.deepEqual(restored.serializeState(), serialized);
+      assert.deepEqual(controller.onTurnAdvanced(restoreCase.snapshot), status);
+      assert.deepEqual(controller.serializeState(), serialized);
+    });
+  });
+}
+
+registerTest("CITADEL_LEGACY_TERMINAL_SAVE_WITHOUT_REASON_REDERIVES_PRESENTATION", async ({ Then }) => {
+  const controller = createMissionRulesController("assault_citadel_ridge", citadelRidgeScenario);
+  const legacy: SerializedMissionRulesState = {
+    version: 1,
+    kind: "citadelRidge",
+    data: { outcome: { state: "playerVictory" } }
+  };
+  controller.hydrateState(legacy);
+  const status = controller.onTurnAdvanced(citadelSnapshot(5, [["16,4", "Ally"]]));
+
+  await Then("older terminal saves remain compatible without saved phase or marker fields", async () => {
+    assert.deepEqual(status.outcome, { state: "playerVictory" });
+    assert.equal(status.objectives[0].detail, "Captured: 1/4 strongpoints.");
+    assert.equal(status.phase?.id, "phase2_commitment");
+    assert.deepEqual(status.markers?.map((marker) => marker.status), ["unoccupied", "unoccupied", "player", "unoccupied"]);
+    assert.deepEqual(controller.serializeState(), legacy);
   });
 });

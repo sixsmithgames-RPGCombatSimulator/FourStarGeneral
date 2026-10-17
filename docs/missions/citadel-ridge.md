@@ -63,7 +63,7 @@ objectives:
   primary:
     - id: primary_break_ridge
       type: capture
-      label: Seize the command ridge and at least three strongpoints
+      label: Seize the command ridge and any two additional strongpoints
       purpose: Forces a true breakthrough instead of a passive attritional fight.
       placementLogic: Strongpoints are spread across the north battery, south battery, central citadel, and the deeper command ridge to make the player choose a main effort and supporting axis.
       successCondition: Player or ally units occupy at least three objective hexes, and one of them must be the command ridge.
@@ -257,3 +257,5 @@ qa:
 - Landing should expose `Citadel Ridge` as a veteran-tier assault operation.
 - Precombat should show a large requisition budget, no locked baseline units, and the authored strongpoint objectives.
 - Battle should load the large ridge map and display phase-aware mission objectives rather than the empty default objective board.
+
+Implementation clarification (17 October 2026): phase metadata is advisory presentation derived from the current turn and friendly occupation. Breach starts at turn 5 or one held strongpoint; Counterattack Window starts at turn 9 or two held strongpoints. This does not schedule a reserve spawn or change bot orders. References above to counterattack triggers describe design intent, not an additional implemented AI script. Vacated strongpoints cease counting immediately; phase can recede before its time threshold. Four marker states use the same current occupancy as the victory rule. See `docs/CITADEL_CONTRACT_REPAIR_2026-10-17.md` for regression and release evidence.

@@ -507,6 +507,152 @@ registerTest("BATTLESCREEN_SUPPORT_EVENT_CONSUMER_REPORTS_EMPTY_IMPACT_WITHOUT_I
   });
 }));
 
+/** Keeps the support consumer and playback real while observing the mission-refresh boundary. */
+function supportMissionRefreshFixture(
+  selectedMission: string,
+  initiative: boolean,
+  rendererAvailable = true,
+  onBarrage: (index: number) => Promise<void> = async () => {}
+): {
+  screen: { triggerSupportImpacts(): Promise<void> };
+  pending: SupportImpactEvent[];
+  impacts: readonly SupportImpactEvent[];
+  order: string[];
+  readCounts(): { consumes: number; refreshes: number; barrages: number };
+} {
+  const impacts: SupportImpactEvent[] = [
+    { assetId: "citadel-support", label: "Corps Artillery", targetHex: { q: 16, r: -4 },
+      targetFaction: "Bot", hit: true, damage: 100, destroyed: true, targetUnitType: "Infantry_42" },
+    { assetId: "citadel-support", label: "Corps Artillery", targetHex: { q: 16, r: 0 },
+      targetFaction: "Bot", hit: false, damage: 0, destroyed: false }
+  ];
+  const pending = [...impacts];
+  const order: string[] = [];
+  let consumes = 0;
+  let refreshes = 0;
+  let barrages = 0;
+  const screen = Object.assign(Object.create(BattleScreen.prototype), {
+    uiState: { selectedMission },
+    isInitiativeSystemEnabled: initiative,
+    battleState: {
+      consumeBattleSupportImpacts: () => {
+        consumes += 1;
+        order.push("consume");
+        return pending.splice(0);
+      },
+      getBotUnitAt: () => null
+    },
+    unitTypes: { Infantry_42: { class: "infantry" } },
+    hexMapRenderer: rendererAvailable ? {
+      playArtillerySupportImpact: async () => {
+        const index = barrages++;
+        order.push(`barrage:${index}:start`);
+        await onBarrage(index);
+        order.push(`barrage:${index}:end`);
+      },
+      markHexWrecked: () => { order.push("wreck"); },
+      markHexDamaged: () => { order.push("damage"); }
+    } : null,
+    closeSelectionIntelForAnimation: () => {},
+    freezeCamera: () => {},
+    unfreezeCamera: () => {},
+    focusCameraOnHex: async () => {},
+    renderEngineUnits: () => { order.push("render"); },
+    announceBattleUpdate: () => {},
+    publishActivityEvent: () => { order.push("report"); },
+    refreshCampaignMissionStatusAfterTacticalAction: () => {
+      refreshes += 1;
+      order.push("refresh");
+    }
+  }) as { triggerSupportImpacts(): Promise<void> };
+  return { screen, pending, impacts, order, readCounts: () => ({ consumes, refreshes, barrages }) };
+}
+
+registerTest("BATTLESCREEN_CITADEL_INITIATIVE_SUPPORT_REFRESHES_AFTER_COMPLETE_BATCH_ONCE", requireCleanPlayback(async ({ When, Then }) => {
+  let releaseLastBarrage = (): void => {};
+  let signalLastBarrage = (): void => {};
+  const lastBarrageStarted = new Promise<void>((resolve) => { signalLastBarrage = resolve; });
+  const lastBarrageGate = new Promise<void>((resolve) => { releaseLastBarrage = resolve; });
+  const fixture = supportMissionRefreshFixture("assault_citadel_ridge", true, true, async (index) => {
+    if (index === 1) {
+      signalLastBarrage();
+      await lastBarrageGate;
+    }
+  });
+  const originalImpacts = structuredClone(fixture.impacts);
+  let playback: Promise<void> | undefined;
+  try {
+    await When("a committed support batch is consumed while its final barrage is still playing", async () => {
+      playback = fixture.screen.triggerSupportImpacts();
+      await lastBarrageStarted;
+      assert.deepEqual(fixture.readCounts(), { consumes: 1, refreshes: 0, barrages: 2 });
+      assert.equal(fixture.pending.length, 0);
+      await fixture.screen.triggerSupportImpacts();
+      assert.deepEqual(fixture.readCounts(), { consumes: 2, refreshes: 0, barrages: 2 });
+      releaseLastBarrage();
+      await playback;
+    });
+    await Then("one refresh follows all effects and reports, and empty reconsumption does not refresh again", async () => {
+      assert.deepEqual(fixture.readCounts(), { consumes: 2, refreshes: 1, barrages: 2 });
+      assert.equal(fixture.order[fixture.order.length - 1], "refresh");
+      assert.equal(fixture.order.filter((entry) => entry === "report").length, 2);
+      assert.equal(fixture.order.filter((entry) => entry === "wreck").length, 1);
+      assert.equal(fixture.order.filter((entry) => entry === "damage").length, 0);
+      await fixture.screen.triggerSupportImpacts();
+      assert.deepEqual(fixture.readCounts(), { consumes: 3, refreshes: 1, barrages: 2 });
+      assert.deepEqual(fixture.impacts, originalImpacts, "Presentation must not rewrite committed support outcomes.");
+    });
+  } finally {
+    releaseLastBarrage();
+    await playback;
+  }
+}));
+
+registerTest("BATTLESCREEN_CITADEL_INITIATIVE_SUPPORT_REFRESHES_WITHOUT_RENDERER", async ({ When, Then }) => {
+  const fixture = supportMissionRefreshFixture("assault_citadel_ridge", true, false);
+  const originalImpacts = structuredClone(fixture.impacts);
+  const originalWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]): void => { warnings.push(args); };
+  try {
+    await When("committed support events are consumed without a renderer", async () => {
+      await fixture.screen.triggerSupportImpacts();
+      await fixture.screen.triggerSupportImpacts();
+    });
+    await Then("the missing visual surface cannot suppress the one canonical mission refresh", async () => {
+      assert.deepEqual(fixture.readCounts(), { consumes: 2, refreshes: 1, barrages: 0 });
+      assert.deepEqual(fixture.order, ["consume", "refresh", "consume"]);
+      assert.deepEqual(warnings, [["[BattleScreen] playSupportImpacts: No renderer available"]]);
+      assert.equal(fixture.pending.length, 0);
+      assert.deepEqual(fixture.impacts, originalImpacts);
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+for (const scope of [
+  { name: "CAMPAIGN_INITIATIVE", mission: "campaign", initiative: true },
+  { name: "OTHER_MISSION_INITIATIVE", mission: "patrol_river_watch", initiative: true },
+  { name: "CITADEL_CONVENTIONAL", mission: "assault_citadel_ridge", initiative: false }
+]) {
+  registerTest(`BATTLESCREEN_SUPPORT_REFRESH_PRESERVES_EXISTING_CADENCE_${scope.name}`, requireCleanPlayback(async ({ When, Then }) => {
+    const fixture = supportMissionRefreshFixture(scope.mission, scope.initiative);
+    const originalImpacts = structuredClone(fixture.impacts);
+    await When("the ordinary support batch completes and is consumed again", async () => {
+      await fixture.screen.triggerSupportImpacts();
+      await fixture.screen.triggerSupportImpacts();
+    });
+    await Then("the Citadel initiative repair neither adds mission evaluations nor changes other playback", async () => {
+      assert.deepEqual(fixture.readCounts(), { consumes: 2, refreshes: 0, barrages: 2 });
+      assert.equal(fixture.pending.length, 0);
+      assert.equal(fixture.order.includes("refresh"), false);
+      assert.equal(fixture.order.filter((entry) => entry === "report").length, 2);
+      assert.deepEqual(fixture.impacts, originalImpacts);
+    });
+  }));
+}
+
 registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARRAGE", async ({ Given, When, Then }) => {
   const root = document.getElementById("battleScreen") ?? document.createElement("div");
   if (!root.parentElement) {

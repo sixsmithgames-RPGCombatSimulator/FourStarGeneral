@@ -144,6 +144,7 @@ import "./precombatLogisticsMinimum.test.js";
 import "./AirShow.fighterMotion.test.js";
 import "./CombatSoundManager.playback.test.js";
 import "./MissionCatalog.playability.test.js";
+import "./MissionRules.authoredScenarios.test.js";
 import "./CombatPresentation.lifecycle.test.js";
 import "./CombatPresentation.identity.test.js";
 import "./BattleScreen.initiativePresentation.test.js";

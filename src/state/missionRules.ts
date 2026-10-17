@@ -1760,6 +1760,32 @@ function createHistoricalBattleController(scenario: ScenarioData, config: Histor
   } satisfies MissionRulesController;
 }
 
+/** Advisory windows from the authored assault pacing, not scripted enemy actions. */
+function createCitadelRidgePhase(turnNumber: number, capturedStrongpointCount: number): MissionPhaseStatus {
+  if (turnNumber >= 9 || capturedStrongpointCount >= 2) {
+    return {
+      id: "phase3_escalation",
+      label: "Phase 3: Counterattack Window",
+      detail: "The assault is in its final window. Surviving defenders may contest exposed positions around the command ridge.",
+      announcement: "Citadel Ridge: counterattack window reached. Surviving defenders may contest exposed positions."
+    };
+  }
+  if (turnNumber >= 5 || capturedStrongpointCount >= 1) {
+    return {
+      id: "phase2_commitment",
+      label: "Phase 2: Breach",
+      detail: "The assault is in its breach window. Exposed flanks may be vulnerable to surviving defenders.",
+      announcement: "Citadel Ridge: breach window reached. Exposed flanks may be vulnerable to surviving defenders."
+    };
+  }
+  return {
+    id: "phase1_probe",
+    label: "Phase 1: Approach",
+    detail: "The opening approach crosses open ground toward the fortified strongpoints.",
+    announcement: "Citadel Ridge: approach window. Fortified strongpoints define the route to the command ridge."
+  };
+}
+
 function createCitadelRidgeController(scenario: ScenarioData, _difficulty: BotDifficulty): MissionRulesController {
   const strongpointKeys = [
     { key: makeKey({ q: 16, r: 4 - Math.floor(16 / 2) }), label: "North Battery", vp: 120 },
@@ -1769,6 +1795,18 @@ function createCitadelRidgeController(scenario: ScenarioData, _difficulty: BotDi
   ];
 
   let currentOutcome: MissionOutcome = { state: "inProgress" };
+
+  const buildMarkers = (occupancy: ReadonlyMap<string, TurnFaction>): readonly ObjectiveMarkerProgress[] =>
+    strongpointKeys.map(({ key, label }) => {
+      const [q, r] = key.split(",").map(Number);
+      const occupant = occupancy.get(key);
+      const friendly = isFriendlyOccupant(occupant);
+      return {
+        hex: { q, r },
+        status: friendly ? "player" : occupant === "Bot" ? "enemy" : "unoccupied",
+        tooltip: `${label} - ${friendly ? "Friendly-held" : occupant === "Bot" ? "Enemy-held" : "Unoccupied"}.`
+      };
+    });
 
   const buildObjectives = (
     outcome: MissionOutcome,
@@ -1875,7 +1913,9 @@ function createCitadelRidgeController(scenario: ScenarioData, _difficulty: BotDi
     return {
       turn: turnSummary.turnNumber,
       objectives: buildObjectives(outcome, playerUnits, botUnits, occupancy),
-      outcome
+      outcome,
+      phase: createCitadelRidgePhase(turnSummary.turnNumber, capturedStrongpoints.length),
+      markers: buildMarkers(occupancy)
     } satisfies MissionStatus;
   };
 
@@ -1888,7 +1928,9 @@ function createCitadelRidgeController(scenario: ScenarioData, _difficulty: BotDi
       return {
         turn: 0,
         objectives: buildObjectives(currentOutcome, scenario.sides.Player.units, scenario.sides.Bot.units, emptyOccupancy),
-        outcome: currentOutcome
+        outcome: currentOutcome,
+        phase: createCitadelRidgePhase(0, 0),
+        markers: buildMarkers(emptyOccupancy)
       };
     },
     serializeState(): SerializedMissionRulesState {

@@ -7,14 +7,15 @@ import { HexMapRenderer } from "../src/rendering/HexMapRenderer";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import type { ScenarioData, ScenarioUnit } from "../src/core/types";
 import type { Axial } from "../src/core/Hex";
-import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { GameEngine, type GameEngineConfig, type TurnSummary } from "../src/game/GameEngine";
 import unitTypes from "../src/data/unitSystem/derivedUnitTypes";
 import terrain from "../src/data/terrain.json";
 import { createScenarioUnitFromTemplate, findTemplateForUnitKey } from "../src/game/adapters";
 import { generateCampaignBattleScenario } from "../src/game/campaign/CampaignBattleGenerator";
 import { normalizeScenarioSource, type RawScenarioInput } from "../src/data/scenarioNormalizer";
-import { createMissionRulesController, type MissionRulesController, type MissionStatus } from "../src/state/missionRules";
+import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../src/state/missionRules";
 import { resetDeploymentState } from "../src/state/DeploymentState";
+import type { MissionKey } from "../src/state/UIState";
 
 registerTest("HEXMAP_OBJECTIVE_MARKERS_DO_NOT_BLOCK_HEX_ORDERS", async ({ Given, When, Then }) => {
   const renderer = new HexMapRenderer();
@@ -152,23 +153,31 @@ registerTest("BATTLESCREEN_PATROL_OBJECTIVE_MARKERS_USE_TOWN_STATUS", async ({ G
   });
 });
 
+/** Read-only engine surface consumed by the real mission presentation path. */
+type MissionPresentationEngine = Pick<GameEngine, "getTurnSummary" | "playerUnits" | "botUnits" | "allyUnits">;
+
 /** Exposes only the real Screen evaluation/render seam; no mission result or engine action is stubbed. */
 interface ObjectiveScreenProbe {
   element: HTMLElement;
+  uiState?: { selectedMission: MissionKey };
   scenario: ScenarioData;
   currentObjectiveIndex: number;
   missionRulesController: MissionRulesController;
   missionStatus: MissionStatus | null;
+  lastMissionPhaseId: MissionPhaseStatus["id"] | null;
   missionEndPrompted: boolean;
   hexMapRenderer: HexMapRenderer;
   battleState: {
     hasEngine(): boolean;
-    ensureGameEngine(): GameEngine;
+    ensureGameEngine(): MissionPresentationEngine;
     getPrecombatMissionInfo(): null;
     emitBattleUpdate(reason: string): void;
   };
   cacheElements(): void;
+  calculateMissionStatusFromEngine(): MissionStatus | null;
   evaluateMissionRules(): void;
+  refreshCampaignMissionStatusAfterTacticalAction(): void;
+  announceBattleUpdate(message: string): void;
   renderMissionStatus(): void;
   updateObjectiveMarkers(): void;
   disposeMissionEndModal(): void;
@@ -212,7 +221,7 @@ function objectiveFixture(recapture = false): { scenario: ScenarioData; config: 
 }
 
 /** Mount shipped markup inertly, including the actual progress node, without loading page scripts/assets. */
-function mountObjectiveScreen(scenario: ScenarioData, readEngine: () => GameEngine, controller = createMissionRulesController("campaign", scenario)): {
+function mountObjectiveScreen(scenario: ScenarioData, readEngine: () => MissionPresentationEngine, controller = createMissionRulesController("campaign", scenario)): {
   screen: ObjectiveScreenProbe; card: HTMLButtonElement; progress: HTMLElement; svg: SVGSVGElement;
 } {
   const markup = document.createElement("template");
@@ -224,6 +233,9 @@ function mountObjectiveScreen(scenario: ScenarioData, readEngine: () => GameEngi
   assert.ok(progress.classList.contains("hidden"), "Progress must start hidden before controller metadata arrives.");
   const root = document.createElement("div");
   root.appendChild(card);
+  const announcement = markup.content.querySelector<HTMLElement>("#battleAnnouncements");
+  assert.ok(announcement, "The shipped battle live region must exist.");
+  root.appendChild(announcement);
   document.body.replaceChildren(root);
   assert.equal(root.querySelector("#battleMissionObjectives"), null);
 
@@ -246,7 +258,7 @@ function mountObjectiveScreen(scenario: ScenarioData, readEngine: () => GameEngi
   const screen = Object.create(BattleScreen.prototype) as ObjectiveScreenProbe;
   Object.assign(screen, {
     element: root, scenario, currentObjectiveIndex: 0, missionRulesController: controller,
-    missionStatus: null, missionEndPrompted: false, hexMapRenderer: renderer,
+    missionStatus: null, lastMissionPhaseId: null, missionEndPrompted: false, hexMapRenderer: renderer,
     battleState: {
       hasEngine: () => true, ensureGameEngine: readEngine, getPrecombatMissionInfo: () => null,
       emitBattleUpdate: (reason: string) => assert.equal(reason, "missionUpdated")
@@ -399,3 +411,254 @@ registerTest("FSG_CAM_099_DEFENDER_PROGRESS_DOES_NOT_LEAK_INTO_ATTACKER_OR_STAND
     document.body.replaceChildren();
   }
 });
+
+/** Supplies observed unit/turn snapshots, not game orders; the controller and Screen consumers remain real. */
+function citadelPresentationFixture(): {
+  scenario: ScenarioData;
+  engine: MissionPresentationEngine;
+  setSnapshot(turn: number, playerPoints: number[], enemyPoints: number[], allyPoints?: number[]): void;
+} {
+  const scenario = normalizeScenarioSource(
+    JSON.parse(readFileSync("src/data/scenario_citadel_ridge.json", "utf8")) as RawScenarioInput,
+    { turnLimit: 17 }
+  );
+  assert.deepEqual(scenario.objectives.map(({ hex }) => CoordinateSystem.axialToOffset(hex.q, hex.r)), [
+    { col: 16, row: 4 }, { col: 16, row: 8 }, { col: 16, row: 12 }, { col: 20, row: 8 }
+  ], "Use the authored Citadel strongpoints, including their negative axial rows.");
+  let summary: TurnSummary = { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 };
+  let playerUnits: ScenarioUnit[] = [];
+  let botUnits: ScenarioUnit[] = [];
+  let allyUnits: ScenarioUnit[] = [];
+  const engine: MissionPresentationEngine = {
+    getTurnSummary: () => summary,
+    get playerUnits() { return playerUnits; },
+    get botUnits() { return botUnits; },
+    get allyUnits() { return allyUnits; }
+  };
+  return {
+    scenario,
+    engine,
+    setSnapshot(turnNumber, playerPoints, enemyPoints, allyPoints = []) {
+      summary = { phase: "playerTurn", activeFaction: "Player", turnNumber };
+      playerUnits = [objectiveUnit("citadel-player-reserve", { q: 0, r: 0 }),
+        ...playerPoints.map((index) => objectiveUnit(`citadel-player-${index}`, scenario.objectives[index].hex))];
+      botUnits = [objectiveUnit("citadel-enemy-reserve", { q: 23, r: 5 }),
+        ...enemyPoints.map((index) => objectiveUnit(`citadel-enemy-${index}`, scenario.objectives[index].hex))];
+      allyUnits = allyPoints.map((index) => objectiveUnit(`citadel-ally-${index}`, scenario.objectives[index].hex));
+    }
+  };
+}
+
+/** Assert the real card and SVG consume one canonical marker state, without a second occupancy model. */
+function assertCitadelPresentation(
+  view: ReturnType<typeof mountObjectiveScreen>,
+  expected: ReadonlyArray<{ status: "player" | "enemy" | "unoccupied"; tooltip: string }>
+): void {
+  const markers = [...view.svg.querySelectorAll<SVGGElement>(".objective-marker")];
+  assert.equal(markers.length, 4, "All four markers must map from axial keys to their actual offset cells.");
+  assert.equal(view.progress.classList.contains("hidden"), true, "Campaign defender visit history must not leak into Citadel.");
+  expected.forEach(({ status, tooltip }, index) => {
+    const marker = markers[index];
+    const ring = marker.querySelector<SVGCircleElement>('circle[r="8"]');
+    assert.ok(ring);
+    assert.equal(ring.getAttribute("cx"), String(60 + index * 90), "Marker must stay on its canonical objective cell.");
+    assert.equal(ring.getAttribute("cy"), "54");
+    assert.equal(marker.getAttribute("pointer-events"), "none", "Objective graphics must not consume map orders.");
+    assert.equal(marker.querySelector("title")?.textContent, tooltip);
+    assert.equal(ring.getAttribute("stroke"), status === "player" ? "#22c55e" : status === "enemy" ? "#ef4444" : "#f5c46d");
+    assert.equal(marker.classList.contains(status === "player"
+      ? "objective-marker--secured" : status === "enemy" ? "objective-marker--enemy" : "objective-marker--neutral"), true);
+    view.screen.currentObjectiveIndex = index;
+    view.screen.renderMissionStatus();
+    const cardStatus = status === "player" ? "Secured" : status === "enemy" ? "Enemy Held" : "In Progress";
+    assert.equal(view.card.querySelector("#battleObjectiveStatus")?.textContent, cardStatus);
+    assert.equal(view.card.querySelector("#battleObjectiveStatus")?.getAttribute("data-state"), status === "player" ? "completed" : "inProgress");
+    assert.equal(view.card.querySelector("#battleObjectiveIndex")?.textContent, `Tactical Objective ${index + 1} of 4`);
+    assert.ok(view.card.getAttribute("aria-label")?.includes(`Status: ${cardStatus}.`));
+    assert.ok(view.card.title.includes(`Status: ${cardStatus}.`));
+  });
+}
+
+registerTest("BATTLESCREEN_CITADEL_CARD_AND_REAL_SVG_SHARE_CANONICAL_OCCUPANCY", async ({ Given, When, Then }) => {
+  try {
+    const fixture = citadelPresentationFixture();
+    fixture.setSnapshot(3, [0], [1], [2]);
+    const controller = createMissionRulesController("assault_citadel_ridge", fixture.scenario);
+    const view = mountObjectiveScreen(fixture.scenario, () => fixture.engine, controller);
+    await Given("authored Citadel coordinates with Player, Bot, Ally and vacant points", () => {
+      view.screen.evaluateMissionRules();
+      assert.equal(view.screen.missionStatus?.outcome.state, "inProgress");
+    });
+    await Then("the shipped compact card and actual renderer agree for all four objective states", () => {
+      assertCitadelPresentation(view, [
+        { status: "player", tooltip: "North Battery - Friendly-held." },
+        { status: "enemy", tooltip: "Central Citadel - Enemy-held." },
+        { status: "player", tooltip: "South Battery - Friendly-held." },
+        { status: "unoccupied", tooltip: "Command Ridge - Unoccupied." }
+      ]);
+    });
+    await When("the north point is recaptured and the southern ally vacates before the next evaluation", () => {
+      fixture.setSnapshot(4, [], [0, 1]);
+      view.screen.evaluateMissionRules();
+    });
+    await Then("both consumers replace stale ownership without accumulating duplicate markers or campaign history", () => {
+      assertCitadelPresentation(view, [
+        { status: "enemy", tooltip: "North Battery - Enemy-held." },
+        { status: "enemy", tooltip: "Central Citadel - Enemy-held." },
+        { status: "unoccupied", tooltip: "South Battery - Unoccupied." },
+        { status: "unoccupied", tooltip: "Command Ridge - Unoccupied." }
+      ]);
+      const before = structuredClone(view.screen.missionStatus);
+      const serialized = controller.serializeState();
+      view.screen.evaluateMissionRules();
+      view.screen.renderMissionStatus();
+      view.screen.updateObjectiveMarkers();
+      assert.deepEqual(view.screen.missionStatus, before);
+      assert.deepEqual(controller.serializeState(), serialized, "Rendering must not create a marker/phase authority.");
+      assert.equal(view.svg.querySelectorAll(".objective-marker").length, 4);
+    });
+  } finally {
+    document.body.replaceChildren();
+  }
+});
+
+registerTest("BATTLESCREEN_CITADEL_PHASE_ANNOUNCEMENTS_DEDUPE_AND_RESUME_FROM_CANONICAL_STATUS", async ({ Given, When, Then }) => {
+  try {
+    const fixture = citadelPresentationFixture();
+    fixture.setSnapshot(1, [], []);
+    const controller = createMissionRulesController("assault_citadel_ridge", fixture.scenario);
+    const view = mountObjectiveScreen(fixture.scenario, () => fixture.engine, controller);
+    const announcements: string[] = [];
+    const announce = view.screen.announceBattleUpdate.bind(view.screen);
+    view.screen.announceBattleUpdate = (message) => { announcements.push(message); announce(message); };
+    await Given("a normally initialized Citadel controller and the shipped polite live region", () => {
+      view.screen.missionStatus = controller.getStatus();
+      view.screen.lastMissionPhaseId = view.screen.missionStatus.phase?.id ?? null;
+      view.screen.evaluateMissionRules();
+      assert.equal(view.screen.missionStatus?.phase?.id, "phase1_probe");
+      assert.deepEqual(announcements, [], "An unchanged opening phase is not a new transition.");
+    });
+    await When("turn five begins and one then two strongpoints are observed friendly-held", () => {
+      fixture.setSnapshot(5, [], []);
+      view.screen.evaluateMissionRules();
+      const secondPhase = view.screen.missionStatus?.phase;
+      assert.equal(secondPhase?.id, "phase2_commitment");
+      assert.deepEqual(announcements, [secondPhase?.announcement]);
+      view.screen.evaluateMissionRules();
+      fixture.setSnapshot(5, [0], []);
+      view.screen.evaluateMissionRules();
+      assert.equal(announcements.length, 1, "Repeated reads and changed detail within a phase must not reannounce it.");
+      fixture.setSnapshot(5, [0, 1], []);
+      view.screen.evaluateMissionRules();
+      const thirdPhase = view.screen.missionStatus?.phase;
+      assert.equal(thirdPhase?.id, "phase3_escalation");
+      assert.deepEqual(announcements, [secondPhase?.announcement, thirdPhase?.announcement]);
+      assert.equal(view.screen.element.querySelector("#battleAnnouncements")?.textContent, thirdPhase?.announcement);
+      assert.equal(view.screen.element.querySelector("#battleAnnouncements")?.getAttribute("aria-live"), "polite");
+      view.screen.evaluateMissionRules();
+      assert.equal(announcements.length, 2);
+    });
+    await Then("the existing resume ordering derives phase from the restored snapshot without replaying a transition", () => {
+      const before = structuredClone(view.screen.missionStatus);
+      const saved = JSON.parse(JSON.stringify(controller.serializeState()));
+      const restored = createMissionRulesController("assault_citadel_ridge", fixture.scenario);
+      restored.hydrateState(saved);
+      const resumed = mountObjectiveScreen(fixture.scenario, () => fixture.engine, restored);
+      // Mirror the production resume ordering: hydrate, recompute from engine, adopt phase ID, then render.
+      resumed.screen.missionStatus = resumed.screen.calculateMissionStatusFromEngine();
+      resumed.screen.lastMissionPhaseId = resumed.screen.missionStatus?.phase?.id ?? null;
+      assert.deepEqual(resumed.screen.missionStatus, before);
+      const resumedAnnouncements: string[] = [];
+      const resumedAnnounce = resumed.screen.announceBattleUpdate.bind(resumed.screen);
+      resumed.screen.announceBattleUpdate = (message) => { resumedAnnouncements.push(message); resumedAnnounce(message); };
+      resumed.screen.renderMissionStatus();
+      resumed.screen.updateObjectiveMarkers();
+      resumed.screen.evaluateMissionRules();
+      assert.deepEqual(resumedAnnouncements, []);
+      assert.deepEqual(restored.serializeState(), saved);
+      assert.deepEqual(resumed.screen.missionStatus, before);
+      assertCitadelPresentation(resumed, [
+        { status: "player", tooltip: "North Battery - Friendly-held." },
+        { status: "player", tooltip: "Central Citadel - Friendly-held." },
+        { status: "unoccupied", tooltip: "South Battery - Unoccupied." },
+        { status: "unoccupied", tooltip: "Command Ridge - Unoccupied." }
+      ]);
+    });
+  } finally {
+    document.body.replaceChildren();
+  }
+});
+
+registerTest("BATTLESCREEN_CITADEL_ACCEPTED_ACTION_HOOK_REFRESHES_REAL_MISSION_PRESENTATION", async ({ Given, When, Then }) => {
+  try {
+    const fixture = citadelPresentationFixture();
+    fixture.setSnapshot(2, [], [1]);
+    const controller = createMissionRulesController("assault_citadel_ridge", fixture.scenario);
+    const view = mountObjectiveScreen(fixture.scenario, () => fixture.engine, controller);
+    view.screen.uiState = { selectedMission: "assault_citadel_ridge" };
+    await Given("Citadel is initialized before an accepted action with no friendly strongpoint held", () => {
+      view.screen.evaluateMissionRules();
+      assert.equal(view.screen.missionStatus?.phase?.id, "phase1_probe");
+      assert.equal(view.screen.missionStatus?.markers?.[0].status, "unoccupied");
+    });
+    await When("the existing post-action hook observes a player capture during the same turn", () => {
+      fixture.setSnapshot(2, [0], [1]);
+      view.screen.refreshCampaignMissionStatusAfterTacticalAction();
+    });
+    await Then("the real controller, compact card and renderer refresh immediately without a turn-boundary event", () => {
+      assert.equal(view.screen.missionStatus?.turn, 2);
+      assert.equal(view.screen.missionStatus?.phase?.id, "phase2_commitment");
+      assert.match(view.screen.missionStatus?.objectives[0].detail ?? "", /Captured: 1\/4/);
+      assertCitadelPresentation(view, [
+        { status: "player", tooltip: "North Battery - Friendly-held." },
+        { status: "enemy", tooltip: "Central Citadel - Enemy-held." },
+        { status: "unoccupied", tooltip: "South Battery - Unoccupied." },
+        { status: "unoccupied", tooltip: "Command Ridge - Unoccupied." }
+      ]);
+    });
+    await When("another completed action reports enemy recapture and then a vacancy, still in turn two", () => {
+      fixture.setSnapshot(2, [], [0, 1]);
+      view.screen.refreshCampaignMissionStatusAfterTacticalAction();
+      assert.equal(view.screen.missionStatus?.phase?.id, "phase1_probe");
+      assertCitadelPresentation(view, [
+        { status: "enemy", tooltip: "North Battery - Enemy-held." },
+        { status: "enemy", tooltip: "Central Citadel - Enemy-held." },
+        { status: "unoccupied", tooltip: "South Battery - Unoccupied." },
+        { status: "unoccupied", tooltip: "Command Ridge - Unoccupied." }
+      ]);
+      fixture.setSnapshot(2, [], [1]);
+      view.screen.refreshCampaignMissionStatusAfterTacticalAction();
+    });
+    await Then("vacant control replaces the old capture and repeated hooks do not create progression or duplicate markers", () => {
+      assertCitadelPresentation(view, [
+        { status: "unoccupied", tooltip: "North Battery - Unoccupied." },
+        { status: "enemy", tooltip: "Central Citadel - Enemy-held." },
+        { status: "unoccupied", tooltip: "South Battery - Unoccupied." },
+        { status: "unoccupied", tooltip: "Command Ridge - Unoccupied." }
+      ]);
+      const before = structuredClone(view.screen.missionStatus);
+      const saved = controller.serializeState();
+      view.screen.refreshCampaignMissionStatusAfterTacticalAction();
+      assert.deepEqual(view.screen.missionStatus, before);
+      assert.deepEqual(controller.serializeState(), saved);
+      assert.equal(view.screen.missionStatus?.turn, 2);
+      assert.equal(view.screen.missionStatus?.outcome.state, "inProgress");
+      assert.equal(view.svg.querySelectorAll(".objective-marker").length, 4);
+    });
+  } finally {
+    document.body.replaceChildren();
+  }
+});
+
+for (const missionKey of ["training", "patrol_river_watch", "patrol_pointe_du_hoc"] as const) {
+  registerTest(`BATTLESCREEN_CITADEL_POST_ACTION_SCOPE_PRESERVES_${missionKey.toUpperCase()}`, () => {
+    const screen = Object.create(BattleScreen.prototype) as ObjectiveScreenProbe;
+    let evaluations = 0;
+    Object.assign(screen, {
+      uiState: { selectedMission: missionKey },
+      evaluateMissionRules: () => { evaluations += 1; }
+    });
+    screen.refreshCampaignMissionStatusAfterTacticalAction();
+    assert.equal(evaluations, 0, "The Citadel repair must not broaden action evaluation into tutorial or hold-clock missions.");
+  });
+}

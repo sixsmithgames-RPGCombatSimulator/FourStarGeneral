@@ -1564,14 +1564,14 @@ export class BattleScreen {
   }
 
   private async triggerSupportImpacts(): Promise<void> {
-    console.log("[BattleScreen] triggerSupportImpacts called");
     const impacts = this.battleState.consumeBattleSupportImpacts();
-    console.log("[BattleScreen] consumeSupportImpactEvents returned", impacts.length, "impact(s):", impacts);
     if (impacts.length === 0) {
-      console.log("[BattleScreen] No support impacts to trigger, returning early");
       return;
     }
     await this.playSupportImpacts(impacts);
+    if (this.isInitiativeSystemEnabled && this.uiState?.selectedMission === "assault_citadel_ridge") {
+      this.refreshCampaignMissionStatusAfterTacticalAction();
+    }
   }
 
   private async playSupportImpacts(impacts: readonly SupportImpactEvent[]): Promise<void> {
@@ -12200,7 +12200,7 @@ export class BattleScreen {
   }
 
   private refreshCampaignMissionStatusAfterTacticalAction(): void {
-    if (this.uiState?.selectedMission !== "campaign") {
+    if (this.uiState?.selectedMission !== "campaign" && this.uiState?.selectedMission !== "assault_citadel_ridge") {
       return;
     }
     this.evaluateMissionRules();
