@@ -2,7 +2,7 @@
   "version": 1,
   "lineBudgets": {
     "src/game/GameEngine.ts": 17818,
-    "src/rendering/HexMapRenderer.ts": 6466,
+    "src/rendering/HexMapRenderer.ts": 6462,
     "src/rendering/HexMapLayout.ts": 77,
     "src/rendering/PrecombatMiniMapRenderer.ts": 94,
     "src/rendering/TerrainFillPalette.ts": 50,

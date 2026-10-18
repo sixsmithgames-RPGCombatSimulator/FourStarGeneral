@@ -31,6 +31,7 @@ async function captureTutorialScreenshot(page: Page, path: string, guidedHex = f
   await expectTutorialPanelToFit(page);
   if (guidedHex) await expectGuidedPolygonVisible(page);
   await page.screenshot({ path });
+  if (path.endsWith("fire-order.png")) await page.locator("#battleScreen .map-viewport").screenshot({ path: path.replace(/\.png$/, "-map.png") });
 }
 
 async function waitForTutorialPhase(page: Page, phase: string, timeout = 12_000): Promise<void> {
@@ -197,9 +198,10 @@ async function expectBattleTopRailToFit(page: Page): Promise<void> {
   }
 }
 
-/** Inspect the painted tile, not just the renderer's class on the enclosing group. */
+/** Inspect the topmost painted outline, not the terrain stroke underneath it. */
 async function expectReducedMotionTargetColor(hex: Locator, stroke: string): Promise<void> {
-  const tile = hex.locator('.hex-tile').first();
+  const key: string = await hex.getAttribute('data-hex') ?? '';
+  const tile: Locator = hex.page().locator(`.hex-outline-cell[data-outline-hex="${key}"] .hex-outline-core`);
   await expect(tile).toHaveCSS('animation-name', 'none');
   await expect(tile, 'Target color must match the tutorial instruction without animation').toHaveCSS('stroke', stroke);
 }
@@ -454,7 +456,7 @@ async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promi
 
   const baseCampHex = page.locator('#battleMapCanvas [data-hex="5,5"]');
   await expect(baseCampHex).toHaveClass(/deployment-zone/);
-  await expectReducedMotionTargetColor(baseCampHex, 'rgba(246, 207, 122, 0.96)');
+  await expectReducedMotionTargetColor(baseCampHex, 'rgb(246, 207, 122)');
   await baseCampHex.click();
   await expect(page.locator("#assignBaseCamp")).toBeEnabled();
   await page.locator("#assignBaseCamp").click();
@@ -497,7 +499,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
     await expect(tutorialPanel(page)).toContainText("Recon moves quickly");
     await expect(tutorialPanel(page)).toContainText("lightly armed");
     await expect(page.locator("#battleMapCanvas .hex-cell.move-option-highlight")).not.toHaveCount(0);
-    await expectReducedMotionTargetColor(page.locator("#battleMapCanvas .hex-cell.move-option-highlight").first(), 'rgb(95, 166, 91)');
+    await expectReducedMotionTargetColor(page.locator("#battleMapCanvas .hex-cell.move-option-highlight").first(), 'rgb(155, 214, 168)');
     await expectBattleTopRailToFit(page);
     const movementScreenshotName = reconLessonIndex === 0
       ? "20-movement.png"
@@ -544,7 +546,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   const artilleryTargets = page.locator("#battleMapCanvas .hex-cell.deployment-zone:not(.is-selected)");
   const artilleryTargetCount = await artilleryTargets.count();
   expect(artilleryTargetCount, "Call Artillery must expose an observed enemy target.").toBeGreaterThan(0);
-  await expectReducedMotionTargetColor(artilleryTargets.first(), 'rgba(246, 207, 122, 0.96)');
+  await expectReducedMotionTargetColor(artilleryTargets.first(), 'rgb(246, 207, 122)');
   await page.waitForTimeout(550);
   await artilleryTargets.nth(0).click();
 
@@ -555,7 +557,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   const attackTargets = page.locator("#battleMapCanvas .hex-cell.attack-target-highlight");
   const attackTargetCount = await attackTargets.count();
   expect(attackTargetCount, "Fire Orders must expose at least one legal enemy target.").toBeGreaterThan(0);
-  await expectReducedMotionTargetColor(attackTargets.first(), 'rgb(255, 68, 68)');
+  await expectReducedMotionTargetColor(attackTargets.first(), 'rgb(255, 107, 102)');
   await page.waitForTimeout(550);
   await attackTargets.nth(0).click();
   await expect(page.locator("#battleAttackConfirm:not(.hidden)")).toBeVisible();
@@ -572,7 +574,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]').click();
   const smokeTarget = page.locator("#battleMapCanvas .hex-cell.deployment-zone").first();
   await expect(smokeTarget).toBeVisible();
-  await expectReducedMotionTargetColor(smokeTarget, 'rgba(246, 207, 122, 0.96)');
+  await expectReducedMotionTargetColor(smokeTarget, 'rgb(246, 207, 122)');
   await smokeTarget.click();
   await clickFirstAvailableEdge(page);
   await waitForTutorialPhase(page, "complete");

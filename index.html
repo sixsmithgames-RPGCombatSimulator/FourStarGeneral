@@ -7890,6 +7890,75 @@
       filter: none;
     }
 
+    /* Tactical ink sits above terrain; its inset leaves neighboring states distinct. */
+    #viewportRoot:has(> .hex-outline-layer) > .hex-cell .hex-tile {
+      stroke: rgba(19, 29, 24, 0.72);
+      stroke-width: 0.75px;
+      stroke-dasharray: none;
+      stroke-opacity: 1;
+      vector-effect: non-scaling-stroke;
+      animation: none !important;
+      filter: none;
+    }
+    .hex-outline-layer,
+    .hex-outline-layer * {
+      pointer-events: none;
+    }
+    .hex-outline-cell {
+      display: none;
+      --hex-outline-color: #9bd6a8;
+      --hex-outline-width: 1.2px;
+      --hex-outline-dash: none;
+    }
+    .hex-outline-cell:is(.deployment-zone, .idle-unit-highlight, .initiative-group-highlight, .move-option-highlight, .attack-target-highlight, .is-selected) {
+      display: inline;
+    }
+    .hex-outline-casing,
+    .hex-outline-core {
+      fill: none;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+    }
+    .hex-outline-casing {
+      stroke: rgba(7, 14, 12, 0.65);
+      stroke-width: calc(var(--hex-outline-width) + 1px);
+    }
+    .hex-outline-core {
+      stroke: var(--hex-outline-color);
+      stroke-width: var(--hex-outline-width);
+      stroke-dasharray: var(--hex-outline-dash);
+    }
+    .hex-outline-cell.idle-unit-highlight {
+      --hex-outline-color: #75b9f2;
+      --hex-outline-width: 1.35px;
+    }
+    .hex-outline-cell.initiative-group-highlight {
+      --hex-outline-color: #dec07b;
+      --hex-outline-width: 1.5px;
+      --hex-outline-dash: 6 4;
+    }
+    .hex-outline-cell.move-option-highlight {
+      --hex-outline-color: #9bd6a8;
+      --hex-outline-width: 1.2px;
+      --hex-outline-dash: 8 5;
+    }
+    .hex-outline-cell.attack-target-highlight {
+      --hex-outline-color: #ff6b66;
+      --hex-outline-width: 1.65px;
+      --hex-outline-dash: none;
+    }
+    .hex-outline-cell.deployment-zone {
+      --hex-outline-color: #f6cf7a;
+      --hex-outline-width: 1.5px;
+      --hex-outline-dash: 10 6;
+    }
+    .hex-outline-cell.is-selected {
+      --hex-outline-color: #f3cf77;
+      --hex-outline-width: 1.8px;
+      --hex-outline-dash: none;
+    }
+
     .unit-icon {
       filter: none;
       image-rendering: auto;
@@ -8295,6 +8364,12 @@
       border-radius: 12px;
       /* Ensure highlighted elements can receive clicks through the overlay */
       pointer-events: auto !important;
+    }
+    /* A tutorial highlight must not turn floating intel or its corner controls into grid rows. */
+    .battle-intel-overlay.tutorial-highlight,
+    .battle-intel-overlay__toggle.tutorial-highlight,
+    .battle-intel-overlay__dismiss.tutorial-highlight {
+      position: absolute;
     }
 
     @keyframes tutorialHighlightPulse {

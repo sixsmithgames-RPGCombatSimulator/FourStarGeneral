@@ -7,6 +7,7 @@ import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
 import { RiverOverlayRenderer } from "./RiverOverlayRenderer";
 import { buildFringeHexMarkup, buildHexTileMarkup, type HexMapMarkupServices } from "./HexMapMarkupBuilder";
+import { buildHexOutlineLayerMarkup } from "./HexOutlinePresentation";
 import { buildHexMapLayout } from "./HexMapLayout";
 import { parseViewportTransform, type ViewportTransformMatrix } from "./ViewportTransform";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
@@ -276,6 +277,7 @@ export class HexMapRenderer implements IMapRenderer {
   private static readonly AIRCRAFT_BOMBER_SPACING_MULTIPLIER = 1.5;
   private hexElementMap = new Map<string, SVGGElement>();
   private hexPolygonMap = new Map<string, SVGPolygonElement>();
+  private readonly hexOutlineMap: Map<string, SVGGElement> = new Map();
   private hexLabelMap = new Map<string, SVGTextElement>();
   private hexUnitImageMap = new Map<string, SVGGElement>();
   private readonly hexUnitFacingAngleMap = new Map<string, number>();
@@ -1367,7 +1369,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     // Clear old hex content but preserve effects layer
     effectsLayer.remove();
-    viewportRoot.innerHTML = hexMarkup;
+    viewportRoot.innerHTML = hexMarkup + buildHexOutlineLayerMarkup(hexes, minX, minY, margin);
     viewportRoot.appendChild(effectsLayer);
 
     this.viewportRoot = viewportRoot;
@@ -1791,6 +1793,11 @@ export class HexMapRenderer implements IMapRenderer {
 
     this.hexElementMap.clear();
     this.hexPolygonMap.clear();
+    this.hexOutlineMap.clear();
+    this.viewportRoot?.querySelectorAll<SVGGElement>(".hex-outline-cell").forEach((outline: SVGGElement): void => {
+      const key: string | undefined = outline.dataset.outlineHex;
+      if (key) this.hexOutlineMap.set(key, outline);
+    });
     this.hexLabelMap.clear();
     this.hexUnitImageMap.clear();
     this.hexModificationOverlayMap.clear();
@@ -1820,6 +1827,8 @@ export class HexMapRenderer implements IMapRenderer {
         this.hexUnitImageMap.set(hexKey, unitGroup);
       }
     });
+    this.idleUnitHighlightKeys.forEach((key: string): void => this.toggleHexHighlightClass(key, IDLE_UNIT_HIGHLIGHT_CLASS, true));
+    this.initiativeGroupHighlightKeys.forEach((key: string): void => this.toggleHexHighlightClass(key, INITIATIVE_GROUP_HIGHLIGHT_CLASS, true));
   }
 
   private positionUnitStack(group: SVGGElement, cx: number, cy: number): void {
@@ -2369,15 +2378,7 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private toggleHexSelectionClass(hexKey: string, enabled: boolean): void {
-    const group = this.hexElementMap.get(hexKey);
-    const polygon = this.hexPolygonMap.get(hexKey);
-    if (enabled) {
-      group?.classList.add("is-selected");
-      polygon?.classList.add("is-selected");
-    } else {
-      group?.classList.remove("is-selected");
-      polygon?.classList.remove("is-selected");
-    }
+    this.toggleHexHighlightClass(hexKey, "is-selected", enabled);
   }
 
   /**
@@ -2645,13 +2646,8 @@ export class HexMapRenderer implements IMapRenderer {
   private toggleHexHighlightClass(hexKey: string, className: string, enabled: boolean): void {
     const group = this.hexElementMap.get(hexKey);
     const polygon = this.hexPolygonMap.get(hexKey);
-    if (enabled) {
-      group?.classList.add(className);
-      polygon?.classList.add(className);
-    } else {
-      group?.classList.remove(className);
-      polygon?.classList.remove(className);
-    }
+    const outline: SVGGElement | undefined = this.hexOutlineMap.get(hexKey);
+    for (const element of [group, polygon, outline]) element?.classList.toggle(className, enabled);
   }
 
   /**
