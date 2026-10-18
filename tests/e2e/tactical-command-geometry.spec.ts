@@ -679,7 +679,10 @@ for (const viewport of [
             await saveIntelEvidence(page, info, 'selected-expanded');
             await expectInitialIntel(page, defense ? defenderTitle : selectedIntel.unitLabel!);
           }
-          expect((await bounds(body)).height, 'Intel retains room for readable stats').toBeGreaterThanOrEqual(viewport.height <= 480 ? 96 : 48);
+          expect((await bounds(body)).height, 'Intel retains room for readable stats').toBeGreaterThanOrEqual(expanded && viewport.height <= 480 ? 96 : 48);
+          if (!expanded && viewport.width > 980) {
+            expect((await bounds(overlay)).height, 'Compact intel leaves the battlefield visible').toBeLessThanOrEqual(defense ? 185 : 160);
+          }
           await expect(overlay.locator('.battle-intel-overlay__stat-value')).toHaveText(['100%', '6', '—', '0/2', '4/4', '1-4', 'NW']);
           for (const text of await overlay.locator('.battle-intel-overlay__stat-label, .battle-intel-overlay__stat-value').all()) {
             await expectReadable(text, [text.locator('..'), body, overlay, map, pane]);

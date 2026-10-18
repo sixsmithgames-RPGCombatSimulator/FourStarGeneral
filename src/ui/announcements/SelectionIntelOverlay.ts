@@ -226,6 +226,7 @@ export class SelectionIntelOverlay {
       // this persistent overlay node, which makes assistive output identify a different formation
       // from the title the player can see.
       this.titleElement.setAttribute("aria-label", title);
+      this.titleElement.title = title;
     }
     if (this.metaElement) {
       this.metaElement.textContent = summary;
@@ -260,6 +261,8 @@ export class SelectionIntelOverlay {
     if (this.toggleButton && !this.toggleButton.hidden) {
       this.toggleButton.setAttribute("aria-expanded", this.collapsed ? "false" : "true");
       this.toggleButton.textContent = this.collapsed ? "Expand" : "Compact";
+      this.toggleButton.setAttribute("aria-label", this.collapsed ? "Expand unit intel" : "Compact unit intel");
+      this.toggleButton.title = this.collapsed ? "Expand unit intel" : "Compact unit intel";
     }
     window.requestAnimationFrame(() => this.clampWithinViewport());
   }
@@ -439,8 +442,14 @@ export class SelectionIntelOverlay {
   }
 
   private renderBattleMarkup(intel: BattleSelectionIntel): string {
-    const statCards = [
-      { label: "Strength", value: intel.unitStrength !== null ? `${Math.round(intel.unitStrength)}%` : "—" },
+    const statCards: Array<{ label: string; value: string; fill?: number; tone?: string }> = [
+      {
+        label: "Strength",
+        value: intel.unitStrength !== null ? `${Math.round(intel.unitStrength)}%` : "—",
+        fill: intel.unitStrength !== null ? Math.min(100, Math.max(0, intel.unitStrength)) : undefined,
+        tone: intel.unitStrength !== null && intel.unitStrength <= 40 ? "danger"
+          : intel.unitStrength !== null && intel.unitStrength <= 70 ? "warning" : "good"
+      },
       { label: "Ammo", value: this.formatResourceValue(intel.unitAmmo) },
       { label: "Fuel", value: this.formatResourceValue(intel.unitFuel) },
       {
@@ -473,7 +482,7 @@ export class SelectionIntelOverlay {
       ${unitTabMarkup}
       <div class="battle-intel-overlay__stats" ${statsStyle}>
         ${statCards.map((stat) => `
-          <article class="battle-intel-overlay__stat">
+          <article class="battle-intel-overlay__stat" data-stat="${stat.label.toLowerCase()}"${stat.tone ? ` data-tone="${stat.tone}"` : ""}${stat.fill !== undefined ? ` style="--intel-stat-fill:${stat.fill}%"` : ""}>
             <span class="battle-intel-overlay__stat-label">${this.escapeHtml(stat.label)}</span>
             <strong class="battle-intel-overlay__stat-value">${this.escapeHtml(stat.value)}</strong>
           </article>
