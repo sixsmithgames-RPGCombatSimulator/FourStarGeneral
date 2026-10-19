@@ -7924,6 +7924,10 @@
       stroke: rgba(7, 14, 12, 0.65);
       stroke-width: calc(var(--hex-outline-width) + 1px);
     }
+    /* Movement uses clean mint dashes without a continuous dark perimeter. */
+    .hex-outline-cell.move-option-highlight:not(.attack-target-highlight, .deployment-zone, .is-selected) .hex-outline-casing {
+      stroke: none;
+    }
     .hex-outline-core {
       stroke: var(--hex-outline-color);
       stroke-width: var(--hex-outline-width);

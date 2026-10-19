@@ -38,3 +38,42 @@ The user requested thinner borders before deployment. Reduce every tactical colo
 The lighter revision passed the existing 24-case Chromium/Firefox/WebKit paint and interaction matrix and the production build. Visually inspected the thinner borders at normal zoom. The full 1,260-test harness and three complete training journeys above certify the unchanged renderer and behavior. The user explicitly authorized production deployment of this lighter version. Authenticated release preflight confirmed the existing Four Star General project, team, production domain, and Git-connected main branch at 37187e9; no other deployment was in progress. Release only the scoped source/test/report files and verify served-build parity after release.
 
 Final styling lint passed with zero permitted warnings: `npm run lint -- --max-warnings 0 --ignore-pattern '.codex-*/**' --ignore-pattern 'diagnostics/**' --ignore-pattern 'tmp/**'`. This includes project source and tests while excluding old scratch copies and generated evidence. The first simultaneous lint attempt hit a transient directory removal while Playwright recreated its evidence folder; a subsequent unfiltered traversal was stopped after spending several minutes scanning scratch files. No lint configuration or product source was changed to resolve that scan.
+
+## Production release receipt
+
+- URL: https://fsg.sixsmithgames.com/play
+- Target/status: production, READY.
+- Commit: 7fd00d9b56205572a496401cb3789f8261b1f316.
+- Deployment: dpl_67CUSnZpwoZzPokCBAS9jZBRCFd6, Git-connected main release.
+- Framework/build duration: Vite, 54.118 seconds.
+- Ready: 2026-10-18T19:20:44.486Z.
+- Served-build verification: 9/9 public artifacts matched the locally tested build, normalizing only HTML CRLF differences.
+- Live browser smoke: HTTP 200, game landing screen visible, no page errors. Computed served CSS confirmed movement 1.2px, attack 1.65px, selection 1.8px and casing opacity 0.65.
+- Error scan: no error/fatal runtime records in the immediate post-release window. This is a brief observation, not ongoing monitoring.
+- Drains: unverified; the earlier project-scoped inspection returned 404. Ongoing monitoring was not established by this task.
+- Evidence: `diagnostics/hex-outlines-release-20261018/` contains deployment metadata, served-artifact hashes, browser measurements, and a live startup screenshot.
+
+This post-release receipt is a local documentation update; product source and tests are committed in the released SHA above.
+
+## Live zoom and distinction check — October 18, 2026
+
+Intent/scope: inspect the released thinner outlines in a real live battlefield through normal player controls. No product source, deployment, engine state injection, stylesheet injection, or saved campaign edits.
+
+Used the live guest Training Exercise in the in-app Chromium browser at 1280 × 720. Applied the built-in force preset, assigned the base camp, deployed evenly, and began the mission. Dismissed the intel card and collapsed the activity log for an unobstructed map. Used wheel zoom and Next Formation rather than camera or highlight mutations.
+
+- Visually inspected camera scales 0.64, 1.18, 1.90, and 3.34, with selected hex widths approximately 12, 22, 35, and 61 screen pixels.
+- Movement remained dashed mint (1.2px); eligible attacks remained solid coral red (1.65px); selection remained solid gold (1.8px). The distinct patterns and line weights persisted at every zoom.
+- The initial live selection displayed 66 movement outlines, 6 attack outlines, and one selected outline. Next Formation transferred selection from 9,8 to 8,6 and refreshed options to 36 movement outlines and 2 attack outlines, retaining exactly one gold selection.
+- At tactical and close scales, the three states were clearly distinguishable over the visible plains and hills. At the far overview, color distinctions remained visible; individual units and the movement dash pattern became harder to inspect because hexes were approximately 12px wide. This is a minor overview readability limitation, not a missing or merged outline.
+- No browser console errors were captured. Two DeploymentState normalization warnings occurred during the ordinary deployment sequence; no associated visible failure was observed.
+- Evidence: `diagnostics/live-hex-outline-zoom-20261018/` contains six live screenshots and `checks.json` with DOM paint measurements, camera transforms, counts, and captured warnings. `close.png` shows all three states together without covering overlays.
+
+Assessment: thinner outlines pass this focused live desktop visual check. No styling correction required by the observed normal/close views. This was not a mobile, color-vision, cross-browser, or full tutorial certification. No build or lint rerun was necessary because product source was unchanged.
+
+## Clean movement dashes revision
+
+Intent: remove the continuous dark backing behind the mint movement dashes at the user's request. Scope: one CSS override in `index.html` suppresses the casing stroke while a hex is presented as a movement option. Its exclusions retain existing precedence when attack, deployment/order targeting, or selection owns the outline. Mint color, 1.2px width, 8/5 dash pattern, base grid, hit targets, camera, and all game rules remain unchanged. No renderer, event, state, or engine changes.
+
+Verification: production build and architecture gates passed; project lint passed with zero permitted warnings (the same scratch/evidence exclusions documented above); all 6 existing outline browser cases passed across Chromium, Firefox, and WebKit, covering both motion settings, state precedence, click-through, clearing, and 0.55/1/1.7 zoom. Visually inspected the resulting green dashes on real grass terrain beside forest attack targets. Evidence: `diagnostics/hex-outlines-clean-move/`. This low-impact CSS revision did not require another full engine or tutorial run.
+
+Release preflight reconfirmed the existing project/team/domain and production main at 7fd00d9, with no competing deployment. Continue the authorized outline release workflow for this small visual revision. No additional behavior or deployment configuration changes.
